@@ -1,0 +1,7 @@
+[package]
+name = "iyon-api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+iyon-core = { path = "../iyon-core" }
