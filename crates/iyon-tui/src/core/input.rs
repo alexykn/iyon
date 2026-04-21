@@ -57,6 +57,7 @@ fn map_key_event(key_event: KeyEvent) -> CustomKeyEvent {
         }
         (Char('h'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::DeleteChar,
         (Char('u'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::DeleteLine,
+        (Char('\u{0003}'), _) => CustomKeyEvent::CtrlC,
         (Char('c'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::CtrlC,
         (Char('y'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::Restore,
 
@@ -131,7 +132,7 @@ impl InputEventHandler {
                     return;
                 }
                 let item = timeline_item_from_input(app_state.input.text());
-                app_state.chat.push_item(item);
+                app_state.append_timeline_item(item);
                 app_state.input.clear();
             }
             CustomKeyEvent::CtrlC => {
@@ -139,7 +140,7 @@ impl InputEventHandler {
                     app_state.input.clear();
                     return;
                 }
-                app_state.exit = true;
+                app_state.request_exit();
             }
             CustomKeyEvent::InsertChar { char } => app_state.input.insert_char(char),
             CustomKeyEvent::InsertText { text } => {
