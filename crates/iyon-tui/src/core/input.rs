@@ -1,0 +1,510 @@
+use std::time::Duration;
+
+use anyhow::Result;
+use crossterm::event::{self, Event, KeyCode::*, KeyEvent, KeyEventKind::*, KeyModifiers};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+
+use crate::{
+    core::state::AppState,
+    util::{
+        format::timeline_item_from_input,
+        wrapping::{compute_wrapped_ranges, cursor_for_display_col, wrapped_line_index_by_start},
+    },
+};
+
+const WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
+
+#[derive(Debug)]
+enum CustomKeyEvent {
+    None,
+    Send,
+    CtrlC,
+    InsertText { text: String },
+    InsertChar { char: char },
+    InsertNewline,
+    DeleteChar,
+    DeleteWord,
+    DeleteLine,
+    Restore,
+    MoveRightOne,
+    MoveRightWord,
+    MoveLineEnd,
+    MoveUpOne,
+    MoveDownOne,
+    MoveLeftOne,
+    MoveLeftWord,
+    MoveLineStart,
+}
+
+fn map_key_event(key_event: KeyEvent) -> CustomKeyEvent {
+    let code = key_event.code;
+    let mods = key_event.modifiers;
+    match (code, mods) {
+        (Char('\u{0002}'), KeyModifiers::NONE) => CustomKeyEvent::MoveLeftOne,
+        (Char('\u{0006}'), KeyModifiers::NONE) => CustomKeyEvent::MoveRightOne,
+        (Char('\u{0010}'), KeyModifiers::NONE) => CustomKeyEvent::MoveUpOne,
+        (Char('\u{000e}'), KeyModifiers::NONE) => CustomKeyEvent::MoveDownOne,
+
+        (Enter, m) if !m.contains(KeyModifiers::SHIFT) => CustomKeyEvent::Send,
+
+        (Enter, m) if m == KeyModifiers::SHIFT => CustomKeyEvent::InsertNewline,
+        (Char('j' | 'm'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::InsertNewline,
+
+        (Backspace, KeyModifiers::NONE) => CustomKeyEvent::DeleteChar,
+        (Backspace, m) if m == KeyModifiers::CONTROL || m == KeyModifiers::ALT => {
+            CustomKeyEvent::DeleteWord
+        }
+        (Char('h'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::DeleteChar,
+        (Char('u'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::DeleteLine,
+        (Char('c'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::CtrlC,
+        (Char('y'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::Restore,
+
+        (Right, KeyModifiers::NONE) => CustomKeyEvent::MoveRightOne,
+        (Right, m) if m == KeyModifiers::CONTROL || m == KeyModifiers::ALT => {
+            CustomKeyEvent::MoveRightWord
+        }
+        (Char('f'), m) if m == KeyModifiers::ALT => CustomKeyEvent::MoveRightWord,
+        (End, KeyModifiers::NONE) => CustomKeyEvent::MoveLineEnd,
+        (Char('e'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::MoveLineEnd,
+        (Up, KeyModifiers::NONE) => CustomKeyEvent::MoveUpOne,
+        (Char('p'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::MoveUpOne,
+        (Down, KeyModifiers::NONE) => CustomKeyEvent::MoveDownOne,
+        (Char('n'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::MoveDownOne,
+        (Left, KeyModifiers::NONE) => CustomKeyEvent::MoveLeftOne,
+        (Left, m) if m == KeyModifiers::CONTROL || m == KeyModifiers::ALT => {
+            CustomKeyEvent::MoveLeftWord
+        }
+        (Char('b'), m) if m == KeyModifiers::ALT => CustomKeyEvent::MoveLeftWord,
+        (Home, KeyModifiers::NONE) => CustomKeyEvent::MoveLineStart,
+        (Char('a'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::MoveLineStart,
+
+        (Char(c), m) => {
+            let is_altgr = m.contains(KeyModifiers::CONTROL) && m.contains(KeyModifiers::ALT);
+            let is_pure_ctrl = m.contains(KeyModifiers::CONTROL) && !is_altgr;
+            let is_super_or_meta =
+                m.contains(KeyModifiers::SUPER) || m.contains(KeyModifiers::META);
+
+            if is_pure_ctrl || is_super_or_meta {
+                CustomKeyEvent::None
+            } else {
+                CustomKeyEvent::InsertChar { char: c }
+            }
+        }
+        _ => CustomKeyEvent::None,
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct InputEventHandler;
+
+impl InputEventHandler {
+    pub(crate) fn run(&mut self, app_state: &mut AppState) -> Result<()> {
+        self.handle_event(event::read()?, app_state);
+
+        while event::poll(Duration::from_millis(0))? {
+            self.handle_event(event::read()?, app_state);
+        }
+        Ok(())
+    }
+
+    fn handle_event(&mut self, event: Event, app_state: &mut AppState) {
+        match event {
+            Event::Key(key_event) => {
+                if !matches!(key_event.kind, Press | Repeat) {
+                    return;
+                }
+                let custom_key_event = map_key_event(key_event);
+                self.handle_key_event(custom_key_event, app_state);
+            }
+            Event::Paste(text) => {
+                self.handle_key_event(CustomKeyEvent::InsertText { text }, app_state);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_key_event(&mut self, custom_key_event: CustomKeyEvent, app_state: &mut AppState) {
+        match custom_key_event {
+            CustomKeyEvent::Send => {
+                if app_state.input.text().is_empty() {
+                    return;
+                }
+                let item = timeline_item_from_input(app_state.input.text());
+                app_state.chat.push_item(item);
+                app_state.input.clear();
+            }
+            CustomKeyEvent::CtrlC => {
+                if !app_state.input.text().is_empty() {
+                    app_state.input.clear();
+                    return;
+                }
+                app_state.exit = true;
+            }
+            CustomKeyEvent::InsertChar { char } => app_state.input.insert_char(char),
+            CustomKeyEvent::InsertText { text } => {
+                app_state.input.insert_str(&text.replace('\t', "    "));
+            }
+            CustomKeyEvent::InsertNewline => app_state.input.insert_char('\n'),
+            CustomKeyEvent::DeleteChar => app_state.input.delete_char(),
+            CustomKeyEvent::DeleteWord => app_state.input.delete_word(),
+            CustomKeyEvent::DeleteLine => app_state.input.delete_line(),
+            CustomKeyEvent::Restore => app_state.input.restore(),
+            CustomKeyEvent::MoveRightOne => app_state.input.move_right(),
+            CustomKeyEvent::MoveRightWord => app_state.input.move_right_word(),
+            CustomKeyEvent::MoveLineEnd => app_state.input.move_line_end(),
+            CustomKeyEvent::MoveUpOne => app_state
+                .input
+                .move_up_visual(app_state.input_content_width),
+            CustomKeyEvent::MoveDownOne => app_state
+                .input
+                .move_down_visual(app_state.input_content_width),
+            CustomKeyEvent::MoveLeftOne => app_state.input.move_left(),
+            CustomKeyEvent::MoveLeftWord => app_state.input.move_left_word(),
+            CustomKeyEvent::MoveLineStart => app_state.input.move_line_start(),
+            CustomKeyEvent::None => {}
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct InputBuffer {
+    text: String,
+    cursor: usize,
+    preferred_col: Option<usize>,
+    kill_buffer: String,
+}
+
+impl InputBuffer {
+    pub(crate) fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub(crate) fn cursor_bytes(&self) -> usize {
+        self.cursor
+    }
+
+    fn clamp_pos_to_char_boundary(&self, pos: usize) -> usize {
+        let mut clamped = pos.min(self.text.len());
+        while clamped > 0 && !self.text.is_char_boundary(clamped) {
+            clamped -= 1;
+        }
+        clamped
+    }
+
+    fn set_cursor(&mut self, pos: usize) {
+        self.cursor = self.clamp_pos_to_char_boundary(pos);
+    }
+
+    pub(crate) fn insert_str(&mut self, input: &str) {
+        self.text.insert_str(self.cursor, input);
+        self.set_cursor(self.cursor + input.len());
+        self.preferred_col = None;
+    }
+
+    pub(crate) fn insert_char(&mut self, c: char) {
+        self.text.insert(self.cursor, c);
+        self.set_cursor(self.cursor + c.len_utf8());
+        self.preferred_col = None;
+    }
+
+    pub(crate) fn delete_char(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let prev = self.prev_boundary(self.cursor);
+        self.text.drain(prev..self.cursor);
+        self.set_cursor(prev);
+        self.preferred_col = None;
+    }
+
+    pub(crate) fn delete_word(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let prev = self.prev_word_start(self.cursor);
+        self.text.drain(prev..self.cursor);
+        self.set_cursor(prev);
+        self.preferred_col = None;
+    }
+
+    pub(crate) fn delete_line(&mut self) {
+        let start = self.line_start(self.cursor);
+        if self.cursor == start {
+            if self.cursor == 0 {
+                return;
+            }
+            let prev = self.prev_line_end(self.cursor);
+            self.text.drain(prev..self.cursor);
+            self.set_cursor(prev);
+            self.preferred_col = None;
+            return;
+        }
+
+        self.kill_buffer = self.text[start..self.cursor].to_string();
+        self.text.drain(start..self.cursor);
+        self.set_cursor(start);
+        self.preferred_col = None;
+    }
+
+    pub(crate) fn restore(&mut self) {
+        if self.kill_buffer.is_empty() {
+            return;
+        }
+        self.insert_str(&self.kill_buffer.to_string());
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.text.clear();
+        self.set_cursor(0);
+        self.preferred_col = None;
+    }
+
+    pub(crate) fn move_right(&mut self) {
+        if self.cursor >= self.text.len() {
+            return;
+        }
+        self.set_cursor(self.next_boundary(self.cursor));
+        self.preferred_col = None;
+    }
+
+    pub(crate) fn move_right_word(&mut self) {
+        if self.cursor >= self.text.len() {
+            return;
+        }
+        self.set_cursor(self.next_word_start(self.cursor));
+        self.preferred_col = None;
+    }
+
+    pub(crate) fn move_left(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        self.set_cursor(self.prev_boundary(self.cursor));
+        self.preferred_col = None;
+    }
+
+    pub(crate) fn move_left_word(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        self.set_cursor(self.prev_word_start(self.cursor));
+        self.preferred_col = None;
+    }
+
+    pub(crate) fn move_line_start(&mut self) {
+        self.set_cursor(self.line_start(self.cursor));
+        self.preferred_col = None;
+    }
+
+    pub(crate) fn move_line_end(&mut self) {
+        self.set_cursor(self.line_end(self.cursor));
+        self.preferred_col = None;
+    }
+
+    pub(crate) fn move_up_visual(&mut self, width: u16) {
+        let content_width = width.max(1);
+        let lines = compute_wrapped_ranges(&self.text, content_width);
+        let Some(line_idx) = wrapped_line_index_by_start(&lines, self.cursor) else {
+            return;
+        };
+
+        if line_idx == 0 {
+            self.set_cursor(0);
+            return;
+        }
+
+        let current = &lines[line_idx];
+        let target_col = self
+            .preferred_col
+            .unwrap_or_else(|| self.text[current.start..self.cursor].width());
+        self.preferred_col = Some(target_col);
+
+        let previous = &lines[line_idx - 1];
+        self.set_cursor(cursor_for_display_col(
+            &self.text,
+            previous.start,
+            previous.end,
+            target_col,
+        ));
+    }
+
+    pub(crate) fn move_down_visual(&mut self, width: u16) {
+        let content_width = width.max(1);
+        let lines = compute_wrapped_ranges(&self.text, content_width);
+        let Some(line_idx) = wrapped_line_index_by_start(&lines, self.cursor) else {
+            return;
+        };
+
+        if line_idx + 1 >= lines.len() {
+            self.set_cursor(self.text.len());
+            return;
+        }
+
+        let current = &lines[line_idx];
+        let target_col = self
+            .preferred_col
+            .unwrap_or_else(|| self.text[current.start..self.cursor].width());
+        self.preferred_col = Some(target_col);
+
+        let next = &lines[line_idx + 1];
+        self.set_cursor(cursor_for_display_col(
+            &self.text, next.start, next.end, target_col,
+        ));
+    }
+
+    fn line_start(&self, pos: usize) -> usize {
+        let pos = self.clamp_pos_to_char_boundary(pos);
+        self.text[..pos]
+            .rfind('\n')
+            .map_or(0, |idx| idx + '\n'.len_utf8())
+    }
+
+    fn line_end(&self, pos: usize) -> usize {
+        let pos = self.clamp_pos_to_char_boundary(pos);
+        let end = self.text[pos..]
+            .find('\n')
+            .map_or(self.text.len(), |idx| pos + idx);
+
+        if end > 0 && self.text.as_bytes().get(end - 1) == Some(&b'\r') {
+            end - 1
+        } else {
+            end
+        }
+    }
+
+    fn prev_line_end(&self, pos: usize) -> usize {
+        let pos = self.clamp_pos_to_char_boundary(pos);
+        let Some(newline_idx) = self.text[..pos].rfind('\n') else {
+            return pos;
+        };
+
+        if newline_idx > 0 && self.text.as_bytes().get(newline_idx - 1) == Some(&b'\r') {
+            newline_idx - 1
+        } else {
+            newline_idx
+        }
+    }
+
+    fn is_word_separator(ch: char) -> bool {
+        ch.is_whitespace() || WORD_SEPARATORS.contains(ch)
+    }
+
+    fn prev_word_start(&self, mut pos: usize) -> usize {
+        while pos > 0 {
+            let prev = self.prev_boundary(pos);
+            let ch = self.text[prev..pos]
+                .chars()
+                .next()
+                .expect("previous grapheme should contain one char");
+            if !ch.is_whitespace() {
+                break;
+            }
+            pos = prev;
+        }
+
+        if pos == 0 {
+            return 0;
+        }
+
+        let initial_prev = self.prev_boundary(pos);
+        let initial = self.text[initial_prev..pos]
+            .chars()
+            .next()
+            .expect("previous grapheme should contain one char");
+        let target_is_separator = Self::is_word_separator(initial) && !initial.is_whitespace();
+
+        while pos > 0 {
+            let prev = self.prev_boundary(pos);
+            let ch = self.text[prev..pos]
+                .chars()
+                .next()
+                .expect("previous grapheme should contain one char");
+            if ch.is_whitespace() {
+                break;
+            }
+
+            let ch_is_separator = Self::is_word_separator(ch) && !ch.is_whitespace();
+            if ch_is_separator != target_is_separator {
+                break;
+            }
+
+            pos = prev;
+        }
+        pos
+    }
+
+    fn next_word_start(&self, mut pos: usize) -> usize {
+        if pos >= self.text.len() {
+            return self.text.len();
+        }
+
+        let next = self.next_boundary(pos);
+        let first = self.text[pos..next]
+            .chars()
+            .next()
+            .expect("next grapheme should contain one char");
+
+        if first.is_whitespace() {
+            while pos < self.text.len() {
+                let next = self.next_boundary(pos);
+                let ch = self.text[pos..next]
+                    .chars()
+                    .next()
+                    .expect("next grapheme should contain one char");
+                if !ch.is_whitespace() {
+                    break;
+                }
+                pos = next;
+            }
+            return pos;
+        }
+
+        let target_is_separator = Self::is_word_separator(first) && !first.is_whitespace();
+        while pos < self.text.len() {
+            let next = self.next_boundary(pos);
+            let ch = self.text[pos..next]
+                .chars()
+                .next()
+                .expect("next grapheme should contain one char");
+            if ch.is_whitespace() {
+                break;
+            }
+
+            let ch_is_separator = Self::is_word_separator(ch) && !ch.is_whitespace();
+            if ch_is_separator != target_is_separator {
+                break;
+            }
+
+            pos = next;
+        }
+
+        while pos < self.text.len() {
+            let next = self.next_boundary(pos);
+            let ch = self.text[pos..next]
+                .chars()
+                .next()
+                .expect("next grapheme should contain one char");
+            if !ch.is_whitespace() {
+                break;
+            }
+            pos = next;
+        }
+
+        pos
+    }
+
+    fn prev_boundary(&self, pos: usize) -> usize {
+        self.text[..pos]
+            .grapheme_indices(true)
+            .next_back()
+            .map_or(0, |(idx, _)| idx)
+    }
+
+    fn next_boundary(&self, pos: usize) -> usize {
+        self.text[pos..]
+            .grapheme_indices(true)
+            .next()
+            .map_or(pos, |(_, grapheme)| pos + grapheme.len())
+    }
+}
