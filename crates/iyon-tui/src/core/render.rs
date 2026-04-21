@@ -8,7 +8,10 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-use crate::util::wrapping::{compute_wrapped_ranges, cursor_xy, wrapped_line_index_by_start};
+use crate::{
+    core::layout::ComputedLayout,
+    util::wrapping::{compute_wrapped_ranges, cursor_xy, wrapped_line_index_by_start},
+};
 
 const MAX_INPUT_HEIGHT: u16 = 13;
 
@@ -55,6 +58,44 @@ pub(crate) struct Renderer {
 }
 
 impl Renderer {
+    pub(crate) fn draw_running(
+        &self,
+        frame: &mut Frame,
+        rects: ComputedLayout,
+        chat_view: &ChatView<'_>,
+        input_view: &InputView<'_>,
+        info_view: &InfoView<'_>,
+    ) {
+        let spacer_view = SpacerView;
+        self.render(&spacer_view, frame, rects.spacer_area);
+        self.render(chat_view, frame, rects.chat_area);
+        self.render(&spacer_view, frame, rects.active_area);
+        self.render(input_view, frame, rects.input_area);
+        self.render(info_view, frame, rects.info_area);
+    }
+
+    pub(crate) fn draw_exit(
+        &self,
+        frame: &mut Frame,
+        rects: ComputedLayout,
+        chat_view: &ChatView<'_>,
+        info_view: &InfoView<'_>,
+        goodbye: &str,
+    ) {
+        let spacer_view = SpacerView;
+        let input_view = InputView {
+            text: goodbye,
+            cursor_bytes: 0,
+            scroll_rows: 0,
+        };
+
+        self.render(&spacer_view, frame, rects.spacer_area);
+        self.render(chat_view, frame, rects.chat_area);
+        self.render(&spacer_view, frame, rects.active_area);
+        self.render(&input_view, frame, rects.input_area);
+        self.render(info_view, frame, rects.info_area);
+    }
+
     fn wrapped_ranges(&self, text: &str, width: u16) -> Vec<Range<usize>> {
         let mut cache = self.input_wrap_cache.borrow_mut();
         let recompute = match cache.as_ref() {

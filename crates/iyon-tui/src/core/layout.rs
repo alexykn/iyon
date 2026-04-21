@@ -1,11 +1,20 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) enum CommitCapacityPolicy {
+    #[default]
+    SpillToTranscript,
+    OccludeOnly,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct LayoutConfig {
     pub(crate) spacer_height: u16,
     pub(crate) chat_height: u16,
+    pub(crate) active_height: u16,
     pub(crate) input_height: u16,
     pub(crate) info_height: u16,
+    pub(crate) commit_capacity_policy: CommitCapacityPolicy,
 }
 
 impl Default for LayoutConfig {
@@ -13,8 +22,10 @@ impl Default for LayoutConfig {
         Self {
             spacer_height: 0,
             chat_height: 1,
+            active_height: 0,
             input_height: 3,
             info_height: 1,
+            commit_capacity_policy: CommitCapacityPolicy::SpillToTranscript,
         }
     }
 }
@@ -23,8 +34,11 @@ impl Default for LayoutConfig {
 pub(crate) struct ComputedLayout {
     pub(crate) spacer_area: Rect,
     pub(crate) chat_area: Rect,
+    pub(crate) active_area: Rect,
     pub(crate) input_area: Rect,
     pub(crate) info_area: Rect,
+    pub(crate) visual_chat_capacity_rows: usize,
+    pub(crate) commit_chat_capacity_rows: usize,
 }
 
 impl LayoutConfig {
@@ -34,16 +48,28 @@ impl LayoutConfig {
             .constraints([
                 Constraint::Min(config.spacer_height),
                 Constraint::Length(config.chat_height),
+                Constraint::Length(config.active_height),
                 Constraint::Length(config.input_height),
                 Constraint::Length(config.info_height),
             ])
             .split(area);
 
+        let visual_chat_capacity_rows = usize::from(vertical[1].height);
+        let commit_chat_capacity_rows = match config.commit_capacity_policy {
+            CommitCapacityPolicy::SpillToTranscript => visual_chat_capacity_rows,
+            CommitCapacityPolicy::OccludeOnly => {
+                visual_chat_capacity_rows.saturating_add(usize::from(vertical[2].height))
+            }
+        };
+
         ComputedLayout {
             spacer_area: vertical[0],
             chat_area: vertical[1],
-            input_area: vertical[2],
-            info_area: vertical[3],
+            active_area: vertical[2],
+            input_area: vertical[3],
+            info_area: vertical[4],
+            visual_chat_capacity_rows,
+            commit_chat_capacity_rows,
         }
     }
 }

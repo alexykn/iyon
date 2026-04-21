@@ -1,42 +1,44 @@
 use anyhow::Result;
-use ratatui::{DefaultTerminal, layout::Rect, text::Line};
+use ratatui::text::Line;
+
+use crate::core::terminal::InlineTerminal;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CommitDiagnostics {
+    pub(crate) requested_rows: usize,
+    pub(crate) truncated_rows: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CommitResult {
+    pub(crate) rows_inserted: usize,
+    pub(crate) diagnostics: Option<CommitDiagnostics>,
+}
 
 #[derive(Debug, Default)]
 pub(crate) struct ScrollbackCommitter;
 
 impl ScrollbackCommitter {
-    pub(crate) fn commit_pending(
+    pub(crate) fn commit_rows(
         &mut self,
-        terminal: &mut DefaultTerminal,
-        pending: &mut Vec<Line<'static>>,
-    ) -> Result<usize> {
-        if pending.is_empty() {
-            return Ok(0);
-        }
+        terminal: &mut InlineTerminal,
+        rows: &[Line<'static>],
+    ) -> Result<CommitResult> {
+        let rows_inserted = terminal.insert_history_rows(rows)?;
+        let truncated_rows = rows.len().saturating_sub(rows_inserted);
 
-        let lines = pending.clone();
-        let height = u16::try_from(lines.len()).unwrap_or(u16::MAX);
+        let diagnostics = if truncated_rows > 0 {
+            Some(CommitDiagnostics {
+                requested_rows: rows.len(),
+                truncated_rows,
+            })
+        } else {
+            None
+        };
 
-        // PERF: prefer ratatui's scrolling-region insertion path for inline scrollback.
-        // TODO(alxknt): verify behavior under tmux; if we observe regressions, add a
-        // compatibility flag to disable scrolling-regions at runtime.
-        terminal.insert_before(height, |buffer| {
-            let width = buffer.area.width;
-            for (row, line) in lines.iter().enumerate() {
-                let y = u16::try_from(row).unwrap_or(u16::MAX);
-                let row_area = Rect {
-                    x: buffer.area.x,
-                    y: buffer.area.y + y,
-                    width,
-                    height: 1,
-                };
-                buffer.set_style(row_area, line.style);
-                buffer.set_line(buffer.area.x, buffer.area.y + y, line, width);
-            }
-        })?;
-
-        let committed = pending.len();
-        pending.clear();
-        Ok(committed)
+        Ok(CommitResult {
+            rows_inserted,
+            diagnostics,
+        })
     }
 }
