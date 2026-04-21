@@ -190,6 +190,45 @@ impl Renderable<InfoView> for Renderer {
 }
 ```
 
+## Active Pane Model (Transient Bottom UI)
+
+To support UX like "show a `Working...` spinner immediately after user submit, then replace it with streaming assistant text on first token", model chat as two layers:
+
+1. **Committed transcript** (scrollback-eligible)
+   - Immutable-ish timeline items that have completed.
+   - Source for overflow -> inline scrollback commit.
+2. **Active panes** (ephemeral, bottom-anchored)
+   - Live-updating pane instances rendered above input.
+   - Examples: `WorkingSpinner`, `StreamingAssistant`, `ToolApproval`, `DiffPreview`.
+
+Rules:
+- Active panes are rendered first (bottom reservation), transcript fills remaining chat rows.
+- Active panes are not committed directly to scrollback while transient.
+- On completion, pane output is converted to a normal transcript item and then follows normal overflow commit rules.
+- The same canonical `Vec<Line<'static>>` formatting is still required for parity.
+
+Suggested shape (start with enum, add trait abstraction only if needed):
+
+```rust
+pub enum ActivePane {
+    WorkingSpinner { frame: u64 },
+    StreamingAssistant { lines: Vec<Line<'static>> },
+    // later: ToolApproval, DiffPreview, ...
+}
+
+impl ActivePane {
+    pub fn desired_height(&self, width: u16) -> u16 { /* ... */ }
+    pub fn render_lines(&self, width: u16) -> Vec<Line<'static>> { /* ... */ }
+}
+```
+
+Transition intent:
+- `UserSubmitted` -> create `WorkingSpinner` pane (3-line box visual).
+- `AssistantDelta(first token)` -> replace same pane with `StreamingAssistant`.
+- `AssistantDelta(next)` -> update pane content in place.
+- `TurnFinished` -> finalize pane into transcript item; clear active pane.
+- `TurnFailed` -> replace/finalize as error/status item.
+
 ## Scrollback Contract (Separate From `Renderable`)
 
 ```rust

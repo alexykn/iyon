@@ -92,6 +92,7 @@ Geometry (wrapping, viewport slicing, line-height) remains in renderer/commit st
 ### Live Renderer
 - Ratatui consumes the formatted lines and renders visible viewport slice.
 - Input rendering remains separate (`InputView`) and sets cursor position on `Frame`.
+- Chat viewport should support a **transient active pane** directly above input (spinner/stream/tool UI), with transcript lines above it.
 
 ### Optional Inline Commit Layer (advanced)
 - A small terminal manager that:
@@ -147,13 +148,16 @@ Use borrowed fields in frame-local view structs to reduce cloning and allocation
 3. Add per-item style/render rules while preserving same line model.
 4. If ANSI-first is used upstream, keep the conversion step centralized and deterministic.
 5. Keep width/wrapping/viewport math out of formatter.
+6. Introduce `ActivePane` model for transient bottom UI (`WorkingSpinner`, `StreamingAssistant`, later tool/diff panes).
+7. Reserve pane height bottom-up; transcript uses remaining chat rows.
 
 ## Phase 3 (advanced): Inline + scrollback commit mode
 1. Build terminal/viewport manager module.
 2. Add queue of committed history lines.
 3. Insert committed lines above live viewport.
 4. Keep live viewport bounded to terminal height.
-5. Retain fullscreen mode as fallback.
+5. Commit only transcript overflow (not transient active pane rows).
+6. On `TurnFinished`, finalize active pane into transcript, then normal overflow rules apply.
 
 ---
 
@@ -161,6 +165,7 @@ Use borrowed fields in frame-local view structs to reduce cloning and allocation
 
 - Build Phase 1 first. This already gives strong UX and lower complexity.
 - Only add Phase 3 once timeline + viewport math are stable.
+- Treat active panes as ephemeral view state; they should transition cleanly from spinner -> streaming -> committed transcript item.
 - Avoid premature custom terminal machinery while input/render model is still changing.
 - Do not let semantic classification logic leak into `Renderable`.
 

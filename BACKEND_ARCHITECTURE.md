@@ -103,6 +103,14 @@ pub enum FrontendEvent {
 }
 ```
 
+Frontend composition should interpret these events with explicit transient-pane transitions:
+- `TurnStarted` -> show ephemeral `WorkingSpinner` pane above input.
+- First `Delta` for the turn -> replace spinner with `StreamingAssistant` pane.
+- Subsequent `Delta` -> update the same pane in place.
+- `TurnFinished`/`TurnFailed` -> finalize pane into a normal transcript item (or error item).
+
+This keeps backend transport semantic and UI-agnostic while still giving the frontend a deterministic state machine.
+
 ## 4) Formatter Stage
 
 Purpose:
