@@ -204,7 +204,7 @@ impl App {
             scroll_rows: state.scroll,
         };
         let chat_view = ChatView {
-            lines: &state.chat.lines,
+            lines: state.transcript.uncommitted_rows(),
         };
         let info_view = InfoView { lines: &info_lines };
 
@@ -224,7 +224,7 @@ impl App {
             scroll_rows: state.scroll,
         };
         let chat_view = ChatView {
-            lines: &state.chat.lines,
+            lines: state.transcript.uncommitted_rows(),
         };
 
         let active_height = if state.active.is_some() { 3 } else { 0 };

@@ -11,10 +11,6 @@ pub(crate) struct AppState {
     pub(crate) transcript: TranscriptState,
     pub(crate) active: Option<ActivePaneState>,
 
-    // Transitional chat rows used by the current renderer/scrollback path.
-    // Source of truth is transcript + committed_rows.
-    pub(crate) chat: ChatState,
-
     pub(crate) info: InfoState,
     pub(crate) input_content_width: u16,
     pub(crate) scroll: u16,
@@ -43,13 +39,7 @@ impl AppState {
 
     pub(crate) fn sync_chat_from_transcript(&mut self, width: u16) {
         self.transcript.ensure_render_cache(width);
-        self.chat.lines = self.transcript.uncommitted_rows().to_vec();
     }
-}
-
-#[derive(Debug, Clone, Default)]
-pub(crate) struct ChatState {
-    pub(crate) lines: Vec<Line<'static>>,
 }
 
 #[derive(Debug, Clone)]
@@ -73,8 +63,21 @@ impl Default for TranscriptState {
 
 impl TranscriptState {
     pub(crate) fn push_item(&mut self, item: TimelineItem) {
+        let formatted_rows = if self.rendered_rows_cache.is_some() {
+            Some(self.formatter.format(&item))
+        } else {
+            None
+        };
+
         self.canonical_items.push(item);
-        self.rendered_rows_cache = None;
+
+        if let (Some(cache), Some(mut rows)) = (self.rendered_rows_cache.as_mut(), formatted_rows) {
+            if !cache.rows.is_empty() {
+                cache.rows.push(Line::from(""));
+            }
+            cache.rows.append(&mut rows);
+            self.committed_rows = self.committed_rows.min(cache.rows.len());
+        }
     }
 
     pub(crate) fn ensure_render_cache(&mut self, width: u16) {
