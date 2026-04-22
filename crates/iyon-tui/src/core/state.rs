@@ -36,10 +36,6 @@ impl AppState {
             self.exit_state = ExitState::Requested;
         }
     }
-
-    pub(crate) fn sync_chat_from_transcript(&mut self, width: u16) {
-        self.transcript.ensure_render_cache(width);
-    }
 }
 
 #[derive(Debug, Clone)]

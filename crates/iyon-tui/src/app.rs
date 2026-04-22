@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use anyhow::Result;
 use ratatui::{Frame, layout::Rect, text::Line};
 
@@ -55,10 +57,9 @@ impl App {
         self.spill_active_into_transcript_if_needed(state);
 
         let root = self.current_root_rect(terminal)?;
-        state.sync_chat_from_transcript(root.width.max(1));
+        state.transcript.ensure_render_cache(root.width.max(1));
 
         self.commit_running_overflow_rows(terminal, state, root)?;
-        state.sync_chat_from_transcript(root.width.max(1));
 
         terminal.draw(|frame| self.draw_running(frame, state))?;
         self.input_handler.run(state, &mut self.wrap_cache)?;
@@ -97,7 +98,7 @@ impl App {
         state: &mut AppState,
     ) -> Result<()> {
         let root = self.current_root_rect(terminal)?;
-        state.sync_chat_from_transcript(root.width.max(1));
+        state.transcript.ensure_render_cache(root.width.max(1));
 
         let uncommitted_len = state.transcript.uncommitted_len();
         if uncommitted_len == 0 {
@@ -111,7 +112,6 @@ impl App {
         state.transcript.mark_rows_committed(chunk_len);
         terminal.invalidate_next_draw();
 
-        state.sync_chat_from_transcript(root.width.max(1));
         if state.transcript.uncommitted_len() == 0 {
             state.exit_state = ExitState::FinalFrame;
         }
@@ -124,7 +124,7 @@ impl App {
         state: &mut AppState,
     ) -> Result<()> {
         let root = self.current_root_rect(terminal)?;
-        state.sync_chat_from_transcript(root.width.max(1));
+        state.transcript.ensure_render_cache(root.width.max(1));
 
         if state.transcript.uncommitted_len() != 0 {
             return Err(anyhow::anyhow!(
@@ -149,7 +149,17 @@ impl App {
         state: &mut AppState,
         root: Rect,
     ) -> Result<()> {
-        let rects = self.compute_layout(root, state);
+        let layout = &self.layout;
+        let renderer = &self.renderer;
+        // NOTE: We use root width here because layout is vertical-only today, so
+        // input area width == root width. If we add horizontal splits/side panes,
+        // this should switch to an input-area-specific width source.
+        let input_wrap_ranges = self.wrap_cache.input_ranges(
+            state.input.text_revision(),
+            state.input.text(),
+            root.width.max(1),
+        );
+        let rects = Self::compute_layout(layout, renderer, root, state, input_wrap_ranges);
 
         let capacity = rects.commit_chat_capacity_rows;
         let uncommitted_len = state.transcript.uncommitted_len();
@@ -194,15 +204,16 @@ impl App {
     }
 
     fn draw_running(&mut self, frame: &mut Frame, state: &mut AppState) {
-        let root = frame.area();
-        let rects = self.compute_layout(root, state);
-        state.input_content_width = rects.input_area.width.max(1);
-
+        let area = frame.area();
+        let layout = &self.layout;
+        let renderer = &self.renderer;
         let input_wrap_ranges = self.wrap_cache.input_ranges(
             state.input.text_revision(),
             state.input.text(),
-            state.input_content_width,
+            area.width.max(1),
         );
+        let rects = Self::compute_layout(layout, renderer, area, state, input_wrap_ranges);
+        state.input_content_width = rects.input_area.width.max(1);
 
         let mut input_view = InputView {
             text: state.input.text(),
@@ -217,16 +228,19 @@ impl App {
             status: &state.info.status,
         };
 
-        state.scroll = self
-            .renderer
-            .next_input_scroll(&input_view, rects.input_area, state.scroll);
+        state.scroll = renderer.next_input_scroll(&input_view, rects.input_area, state.scroll);
         input_view.scroll_rows = state.scroll;
 
-        self.renderer
-            .draw_running(frame, rects, &chat_view, &input_view, &info_view);
+        renderer.draw_running(frame, rects, &chat_view, &input_view, &info_view);
     }
 
-    fn compute_layout(&mut self, root: Rect, state: &AppState) -> ComputedLayout {
+    fn compute_layout(
+        layout: &LayoutConfig,
+        renderer: &Renderer,
+        root: Rect,
+        state: &AppState,
+        input_wrap_ranges: &[Range<usize>],
+    ) -> ComputedLayout {
         let chat_view = ChatView {
             lines: state.transcript.uncommitted_rows(),
         };
@@ -237,20 +251,25 @@ impl App {
             _ => CommitCapacityPolicy::SpillToTranscript,
         };
 
-        self.compute_layout_for_input(
+        Self::compute_layout_for_input(
+            layout,
+            renderer,
             root,
             state,
             &chat_view,
+            input_wrap_ranges,
             active_height,
             commit_capacity_policy,
         )
     }
 
     fn compute_layout_for_input(
-        &mut self,
+        layout: &LayoutConfig,
+        renderer: &Renderer,
         root: Rect,
         state: &AppState,
         chat_view: &ChatView,
+        input_wrap_ranges: &[Range<usize>],
         active_height: u16,
         commit_capacity_policy: CommitCapacityPolicy,
     ) -> ComputedLayout {
@@ -260,28 +279,21 @@ impl App {
             ..LayoutConfig::default()
         };
 
-        let pass1 = self.layout.compute(root, &base_cfg);
-        let input_wrap_ranges = self.wrap_cache.input_ranges(
-            state.input.text_revision(),
-            state.input.text(),
-            pass1.input_area.width.max(1),
-        );
+        let pass1 = layout.compute(root, &base_cfg);
         let input_view = InputView {
             text: state.input.text(),
             cursor_bytes: state.input.cursor_bytes(),
             scroll_rows: state.scroll,
             wrapped_ranges: input_wrap_ranges,
         };
-        let input_height = self
-            .renderer
-            .desired_height(&input_view, pass1.input_area, "");
+        let input_height = renderer.desired_height(&input_view, pass1.input_area, "");
 
         let pass2_cfg = LayoutConfig {
             input_height,
             ..base_cfg.clone()
         };
-        let pass2 = self.layout.compute(root, &pass2_cfg);
-        let chat_height = self.renderer.desired_height(chat_view, pass2.chat_area, "");
+        let pass2 = layout.compute(root, &pass2_cfg);
+        let chat_height = renderer.desired_height(chat_view, pass2.chat_area, "");
 
         let final_cfg = LayoutConfig {
             chat_height,
@@ -289,7 +301,7 @@ impl App {
             ..pass2_cfg
         };
 
-        self.layout.compute(root, &final_cfg)
+        layout.compute(root, &final_cfg)
     }
 
     fn commit_rows_chunked(
