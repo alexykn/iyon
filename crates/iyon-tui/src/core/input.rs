@@ -9,7 +9,7 @@ use crate::{
     core::state::AppState,
     util::{
         format::timeline_item_from_input,
-        wrapping::{cursor_for_display_col, wrapped_line_index_by_start, WrapCache},
+        wrapping::{WrapCache, cursor_for_display_col, wrapped_line_index_by_start},
     },
 };
 
@@ -113,12 +113,7 @@ impl InputEventHandler {
         Ok(())
     }
 
-    fn handle_event(
-        &mut self,
-        event: Event,
-        app_state: &mut AppState,
-        wrap_cache: &mut WrapCache,
-    ) {
+    fn handle_event(&mut self, event: Event, app_state: &mut AppState, wrap_cache: &mut WrapCache) {
         match event {
             Event::Key(key_event) => {
                 if !matches!(key_event.kind, Press | Repeat) {
@@ -128,11 +123,7 @@ impl InputEventHandler {
                 self.handle_key_event(custom_key_event, app_state, wrap_cache);
             }
             Event::Paste(text) => {
-                self.handle_key_event(
-                    CustomKeyEvent::InsertText { text },
-                    app_state,
-                    wrap_cache,
-                );
+                self.handle_key_event(CustomKeyEvent::InsertText { text }, app_state, wrap_cache);
             }
             _ => {}
         }
@@ -174,14 +165,20 @@ impl InputEventHandler {
             CustomKeyEvent::MoveLineEnd => app_state.input.move_line_end(),
             CustomKeyEvent::MoveUpOne => {
                 let width = app_state.input_content_width.max(1);
-                let wrapped_ranges =
-                    wrap_cache.input_ranges(app_state.input.text_revision(), app_state.input.text(), width);
+                let wrapped_ranges = wrap_cache.input_ranges(
+                    app_state.input.text_revision(),
+                    app_state.input.text(),
+                    width,
+                );
                 app_state.input.move_up_visual_with_lines(wrapped_ranges);
             }
             CustomKeyEvent::MoveDownOne => {
                 let width = app_state.input_content_width.max(1);
-                let wrapped_ranges =
-                    wrap_cache.input_ranges(app_state.input.text_revision(), app_state.input.text(), width);
+                let wrapped_ranges = wrap_cache.input_ranges(
+                    app_state.input.text_revision(),
+                    app_state.input.text(),
+                    width,
+                );
                 app_state.input.move_down_visual_with_lines(wrapped_ranges);
             }
             CustomKeyEvent::MoveLeftOne => app_state.input.move_left(),
