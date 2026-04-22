@@ -9,6 +9,7 @@ use crate::core::{
     state::{ActiveBehavior, AppState, ExitState},
     terminal::InlineTerminal,
 };
+use crate::util::wrapping::WrapCache;
 
 const EXIT_DRAIN_CHUNK: usize = 256;
 const EXIT_GOODBYE: &str = "Goodbye.";
@@ -16,6 +17,7 @@ const EXIT_GOODBYE: &str = "Goodbye.";
 #[derive(Debug, Default)]
 pub(super) struct App {
     pub(super) input_handler: InputEventHandler,
+    pub(super) wrap_cache: WrapCache,
     pub(super) layout: LayoutConfig,
     pub(super) renderer: Renderer,
     pub(super) scrollback: ScrollbackCommitter,
@@ -59,7 +61,7 @@ impl App {
         state.sync_chat_from_transcript(root.width.max(1));
 
         terminal.draw(|frame| self.draw_running(frame, state))?;
-        self.input_handler.run(state)?;
+        self.input_handler.run(state, &mut self.wrap_cache)?;
         Ok(())
     }
 
@@ -196,17 +198,24 @@ impl App {
         let rects = self.compute_layout(root, state);
         state.input_content_width = rects.input_area.width.max(1);
 
-        let info_lines = self.renderer.format_info_lines(&state.info.status);
+        let input_wrap_ranges = self.wrap_cache.input_ranges(
+            state.input.text_revision(),
+            state.input.text(),
+            state.input_content_width,
+        );
 
         let mut input_view = InputView {
             text: state.input.text(),
             cursor_bytes: state.input.cursor_bytes(),
             scroll_rows: state.scroll,
+            wrapped_ranges: input_wrap_ranges,
         };
         let chat_view = ChatView {
             lines: state.transcript.uncommitted_rows(),
         };
-        let info_view = InfoView { lines: &info_lines };
+        let info_view = InfoView {
+            status: &state.info.status,
+        };
 
         state.scroll = self
             .renderer
@@ -217,12 +226,7 @@ impl App {
             .draw_running(frame, rects, &chat_view, &input_view, &info_view);
     }
 
-    fn compute_layout(&self, root: Rect, state: &AppState) -> ComputedLayout {
-        let input_view = InputView {
-            text: state.input.text(),
-            cursor_bytes: state.input.cursor_bytes(),
-            scroll_rows: state.scroll,
-        };
+    fn compute_layout(&mut self, root: Rect, state: &AppState) -> ComputedLayout {
         let chat_view = ChatView {
             lines: state.transcript.uncommitted_rows(),
         };
@@ -235,18 +239,18 @@ impl App {
 
         self.compute_layout_for_input(
             root,
+            state,
             &chat_view,
-            &input_view,
             active_height,
             commit_capacity_policy,
         )
     }
 
     fn compute_layout_for_input(
-        &self,
+        &mut self,
         root: Rect,
+        state: &AppState,
         chat_view: &ChatView,
-        input_view: &InputView,
         active_height: u16,
         commit_capacity_policy: CommitCapacityPolicy,
     ) -> ComputedLayout {
@@ -257,9 +261,20 @@ impl App {
         };
 
         let pass1 = self.layout.compute(root, &base_cfg);
+        let input_wrap_ranges = self.wrap_cache.input_ranges(
+            state.input.text_revision(),
+            state.input.text(),
+            pass1.input_area.width.max(1),
+        );
+        let input_view = InputView {
+            text: state.input.text(),
+            cursor_bytes: state.input.cursor_bytes(),
+            scroll_rows: state.scroll,
+            wrapped_ranges: input_wrap_ranges,
+        };
         let input_height = self
             .renderer
-            .desired_height(input_view, pass1.input_area, "");
+            .desired_height(&input_view, pass1.input_area, "");
 
         let pass2_cfg = LayoutConfig {
             input_height,

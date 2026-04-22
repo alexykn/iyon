@@ -4,6 +4,31 @@ use textwrap::Options;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+#[derive(Debug, Default)]
+pub(crate) struct WrapCache {
+    key: Option<(u64, u16)>,
+    ranges: Vec<Range<usize>>,
+}
+
+impl WrapCache {
+    pub(crate) fn input_ranges<'a>(
+        &'a mut self,
+        text_revision: u64,
+        text: &str,
+        width: u16,
+    ) -> &'a [Range<usize>] {
+        let width = width.max(1);
+        let key = (text_revision, width);
+
+        if self.key != Some(key) {
+            self.ranges = compute_wrapped_ranges(text, width);
+            self.key = Some(key);
+        }
+
+        self.ranges.as_slice()
+    }
+}
+
 pub(crate) fn cursor_xy(
     text: &str,
     cursor: usize,
