@@ -44,6 +44,8 @@ impl InlineTerminal {
         let rendered_rows = usize::from(height);
         let rows = &rows[..rendered_rows];
 
+        let cursor_before_insert = self.terminal.get_cursor_position().ok();
+
         self.terminal.insert_before(height, |buffer| {
             let width = buffer.area.width;
             for (row, line) in rows.iter().enumerate() {
@@ -59,7 +61,10 @@ impl InlineTerminal {
             }
         })?;
 
-        self.invalidate_next_draw = true;
+        if let Some(cursor_position) = cursor_before_insert {
+            self.terminal.set_cursor_position(cursor_position)?;
+        }
+
         Ok(rendered_rows)
     }
 
@@ -75,7 +80,4 @@ impl InlineTerminal {
         &mut self.terminal
     }
 
-    pub(crate) fn into_inner(self) -> DefaultTerminal {
-        self.terminal
-    }
 }

@@ -74,28 +74,6 @@ impl Renderer {
         self.render(info_view, frame, rects.info_area);
     }
 
-    pub(crate) fn draw_exit(
-        &self,
-        frame: &mut Frame,
-        rects: ComputedLayout,
-        chat_view: &ChatView<'_>,
-        info_view: &InfoView<'_>,
-        goodbye: &str,
-    ) {
-        let spacer_view = SpacerView;
-        let input_view = InputView {
-            text: goodbye,
-            cursor_bytes: 0,
-            scroll_rows: 0,
-        };
-
-        self.render(&spacer_view, frame, rects.spacer_area);
-        self.render(chat_view, frame, rects.chat_area);
-        self.render(&spacer_view, frame, rects.active_area);
-        self.render(&input_view, frame, rects.input_area);
-        self.render(info_view, frame, rects.info_area);
-    }
-
     fn wrapped_ranges(&self, text: &str, width: u16) -> Vec<Range<usize>> {
         let mut cache = self.input_wrap_cache.borrow_mut();
         let recompute = match cache.as_ref() {
@@ -191,10 +169,17 @@ impl Renderable<InputView<'_>> for Renderer {
         let widget = Paragraph::new(Text::from(wrapped_text)).block(block);
         frame.render_widget(widget, area);
 
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+
         let (x, y) = cursor_xy(view.text, cursor, &lines, content_width);
         let y = y.saturating_sub(u16::try_from(scroll).unwrap_or(u16::MAX)) + inner.y;
         let x = x + inner.x;
-        frame.set_cursor_position((x, y));
+
+        let max_x = area.x.saturating_add(area.width.saturating_sub(1));
+        let max_y = area.y.saturating_add(area.height.saturating_sub(1));
+        frame.set_cursor_position((x.min(max_x), y.min(max_y)));
     }
 
     fn desired_height(&self, view: &InputView<'_>, area: Rect, _input: &str) -> u16 {

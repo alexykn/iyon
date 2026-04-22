@@ -170,11 +170,18 @@ impl App {
             return;
         }
 
-        let cursor_y = area.y.saturating_add(2).min(area.bottom().saturating_sub(1));
+        let cursor_y = area
+            .y
+            .saturating_add(2)
+            .min(area.bottom().saturating_sub(1));
         frame.set_cursor_position((area.x, cursor_y));
     }
 
-    fn set_exit_cursor_position(&mut self, terminal: &mut InlineTerminal, viewport: Rect) -> Result<()> {
+    fn set_exit_cursor_position(
+        &mut self,
+        terminal: &mut InlineTerminal,
+        viewport: Rect,
+    ) -> Result<()> {
         let size = terminal.inner_mut().size()?;
         let y = viewport
             .y
@@ -210,32 +217,6 @@ impl App {
             .draw_running(frame, rects, &chat_view, &input_view, &info_view);
     }
 
-    fn draw_exit(&mut self, frame: &mut Frame, state: &mut AppState, goodbye: &str) {
-        let root = frame.area();
-
-        let input_view = InputView {
-            text: goodbye,
-            cursor_bytes: 0,
-            scroll_rows: 0,
-        };
-        let chat_view = ChatView {
-            lines: &state.chat.lines,
-        };
-        let info_lines = self.renderer.format_info_lines(&state.info.status);
-        let info_view = InfoView { lines: &info_lines };
-
-        let rects = self.compute_layout_for_input(
-            root,
-            &chat_view,
-            &input_view,
-            0,
-            CommitCapacityPolicy::SpillToTranscript,
-        );
-
-        self.renderer
-            .draw_exit(frame, rects, &chat_view, &info_view, goodbye);
-    }
-
     fn compute_layout(&self, root: Rect, state: &AppState) -> ComputedLayout {
         let input_view = InputView {
             text: state.input.text(),
@@ -269,17 +250,28 @@ impl App {
         active_height: u16,
         commit_capacity_policy: CommitCapacityPolicy,
     ) -> ComputedLayout {
-        let base_cfg = LayoutConfig::default();
+        let base_cfg = LayoutConfig {
+            active_height,
+            commit_capacity_policy,
+            ..LayoutConfig::default()
+        };
 
-        let input_height = self.renderer.desired_height(input_view, root, "");
-        let chat_height = self.renderer.desired_height(chat_view, root, "");
+        let pass1 = self.layout.compute(root, &base_cfg);
+        let input_height = self
+            .renderer
+            .desired_height(input_view, pass1.input_area, "");
+
+        let pass2_cfg = LayoutConfig {
+            input_height,
+            ..base_cfg.clone()
+        };
+        let pass2 = self.layout.compute(root, &pass2_cfg);
+        let chat_height = self.renderer.desired_height(chat_view, pass2.chat_area, "");
 
         let final_cfg = LayoutConfig {
             chat_height,
-            active_height,
             input_height,
-            commit_capacity_policy,
-            ..base_cfg
+            ..pass2_cfg
         };
 
         self.layout.compute(root, &final_cfg)
