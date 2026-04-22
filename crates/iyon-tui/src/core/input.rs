@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{ops::Range, time::Duration};
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode::*, KeyEvent, KeyEventKind::*, KeyModifiers};
@@ -9,7 +9,7 @@ use crate::{
     core::state::AppState,
     util::{
         format::timeline_item_from_input,
-        wrapping::{compute_wrapped_ranges, cursor_for_display_col, wrapped_line_index_by_start},
+        wrapping::{cursor_for_display_col, wrapped_line_index_by_start, WrapCache},
     },
 };
 
@@ -100,32 +100,50 @@ fn map_key_event(key_event: KeyEvent) -> CustomKeyEvent {
 pub(crate) struct InputEventHandler;
 
 impl InputEventHandler {
-    pub(crate) fn run(&mut self, app_state: &mut AppState) -> Result<()> {
-        self.handle_event(event::read()?, app_state);
+    pub(crate) fn run(
+        &mut self,
+        app_state: &mut AppState,
+        wrap_cache: &mut WrapCache,
+    ) -> Result<()> {
+        self.handle_event(event::read()?, app_state, wrap_cache);
 
         while event::poll(Duration::from_millis(0))? {
-            self.handle_event(event::read()?, app_state);
+            self.handle_event(event::read()?, app_state, wrap_cache);
         }
         Ok(())
     }
 
-    fn handle_event(&mut self, event: Event, app_state: &mut AppState) {
+    fn handle_event(
+        &mut self,
+        event: Event,
+        app_state: &mut AppState,
+        wrap_cache: &mut WrapCache,
+    ) {
         match event {
             Event::Key(key_event) => {
                 if !matches!(key_event.kind, Press | Repeat) {
                     return;
                 }
                 let custom_key_event = map_key_event(key_event);
-                self.handle_key_event(custom_key_event, app_state);
+                self.handle_key_event(custom_key_event, app_state, wrap_cache);
             }
             Event::Paste(text) => {
-                self.handle_key_event(CustomKeyEvent::InsertText { text }, app_state);
+                self.handle_key_event(
+                    CustomKeyEvent::InsertText { text },
+                    app_state,
+                    wrap_cache,
+                );
             }
             _ => {}
         }
     }
 
-    fn handle_key_event(&mut self, custom_key_event: CustomKeyEvent, app_state: &mut AppState) {
+    fn handle_key_event(
+        &mut self,
+        custom_key_event: CustomKeyEvent,
+        app_state: &mut AppState,
+        wrap_cache: &mut WrapCache,
+    ) {
         match custom_key_event {
             CustomKeyEvent::Send => {
                 if app_state.input.text().is_empty() {
@@ -154,12 +172,18 @@ impl InputEventHandler {
             CustomKeyEvent::MoveRightOne => app_state.input.move_right(),
             CustomKeyEvent::MoveRightWord => app_state.input.move_right_word(),
             CustomKeyEvent::MoveLineEnd => app_state.input.move_line_end(),
-            CustomKeyEvent::MoveUpOne => app_state
-                .input
-                .move_up_visual(app_state.input_content_width),
-            CustomKeyEvent::MoveDownOne => app_state
-                .input
-                .move_down_visual(app_state.input_content_width),
+            CustomKeyEvent::MoveUpOne => {
+                let width = app_state.input_content_width.max(1);
+                let wrapped_ranges =
+                    wrap_cache.input_ranges(app_state.input.text_revision(), app_state.input.text(), width);
+                app_state.input.move_up_visual_with_lines(wrapped_ranges);
+            }
+            CustomKeyEvent::MoveDownOne => {
+                let width = app_state.input_content_width.max(1);
+                let wrapped_ranges =
+                    wrap_cache.input_ranges(app_state.input.text_revision(), app_state.input.text(), width);
+                app_state.input.move_down_visual_with_lines(wrapped_ranges);
+            }
             CustomKeyEvent::MoveLeftOne => app_state.input.move_left(),
             CustomKeyEvent::MoveLeftWord => app_state.input.move_left_word(),
             CustomKeyEvent::MoveLineStart => app_state.input.move_line_start(),
@@ -171,6 +195,7 @@ impl InputEventHandler {
 #[derive(Debug, Default)]
 pub(crate) struct InputBuffer {
     text: String,
+    text_revision: u64,
     cursor: usize,
     preferred_col: Option<usize>,
     kill_buffer: String,
@@ -183,6 +208,14 @@ impl InputBuffer {
 
     pub(crate) fn cursor_bytes(&self) -> usize {
         self.cursor
+    }
+
+    pub(crate) fn text_revision(&self) -> u64 {
+        self.text_revision
+    }
+
+    fn mark_text_changed(&mut self) {
+        self.text_revision = self.text_revision.wrapping_add(1);
     }
 
     fn clamp_pos_to_char_boundary(&self, pos: usize) -> usize {
@@ -200,12 +233,14 @@ impl InputBuffer {
     pub(crate) fn insert_str(&mut self, input: &str) {
         self.text.insert_str(self.cursor, input);
         self.set_cursor(self.cursor + input.len());
+        self.mark_text_changed();
         self.preferred_col = None;
     }
 
     pub(crate) fn insert_char(&mut self, c: char) {
         self.text.insert(self.cursor, c);
         self.set_cursor(self.cursor + c.len_utf8());
+        self.mark_text_changed();
         self.preferred_col = None;
     }
 
@@ -216,6 +251,7 @@ impl InputBuffer {
         let prev = self.prev_boundary(self.cursor);
         self.text.drain(prev..self.cursor);
         self.set_cursor(prev);
+        self.mark_text_changed();
         self.preferred_col = None;
     }
 
@@ -226,6 +262,7 @@ impl InputBuffer {
         let prev = self.prev_word_start(self.cursor);
         self.text.drain(prev..self.cursor);
         self.set_cursor(prev);
+        self.mark_text_changed();
         self.preferred_col = None;
     }
 
@@ -238,6 +275,7 @@ impl InputBuffer {
             let prev = self.prev_line_end(self.cursor);
             self.text.drain(prev..self.cursor);
             self.set_cursor(prev);
+            self.mark_text_changed();
             self.preferred_col = None;
             return;
         }
@@ -245,6 +283,7 @@ impl InputBuffer {
         self.kill_buffer = self.text[start..self.cursor].to_string();
         self.text.drain(start..self.cursor);
         self.set_cursor(start);
+        self.mark_text_changed();
         self.preferred_col = None;
     }
 
@@ -252,11 +291,16 @@ impl InputBuffer {
         if self.kill_buffer.is_empty() {
             return;
         }
-        self.insert_str(&self.kill_buffer.to_string());
+        let kill = std::mem::take(&mut self.kill_buffer);
+        self.insert_str(&kill);
+        self.kill_buffer = kill;
     }
 
     pub(crate) fn clear(&mut self) {
-        self.text.clear();
+        if !self.text.is_empty() {
+            self.text.clear();
+            self.mark_text_changed();
+        }
         self.set_cursor(0);
         self.preferred_col = None;
     }
@@ -303,9 +347,7 @@ impl InputBuffer {
         self.preferred_col = None;
     }
 
-    pub(crate) fn move_up_visual(&mut self, width: u16) {
-        let content_width = width.max(1);
-        let lines = compute_wrapped_ranges(&self.text, content_width);
+    pub(crate) fn move_up_visual_with_lines(&mut self, lines: &[Range<usize>]) {
         let Some(line_idx) = wrapped_line_index_by_start(&lines, self.cursor) else {
             return;
         };
@@ -330,9 +372,7 @@ impl InputBuffer {
         ));
     }
 
-    pub(crate) fn move_down_visual(&mut self, width: u16) {
-        let content_width = width.max(1);
-        let lines = compute_wrapped_ranges(&self.text, content_width);
+    pub(crate) fn move_down_visual_with_lines(&mut self, lines: &[Range<usize>]) {
         let Some(line_idx) = wrapped_line_index_by_start(&lines, self.cursor) else {
             return;
         };

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::Range};
+use std::ops::Range;
 
 use ratatui::{
     Frame,
@@ -10,7 +10,7 @@ use ratatui::{
 
 use crate::{
     core::layout::ComputedLayout,
-    util::wrapping::{compute_wrapped_ranges, cursor_xy, wrapped_line_index_by_start},
+    util::wrapping::{cursor_xy, wrapped_line_index_by_start},
 };
 
 const MAX_INPUT_HEIGHT: u16 = 13;
@@ -26,6 +26,7 @@ pub(crate) struct InputView<'a> {
     pub(crate) text: &'a str,
     pub(crate) cursor_bytes: usize,
     pub(crate) scroll_rows: u16,
+    pub(crate) wrapped_ranges: &'a [Range<usize>],
 }
 impl View for InputView<'_> {}
 
@@ -37,7 +38,7 @@ impl View for ChatView<'_> {}
 
 #[derive(Debug, Clone)]
 pub(crate) struct InfoView<'a> {
-    pub(crate) lines: &'a [Line<'static>],
+    pub(crate) status: &'a str,
 }
 impl View for InfoView<'_> {}
 
@@ -53,9 +54,7 @@ pub(crate) trait Renderable<V: View> {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct Renderer {
-    input_wrap_cache: RefCell<Option<WrapCache>>,
-}
+pub(crate) struct Renderer;
 
 impl Renderer {
     pub(crate) fn draw_running(
@@ -74,49 +73,6 @@ impl Renderer {
         self.render(info_view, frame, rects.info_area);
     }
 
-    // This helper exists to keep wrap-range access allocation-free while still
-    // using a RefCell-backed cache.
-    //
-    // Why a closure:
-    // - The cache stores `Vec<Range<usize>>` behind `RefCell<Option<WrapCache>>`.
-    // - Returning a plain `&[Range<usize>]` would require exposing a reference
-    //   tied to the `RefCell` borrow guard, which cannot outlive this function.
-    // - Returning an owned `Vec<Range<usize>>` would force a clone on every read,
-    //   which was a measurable hot-path cost during rapid input redraws.
-    //
-    // So we borrow the cache, ensure/recompute if needed, then invoke `f` while
-    // the borrow is still active. This lets callers read the cached slice without
-    // cloning and without leaking borrow-lifetime complexity into call sites.
-    fn with_wrapped_ranges<T>(
-        &self,
-        text: &str,
-        width: u16,
-        func: impl FnOnce(&[Range<usize>]) -> T,
-    ) -> T {
-        let mut cache = self.input_wrap_cache.borrow_mut();
-        let recompute = match cache.as_ref() {
-            Some(cached) => cached.width != width || cached.text != text,
-            None => true,
-        };
-
-        if recompute {
-            *cache = Some(WrapCache {
-                width,
-                lines: compute_wrapped_ranges(text, width),
-                text: text.to_string(),
-            });
-        }
-
-        let lines = cache
-            .as_ref()
-            .map_or(&[][..], |cached| cached.lines.as_slice());
-        func(lines)
-    }
-
-    pub(crate) fn format_info_lines(&self, status: &str) -> Vec<Line<'static>> {
-        vec![Line::from(status.to_string())]
-    }
-
     pub(crate) fn next_input_scroll(
         &self,
         view: &InputView,
@@ -125,27 +81,26 @@ impl Renderer {
     ) -> u16 {
         let block = Block::new().borders(Borders::TOP | Borders::BOTTOM);
         let inner = block.inner(area);
-        let content_width = inner.width.max(1);
-        self.with_wrapped_ranges(view.text, content_width, |lines| {
-            let mut cursor = view.cursor_bytes.min(view.text.len());
-            while cursor > 0 && !view.text.is_char_boundary(cursor) {
-                cursor -= 1;
-            }
+        let lines = view.wrapped_ranges;
 
-            let visible_rows = usize::from(inner.height.max(1));
-            let max_scroll = lines.len().saturating_sub(visible_rows);
-            let mut next_scroll = usize::from(current_scroll).min(max_scroll);
+        let mut cursor = view.cursor_bytes.min(view.text.len());
+        while cursor > 0 && !view.text.is_char_boundary(cursor) {
+            cursor -= 1;
+        }
 
-            let cursor_line = wrapped_line_index_by_start(lines, cursor).unwrap_or(0);
-            if cursor_line < next_scroll {
-                next_scroll = cursor_line;
-            }
-            if cursor_line >= next_scroll + visible_rows {
-                next_scroll = cursor_line + 1 - visible_rows;
-            }
+        let visible_rows = usize::from(inner.height.max(1));
+        let max_scroll = lines.len().saturating_sub(visible_rows);
+        let mut next_scroll = usize::from(current_scroll).min(max_scroll);
 
-            u16::try_from(next_scroll).unwrap_or(u16::MAX)
-        })
+        let cursor_line = wrapped_line_index_by_start(lines, cursor).unwrap_or(0);
+        if cursor_line < next_scroll {
+            next_scroll = cursor_line;
+        }
+        if cursor_line >= next_scroll + visible_rows {
+            next_scroll = cursor_line + 1 - visible_rows;
+        }
+
+        u16::try_from(next_scroll).unwrap_or(u16::MAX)
     }
 }
 
@@ -163,55 +118,53 @@ impl Renderable<InputView<'_>> for Renderer {
 
         let inner = block.inner(area);
         let content_width = inner.width.max(1);
-        self.with_wrapped_ranges(view.text, content_width, |lines| {
-            let mut cursor = view.cursor_bytes.min(view.text.len());
-            while cursor > 0 && !view.text.is_char_boundary(cursor) {
-                cursor -= 1;
-            }
+        let lines = view.wrapped_ranges;
 
-            let visible_rows = usize::from(inner.height.max(1));
-            let scroll =
-                usize::from(view.scroll_rows).min(lines.len().saturating_sub(visible_rows));
-            if scroll > 0 {
-                block = block
-                    .title(Line::from("────").left_aligned())
-                    .title(Line::from(format!(" ↑ {} more ", scroll)).left_aligned());
-            }
-            let visible_end = (scroll + visible_rows).min(lines.len());
+        let mut cursor = view.cursor_bytes.min(view.text.len());
+        while cursor > 0 && !view.text.is_char_boundary(cursor) {
+            cursor -= 1;
+        }
 
-            let wrapped_text = lines[scroll..visible_end]
-                .iter()
-                .map(|range| Line::from(&view.text[range.clone()]))
-                .collect::<Vec<_>>();
+        let visible_rows = usize::from(inner.height.max(1));
+        let scroll = usize::from(view.scroll_rows).min(lines.len().saturating_sub(visible_rows));
+        if scroll > 0 {
+            block = block
+                .title(Line::from("────").left_aligned())
+                .title(Line::from(format!(" ↑ {} more ", scroll)).left_aligned());
+        }
+        let visible_end = (scroll + visible_rows).min(lines.len());
 
-            let widget = Paragraph::new(Text::from(wrapped_text)).block(block);
-            frame.render_widget(widget, area);
+        let wrapped_text = lines[scroll..visible_end]
+            .iter()
+            .map(|range| Line::from(&view.text[range.clone()]))
+            .collect::<Vec<_>>();
 
-            if area.width == 0 || area.height == 0 {
-                return;
-            }
+        let widget = Paragraph::new(Text::from(wrapped_text)).block(block);
+        frame.render_widget(widget, area);
 
-            let (x, y) = cursor_xy(view.text, cursor, lines, content_width);
-            let y = y.saturating_sub(u16::try_from(scroll).unwrap_or(u16::MAX)) + inner.y;
-            let x = x + inner.x;
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
 
-            let max_x = area.x.saturating_add(area.width.saturating_sub(1));
-            let max_y = area.y.saturating_add(area.height.saturating_sub(1));
-            frame.set_cursor_position((x.min(max_x), y.min(max_y)));
-        });
+        let (x, y) = cursor_xy(view.text, cursor, lines, content_width);
+        let y = y.saturating_sub(u16::try_from(scroll).unwrap_or(u16::MAX)) + inner.y;
+        let x = x + inner.x;
+
+        let max_x = area.x.saturating_add(area.width.saturating_sub(1));
+        let max_y = area.y.saturating_add(area.height.saturating_sub(1));
+        frame.set_cursor_position((x.min(max_x), y.min(max_y)));
     }
 
     fn desired_height(&self, view: &InputView<'_>, area: Rect, _input: &str) -> u16 {
         let content_width = area.width.max(1);
-        self.with_wrapped_ranges(view.text, content_width, |lines| {
-            let mut cursor = view.cursor_bytes.min(view.text.len());
-            while cursor > 0 && !view.text.is_char_boundary(cursor) {
-                cursor -= 1;
-            }
-            let (_, cursor_row) = cursor_xy(view.text, cursor, lines, content_width);
-            let visual_rows = (lines.len() as u16).max(cursor_row.saturating_add(1));
-            visual_rows.saturating_add(2).min(MAX_INPUT_HEIGHT)
-        })
+        let lines = view.wrapped_ranges;
+        let mut cursor = view.cursor_bytes.min(view.text.len());
+        while cursor > 0 && !view.text.is_char_boundary(cursor) {
+            cursor -= 1;
+        }
+        let (_, cursor_row) = cursor_xy(view.text, cursor, lines, content_width);
+        let visual_rows = (lines.len() as u16).max(cursor_row.saturating_add(1));
+        visual_rows.saturating_add(2).min(MAX_INPUT_HEIGHT)
     }
 }
 
@@ -242,14 +195,7 @@ impl Renderable<ChatView<'_>> for Renderer {
 
 impl Renderable<InfoView<'_>> for Renderer {
     fn render(&self, view: &InfoView, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        let widget = Paragraph::new(Text::from(view.lines.to_vec())).wrap(Wrap { trim: false });
+        let widget = Paragraph::new(view.status).wrap(Wrap { trim: false });
         frame.render_widget(widget, area);
     }
-}
-
-#[derive(Debug, Clone)]
-struct WrapCache {
-    width: u16,
-    lines: Vec<Range<usize>>,
-    text: String,
 }
