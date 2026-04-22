@@ -31,7 +31,8 @@ impl AppState {
         if text.is_empty() {
             return;
         }
-        self.transcript.push_item(TimelineItem::AgentMessage { text });
+        self.transcript
+            .push_item(TimelineItem::AgentMessage { text });
     }
 
     pub(crate) fn request_exit(&mut self) {
@@ -114,20 +115,6 @@ impl TranscriptState {
         if let Some(cache) = self.rendered_rows_cache.as_ref() {
             self.committed_rows = self.committed_rows.min(cache.rows.len());
         }
-    }
-
-    pub(crate) fn last_rendered_row_is_blank(&self) -> bool {
-        let Some(cache) = self.rendered_rows_cache.as_ref() else {
-            return false;
-        };
-
-        let Some(line) = cache.rows.last() else {
-            return false;
-        };
-
-        line.spans
-            .iter()
-            .all(|span| span.content.chars().all(char::is_whitespace))
     }
 
     fn rows_from_canonical(&self) -> Vec<Line<'static>> {
