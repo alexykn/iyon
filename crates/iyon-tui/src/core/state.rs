@@ -32,6 +32,11 @@ impl AppState {
             .push_item(TimelineItem::AgentMessage { text });
     }
 
+    pub(crate) fn submit_user_message(&mut self, text: String) {
+        self.append_timeline_item(TimelineItem::UserMessage { text });
+        self.start_working_pane();
+    }
+
     pub(crate) fn request_exit(&mut self) {
         if matches!(self.exit_state, ExitState::Running) {
             self.exit_state = ExitState::Requested;
@@ -64,6 +69,17 @@ impl AppState {
         self.active
             .take()
             .and_then(ActivePaneState::into_unfrozen_transcript_text)
+    }
+
+    pub(crate) fn finish_active_turn(&mut self) {
+        if let Some(text) = self.take_active_unfrozen_transcript_text() {
+            self.append_agent_message(text);
+        }
+    }
+
+    pub(crate) fn fail_active_turn(&mut self, message: String) {
+        self.finish_active_turn();
+        self.append_agent_message(format!("Error: {message}"));
     }
 }
 

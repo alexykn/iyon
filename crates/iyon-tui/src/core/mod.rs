@@ -1,4 +1,6 @@
 pub mod active;
+pub mod backend;
+pub mod controller;
 pub mod input;
 pub mod layout;
 pub mod render;

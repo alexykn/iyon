@@ -36,12 +36,6 @@ fn styled_lines_preserving_newlines(text: &str, style: Style) -> Vec<Line<'stati
         .collect()
 }
 
-pub(crate) fn timeline_item_from_input(input: &str) -> TimelineItem {
-    TimelineItem::UserMessage {
-        text: input.to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
