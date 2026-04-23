@@ -1,11 +1,15 @@
 mod app;
-mod core;
-mod util;
+mod input;
+mod runtime;
+mod scrollback;
+mod terminal;
+mod transcript;
+mod view;
 
 use anyhow::Result;
 use app::App;
-use core::terminal::InlineTerminal;
 use ratatui::{TerminalOptions, Viewport};
+use terminal::InlineTerminal;
 
 pub fn run() -> Result<()> {
     let options = TerminalOptions {

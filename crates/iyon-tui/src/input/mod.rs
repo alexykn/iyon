@@ -1,14 +1,21 @@
 use std::{ops::Range, time::Duration};
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode::*, KeyEvent, KeyEventKind::*, KeyModifiers};
+use crossterm::event::{
+    self, Event,
+    KeyCode::{Backspace, Char, Down, End, Enter, Home, Left, Right, Up},
+    KeyEvent,
+    KeyEventKind::{Press, Repeat},
+    KeyModifiers,
+};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::{
-    core::{controller::FrontendAction, state::AppState},
-    util::wrapping::{WrapCache, cursor_for_display_col, wrapped_line_index_by_start},
-};
+pub(crate) mod wrap;
+
+pub(crate) use wrap::{WrapCache, cursor_xy, wrapped_line_index_by_start};
+
+use crate::{input::wrap::cursor_for_display_col, runtime::controller::FrontendAction};
 
 const WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
 
@@ -93,6 +100,98 @@ fn map_key_event(key_event: KeyEvent) -> CustomKeyEvent {
     }
 }
 
+pub(crate) struct InputEditor<'a> {
+    buffer: &'a mut InputBuffer,
+    content_width: u16,
+    wrap_cache: &'a mut WrapCache,
+}
+
+impl<'a> InputEditor<'a> {
+    pub(crate) fn new(
+        buffer: &'a mut InputBuffer,
+        content_width: u16,
+        wrap_cache: &'a mut WrapCache,
+    ) -> Self {
+        Self {
+            buffer,
+            content_width,
+            wrap_cache,
+        }
+    }
+
+    fn text(&self) -> &str {
+        self.buffer.text()
+    }
+
+    fn clear(&mut self) {
+        self.buffer.clear();
+    }
+
+    fn insert_char(&mut self, char: char) {
+        self.buffer.insert_char(char);
+    }
+
+    fn insert_str(&mut self, text: &str) {
+        self.buffer.insert_str(text);
+    }
+
+    fn delete_char(&mut self) {
+        self.buffer.delete_char();
+    }
+
+    fn delete_word(&mut self) {
+        self.buffer.delete_word();
+    }
+
+    fn delete_line(&mut self) {
+        self.buffer.delete_line();
+    }
+
+    fn restore(&mut self) {
+        self.buffer.restore();
+    }
+
+    fn move_right(&mut self) {
+        self.buffer.move_right();
+    }
+
+    fn move_right_word(&mut self) {
+        self.buffer.move_right_word();
+    }
+
+    fn move_line_end(&mut self) {
+        self.buffer.move_line_end();
+    }
+
+    fn move_up_visual(&mut self) {
+        let width = self.content_width.max(1);
+        let wrapped_ranges =
+            self.wrap_cache
+                .input_ranges(self.buffer.text_revision(), self.buffer.text(), width);
+        self.buffer.move_up_visual_with_lines(wrapped_ranges);
+    }
+
+    fn move_down_visual(&mut self) {
+        let width = self.content_width.max(1);
+        let wrapped_ranges =
+            self.wrap_cache
+                .input_ranges(self.buffer.text_revision(), self.buffer.text(), width);
+        self.buffer.move_down_visual_with_lines(wrapped_ranges);
+    }
+
+    fn move_left(&mut self) {
+        self.buffer.move_left();
+    }
+
+    fn move_left_word(&mut self) {
+        self.buffer.move_left_word();
+    }
+
+    fn move_line_start(&mut self) {
+        self.buffer.move_line_start();
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct InputEventHandler;
 
@@ -100,37 +199,31 @@ impl InputEventHandler {
     pub(crate) fn poll_and_handle(
         &mut self,
         timeout: Duration,
-        app_state: &mut AppState,
-        wrap_cache: &mut WrapCache,
+        editor: &mut InputEditor<'_>,
     ) -> Result<Vec<FrontendAction>> {
         if !event::poll(timeout)? {
             return Ok(Vec::new());
         }
 
-        let mut actions = self.handle_event(event::read()?, app_state, wrap_cache);
+        let mut actions = self.handle_event(event::read()?, editor);
 
         while event::poll(Duration::from_millis(0))? {
-            actions.extend(self.handle_event(event::read()?, app_state, wrap_cache));
+            actions.extend(self.handle_event(event::read()?, editor));
         }
         Ok(actions)
     }
 
-    fn handle_event(
-        &mut self,
-        event: Event,
-        app_state: &mut AppState,
-        wrap_cache: &mut WrapCache,
-    ) -> Vec<FrontendAction> {
+    fn handle_event(&mut self, event: Event, editor: &mut InputEditor<'_>) -> Vec<FrontendAction> {
         match event {
             Event::Key(key_event) => {
                 if !matches!(key_event.kind, Press | Repeat) {
                     return Vec::new();
                 }
                 let custom_key_event = map_key_event(key_event);
-                self.handle_key_event(custom_key_event, app_state, wrap_cache)
+                self.handle_key_event(custom_key_event, editor)
             }
             Event::Paste(text) => {
-                self.handle_key_event(CustomKeyEvent::InsertText { text }, app_state, wrap_cache)
+                self.handle_key_event(CustomKeyEvent::InsertText { text }, editor)
             }
             Event::Resize(_, _) => vec![FrontendAction::RedrawOnly],
             _ => Vec::new(),
@@ -140,95 +233,82 @@ impl InputEventHandler {
     fn handle_key_event(
         &mut self,
         custom_key_event: CustomKeyEvent,
-        app_state: &mut AppState,
-        wrap_cache: &mut WrapCache,
+        editor: &mut InputEditor<'_>,
     ) -> Vec<FrontendAction> {
         match custom_key_event {
             CustomKeyEvent::Send => {
-                if app_state.input.text().is_empty() {
+                if editor.text().is_empty() {
                     return Vec::new();
                 }
-                let text = app_state.input.text().to_string();
-                app_state.input.clear();
+                let text = editor.text().to_string();
+                editor.clear();
                 vec![FrontendAction::SubmitTurn { text }]
             }
             CustomKeyEvent::CtrlC => {
-                if !app_state.input.text().is_empty() {
-                    app_state.input.clear();
+                if !editor.text().is_empty() {
+                    editor.clear();
                     return vec![FrontendAction::RedrawOnly];
                 }
                 vec![FrontendAction::RequestExit]
             }
             CustomKeyEvent::InsertChar { char } => {
-                app_state.input.insert_char(char);
+                editor.insert_char(char);
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::InsertText { text } => {
-                app_state.input.insert_str(&text.replace('\t', "    "));
+                editor.insert_str(&text.replace('\t', "    "));
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::InsertNewline => {
-                app_state.input.insert_char('\n');
+                editor.insert_char('\n');
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::DeleteChar => {
-                app_state.input.delete_char();
+                editor.delete_char();
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::DeleteWord => {
-                app_state.input.delete_word();
+                editor.delete_word();
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::DeleteLine => {
-                app_state.input.delete_line();
+                editor.delete_line();
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::Restore => {
-                app_state.input.restore();
+                editor.restore();
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveRightOne => {
-                app_state.input.move_right();
+                editor.move_right();
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveRightWord => {
-                app_state.input.move_right_word();
+                editor.move_right_word();
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveLineEnd => {
-                app_state.input.move_line_end();
+                editor.move_line_end();
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveUpOne => {
-                let width = app_state.input_content_width.max(1);
-                let wrapped_ranges = wrap_cache.input_ranges(
-                    app_state.input.text_revision(),
-                    app_state.input.text(),
-                    width,
-                );
-                app_state.input.move_up_visual_with_lines(wrapped_ranges);
+                editor.move_up_visual();
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveDownOne => {
-                let width = app_state.input_content_width.max(1);
-                let wrapped_ranges = wrap_cache.input_ranges(
-                    app_state.input.text_revision(),
-                    app_state.input.text(),
-                    width,
-                );
-                app_state.input.move_down_visual_with_lines(wrapped_ranges);
+                editor.move_down_visual();
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveLeftOne => {
-                app_state.input.move_left();
+                editor.move_left();
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveLeftWord => {
-                app_state.input.move_left_word();
+                editor.move_left_word();
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveLineStart => {
-                app_state.input.move_line_start();
+                editor.move_line_start();
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::None => Vec::new(),
@@ -392,7 +472,7 @@ impl InputBuffer {
     }
 
     pub(crate) fn move_up_visual_with_lines(&mut self, lines: &[Range<usize>]) {
-        let Some(line_idx) = wrapped_line_index_by_start(&lines, self.cursor) else {
+        let Some(line_idx) = wrapped_line_index_by_start(lines, self.cursor) else {
             return;
         };
 
@@ -417,7 +497,7 @@ impl InputBuffer {
     }
 
     pub(crate) fn move_down_visual_with_lines(&mut self, lines: &[Range<usize>]) {
-        let Some(line_idx) = wrapped_line_index_by_start(&lines, self.cursor) else {
+        let Some(line_idx) = wrapped_line_index_by_start(lines, self.cursor) else {
             return;
         };
 

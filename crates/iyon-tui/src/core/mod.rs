@@ -1,9 +1,0 @@
-pub mod active;
-pub mod backend;
-pub mod controller;
-pub mod input;
-pub mod layout;
-pub mod render;
-pub mod scrollback;
-pub mod state;
-pub mod terminal;

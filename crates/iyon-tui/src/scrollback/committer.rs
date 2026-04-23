@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ratatui::text::Line;
 
-use crate::core::terminal::InlineTerminal;
+use crate::terminal::InlineTerminal;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CommitDiagnostics {

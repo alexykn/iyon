@@ -42,20 +42,20 @@ pub(crate) struct ComputedLayout {
 }
 
 impl LayoutConfig {
-    pub(crate) fn compute(&self, area: Rect, config: &LayoutConfig) -> ComputedLayout {
+    pub(crate) fn compute(&self, area: Rect) -> ComputedLayout {
         let vertical = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(config.spacer_height),
-                Constraint::Length(config.chat_height),
-                Constraint::Length(config.active_height),
-                Constraint::Length(config.input_height),
-                Constraint::Length(config.info_height),
+                Constraint::Min(self.spacer_height),
+                Constraint::Length(self.chat_height),
+                Constraint::Length(self.active_height),
+                Constraint::Length(self.input_height),
+                Constraint::Length(self.info_height),
             ])
             .split(area);
 
         let visual_chat_capacity_rows = usize::from(vertical[1].height);
-        let commit_chat_capacity_rows = match config.commit_capacity_policy {
+        let commit_chat_capacity_rows = match self.commit_capacity_policy {
             CommitCapacityPolicy::SpillToTranscript => visual_chat_capacity_rows,
             CommitCapacityPolicy::OccludeOnly => {
                 visual_chat_capacity_rows.saturating_add(usize::from(vertical[2].height))

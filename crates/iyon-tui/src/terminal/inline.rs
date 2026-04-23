@@ -76,8 +76,13 @@ impl InlineTerminal {
         self.invalidate_next_draw = true;
     }
 
-    pub(crate) fn inner_mut(&mut self) -> &mut DefaultTerminal {
-        &mut self.terminal
+    pub(crate) fn size(&mut self) -> Result<Rect> {
+        let size = self.terminal.size()?;
+        Ok(Rect::new(0, 0, size.width, size.height))
     }
 
+    pub(crate) fn set_cursor_position(&mut self, position: (u16, u16)) -> Result<()> {
+        self.terminal.set_cursor_position(position)?;
+        Ok(())
+    }
 }

@@ -1,93 +1,44 @@
-use ratatui::text::Line;
-
-use crate::{
-    core::{active::ActivePaneState, input::InputBuffer},
-    util::format::{TimelineItem, TuiFormatter},
-    util::wrapping::{TranscriptCommitBoundary, wrap_transcript_rows},
+use ratatui::{
+    style::{Color, Style},
+    text::Line,
 };
 
-#[derive(Debug, Default)]
-pub(crate) struct AppState {
-    pub(crate) input: InputBuffer,
-    pub(crate) transcript: TranscriptState,
-    pub(crate) active: Option<ActivePaneState>,
+use crate::transcript::wrap::{TranscriptCommitBoundary, wrap_transcript_rows};
 
-    pub(crate) info: InfoState,
-    pub(crate) input_content_width: u16,
-    pub(crate) scroll: u16,
-
-    pub(crate) exit_state: ExitState,
+#[derive(Debug, Clone)]
+pub(crate) enum TimelineItem {
+    UserMessage { text: String },
+    AssistantMessage { text: String },
+    ErrorMessage { text: String },
 }
 
-impl AppState {
-    pub(crate) fn append_timeline_item(&mut self, item: TimelineItem) {
-        self.transcript.push_item(item);
-    }
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct TuiFormatter;
 
-    pub(crate) fn append_agent_message(&mut self, text: String) {
-        if text.is_empty() {
-            return;
-        }
-        self.transcript
-            .push_item(TimelineItem::AgentMessage { text });
-    }
+impl TuiFormatter {
+    pub(crate) fn format(&self, item: &TimelineItem) -> Vec<Line<'static>> {
+        let (text, style) = match item {
+            TimelineItem::UserMessage { text } => {
+                (text.clone(), Style::default().bg(Color::Rgb(45, 55, 72)))
+            }
+            TimelineItem::AssistantMessage { text } => (text.clone(), Style::default()),
+            TimelineItem::ErrorMessage { text } => (text.clone(), Style::default().fg(Color::Red)),
+        };
 
-    pub(crate) fn submit_user_message(&mut self, text: String) {
-        self.append_timeline_item(TimelineItem::UserMessage { text });
-        self.start_working_pane();
-    }
-
-    pub(crate) fn request_exit(&mut self) {
-        if matches!(self.exit_state, ExitState::Running) {
-            self.exit_state = ExitState::Requested;
-        }
-    }
-
-    pub(crate) fn start_working_pane(&mut self) {
-        if self.active.is_none() {
-            self.active = Some(ActivePaneState::working_spinner());
-        }
-    }
-
-    pub(crate) fn receive_assistant_delta(&mut self, chunk: &str) {
-        if self.active.is_none() {
-            self.start_working_pane();
-        }
-
-        if let Some(active) = self.active.as_mut() {
-            active.push_assistant_delta(chunk);
-        }
-    }
-
-    pub(crate) fn tick_active(&mut self) {
-        if let Some(active) = self.active.as_mut() {
-            active.tick();
-        }
-    }
-
-    pub(crate) fn take_active_unfrozen_transcript_text(&mut self) -> Option<String> {
-        self.active
-            .take()
-            .and_then(ActivePaneState::into_unfrozen_transcript_text)
-    }
-
-    pub(crate) fn finish_active_turn(&mut self) {
-        if let Some(text) = self.take_active_unfrozen_transcript_text() {
-            self.append_agent_message(text);
-        }
-    }
-
-    pub(crate) fn fail_active_turn(&mut self, message: String) {
-        self.finish_active_turn();
-        self.append_agent_message(format!("Error: {message}"));
+        let mut rows = Vec::new();
+        rows.push(Line::styled("", style));
+        rows.extend(styled_lines_preserving_newlines(&text, style));
+        rows.push(Line::styled("", style));
+        rows
     }
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct TranscriptState {
-    pub(crate) canonical_items: Vec<TimelineItem>,
-    pub(crate) rendered_rows_cache: Option<TranscriptRenderCache>,
-    pub(crate) commit_boundary: TranscriptCommitBoundary,
+    canonical_items: Vec<TimelineItem>,
+    logical_rows_cache: Vec<Line<'static>>,
+    rendered_rows_cache: Option<TranscriptRenderCache>,
+    commit_boundary: TranscriptCommitBoundary,
     formatter: TuiFormatter,
 }
 
@@ -95,6 +46,7 @@ impl Default for TranscriptState {
     fn default() -> Self {
         Self {
             canonical_items: Vec::new(),
+            logical_rows_cache: Vec::new(),
             rendered_rows_cache: None,
             commit_boundary: TranscriptCommitBoundary::default(),
             formatter: TuiFormatter,
@@ -104,6 +56,11 @@ impl Default for TranscriptState {
 
 impl TranscriptState {
     pub(crate) fn push_item(&mut self, item: TimelineItem) {
+        if !self.logical_rows_cache.is_empty() {
+            self.logical_rows_cache.push(Line::from(""));
+        }
+
+        self.logical_rows_cache.extend(self.formatter.format(&item));
         self.canonical_items.push(item);
         self.rendered_rows_cache = None;
     }
@@ -118,10 +75,9 @@ impl TranscriptState {
             return;
         }
 
-        let logical_rows = self.rows_from_canonical();
         let cache = TranscriptRenderCache::from_logical_rows(
             width.max(1),
-            &logical_rows,
+            &self.logical_rows_cache,
             self.commit_boundary,
         );
         self.rendered_rows_cache = Some(cache);
@@ -153,25 +109,12 @@ impl TranscriptState {
         cache.rows.drain(..committed_rows);
         cache.row_end_boundaries.drain(..committed_rows);
     }
-
-    fn rows_from_canonical(&self) -> Vec<Line<'static>> {
-        let mut rows = Vec::new();
-
-        for item in &self.canonical_items {
-            if !rows.is_empty() {
-                rows.push(Line::from(""));
-            }
-            rows.extend(self.formatter.format(item));
-        }
-
-        rows
-    }
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct TranscriptRenderCache {
-    pub(crate) width: u16,
-    pub(crate) rows: Vec<Line<'static>>,
+    width: u16,
+    rows: Vec<Line<'static>>,
     row_end_boundaries: Vec<TranscriptCommitBoundary>,
 }
 
@@ -191,20 +134,10 @@ impl TranscriptRenderCache {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum ExitState {
-    #[default]
-    Running,
-    Requested,
-    FinalizeActive,
-    FlushHistory,
-    FinalFrame,
-    Done,
-}
-
-#[derive(Debug, Clone, Default)]
-pub(crate) struct InfoState {
-    pub(crate) status: String,
+fn styled_lines_preserving_newlines(text: &str, style: Style) -> Vec<Line<'static>> {
+    text.split('\n')
+        .map(|line| Line::styled(line.to_string(), style))
+        .collect()
 }
 
 #[cfg(test)]
@@ -219,9 +152,22 @@ mod tests {
     }
 
     #[test]
+    fn formatter_preserves_multiline_message_shape() {
+        let formatter = TuiFormatter;
+        let item = TimelineItem::UserMessage {
+            text: "line1\nline2\n".to_string(),
+        };
+
+        let lines = formatter.format(&item);
+        let text_rows = lines.iter().map(line_text).collect::<Vec<_>>();
+
+        assert_eq!(text_rows, vec!["", "line1", "line2", "", ""]);
+    }
+
+    #[test]
     fn wraps_transcript_rows_to_visual_width() {
         let mut transcript = TranscriptState::default();
-        transcript.push_item(TimelineItem::AgentMessage {
+        transcript.push_item(TimelineItem::AssistantMessage {
             text: "abcdef".to_string(),
         });
 
@@ -238,7 +184,7 @@ mod tests {
     #[test]
     fn commit_boundary_survives_resize_after_partial_line_commit() {
         let mut transcript = TranscriptState::default();
-        transcript.push_item(TimelineItem::AgentMessage {
+        transcript.push_item(TimelineItem::AssistantMessage {
             text: "abcdef".to_string(),
         });
 
