@@ -9,11 +9,9 @@ use ratatui::{
 };
 
 use crate::{
-    core::{
-        active::{ActivePaneKind, ActivePaneState},
-        layout::ComputedLayout,
-    },
-    util::wrapping::{cursor_xy, wrapped_line_index_by_start},
+    input::{cursor_xy, wrapped_line_index_by_start},
+    runtime::active::{ActivePaneKind, ActivePaneState, ActiveStreamState},
+    view::RunningView,
 };
 
 const MAX_INPUT_HEIGHT: u16 = 13;
@@ -54,8 +52,8 @@ impl View for InfoView<'_> {}
 pub(crate) trait Renderable<V: View> {
     fn render(&self, view: &V, frame: &mut Frame, area: Rect);
 
-    fn desired_height(&self, _: &V, area: Rect, input: &str) -> u16 {
-        let lines = Paragraph::new(Text::from(input))
+    fn desired_height(&self, _: &V, area: Rect) -> u16 {
+        let lines = Paragraph::new(Text::from(""))
             .wrap(Wrap { trim: false })
             .line_count(area.width.saturating_sub(2));
         u16::try_from(lines).unwrap_or(u16::MAX) + 2
@@ -66,21 +64,13 @@ pub(crate) trait Renderable<V: View> {
 pub(crate) struct Renderer;
 
 impl Renderer {
-    pub(crate) fn draw_running(
-        &self,
-        frame: &mut Frame,
-        rects: ComputedLayout,
-        chat_view: &ChatView<'_>,
-        active_view: &ActiveView<'_>,
-        input_view: &InputView<'_>,
-        info_view: &InfoView<'_>,
-    ) {
+    pub(crate) fn draw_running(&self, frame: &mut Frame, view: &RunningView<'_>) {
         let spacer_view = SpacerView;
-        self.render(&spacer_view, frame, rects.spacer_area);
-        self.render(chat_view, frame, rects.chat_area);
-        self.render(active_view, frame, rects.active_area);
-        self.render(input_view, frame, rects.input_area);
-        self.render(info_view, frame, rects.info_area);
+        self.render(&spacer_view, frame, view.layout.spacer_area);
+        self.render(&view.chat, frame, view.layout.chat_area);
+        self.render(&view.active, frame, view.layout.active_area);
+        self.render(&view.input, frame, view.layout.input_area);
+        self.render(&view.info, frame, view.layout.info_area);
     }
 
     pub(crate) fn next_input_scroll(
@@ -133,10 +123,10 @@ impl Renderable<ActiveView<'_>> for Renderer {
                 Line::from(format!("{} Working", active.spinner_frame())),
                 Line::from(""),
             ],
-            ActivePaneKind::AgentStreaming => vec![Line::from(
+            ActivePaneKind::AssistantStreaming => vec![Line::from(
                 active
                     .stream()
-                    .map(|stream| stream.active_tail())
+                    .map(ActiveStreamState::active_tail)
                     .unwrap_or_default(),
             )],
             ActivePaneKind::SlashMenu => vec![Line::from("")],
@@ -166,7 +156,7 @@ impl Renderable<InputView<'_>> for Renderer {
         if scroll > 0 {
             block = block
                 .title(Line::from("────").left_aligned())
-                .title(Line::from(format!(" ↑ {} more ", scroll)).left_aligned());
+                .title(Line::from(format!(" ↑ {scroll} more ")).left_aligned());
         }
         let visible_end = (scroll + visible_rows).min(lines.len());
 
@@ -191,7 +181,7 @@ impl Renderable<InputView<'_>> for Renderer {
         frame.set_cursor_position((x.min(max_x), y.min(max_y)));
     }
 
-    fn desired_height(&self, view: &InputView<'_>, area: Rect, _input: &str) -> u16 {
+    fn desired_height(&self, view: &InputView<'_>, area: Rect) -> u16 {
         let content_width = area.width.max(1);
         let lines = view.wrapped_ranges;
         let mut cursor = view.cursor_bytes.min(view.text.len());
@@ -209,9 +199,11 @@ impl Renderable<ChatView<'_>> for Renderer {
         let buffer = frame.buffer_mut();
         let visible_rows = area.height as usize;
         let start = view.lines.len().saturating_sub(visible_rows);
+        let visible_lines = &view.lines[start..];
+        let top_padding = visible_rows.saturating_sub(visible_lines.len());
 
-        for (row, line) in view.lines[start..].iter().enumerate() {
-            let y = area.y + u16::try_from(row).unwrap_or(u16::MAX);
+        for (row, line) in visible_lines.iter().enumerate() {
+            let y = area.y + u16::try_from(top_padding + row).unwrap_or(u16::MAX);
             let row_area = Rect {
                 x: area.x,
                 y,
@@ -224,7 +216,7 @@ impl Renderable<ChatView<'_>> for Renderer {
         }
     }
 
-    fn desired_height(&self, view: &ChatView, _area: Rect, _input: &str) -> u16 {
+    fn desired_height(&self, view: &ChatView, _area: Rect) -> u16 {
         u16::try_from(view.lines.len()).unwrap_or(u16::MAX).max(1)
     }
 }

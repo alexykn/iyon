@@ -1,8 +1,6 @@
 use anyhow::Result;
 use tokio::sync::mpsc::{Receiver, Sender, error::TryRecvError};
 
-use crate::core::controller::FrontendAction;
-
 #[derive(Debug)]
 pub(crate) enum BackendCommand {
     SubmitTurn { text: String },
@@ -15,6 +13,12 @@ pub(crate) enum FrontendEvent {
     AssistantDelta { text: String },
     TurnFinished,
     TurnFailed { message: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SubmitTurnResult {
+    Sent,
+    NoBackendAttached,
 }
 
 #[derive(Debug, Default)]
@@ -36,14 +40,14 @@ impl BackendEventHandler {
         }
     }
 
-    pub(crate) fn try_submit_turn(&mut self, text: String) -> Result<()> {
+    pub(crate) fn try_submit_turn(&mut self, text: String) -> Result<SubmitTurnResult> {
         let Some(command_tx) = self.command_tx.as_ref() else {
-            return Ok(());
+            return Ok(SubmitTurnResult::NoBackendAttached);
         };
 
         command_tx.try_send(BackendCommand::SubmitTurn { text })?;
         self.in_flight = true;
-        Ok(())
+        Ok(SubmitTurnResult::Sent)
     }
 
     pub(crate) fn try_cancel_active_turn(&mut self) -> Result<()> {
@@ -59,33 +63,38 @@ impl BackendEventHandler {
         self.in_flight
     }
 
-    pub(crate) fn drain_actions(&mut self) -> Result<Vec<FrontendAction>> {
+    pub(crate) fn drain_events(&mut self) -> Result<Vec<FrontendEvent>> {
         let Some(event_rx) = self.event_rx.as_mut() else {
             return Ok(Vec::new());
         };
 
-        let mut actions = Vec::new();
+        let mut events = Vec::new();
         loop {
             match event_rx.try_recv() {
                 Ok(FrontendEvent::TurnStarted) => {
                     self.in_flight = true;
-                    actions.push(FrontendAction::BackendTurnStarted);
+                    events.push(FrontendEvent::TurnStarted);
                 }
                 Ok(FrontendEvent::AssistantDelta { text }) => {
-                    actions.push(FrontendAction::AssistantDelta { text });
+                    events.push(FrontendEvent::AssistantDelta { text });
                 }
                 Ok(FrontendEvent::TurnFinished) => {
                     self.in_flight = false;
-                    actions.push(FrontendAction::BackendTurnFinished);
+                    events.push(FrontendEvent::TurnFinished);
                 }
                 Ok(FrontendEvent::TurnFailed { message }) => {
                     self.in_flight = false;
-                    actions.push(FrontendAction::BackendTurnFailed { message });
+                    events.push(FrontendEvent::TurnFailed { message });
                 }
-                Err(TryRecvError::Empty) => return Ok(actions),
+                Err(TryRecvError::Empty) => return Ok(events),
                 Err(TryRecvError::Disconnected) => {
-                    self.in_flight = false;
-                    return Ok(actions);
+                    if self.in_flight {
+                        self.in_flight = false;
+                        events.push(FrontendEvent::TurnFailed {
+                            message: "backend disconnected".to_string(),
+                        });
+                    }
+                    return Ok(events);
                 }
             }
         }
