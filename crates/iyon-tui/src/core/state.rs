@@ -1,8 +1,9 @@
 use ratatui::text::Line;
 
 use crate::{
-    core::input::InputBuffer,
+    core::{active::ActivePaneState, input::InputBuffer},
     util::format::{TimelineItem, TuiFormatter},
+    util::wrapping::{TranscriptCommitBoundary, wrap_transcript_rows},
 };
 
 #[derive(Debug, Default)]
@@ -36,13 +37,41 @@ impl AppState {
             self.exit_state = ExitState::Requested;
         }
     }
+
+    pub(crate) fn start_working_pane(&mut self) {
+        if self.active.is_none() {
+            self.active = Some(ActivePaneState::working_spinner());
+        }
+    }
+
+    pub(crate) fn receive_assistant_delta(&mut self, chunk: &str) {
+        if self.active.is_none() {
+            self.start_working_pane();
+        }
+
+        if let Some(active) = self.active.as_mut() {
+            active.push_assistant_delta(chunk);
+        }
+    }
+
+    pub(crate) fn tick_active(&mut self) {
+        if let Some(active) = self.active.as_mut() {
+            active.tick();
+        }
+    }
+
+    pub(crate) fn take_active_unfrozen_transcript_text(&mut self) -> Option<String> {
+        self.active
+            .take()
+            .and_then(ActivePaneState::into_unfrozen_transcript_text)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct TranscriptState {
     pub(crate) canonical_items: Vec<TimelineItem>,
     pub(crate) rendered_rows_cache: Option<TranscriptRenderCache>,
-    pub(crate) committed_rows: usize,
+    pub(crate) commit_boundary: TranscriptCommitBoundary,
     formatter: TuiFormatter,
 }
 
@@ -51,7 +80,7 @@ impl Default for TranscriptState {
         Self {
             canonical_items: Vec::new(),
             rendered_rows_cache: None,
-            committed_rows: 0,
+            commit_boundary: TranscriptCommitBoundary::default(),
             formatter: TuiFormatter,
         }
     }
@@ -59,21 +88,8 @@ impl Default for TranscriptState {
 
 impl TranscriptState {
     pub(crate) fn push_item(&mut self, item: TimelineItem) {
-        let formatted_rows = if self.rendered_rows_cache.is_some() {
-            Some(self.formatter.format(&item))
-        } else {
-            None
-        };
-
         self.canonical_items.push(item);
-
-        if let (Some(cache), Some(mut rows)) = (self.rendered_rows_cache.as_mut(), formatted_rows) {
-            if !cache.rows.is_empty() {
-                cache.rows.push(Line::from(""));
-            }
-            cache.rows.append(&mut rows);
-            self.committed_rows = self.committed_rows.min(cache.rows.len());
-        }
+        self.rendered_rows_cache = None;
     }
 
     pub(crate) fn ensure_render_cache(&mut self, width: u16) {
@@ -86,14 +102,13 @@ impl TranscriptState {
             return;
         }
 
-        let rows = self.rows_from_canonical();
-        self.rendered_rows_cache = Some(TranscriptRenderCache { width, rows });
-
-        if let Some(cache) = self.rendered_rows_cache.as_ref() {
-            self.committed_rows = self.committed_rows.min(cache.rows.len());
-        } else {
-            self.committed_rows = 0;
-        }
+        let logical_rows = self.rows_from_canonical();
+        let cache = TranscriptRenderCache::from_logical_rows(
+            width.max(1),
+            &logical_rows,
+            self.commit_boundary,
+        );
+        self.rendered_rows_cache = Some(cache);
     }
 
     pub(crate) fn uncommitted_rows(&self) -> &[Line<'static>] {
@@ -101,8 +116,7 @@ impl TranscriptState {
             return &[];
         };
 
-        let start = self.committed_rows.min(cache.rows.len());
-        &cache.rows[start..]
+        &cache.rows
     }
 
     pub(crate) fn uncommitted_len(&self) -> usize {
@@ -110,10 +124,18 @@ impl TranscriptState {
     }
 
     pub(crate) fn mark_rows_committed(&mut self, rows: usize) {
-        self.committed_rows = self.committed_rows.saturating_add(rows);
-        if let Some(cache) = self.rendered_rows_cache.as_ref() {
-            self.committed_rows = self.committed_rows.min(cache.rows.len());
+        let Some(cache) = self.rendered_rows_cache.as_mut() else {
+            return;
+        };
+
+        let committed_rows = rows.min(cache.rows.len());
+        if committed_rows == 0 {
+            return;
         }
+
+        self.commit_boundary = cache.row_end_boundaries[committed_rows - 1];
+        cache.rows.drain(..committed_rows);
+        cache.row_end_boundaries.drain(..committed_rows);
     }
 
     fn rows_from_canonical(&self) -> Vec<Line<'static>> {
@@ -134,27 +156,23 @@ impl TranscriptState {
 pub(crate) struct TranscriptRenderCache {
     pub(crate) width: u16,
     pub(crate) rows: Vec<Line<'static>>,
+    row_end_boundaries: Vec<TranscriptCommitBoundary>,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct ActivePaneState {
-    pub(crate) kind: ActivePaneKind,
-    pub(crate) behavior: ActiveBehavior,
-    pub(crate) spill_text: String,
-}
+impl TranscriptRenderCache {
+    fn from_logical_rows(
+        width: u16,
+        logical_rows: &[Line<'static>],
+        commit_boundary: TranscriptCommitBoundary,
+    ) -> Self {
+        let wrapped = wrap_transcript_rows(width, logical_rows, commit_boundary);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ActivePaneKind {
-    WorkingSpinner,
-    AgentStreaming,
-    SlashMenu,
-    FilePicker,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ActiveBehavior {
-    SpillToTranscript,
-    OccludeOnly,
+        Self {
+            width,
+            rows: wrapped.rows,
+            row_end_boundaries: wrapped.row_end_boundaries,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -171,4 +189,52 @@ pub(crate) enum ExitState {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct InfoState {
     pub(crate) status: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line_text(line: &Line<'static>) -> String {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
+    }
+
+    #[test]
+    fn wraps_transcript_rows_to_visual_width() {
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::AgentMessage {
+            text: "abcdef".to_string(),
+        });
+
+        transcript.ensure_render_cache(3);
+
+        let rows = transcript
+            .uncommitted_rows()
+            .iter()
+            .map(line_text)
+            .collect::<Vec<_>>();
+        assert_eq!(rows, ["", "abc", "def", ""]);
+    }
+
+    #[test]
+    fn commit_boundary_survives_resize_after_partial_line_commit() {
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::AgentMessage {
+            text: "abcdef".to_string(),
+        });
+
+        transcript.ensure_render_cache(3);
+        transcript.mark_rows_committed(2);
+        transcript.ensure_render_cache(2);
+
+        let rows = transcript
+            .uncommitted_rows()
+            .iter()
+            .map(line_text)
+            .collect::<Vec<_>>();
+        assert_eq!(rows, ["de", "f", ""]);
+    }
 }

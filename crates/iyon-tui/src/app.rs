@@ -1,28 +1,108 @@
-use std::ops::Range;
+use std::{
+    ops::Range,
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
 use ratatui::{Frame, layout::Rect, text::Line};
 
 use crate::core::{
+    active::{ActiveBehavior, ActivePaneKind},
     input::InputEventHandler,
     layout::{CommitCapacityPolicy, ComputedLayout, LayoutConfig},
-    render::{ChatView, InfoView, InputView, Renderable, Renderer},
+    render::{ActiveView, ChatView, InfoView, InputView, Renderable, Renderer},
     scrollback::ScrollbackCommitter,
-    state::{ActiveBehavior, AppState, ExitState},
+    state::{AppState, ExitState},
     terminal::InlineTerminal,
 };
 use crate::util::wrapping::WrapCache;
 
 const EXIT_DRAIN_CHUNK: usize = 256;
 const EXIT_GOODBYE: &str = "Goodbye.";
+const IDLE_POLL_TIMEOUT: Duration = Duration::from_secs(60 * 60);
+const SPINNER_TICK_INTERVAL: Duration = Duration::from_millis(80);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct App {
     pub(super) input_handler: InputEventHandler,
     pub(super) wrap_cache: WrapCache,
     pub(super) layout: LayoutConfig,
     pub(super) renderer: Renderer,
     pub(super) scrollback: ScrollbackCommitter,
+    active_ticker: ActiveTicker,
+    needs_redraw: bool,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self {
+            input_handler: InputEventHandler,
+            wrap_cache: WrapCache::default(),
+            layout: LayoutConfig::default(),
+            renderer: Renderer,
+            scrollback: ScrollbackCommitter,
+            active_ticker: ActiveTicker::new(SPINNER_TICK_INTERVAL),
+            needs_redraw: true,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ActiveTicker {
+    interval: Duration,
+    next_tick: Instant,
+    animating: bool,
+}
+
+impl ActiveTicker {
+    fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            next_tick: Instant::now() + interval,
+            animating: false,
+        }
+    }
+
+    fn wait_timeout(&mut self, now: Instant, state: &AppState) -> Duration {
+        let is_animating = matches!(
+            state.active.as_ref().map(|active| active.kind()),
+            Some(ActivePaneKind::WorkingSpinner)
+        );
+
+        if !is_animating {
+            self.animating = false;
+            self.next_tick = now + self.interval;
+            return IDLE_POLL_TIMEOUT;
+        }
+
+        if !self.animating {
+            self.animating = true;
+            self.next_tick = now + self.interval;
+        }
+
+        self.next_tick.saturating_duration_since(now)
+    }
+
+    fn tick_if_due(&mut self, now: Instant, state: &mut AppState) -> bool {
+        let is_animating = matches!(
+            state.active.as_ref().map(|active| active.kind()),
+            Some(ActivePaneKind::WorkingSpinner)
+        );
+
+        if !is_animating {
+            self.animating = false;
+            self.next_tick = now + self.interval;
+            return false;
+        }
+
+        if now < self.next_tick {
+            return false;
+        }
+
+        state.tick_active();
+        self.next_tick = now + self.interval;
+        true
+    }
 }
 
 impl App {
@@ -54,6 +134,36 @@ impl App {
     }
 
     fn step_running(&mut self, terminal: &mut InlineTerminal, state: &mut AppState) -> Result<()> {
+        if self.needs_redraw {
+            self.draw_dirty_running_frame(terminal, state)?;
+            return Ok(());
+        }
+
+        let timeout = self.active_ticker.wait_timeout(Instant::now(), state);
+        let input_dirty =
+            self.input_handler
+                .poll_and_handle(timeout, state, &mut self.wrap_cache)?;
+
+        if !matches!(state.exit_state, ExitState::Running) {
+            return Ok(());
+        }
+
+        let active_dirty = self.active_ticker.tick_if_due(Instant::now(), state);
+        let backend_dirty = self.poll_backend_events(state)?;
+
+        if input_dirty || active_dirty || backend_dirty {
+            self.draw_dirty_running_frame(terminal, state)?;
+        }
+
+        Ok(())
+    }
+
+    fn draw_dirty_running_frame(
+        &mut self,
+        terminal: &mut InlineTerminal,
+        state: &mut AppState,
+    ) -> Result<()> {
+        self.needs_redraw = false;
         self.spill_active_into_transcript_if_needed(state);
 
         let root = self.current_root_rect(terminal)?;
@@ -62,13 +172,16 @@ impl App {
         self.commit_running_overflow_rows(terminal, state, root)?;
 
         terminal.draw(|frame| self.draw_running(frame, state))?;
-        self.input_handler.run(state, &mut self.wrap_cache)?;
         Ok(())
+    }
+
+    fn poll_backend_events(&mut self, _state: &mut AppState) -> Result<bool> {
+        Ok(false)
     }
 
     fn spill_active_into_transcript_if_needed(&mut self, state: &mut AppState) {
         if matches!(
-            state.active.as_ref().map(|pane| pane.behavior),
+            state.active.as_ref().map(|pane| pane.behavior()),
             Some(ActiveBehavior::SpillToTranscript)
         ) {
             // Placeholder: active pane streaming state is not wired yet.
@@ -77,15 +190,8 @@ impl App {
     }
 
     fn step_finalize_active(&mut self, state: &mut AppState) -> Result<()> {
-        if let Some(active) = state.active.take() {
-            match active.behavior {
-                ActiveBehavior::SpillToTranscript => {
-                    state.append_agent_message(active.spill_text);
-                }
-                ActiveBehavior::OccludeOnly => {
-                    // Drop transient UI-only pane with no transcript mutation.
-                }
-            }
+        if let Some(text) = state.take_active_unfrozen_transcript_text() {
+            state.append_agent_message(text);
         }
 
         state.exit_state = ExitState::FlushHistory;
@@ -224,6 +330,9 @@ impl App {
         let chat_view = ChatView {
             lines: state.transcript.uncommitted_rows(),
         };
+        let active_view = ActiveView {
+            active: state.active.as_ref(),
+        };
         let info_view = InfoView {
             status: &state.info.status,
         };
@@ -231,7 +340,14 @@ impl App {
         state.scroll = renderer.next_input_scroll(&input_view, rects.input_area, state.scroll);
         input_view.scroll_rows = state.scroll;
 
-        renderer.draw_running(frame, rects, &chat_view, &input_view, &info_view);
+        renderer.draw_running(
+            frame,
+            rects,
+            &chat_view,
+            &active_view,
+            &input_view,
+            &info_view,
+        );
     }
 
     fn compute_layout(
@@ -246,7 +362,7 @@ impl App {
         };
 
         let active_height = if state.active.is_some() { 3 } else { 0 };
-        let commit_capacity_policy = match state.active.as_ref().map(|pane| pane.behavior) {
+        let commit_capacity_policy = match state.active.as_ref().map(|pane| pane.behavior()) {
             Some(ActiveBehavior::OccludeOnly) => CommitCapacityPolicy::OccludeOnly,
             _ => CommitCapacityPolicy::SpillToTranscript,
         };

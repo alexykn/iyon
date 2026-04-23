@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+use ratatui::text::{Line, Span};
 use textwrap::Options;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -26,6 +27,37 @@ impl WrapCache {
         }
 
         self.ranges.as_slice()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WidthPolicy {
+    ReserveCursorColumn,
+    Exact,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WrapConfig {
+    pub(crate) width: u16,
+    pub(crate) width_policy: WidthPolicy,
+    pub(crate) break_words: bool,
+}
+
+impl WrapConfig {
+    pub(crate) fn input(width: u16) -> Self {
+        Self {
+            width,
+            width_policy: WidthPolicy::ReserveCursorColumn,
+            break_words: true,
+        }
+    }
+
+    pub(crate) fn transcript(width: u16) -> Self {
+        Self {
+            width,
+            width_policy: WidthPolicy::Exact,
+            break_words: true,
+        }
     }
 }
 
@@ -71,12 +103,19 @@ pub(crate) fn cursor_for_display_col(
 }
 
 pub(crate) fn compute_wrapped_ranges(text: &str, width: u16) -> Vec<Range<usize>> {
+    wrap_ranges(text, WrapConfig::input(width))
+}
+
+pub(crate) fn wrap_ranges(text: &str, cfg: WrapConfig) -> Vec<Range<usize>> {
     if text.is_empty() {
         return std::iter::once(0..0).collect();
     }
 
-    let wrap_width = usize::from(width.saturating_sub(1).max(1));
-    let opts = Options::new(wrap_width).break_words(true);
+    let wrap_width = match cfg.width_policy {
+        WidthPolicy::ReserveCursorColumn => usize::from(cfg.width.saturating_sub(1).max(1)),
+        WidthPolicy::Exact => usize::from(cfg.width.max(1)),
+    };
+    let opts = Options::new(wrap_width).break_words(cfg.break_words);
     let mut visual = Vec::<Range<usize>>::new();
 
     for logical in logical_line_ranges(text) {
@@ -118,6 +157,220 @@ pub(crate) fn compute_wrapped_ranges(text: &str, width: u16) -> Vec<Range<usize>
         visual.push(0..0);
     }
     visual
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct TranscriptCommitBoundary {
+    pub(crate) logical_row: usize,
+    pub(crate) span_index: usize,
+    pub(crate) byte_offset: usize,
+}
+
+impl TranscriptCommitBoundary {
+    pub(crate) fn next_logical_row(logical_row: usize) -> Self {
+        Self {
+            logical_row: logical_row.saturating_add(1),
+            span_index: 0,
+            byte_offset: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct WrappedTranscriptRows {
+    pub(crate) rows: Vec<Line<'static>>,
+    pub(crate) row_end_boundaries: Vec<TranscriptCommitBoundary>,
+}
+
+pub(crate) fn wrap_transcript_rows(
+    width: u16,
+    logical_rows: &[Line<'static>],
+    commit_boundary: TranscriptCommitBoundary,
+) -> WrappedTranscriptRows {
+    let mut rows = Vec::new();
+    let mut row_end_boundaries = Vec::new();
+    let start_row = commit_boundary.logical_row.min(logical_rows.len());
+
+    for (logical_row, line) in logical_rows.iter().enumerate().skip(start_row) {
+        let start = if logical_row == commit_boundary.logical_row {
+            commit_boundary
+        } else {
+            TranscriptCommitBoundary {
+                logical_row,
+                span_index: 0,
+                byte_offset: 0,
+            }
+        };
+        wrap_transcript_logical_row(
+            width.max(1),
+            logical_row,
+            line,
+            start,
+            &mut rows,
+            &mut row_end_boundaries,
+        );
+    }
+
+    WrappedTranscriptRows {
+        rows,
+        row_end_boundaries,
+    }
+}
+
+fn wrap_transcript_logical_row(
+    width: u16,
+    logical_row: usize,
+    line: &Line<'static>,
+    start: TranscriptCommitBoundary,
+    rows: &mut Vec<Line<'static>>,
+    row_end_boundaries: &mut Vec<TranscriptCommitBoundary>,
+) {
+    let flattened = flatten_line_from_boundary(line, start);
+    let wrapped_ranges = wrap_ranges(&flattened.text, WrapConfig::transcript(width.max(1)));
+
+    for range in wrapped_ranges {
+        let row = line_from_flat_range(line, &flattened.segments, range.clone());
+        let boundary = flat_offset_to_boundary(
+            logical_row,
+            &flattened.segments,
+            flattened.text.len(),
+            range.end,
+        );
+        push_row(rows, row_end_boundaries, row, boundary);
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FlatLine {
+    text: String,
+    segments: Vec<FlatSegment>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FlatSegment {
+    flat_start: usize,
+    flat_end: usize,
+    span_index: usize,
+    src_start: usize,
+}
+
+fn flatten_line_from_boundary(line: &Line<'static>, start: TranscriptCommitBoundary) -> FlatLine {
+    let mut text = String::new();
+    let mut segments = Vec::new();
+
+    for (span_index, span) in line.spans.iter().enumerate().skip(start.span_index) {
+        let mut byte_offset = if span_index == start.span_index {
+            start.byte_offset.min(span.content.len())
+        } else {
+            0
+        };
+
+        while byte_offset < span.content.len() && !span.content.is_char_boundary(byte_offset) {
+            byte_offset += 1;
+        }
+
+        let slice = &span.content[byte_offset..];
+        if slice.is_empty() {
+            continue;
+        }
+
+        let flat_start = text.len();
+        text.push_str(slice);
+        let flat_end = text.len();
+        segments.push(FlatSegment {
+            flat_start,
+            flat_end,
+            span_index,
+            src_start: byte_offset,
+        });
+    }
+
+    FlatLine { text, segments }
+}
+
+fn line_from_flat_range(
+    template: &Line<'static>,
+    segments: &[FlatSegment],
+    range: Range<usize>,
+) -> Line<'static> {
+    let mut line = empty_like(template);
+
+    for segment in segments {
+        let overlap_start = segment.flat_start.max(range.start);
+        let overlap_end = segment.flat_end.min(range.end);
+        if overlap_start >= overlap_end {
+            continue;
+        }
+
+        let source = &template.spans[segment.span_index];
+        let src_start = segment.src_start + (overlap_start - segment.flat_start);
+        let src_end = segment.src_start + (overlap_end - segment.flat_start);
+        let piece = &source.content[src_start..src_end];
+        push_span_text(&mut line, source, piece);
+    }
+
+    line
+}
+
+fn flat_offset_to_boundary(
+    logical_row: usize,
+    segments: &[FlatSegment],
+    flat_len: usize,
+    flat_offset: usize,
+) -> TranscriptCommitBoundary {
+    if flat_offset >= flat_len {
+        return TranscriptCommitBoundary::next_logical_row(logical_row);
+    }
+
+    for segment in segments {
+        if flat_offset < segment.flat_end {
+            return TranscriptCommitBoundary {
+                logical_row,
+                span_index: segment.span_index,
+                byte_offset: segment.src_start + (flat_offset - segment.flat_start),
+            };
+        }
+    }
+
+    if let Some(last) = segments.last() {
+        return TranscriptCommitBoundary {
+            logical_row,
+            span_index: last.span_index,
+            byte_offset: last.src_start + (flat_offset.saturating_sub(last.flat_start)),
+        };
+    }
+
+    TranscriptCommitBoundary::next_logical_row(logical_row)
+}
+
+fn empty_like(line: &Line<'static>) -> Line<'static> {
+    Line {
+        style: line.style,
+        alignment: line.alignment,
+        spans: Vec::new(),
+    }
+}
+
+fn push_row(
+    rows: &mut Vec<Line<'static>>,
+    boundaries: &mut Vec<TranscriptCommitBoundary>,
+    row: Line<'static>,
+    boundary: TranscriptCommitBoundary,
+) {
+    rows.push(row);
+    boundaries.push(boundary);
+}
+
+fn push_span_text(line: &mut Line<'static>, source: &Span<'static>, text: &str) {
+    if let Some(last) = line.spans.last_mut()
+        && last.style == source.style
+    {
+        last.content.to_mut().push_str(text);
+        return;
+    }
+
+    line.spans
+        .push(Span::styled(text.to_string(), source.style));
 }
 
 fn map_owned_piece_to_range(
@@ -173,4 +426,59 @@ fn logical_line_ranges(text: &str) -> Vec<Range<usize>> {
     }
     out.push(start..text.len());
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::text::Line;
+    use std::ops::Range;
+
+    use super::{
+        TranscriptCommitBoundary, WrapConfig, compute_wrapped_ranges, wrap_ranges,
+        wrap_transcript_rows,
+    };
+
+    fn line_text(line: &Line<'static>) -> String {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
+    }
+
+    #[test]
+    fn transcript_wrap_prefers_word_boundaries() {
+        let rows = wrap_transcript_rows(
+            10,
+            &[Line::from("hello whatever amazing")],
+            TranscriptCommitBoundary::default(),
+        );
+
+        let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
+        assert_eq!(text_rows, ["hello ", "whatever ", "amazing"]);
+    }
+
+    #[test]
+    fn transcript_wrap_hard_breaks_long_word() {
+        let rows = wrap_transcript_rows(
+            5,
+            &[Line::from("abcdefgh")],
+            TranscriptCommitBoundary::default(),
+        );
+
+        let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
+        assert_eq!(text_rows, ["abcde", "fgh"]);
+    }
+
+    #[test]
+    fn input_policy_reserves_one_column() {
+        assert_eq!(compute_wrapped_ranges("abcdef", 5), vec![0..4, 4..6]);
+    }
+
+    #[test]
+    fn transcript_policy_uses_exact_width() {
+        assert_eq!(
+            wrap_ranges("abcdef", WrapConfig::transcript(5)),
+            vec![Range { start: 0, end: 5 }, Range { start: 5, end: 6 }]
+        );
+    }
 }
