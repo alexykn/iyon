@@ -7,9 +7,6 @@ use ratatui::{
 pub(crate) enum TimelineItem {
     UserMessage { text: String },
     AgentMessage { text: String },
-    Read { text: String },
-    Edit { text: String },
-    Delete { text: String },
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -19,55 +16,54 @@ impl TuiFormatter {
     pub(crate) fn format(&self, item: &TimelineItem) -> Vec<Line<'static>> {
         let (text, style) = match item {
             TimelineItem::UserMessage { text } => (
-                format!(" {}", text),
+                text.to_string(),
                 Style::default().bg(Color::Rgb(45, 55, 72)),
             ),
             TimelineItem::AgentMessage { text } => (text.to_string(), Style::default()),
-            TimelineItem::Read { text } => (
-                text.to_string(),
-                Style::default().bg(Color::Rgb(42, 74, 74)),
-            ),
-            TimelineItem::Edit { text } => (
-                text.to_string(),
-                Style::default().bg(Color::Rgb(82, 72, 44)),
-            ),
-            TimelineItem::Delete { text } => (
-                text.to_string(),
-                Style::default().bg(Color::Rgb(84, 48, 48)),
-            ),
         };
 
-        vec![
-            Line::styled("", style),
-            Line::styled(text, style),
-            Line::styled("", style),
-        ]
+        let mut rows = Vec::new();
+        rows.push(Line::styled("", style));
+        rows.extend(styled_lines_preserving_newlines(&text, style));
+        rows.push(Line::styled("", style));
+        rows
     }
 }
 
-pub(crate) fn timeline_item_from_input(input: &str) -> TimelineItem {
-    if let Some(text) = input.strip_prefix("/agent ") {
-        return TimelineItem::AgentMessage {
-            text: text.to_string(),
-        };
-    }
-    if let Some(text) = input.strip_prefix("/read ") {
-        return TimelineItem::Read {
-            text: text.to_string(),
-        };
-    }
-    if let Some(text) = input.strip_prefix("/edit ") {
-        return TimelineItem::Edit {
-            text: text.to_string(),
-        };
-    }
-    if let Some(text) = input.strip_prefix("/delete ") {
-        return TimelineItem::Delete {
-            text: text.to_string(),
-        };
-    }
+fn styled_lines_preserving_newlines(text: &str, style: Style) -> Vec<Line<'static>> {
+    text.split('\n')
+        .map(|line| Line::styled(line.to_string(), style))
+        .collect()
+}
 
+pub(crate) fn timeline_item_from_input(input: &str) -> TimelineItem {
     TimelineItem::UserMessage {
         text: input.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formatter_preserves_multiline_message_shape() {
+        let formatter = TuiFormatter;
+        let item = TimelineItem::UserMessage {
+            text: "line1\nline2\n".to_string(),
+        };
+
+        let lines = formatter.format(&item);
+        let text_rows = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(text_rows, vec!["", "line1", "line2", "", ""]);
     }
 }

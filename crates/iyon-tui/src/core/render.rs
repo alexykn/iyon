@@ -9,7 +9,10 @@ use ratatui::{
 };
 
 use crate::{
-    core::layout::ComputedLayout,
+    core::{
+        active::{ActivePaneKind, ActivePaneState},
+        layout::ComputedLayout,
+    },
     util::wrapping::{cursor_xy, wrapped_line_index_by_start},
 };
 
@@ -37,6 +40,12 @@ pub(crate) struct ChatView<'a> {
 impl View for ChatView<'_> {}
 
 #[derive(Debug, Clone)]
+pub(crate) struct ActiveView<'a> {
+    pub(crate) active: Option<&'a ActivePaneState>,
+}
+impl View for ActiveView<'_> {}
+
+#[derive(Debug, Clone)]
 pub(crate) struct InfoView<'a> {
     pub(crate) status: &'a str,
 }
@@ -62,13 +71,14 @@ impl Renderer {
         frame: &mut Frame,
         rects: ComputedLayout,
         chat_view: &ChatView<'_>,
+        active_view: &ActiveView<'_>,
         input_view: &InputView<'_>,
         info_view: &InfoView<'_>,
     ) {
         let spacer_view = SpacerView;
         self.render(&spacer_view, frame, rects.spacer_area);
         self.render(chat_view, frame, rects.chat_area);
-        self.render(&spacer_view, frame, rects.active_area);
+        self.render(active_view, frame, rects.active_area);
         self.render(input_view, frame, rects.input_area);
         self.render(info_view, frame, rects.info_area);
     }
@@ -107,6 +117,32 @@ impl Renderer {
 impl Renderable<SpacerView> for Renderer {
     fn render(&self, _view: &SpacerView, frame: &mut Frame, area: Rect) {
         frame.render_widget(ratatui::widgets::Paragraph::default(), area);
+    }
+}
+
+impl Renderable<ActiveView<'_>> for Renderer {
+    fn render(&self, view: &ActiveView, frame: &mut Frame, area: Rect) {
+        let Some(active) = view.active else {
+            frame.render_widget(Paragraph::default(), area);
+            return;
+        };
+
+        let lines = match active.kind() {
+            ActivePaneKind::WorkingSpinner => vec![
+                Line::from(""),
+                Line::from(format!("{} Working", active.spinner_frame())),
+                Line::from(""),
+            ],
+            ActivePaneKind::AgentStreaming => vec![Line::from(
+                active
+                    .stream()
+                    .map(|stream| stream.active_tail())
+                    .unwrap_or_default(),
+            )],
+            ActivePaneKind::SlashMenu => vec![Line::from("")],
+            ActivePaneKind::FilePicker => vec![Line::from("")],
+        };
+        frame.render_widget(Paragraph::new(Text::from(lines)), area);
     }
 }
 

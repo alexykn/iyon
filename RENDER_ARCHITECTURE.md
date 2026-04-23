@@ -1,308 +1,228 @@
 # Render Architecture
 
-This document captures the TUI render design for `iyon` and is the source of truth for render boundaries and contracts.
+This document is the source of truth for the current `iyon-tui` render architecture.
+It reflects what is implemented today in code, plus clearly marked near-term evolution points.
 
-## Goals
+---
 
-- Keep domain/editor state separate from rendering.
-- Use typed view structs (`InputView`, `ChatView`, etc.).
-- Use one central renderer with per-view impls.
-- Keep formatting parity between live UI and scrollback commit path.
-- Avoid forcing unrelated fields into shared traits.
-- Keep semantic presentation mapping separate from terminal paint calls.
-- Keep formatting in the frontend composition layer (not backend transport/orchestration).
+## Current Architecture (Implemented)
 
-## Non-Goals
+## 1) High-level pipeline
 
-- No runtime backend switch inside `Renderable`.
-- No formatting strategy decision inside `Renderable`.
+Runtime flow today:
 
-## Mental Model
+1. Input/event handling mutates `AppState`.
+2. Transcript canonical items are formatted to `Vec<Line<'static>>` through `TuiFormatter`.
+3. `TranscriptState` caches rendered rows by width.
+4. Layout is computed (including active pane reservation and commit-capacity policy).
+5. Overflow rows are committed to terminal scrollback.
+6. Live frame is rendered via typed views + `Renderer`.
 
-1. Event handlers mutate app/domain state.
-2. Map domain events/state to semantic presentation items.
-3. Format semantic items into shared render lines (`Vec<Line<'static>>`).
-4. Build lightweight view structs from that formatted output.
-5. Render live UI into ratatui areas.
-6. Commit scrollback from the same formatted lines.
+Key property:
+- Live rendering and scrollback insertion both consume the same formatted row type (`Line<'static>`), preserving parity.
 
-## Core Traits
+---
+
+## 2) App loop and shutdown model
+
+`App::run()` is a step/state-machine loop, not a single loop with ad-hoc teardown.
 
 ```rust
-use ratatui::{Frame, layout::Rect};
+ExitState::Running
+-> Requested
+-> FinalizeActive
+-> FlushHistory
+-> FinalFrame
+-> Done
+```
 
-pub trait View {}
+### Running phase
 
-pub trait Renderable<V: View> {
+- Ensures transcript render cache for current width.
+- Commits transcript overflow rows according to commit capacity.
+- Draws running UI.
+- Processes input events.
+
+### Shutdown phases
+
+- `FinalizeActive`: resolve active pane behavior (`SpillToTranscript` or `OccludeOnly`).
+- `FlushHistory`: commit remaining uncommitted transcript rows in chunks.
+- `FinalFrame`: draw exit anchor, insert goodbye rows, set cursor position, then `Done`.
+
+This keeps shutdown deterministic and avoids dropping transcript rows.
+
+---
+
+## 3) State model
+
+## `AppState`
+
+- `input: InputBuffer`
+- `transcript: TranscriptState`
+- `active: Option<ActivePaneState>`
+- `info: InfoState`
+- `input_content_width: u16`
+- `scroll: u16`
+- `exit_state: ExitState`
+
+## `TranscriptState`
+
+- `canonical_items: Vec<TimelineItem>`
+- `rendered_rows_cache: Option<TranscriptRenderCache>` keyed by width
+- `committed_rows: usize` monotonic boundary into cached rows
+- `formatter: TuiFormatter`
+
+Important behavior:
+- Width change => full cache recompute from canonical items.
+- New item + existing cache => incremental append of formatted rows.
+- `uncommitted_rows()` is the source for both chat display and scrollback overflow commit.
+
+## Active pane state
+
+- `ActivePaneKind`: `WorkingSpinner | AgentStreaming | SlashMenu | FilePicker`
+- `ActiveBehavior`: `SpillToTranscript | OccludeOnly`
+- `spill_text: String`
+
+Note: active-pane rendering/streaming is only partially wired today (layout/state exist; rendering is currently placeholder in `active_area`).
+
+---
+
+## 4) View + renderer boundaries
+
+Typed view contracts:
+
+- `SpacerView`
+- `InputView { text, cursor_bytes, scroll_rows, wrapped_ranges }`
+- `ChatView { lines }`
+- `InfoView { status }`
+
+Core trait:
+
+```rust
+pub(crate) trait Renderable<V: View> {
     fn render(&self, view: &V, frame: &mut Frame, area: Rect);
+    fn desired_height(&self, _: &V, area: Rect, input: &str) -> u16 { ... }
 }
 ```
 
-Notes:
+### Notable implementation details
 
-- `View` is intentionally minimal.
-- `Renderable<V>` is for live `ratatui::Frame` rendering only.
-- Scrollback output is a separate contract.
+- `InputView` uses precomputed wrapped ranges (`WrapCache`) and explicit `scroll_rows`.
+- Cursor placement is computed from wrapped lines (`cursor_xy`) and clamped to area bounds.
+- `ChatView` paints directly into the frame buffer and only draws visible tail rows.
+- `Renderer::draw_running()` composes spacer/chat/active/input/info in one place.
 
-## Semantic Layer (Before Rendering)
+---
 
-```rust
-pub enum Presentable {
-    UserMessage { text: String },
-    AssistantMessage { text: String },
-    ToolCallStarted { name: String },
-    ToolCallFinished { name: String, status: String },
-    DiffChunk { header: String, lines: Vec<String> },
-    StatusLine { text: String },
-}
-```
+## 5) Wrapping + input performance model
 
-```rust
-use ratatui::text::Line;
+`WrapCache` caches wrapped ranges by `(text_revision, width)`.
 
-pub trait PresentableFormatter {
-    fn format_presentable(&self, item: &Presentable) -> Vec<Line<'static>>;
-}
-```
+- Input edits increment `text_revision`.
+- If neither revision nor width changed, wrapped ranges are reused.
+- Input navigation (including visual up/down) reuses cached wrapped ranges.
 
-Notes:
+This removes repeated re-wrap work on every draw.
 
-- This is the canonical presentation decision point.
-- Rendering should not decide whether something is a tool call, diff, status, etc.
+---
 
-## View Types
+## 6) Layout and capacity policy
 
-```rust
-use ratatui::text::Line;
+Layout stack (top to bottom):
 
-#[derive(Debug, Clone)]
-pub struct InputView<'a> {
-    pub text: &'a str,
-    pub cursor_bytes: usize,
-}
-impl View for InputView<'_> {}
+1. spacer
+2. chat
+3. active
+4. input
+5. info
 
-#[derive(Debug, Clone)]
-pub struct ChatView<'a> {
-    // Already formatted for live rendering and scrollback parity.
-    pub lines: &'a [Line<'static>],
-}
-impl View for ChatView<'_> {}
+Layout is computed in multiple passes:
 
-#[derive(Debug, Clone)]
-pub struct InfoView<'a> {
-    pub status: &'a str,
-}
-impl View for InfoView<'_> {}
-```
+- pass 1: base constraints
+- pass 2: refine with renderer-derived `input_height`
+- final: refine with renderer-derived `chat_height`
 
-Important:
+Computed layout exposes two capacities:
 
-- Cursor is only in `InputView`.
-- Other views do not carry cursor fields.
-- `ChatView` carries already-formatted lines, not semantic/domain state.
-- Prefer borrowed view fields (`&str`, `&[Line]`) in the draw path to avoid clone-heavy per-frame allocations.
+- `visual_chat_capacity_rows`: rows currently visible in chat area
+- `commit_chat_capacity_rows`: rows considered by overflow commit logic
 
-## Canonical Presentation Construction
+Policy:
 
-Pick one approach in composition/wiring, but both should converge to shared styled lines.
+- `SpillToTranscript` => commit capacity follows visual chat capacity
+- `OccludeOnly` => commit capacity ignores active-pane occlusion
 
-### Option A: Direct formatter to `Line/Span`
+This prevents transient occluding panes (menus/pickers) from causing irreversible scrollback commits.
 
-- Format semantic items straight to `Vec<Line<'static>>`.
-- Live path renders those lines.
-- Commit path serializes those same lines to terminal style commands/ANSI.
+---
 
-### Option B: IR-first canonical builder
+## 7) Scrollback + terminal boundary
 
-- Build richer semantic IR first when needed (collapsible groups, structured diff metadata, etc.).
-- Lower IR to `Vec<Line<'static>>`.
-- Use the same lowered lines for live and scrollback.
+`InlineTerminal` is the terminal boundary wrapper:
 
-```rust
-pub trait PaneIrBuilder<V: View, I> {
-    fn build_ir(&self, view: &V) -> I;
-}
+- `draw(...)`
+- `insert_history_rows(...)`
+- `last_viewport_area()`
+- `invalidate_next_draw()`
 
-pub trait IrToLines<I> {
-    fn to_lines(&self, ir: &I) -> Vec<ratatui::text::Line<'static>>;
-}
-```
+`ScrollbackCommitter::commit_rows(...)` performs row insertion and returns diagnostics.
 
-Constraint:
+Commit behavior in app:
 
-- Do not branch between these options inside `Renderable`.
-- `Renderable` paints preformatted view data only.
+- Running phase commits transcript overflow rows.
+- Flush phase commits remaining rows in bounded chunks.
+- Mismatch/truncation is treated as error (not silently swallowed).
 
-## Central Renderer
+---
 
-```rust
-#[derive(Debug, Default)]
-pub struct Renderer;
-```
+## 8) Misalignments fixed from older render doc
 
-### Input Rendering (cursor placement)
+The architecture is now more mature than the earlier version. Main corrected points:
 
-```rust
-use ratatui::widgets::{Block, Borders, Paragraph};
-use unicode_width::UnicodeWidthStr;
+1. **Exit is a state machine**, not a post-loop cleanup block.
+2. **Transcript has canonical + cached + committed boundaries**, not just ad-hoc line vectors.
+3. **Layout uses split capacities** (`visual` vs `commit`) tied to active behavior policy.
+4. **Input rendering depends on wrap cache + scroll rows** (not only raw text + cursor index).
+5. **Chat rendering uses direct buffer painting of visible rows**, not generic paragraph clone/render.
+6. **Terminal boundary is explicit** (`InlineTerminal`) with redraw invalidation after history insertion.
+7. **Scrollback commit is row-primitive with diagnostics**, chunked for safety.
 
-impl Renderable<InputView> for Renderer {
-    fn render(&self, view: &InputView, frame: &mut Frame, area: Rect) {
-        let widget = Paragraph::new(view.text.as_str())
-            .block(Block::new().borders(Borders::ALL));
-        frame.render_widget(widget, area);
+---
 
-        // Visual cursor column is display width, not byte index.
-        let prefix = view.text.get(..view.cursor_bytes).unwrap_or(view.text.as_str());
-        let max_cols = area.width.saturating_sub(2) as usize;
-        let column = prefix.width().min(max_cols);
+## 9) Event-loop evolution for streaming/spinners (recommended)
 
-        let x = area.x + 1 + u16::try_from(column).unwrap_or(u16::MAX);
-        let y = area.y + 1;
-        frame.set_cursor_position((x, y));
-    }
-}
-```
+Current input path uses blocking input reads, which is fine for purely input-driven redraws.
+For streaming assistant responses and spinner animation, use a hybrid loop.
 
-### Chat Rendering
+You generally want a **hybrid loop**:
 
-```rust
-impl Renderable<ChatView> for Renderer {
-    fn render(&self, view: &ChatView, frame: &mut Frame, area: Rect) {
-        let text = ratatui::text::Text::from(view.lines.clone());
-        frame.render_widget(ratatui::widgets::Paragraph::new(text), area);
-    }
-}
-```
+- Input events (keys, paste, resize)
+- Backend events (token delta, tool updates)
+- Periodic ticks (spinner/frame animation, cursor blink, etc.)
 
-### Info Rendering
+### Common fix
 
-```rust
-impl Renderable<InfoView> for Renderer {
-    fn render(&self, view: &InfoView, frame: &mut Frame, area: Rect) {
-        frame.render_widget(
-            ratatui::widgets::Paragraph::new(view.status.as_str())
-                .block(ratatui::widgets::Block::new().borders(ratatui::widgets::Borders::ALL)),
-            area,
-        );
-    }
-}
-```
+Replace “block forever on input” with a select-style wait:
 
-## Active Pane Model (Transient Bottom UI)
+- Wait up to e.g. 16–50ms
+- If input arrives: handle it
+- If backend token arrives: append/update active pane and redraw
+- If timeout expires: tick spinner and redraw only if dirty
 
-To support UX like "show a `Working...` spinner immediately after user submit, then replace it with streaming assistant text on first token", model chat as two layers:
+In crossterm-style sync code, this is usually:
 
-1. **Committed transcript** (scrollback-eligible)
-   - Immutable-ish timeline items that have completed.
-   - Source for overflow -> inline scrollback commit.
-2. **Active panes** (ephemeral, bottom-anchored)
-   - Live-updating pane instances rendered above input.
-   - Examples: `WorkingSpinner`, `StreamingAssistant`, `ToolApproval`, `DiffPreview`.
+- `event::poll(timeout)` + `event::read()` for terminal input
+- nonblocking drain of a channel for stream deltas
+- tick on timeout
 
-Rules:
-- Active panes are rendered first (bottom reservation), transcript fills remaining chat rows.
-- Active panes are not committed directly to scrollback while transient.
-- On completion, pane output is converted to a normal transcript item and then follows normal overflow commit rules.
-- The same canonical `Vec<Line<'static>>` formatting is still required for parity.
+In async code, it’s `tokio::select!` over input, stream channel, and `interval.tick()`.
 
-Suggested shape (start with enum, add trait abstraction only if needed):
+---
 
-```rust
-pub enum ActivePane {
-    WorkingSpinner { frame: u64 },
-    StreamingAssistant { lines: Vec<Line<'static>> },
-    // later: ToolApproval, DiffPreview, ...
-}
+## 10) Next concrete steps
 
-impl ActivePane {
-    pub fn desired_height(&self, width: u16) -> u16 { /* ... */ }
-    pub fn render_lines(&self, width: u16) -> Vec<Line<'static>> { /* ... */ }
-}
-```
-
-Transition intent:
-- `UserSubmitted` -> create `WorkingSpinner` pane (3-line box visual).
-- `AssistantDelta(first token)` -> replace same pane with `StreamingAssistant`.
-- `AssistantDelta(next)` -> update pane content in place.
-- `TurnFinished` -> finalize pane into transcript item; clear active pane.
-- `TurnFailed` -> replace/finalize as error/status item.
-
-## Scrollback Contract (Separate From `Renderable`)
-
-```rust
-pub trait ScrollbackCommit {
-    fn commit_lines(&mut self, lines: &[ratatui::text::Line<'static>]);
-}
-```
-
-Notes:
-
-- `Renderable` does not emit scrollback.
-- Scrollback serialization reuses the same `Line/Span` style information used by live rendering.
-- Width, wrapping, viewport slicing, and line-height decisions belong to renderer/commit stages.
-
-## App Draw Wiring
-
-```rust
-fn draw(&self, frame: &mut Frame, state: &AppState) {
-    let r = self.layout.compute(frame.area());
-
-    let input_view = InputView {
-        text: state.input.text().to_string(),
-        cursor_bytes: state.input.cursor_bytes(),
-    };
-
-    let chat_view = ChatView {
-        lines: state.chat_lines.clone(), // Prepared upstream.
-    };
-
-    let info_view = InfoView {
-        status: state.status_line.clone(),
-    };
-
-    self.renderer.render(&chat_view, frame, r.chat_area);
-    self.renderer.render(&input_view, frame, r.input_area);
-    self.renderer.render(&info_view, frame, r.info_area);
-}
-```
-
-## Composition Boundary (Where strategy is chosen)
-
-Strategy decision belongs in wiring/composition, not renderer:
-
-```rust
-// Pseudocode
-// let presentables = mapper.map_timeline(&domain_events);
-// let lines = formatter.format_all(&presentables);
-// let chat_view = ChatView { lines: lines.clone() };
-// renderer.render(&chat_view, frame, area);
-// scrollback.commit_lines(&lines);
-```
-
-## InputBuffer Contract
-
-`InputBuffer` should expose enough read-only state for `InputView` construction:
-
-```rust
-impl InputBuffer {
-    pub fn text(&self) -> &str { /* ... */ }
-    pub fn cursor_bytes(&self) -> usize { /* ... */ }
-}
-```
-
-## Why This Structure
-
-- Strong typing per view.
-- Renderer stays focused on painting.
-- Formatting parity is enforced by one canonical source per pane/path.
-- No hidden mode-switching in renderer.
-- Input/editor logic remains clean.
-
-## Expansion Path
-
-1. Add `TimelineItem` and build `ChatView` from typed items.
-2. Add viewport/scroll state in `UiState`.
-3. Add `DiffView` / `ToolCallView` with dedicated `Renderable` impls.
-4. Keep pipeline stable: `AppState -> View -> canonical presentation -> render/commit`.
+1. Wire backend event ingestion into `Running` phase.
+2. Render real active panes in `active_area` (spinner/stream/menu).
+3. Implement active streaming spill (`full_text` + monotonic frozen boundary) into transcript.
+4. Add dirty flags to avoid unnecessary redraw/parse on ticks.
+5. Keep canonical formatting path shared across live and commit sinks.

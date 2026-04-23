@@ -100,32 +100,43 @@ fn map_key_event(key_event: KeyEvent) -> CustomKeyEvent {
 pub(crate) struct InputEventHandler;
 
 impl InputEventHandler {
-    pub(crate) fn run(
+    pub(crate) fn poll_and_handle(
         &mut self,
+        timeout: Duration,
         app_state: &mut AppState,
         wrap_cache: &mut WrapCache,
-    ) -> Result<()> {
-        self.handle_event(event::read()?, app_state, wrap_cache);
+    ) -> Result<bool> {
+        if !event::poll(timeout)? {
+            return Ok(false);
+        }
+
+        let mut dirty = self.handle_event(event::read()?, app_state, wrap_cache);
 
         while event::poll(Duration::from_millis(0))? {
-            self.handle_event(event::read()?, app_state, wrap_cache);
+            dirty |= self.handle_event(event::read()?, app_state, wrap_cache);
         }
-        Ok(())
+        Ok(dirty)
     }
 
-    fn handle_event(&mut self, event: Event, app_state: &mut AppState, wrap_cache: &mut WrapCache) {
+    fn handle_event(
+        &mut self,
+        event: Event,
+        app_state: &mut AppState,
+        wrap_cache: &mut WrapCache,
+    ) -> bool {
         match event {
             Event::Key(key_event) => {
                 if !matches!(key_event.kind, Press | Repeat) {
-                    return;
+                    return false;
                 }
                 let custom_key_event = map_key_event(key_event);
-                self.handle_key_event(custom_key_event, app_state, wrap_cache);
+                self.handle_key_event(custom_key_event, app_state, wrap_cache)
             }
             Event::Paste(text) => {
-                self.handle_key_event(CustomKeyEvent::InsertText { text }, app_state, wrap_cache);
+                self.handle_key_event(CustomKeyEvent::InsertText { text }, app_state, wrap_cache)
             }
-            _ => {}
+            Event::Resize(_, _) => true,
+            _ => false,
         }
     }
 
@@ -134,35 +145,66 @@ impl InputEventHandler {
         custom_key_event: CustomKeyEvent,
         app_state: &mut AppState,
         wrap_cache: &mut WrapCache,
-    ) {
+    ) -> bool {
         match custom_key_event {
             CustomKeyEvent::Send => {
                 if app_state.input.text().is_empty() {
-                    return;
+                    return false;
                 }
                 let item = timeline_item_from_input(app_state.input.text());
                 app_state.append_timeline_item(item);
                 app_state.input.clear();
+                app_state.start_working_pane();
+                true
             }
             CustomKeyEvent::CtrlC => {
                 if !app_state.input.text().is_empty() {
                     app_state.input.clear();
-                    return;
+                    return true;
                 }
                 app_state.request_exit();
+                true
             }
-            CustomKeyEvent::InsertChar { char } => app_state.input.insert_char(char),
+            CustomKeyEvent::InsertChar { char } => {
+                app_state.input.insert_char(char);
+                true
+            }
             CustomKeyEvent::InsertText { text } => {
                 app_state.input.insert_str(&text.replace('\t', "    "));
+                true
             }
-            CustomKeyEvent::InsertNewline => app_state.input.insert_char('\n'),
-            CustomKeyEvent::DeleteChar => app_state.input.delete_char(),
-            CustomKeyEvent::DeleteWord => app_state.input.delete_word(),
-            CustomKeyEvent::DeleteLine => app_state.input.delete_line(),
-            CustomKeyEvent::Restore => app_state.input.restore(),
-            CustomKeyEvent::MoveRightOne => app_state.input.move_right(),
-            CustomKeyEvent::MoveRightWord => app_state.input.move_right_word(),
-            CustomKeyEvent::MoveLineEnd => app_state.input.move_line_end(),
+            CustomKeyEvent::InsertNewline => {
+                app_state.input.insert_char('\n');
+                true
+            }
+            CustomKeyEvent::DeleteChar => {
+                app_state.input.delete_char();
+                true
+            }
+            CustomKeyEvent::DeleteWord => {
+                app_state.input.delete_word();
+                true
+            }
+            CustomKeyEvent::DeleteLine => {
+                app_state.input.delete_line();
+                true
+            }
+            CustomKeyEvent::Restore => {
+                app_state.input.restore();
+                true
+            }
+            CustomKeyEvent::MoveRightOne => {
+                app_state.input.move_right();
+                true
+            }
+            CustomKeyEvent::MoveRightWord => {
+                app_state.input.move_right_word();
+                true
+            }
+            CustomKeyEvent::MoveLineEnd => {
+                app_state.input.move_line_end();
+                true
+            }
             CustomKeyEvent::MoveUpOne => {
                 let width = app_state.input_content_width.max(1);
                 let wrapped_ranges = wrap_cache.input_ranges(
@@ -171,6 +213,7 @@ impl InputEventHandler {
                     width,
                 );
                 app_state.input.move_up_visual_with_lines(wrapped_ranges);
+                true
             }
             CustomKeyEvent::MoveDownOne => {
                 let width = app_state.input_content_width.max(1);
@@ -180,11 +223,21 @@ impl InputEventHandler {
                     width,
                 );
                 app_state.input.move_down_visual_with_lines(wrapped_ranges);
+                true
             }
-            CustomKeyEvent::MoveLeftOne => app_state.input.move_left(),
-            CustomKeyEvent::MoveLeftWord => app_state.input.move_left_word(),
-            CustomKeyEvent::MoveLineStart => app_state.input.move_line_start(),
-            CustomKeyEvent::None => {}
+            CustomKeyEvent::MoveLeftOne => {
+                app_state.input.move_left();
+                true
+            }
+            CustomKeyEvent::MoveLeftWord => {
+                app_state.input.move_left_word();
+                true
+            }
+            CustomKeyEvent::MoveLineStart => {
+                app_state.input.move_line_start();
+                true
+            }
+            CustomKeyEvent::None => false,
         }
     }
 }
