@@ -8,6 +8,8 @@ use ratatui::{Frame, layout::Rect, text::Line};
 
 use crate::core::{
     active::{ActiveBehavior, ActivePaneKind},
+    backend::BackendEventHandler,
+    controller::AppController,
     input::InputEventHandler,
     layout::{CommitCapacityPolicy, ComputedLayout, LayoutConfig},
     render::{ActiveView, ChatView, InfoView, InputView, Renderable, Renderer},
@@ -21,6 +23,7 @@ const EXIT_DRAIN_CHUNK: usize = 256;
 const EXIT_GOODBYE: &str = "Goodbye.";
 const IDLE_POLL_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const SPINNER_TICK_INTERVAL: Duration = Duration::from_millis(80);
+const BACKEND_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 #[derive(Debug)]
 pub(super) struct App {
@@ -29,6 +32,8 @@ pub(super) struct App {
     pub(super) layout: LayoutConfig,
     pub(super) renderer: Renderer,
     pub(super) scrollback: ScrollbackCommitter,
+    backend_handler: BackendEventHandler,
+    controller: AppController,
     active_ticker: ActiveTicker,
     needs_redraw: bool,
 }
@@ -41,6 +46,8 @@ impl Default for App {
             layout: LayoutConfig::default(),
             renderer: Renderer,
             scrollback: ScrollbackCommitter,
+            backend_handler: BackendEventHandler::default(),
+            controller: AppController,
             active_ticker: ActiveTicker::new(SPINNER_TICK_INTERVAL),
             needs_redraw: true,
         }
@@ -106,6 +113,13 @@ impl ActiveTicker {
 }
 
 impl App {
+    pub(super) fn with_backend_handler(backend_handler: BackendEventHandler) -> Self {
+        Self {
+            backend_handler,
+            ..Self::default()
+        }
+    }
+
     pub(super) fn run(&mut self, terminal: &mut InlineTerminal) -> Result<()> {
         let mut state = AppState::default();
 
@@ -139,19 +153,25 @@ impl App {
             return Ok(());
         }
 
-        let timeout = self.active_ticker.wait_timeout(Instant::now(), state);
-        let input_dirty =
+        let timeout = self.next_wait_timeout(state);
+        let input_actions =
             self.input_handler
                 .poll_and_handle(timeout, state, &mut self.wrap_cache)?;
+        let input_dirty =
+            self.controller
+                .apply_all(input_actions, state, &mut self.backend_handler)?;
 
         if !matches!(state.exit_state, ExitState::Running) {
             return Ok(());
         }
 
+        let backend_actions = self.backend_handler.drain_actions()?;
+        let backend_dirty =
+            self.controller
+                .apply_all(backend_actions, state, &mut self.backend_handler)?;
         let active_dirty = self.active_ticker.tick_if_due(Instant::now(), state);
-        let backend_dirty = self.poll_backend_events(state)?;
 
-        if input_dirty || active_dirty || backend_dirty {
+        if input_dirty || backend_dirty || active_dirty {
             self.draw_dirty_running_frame(terminal, state)?;
         }
 
@@ -175,8 +195,13 @@ impl App {
         Ok(())
     }
 
-    fn poll_backend_events(&mut self, _state: &mut AppState) -> Result<bool> {
-        Ok(false)
+    fn next_wait_timeout(&mut self, state: &AppState) -> Duration {
+        let active_timeout = self.active_ticker.wait_timeout(Instant::now(), state);
+        if self.backend_handler.has_in_flight_turn() {
+            active_timeout.min(BACKEND_POLL_INTERVAL)
+        } else {
+            active_timeout
+        }
     }
 
     fn spill_active_into_transcript_if_needed(&mut self, state: &mut AppState) {

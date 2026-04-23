@@ -11,12 +11,15 @@ It reflects what is implemented today in code, plus clearly marked near-term evo
 
 Runtime flow today:
 
-1. Input/event handling mutates `AppState`.
-2. Transcript canonical items are formatted to `Vec<Line<'static>>` through `TuiFormatter`.
-3. `TranscriptState` caches rendered rows by width.
-4. Layout is computed (including active pane reservation and commit-capacity policy).
-5. Overflow rows are committed to terminal scrollback.
-6. Live frame is rendered via typed views + `Renderer`.
+1. `App` orchestrates a dirty-driven sync loop.
+2. `InputEventHandler` converts terminal input into `FrontendAction`s, mutating only local input-buffer state for editing/navigation.
+3. `BackendEventHandler` drains backend `mpsc` events into `FrontendAction`s.
+4. `AppController` applies actions to `AppState` and sends backend commands.
+5. Transcript canonical items are formatted to `Vec<Line<'static>>` through `TuiFormatter`.
+6. `TranscriptState` caches rendered rows by width.
+7. Layout is computed (including active pane reservation and commit-capacity policy).
+8. Overflow rows are committed to terminal scrollback.
+9. Live frame is rendered via typed views + `Renderer`.
 
 Key property:
 - Live rendering and scrollback insertion both consume the same formatted row type (`Line<'static>`), preserving parity.
@@ -38,10 +41,14 @@ ExitState::Running
 
 ### Running phase
 
-- Ensures transcript render cache for current width.
+- Draws an initial frame, then redraws only when dirty.
+- Polls terminal input with a timeout derived from active animation/backend state.
+- Converts input and backend messages into `FrontendAction`s.
+- Applies actions through `AppController`.
+- Ticks active animations only when due.
+- Ensures transcript render cache for current width before drawing.
 - Commits transcript overflow rows according to commit capacity.
-- Draws running UI.
-- Processes input events.
+- Draws running UI only when input/backend/tick/resize changed state.
 
 ### Shutdown phases
 
@@ -69,21 +76,35 @@ This keeps shutdown deterministic and avoids dropping transcript rows.
 
 - `canonical_items: Vec<TimelineItem>`
 - `rendered_rows_cache: Option<TranscriptRenderCache>` keyed by width
-- `committed_rows: usize` monotonic boundary into cached rows
+- `commit_boundary: TranscriptCommitBoundary` monotonic logical/span/byte boundary into formatted transcript rows
 - `formatter: TuiFormatter`
 
 Important behavior:
-- Width change => full cache recompute from canonical items.
-- New item + existing cache => incremental append of formatted rows.
+- Width change => cache recompute from canonical items and the monotonic commit boundary.
+- New item invalidates the rendered-row cache.
 - `uncommitted_rows()` is the source for both chat display and scrollback overflow commit.
 
 ## Active pane state
 
+Active pane state lives in `core::active`:
+
 - `ActivePaneKind`: `WorkingSpinner | AgentStreaming | SlashMenu | FilePicker`
 - `ActiveBehavior`: `SpillToTranscript | OccludeOnly`
-- `spill_text: String`
+- `ActiveStreamState { full_text, frozen_until }` for spill-capable panes
+- tiny internal spinner frame state for `WorkingSpinner`
 
-Note: active-pane rendering/streaming is only partially wired today (layout/state exist; rendering is currently placeholder in `active_area`).
+Current behavior:
+- On submit, the user message is committed directly to transcript and a `WorkingSpinner` active pane appears.
+- `WorkingSpinner` renders as a three-row pane without borders: blank/text/blank.
+- `AgentStreaming` can render `active_tail()` once backend deltas arrive.
+- Active -> transcript spill is still a near-term step; finalization appends only `full_text[frozen_until..]` to avoid duplication.
+
+## Event/control modules
+
+- `InputEventHandler`: terminal input -> `FrontendAction`s.
+- `BackendEventHandler`: backend `mpsc` events -> `FrontendAction`s and nonblocking backend command sends.
+- `AppController`: `FrontendAction` -> `AppState` mutation plus backend command emission.
+- `App`: wait/poll/tick/commit/draw orchestration only.
 
 ---
 
@@ -94,6 +115,7 @@ Typed view contracts:
 - `SpacerView`
 - `InputView { text, cursor_bytes, scroll_rows, wrapped_ranges }`
 - `ChatView { lines }`
+- `ActiveView { active }`
 - `InfoView { status }`
 
 Core trait:
@@ -110,6 +132,7 @@ pub(crate) trait Renderable<V: View> {
 - `InputView` uses precomputed wrapped ranges (`WrapCache`) and explicit `scroll_rows`.
 - Cursor placement is computed from wrapped lines (`cursor_xy`) and clamped to area bounds.
 - `ChatView` paints directly into the frame buffer and only draws visible tail rows.
+- `ActiveView` renders the current active pane. The working spinner uses internal frames and no pane borders.
 - `Renderer::draw_running()` composes spacer/chat/active/input/info in one place.
 
 ---
@@ -189,40 +212,36 @@ The architecture is now more mature than the earlier version. Main corrected poi
 
 ---
 
-## 9) Event-loop evolution for streaming/spinners (recommended)
+## 9) Event loop for streaming/spinners (implemented foundation)
 
-Current input path uses blocking input reads, which is fine for purely input-driven redraws.
-For streaming assistant responses and spinner animation, use a hybrid loop.
+The running loop is now dirty-driven rather than an unconditional redraw loop.
 
-You generally want a **hybrid loop**:
+Sources:
 
-- Input events (keys, paste, resize)
-- Backend events (token delta, tool updates)
-- Periodic ticks (spinner/frame animation, cursor blink, etc.)
+- Input events (keys, paste, resize) through `InputEventHandler`.
+- Backend events through `BackendEventHandler::drain_actions()`.
+- Periodic active ticks through `ActiveTicker`.
 
-### Common fix
+Behavior:
 
-Replace “block forever on input” with a select-style wait:
+- Initial frame draws immediately.
+- Without active animation or backend in-flight state, the input poll timeout is long and idle redraws stop.
+- While `WorkingSpinner` is active, the loop wakes at the spinner tick rate and redraws only when the spinner advances.
+- While a backend turn is in flight, the loop also wakes at `BACKEND_POLL_INTERVAL` to drain `mpsc` events, but redraws only if events were received/applied.
+- Backend event ingestion is structurally wired through `BackendEventHandler`, but no real backend task is attached yet.
 
-- Wait up to e.g. 16–50ms
-- If input arrives: handle it
-- If backend token arrives: append/update active pane and redraw
-- If timeout expires: tick spinner and redraw only if dirty
+In crossterm-style sync code this remains:
 
-In crossterm-style sync code, this is usually:
-
-- `event::poll(timeout)` + `event::read()` for terminal input
-- nonblocking drain of a channel for stream deltas
-- tick on timeout
-
-In async code, it’s `tokio::select!` over input, stream channel, and `interval.tick()`.
+- `event::poll(timeout)` + `event::read()` for terminal input.
+- nonblocking drain of a channel for stream deltas.
+- tick active animations only when due.
 
 ---
 
 ## 10) Next concrete steps
 
-1. Wire backend event ingestion into `Running` phase.
-2. Render real active panes in `active_area` (spinner/stream/menu).
-3. Implement active streaming spill (`full_text` + monotonic frozen boundary) into transcript.
-4. Add dirty flags to avoid unnecessary redraw/parse on ticks.
-5. Keep canonical formatting path shared across live and commit sinks.
+1. Attach a real backend task/channel pair to `BackendEventHandler`.
+2. Define the first real backend `BackendCommand`/`FrontendEvent` payload metadata (`turn_id`, chunk shape, error shape) without leaking UI concepts into backend code.
+3. Implement active streaming spill (`full_text` + monotonic `frozen_until`) into transcript.
+4. Add markdown/live formatting for streaming assistant content while preserving the shared canonical formatting path.
+5. Add occluding pane constructors/rendering/disengage only when menu/file-picker UX is actually implemented.

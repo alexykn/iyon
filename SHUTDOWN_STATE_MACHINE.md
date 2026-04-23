@@ -41,10 +41,12 @@ Plan Addendum: Terminal-aware history + exit state machine
    }
  ```
 
- TranscriptState (minimal v1):
+ TranscriptState (implemented shape):
  - canonical items
  - rendered rows cache for current width
- - committed_rows: usize monotonic boundary
+ - `TranscriptCommitBoundary { logical_row, span_index, byte_offset }` monotonic boundary
+
+ Note: older sketches used `committed_rows: usize`; the current implementation uses the richer commit boundary so resize/rewrap can preserve the committed frontier across soft wraps and styled spans.
 
  ────────────────────────────────────────────────────────────────────────────────
 

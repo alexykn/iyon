@@ -6,11 +6,8 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    core::state::AppState,
-    util::{
-        format::timeline_item_from_input,
-        wrapping::{WrapCache, cursor_for_display_col, wrapped_line_index_by_start},
-    },
+    core::{controller::FrontendAction, state::AppState},
+    util::wrapping::{WrapCache, cursor_for_display_col, wrapped_line_index_by_start},
 };
 
 const WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
@@ -105,17 +102,17 @@ impl InputEventHandler {
         timeout: Duration,
         app_state: &mut AppState,
         wrap_cache: &mut WrapCache,
-    ) -> Result<bool> {
+    ) -> Result<Vec<FrontendAction>> {
         if !event::poll(timeout)? {
-            return Ok(false);
+            return Ok(Vec::new());
         }
 
-        let mut dirty = self.handle_event(event::read()?, app_state, wrap_cache);
+        let mut actions = self.handle_event(event::read()?, app_state, wrap_cache);
 
         while event::poll(Duration::from_millis(0))? {
-            dirty |= self.handle_event(event::read()?, app_state, wrap_cache);
+            actions.extend(self.handle_event(event::read()?, app_state, wrap_cache));
         }
-        Ok(dirty)
+        Ok(actions)
     }
 
     fn handle_event(
@@ -123,11 +120,11 @@ impl InputEventHandler {
         event: Event,
         app_state: &mut AppState,
         wrap_cache: &mut WrapCache,
-    ) -> bool {
+    ) -> Vec<FrontendAction> {
         match event {
             Event::Key(key_event) => {
                 if !matches!(key_event.kind, Press | Repeat) {
-                    return false;
+                    return Vec::new();
                 }
                 let custom_key_event = map_key_event(key_event);
                 self.handle_key_event(custom_key_event, app_state, wrap_cache)
@@ -135,8 +132,8 @@ impl InputEventHandler {
             Event::Paste(text) => {
                 self.handle_key_event(CustomKeyEvent::InsertText { text }, app_state, wrap_cache)
             }
-            Event::Resize(_, _) => true,
-            _ => false,
+            Event::Resize(_, _) => vec![FrontendAction::RedrawOnly],
+            _ => Vec::new(),
         }
     }
 
@@ -145,65 +142,62 @@ impl InputEventHandler {
         custom_key_event: CustomKeyEvent,
         app_state: &mut AppState,
         wrap_cache: &mut WrapCache,
-    ) -> bool {
+    ) -> Vec<FrontendAction> {
         match custom_key_event {
             CustomKeyEvent::Send => {
                 if app_state.input.text().is_empty() {
-                    return false;
+                    return Vec::new();
                 }
-                let item = timeline_item_from_input(app_state.input.text());
-                app_state.append_timeline_item(item);
+                let text = app_state.input.text().to_string();
                 app_state.input.clear();
-                app_state.start_working_pane();
-                true
+                vec![FrontendAction::SubmitTurn { text }]
             }
             CustomKeyEvent::CtrlC => {
                 if !app_state.input.text().is_empty() {
                     app_state.input.clear();
-                    return true;
+                    return vec![FrontendAction::RedrawOnly];
                 }
-                app_state.request_exit();
-                true
+                vec![FrontendAction::RequestExit]
             }
             CustomKeyEvent::InsertChar { char } => {
                 app_state.input.insert_char(char);
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::InsertText { text } => {
                 app_state.input.insert_str(&text.replace('\t', "    "));
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::InsertNewline => {
                 app_state.input.insert_char('\n');
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::DeleteChar => {
                 app_state.input.delete_char();
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::DeleteWord => {
                 app_state.input.delete_word();
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::DeleteLine => {
                 app_state.input.delete_line();
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::Restore => {
                 app_state.input.restore();
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveRightOne => {
                 app_state.input.move_right();
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveRightWord => {
                 app_state.input.move_right_word();
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveLineEnd => {
                 app_state.input.move_line_end();
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveUpOne => {
                 let width = app_state.input_content_width.max(1);
@@ -213,7 +207,7 @@ impl InputEventHandler {
                     width,
                 );
                 app_state.input.move_up_visual_with_lines(wrapped_ranges);
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveDownOne => {
                 let width = app_state.input_content_width.max(1);
@@ -223,21 +217,21 @@ impl InputEventHandler {
                     width,
                 );
                 app_state.input.move_down_visual_with_lines(wrapped_ranges);
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveLeftOne => {
                 app_state.input.move_left();
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveLeftWord => {
                 app_state.input.move_left_word();
-                true
+                vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::MoveLineStart => {
                 app_state.input.move_line_start();
-                true
+                vec![FrontendAction::RedrawOnly]
             }
-            CustomKeyEvent::None => false,
+            CustomKeyEvent::None => Vec::new(),
         }
     }
 }

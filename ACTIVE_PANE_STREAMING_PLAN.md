@@ -73,8 +73,9 @@ Behavior:
 ## App-level
 - `transcript` (committed canonical messages)
 - `active: Option<ActivePaneState>`
-- `pending_scrollback` (formatted committed lines waiting for `insert_before`)
+- transcript commit boundary + rendered-row cache for rows waiting for `insert_before`
 - existing input/editor state
+- `InputEventHandler`, `BackendEventHandler`, and `AppController` mediate input/backend events into app-state changes
 
 ## Active pane
 - `kind`: `WorkingSpinner | AgentStreaming | SlashMenu | FilePicker | ...`
@@ -104,11 +105,14 @@ Important: transcript stores canonical content, not permanently wrapped rows.
 ## 4.1 User submits
 
 1. Validate input (ignore empty if desired).
-2. Push `UserMessage` into transcript immediately.
-3. Clear input.
-4. Create active pane:
+2. `InputEventHandler` emits `FrontendAction::SubmitTurn { text }`.
+3. `AppController` pushes `UserMessage` into transcript immediately.
+4. Clear input.
+5. `AppController` sends `BackendCommand::SubmitTurn` through `BackendEventHandler` when a backend is attached.
+6. Create active pane:
    - `kind = WorkingSpinner`
    - `height = 3`
+   - rendered as blank/spinner text/blank with no active-pane borders
    - `full_text = ""`
    - `frozen_until = 0`
 
@@ -177,7 +181,14 @@ Tick behavior:
 
 ## 7) Render/dirty policy
 
-Use two independent dirty concepts:
+Current implemented foundation:
+
+- The running loop is dirty-driven and does not redraw continuously while idle.
+- `WorkingSpinner` advances on an `ActiveTicker` interval and redraws only when the frame changes.
+- Input and backend events become `FrontendAction`s; applying actions returns dirty/clean to `App`.
+- While a backend turn is in flight, the sync frontend wakes periodically to drain `mpsc` events.
+
+Future streaming/markdown cache should still use two independent dirty concepts:
 
 1. `content_dirty`
    - set on new streaming chunk
@@ -297,14 +308,24 @@ Resize expectations:
 
 ## Phase 2 — Active state + lifecycle wiring
 
-- Add active pane state and kinds.
-- On submit: commit user msg + create `WorkingSpinner` active pane.
-- Add placeholder transition to `AgentStreaming` when first assistant content arrives.
+Implemented foundation:
+- Active pane state and kinds live in `core::active`.
+- On submit: `InputEventHandler` emits `SubmitTurn`, `AppController` commits user msg + creates `WorkingSpinner` active pane.
+- `WorkingSpinner` renders and animates through `ActiveTicker`.
+- `BackendEventHandler` and `AppController` are in place as hook points for future backend events.
+
+Remaining:
+- Attach real backend channels/tasks.
+- Use backend `AssistantDelta` events to drive the existing transition to `AgentStreaming`.
 
 ## Phase 3 — Canonical assistant streaming
 
-- Store active canonical `full_text` + `frozen_until`.
-- Implement chunk append + spill algorithm.
+Partially implemented foundation:
+- Active stream state already stores canonical `full_text` + `frozen_until`.
+- Chunk append API exists (`receive_assistant_delta` -> `push_assistant_delta`).
+
+Remaining:
+- Implement active -> transcript spill algorithm.
 - Keep transcript canonical.
 
 ## Phase 4 — Streaming markdown
@@ -315,7 +336,7 @@ Resize expectations:
 
 ## Phase 5 — Scrollback integration hardening
 
-- Replace pending-vector-first flow with transcript uncommitted-row boundaries (`committed_rows` monotonic index).
+- Replace pending-vector-first flow with transcript uncommitted-row boundaries (`TranscriptCommitBoundary` logical/span/byte boundary in the current implementation).
 - Commit via terminal primitive row insertion (`commit_rows` -> `insert_before`) rather than app-owned pending queues.
 - During shutdown flush, insert in chunks and call redraw invalidation between chunks.
 - Verify no duplicate/missing lines across active->transcript->scrollback transitions.

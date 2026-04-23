@@ -103,6 +103,24 @@ pub enum FrontendEvent {
 }
 ```
 
+Current frontend placeholder shape is intentionally smaller while backend metadata is still fluid:
+
+```rust
+pub(crate) enum BackendCommand {
+    SubmitTurn { text: String },
+    CancelActiveTurn,
+}
+
+pub(crate) enum FrontendEvent {
+    TurnStarted,
+    AssistantDelta { text: String },
+    TurnFinished,
+    TurnFailed { message: String },
+}
+```
+
+The placeholder should evolve toward the metadata-rich shape above once the backend turn model is implemented.
+
 Frontend composition should interpret these events with explicit transient-pane transitions:
 - `TurnStarted` -> show ephemeral `WorkingSpinner` pane above input.
 - First `Delta` for the turn -> replace spinner with `StreamingAssistant` pane.
@@ -137,26 +155,35 @@ Clarification:
 ## 5) Frontend (sync ratatui loop + event queue)
 
 Responsibilities:
-- Poll input events and send `BackendCommand` (non-blocking/fire-and-forget).
-- Drain backend event queue every frame/tick.
-- Update app state.
-- Render current state synchronously.
+- Poll input events and convert them to frontend actions.
+- Send `BackendCommand` through `BackendEventHandler` (non-blocking/fire-and-forget).
+- Drain backend event queue through `BackendEventHandler::drain_actions()`.
+- Apply frontend actions through `AppController`.
+- Update app state and render current state synchronously only when dirty.
+
+Current frontend modules:
+- `InputEventHandler`: terminal input -> `FrontendAction`.
+- `BackendEventHandler`: `mpsc` command/event bridge -> `FrontendAction`.
+- `AppController`: `FrontendAction` -> `AppState` mutation and backend command sends.
+- `App`: orchestration of wait/poll/drain/tick/commit/draw.
 
 Pattern:
 - Frontend never blocks on network.
 - Backend never calls UI directly.
 - Communication happens only through typed messages.
+- UI-specific transitions stay in frontend composition (`AppController`/`AppState`), not backend transport.
 
 ## Data Flow (One Turn)
 
 1. User submits input.
-2. Frontend sends `BackendCommand::SubmitTurn`.
-3. Backend builds `ModelRequest` from session state.
-4. Backend calls `ModelApi::stream(req).await`.
-5. Backend receives stream events and emits `FrontendEvent::Delta` updates.
-6. Frontend drains semantic events, updates timeline, runs formatter to styled lines.
-7. Frontend renders immediately.
-8. On completion/failure, backend emits terminal event (`TurnFinished`/`TurnFailed`).
+2. `InputEventHandler` emits `FrontendAction::SubmitTurn { text }`.
+3. `AppController` commits the user message to transcript, starts `WorkingSpinner`, and sends `BackendCommand::SubmitTurn` through `BackendEventHandler`.
+4. Backend builds `ModelRequest` from session state.
+5. Backend calls `ModelApi::stream(req).await`.
+6. Backend receives stream events and emits frontend events (`AssistantDelta`/future `Delta` updates).
+7. Frontend drains backend events, maps them to `FrontendAction`s, updates active pane/transcript state, and runs formatting as needed.
+8. Frontend renders when dirty.
+9. On completion/failure, backend emits terminal event (`TurnFinished`/`TurnFailed`), and frontend finalizes/fails the active pane.
 
 ## State Ownership
 
@@ -205,9 +232,11 @@ let (evt_tx, evt_rx) = tokio::sync::mpsc::channel::<FrontendEvent>(1024);
 tokio::spawn(run_backend(cmd_rx, evt_tx, model_api));
 
 // frontend loop (sync):
-// - send cmd_tx on user actions
-// - drain evt_rx with try_recv
-// - update state + format + draw
+// - InputEventHandler emits FrontendAction values
+// - AppController sends cmd_tx on SubmitTurn
+// - BackendEventHandler drains evt_rx with try_recv and emits FrontendAction values
+// - AppController updates AppState
+// - App draws only when dirty
 
 // backend stream consumption sketch:
 // let mut s = model_api.stream(req).await?;
