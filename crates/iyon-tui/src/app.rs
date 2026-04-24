@@ -125,19 +125,31 @@ impl App {
         state: &mut AppState,
     ) -> Result<()> {
         self.needs_redraw = false;
-        self.controller
-            .spill_active_into_transcript_if_needed(state);
 
         let root = self.current_root_rect(terminal)?;
         state.transcript.ensure_render_cache(root.width.max(1));
 
-        let layout = RunningFrameComposer::prepare(
+        let mut layout = RunningFrameComposer::prepare(
             &self.renderer,
             &self.layout,
             state,
             &mut self.wrap_cache,
             root,
         );
+
+        if self
+            .controller
+            .spill_active_into_transcript_if_needed(state, usize::from(layout.active_area.height))
+        {
+            state.transcript.ensure_render_cache(root.width.max(1));
+            layout = RunningFrameComposer::prepare(
+                &self.renderer,
+                &self.layout,
+                state,
+                &mut self.wrap_cache,
+                root,
+            );
+        }
 
         self.scrollback.commit_running_overflow(
             terminal,

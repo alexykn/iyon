@@ -42,14 +42,28 @@ impl AppController {
         Ok(dirty)
     }
 
-    pub(crate) fn spill_active_into_transcript_if_needed(&mut self, state: &mut AppState) {
-        if matches!(
+    pub(crate) fn spill_active_into_transcript_if_needed(
+        &mut self,
+        state: &mut AppState,
+        visible_rows: usize,
+    ) -> bool {
+        if !matches!(
             state.active.as_ref().map(|pane| pane.behavior()),
             Some(ActiveBehavior::SpillToTranscript)
         ) {
-            // Placeholder: active pane streaming state is not wired yet.
-            // ACTIVE_PANE_STREAMING_PLAN.md phase will append canonical spill output here.
+            return false;
         }
+
+        let Some(fragment) = state
+            .active
+            .as_mut()
+            .and_then(|pane| pane.spill_overflow_rows(visible_rows))
+        else {
+            return false;
+        };
+
+        state.append_assistant_message(fragment);
+        true
     }
 
     fn apply(

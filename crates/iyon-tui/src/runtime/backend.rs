@@ -1,5 +1,7 @@
+use std::fmt;
+
 use anyhow::Result;
-use tokio::sync::mpsc::{Receiver, Sender, error::TryRecvError};
+use iyon_core::{CoreCommand, CoreEvent, IyonCore, MessageDelta};
 
 #[derive(Debug)]
 pub(crate) enum BackendCommand {
@@ -21,41 +23,53 @@ pub(crate) enum SubmitTurnResult {
     NoBackendAttached,
 }
 
-#[derive(Debug, Default)]
 pub(crate) struct BackendEventHandler {
-    command_tx: Option<Sender<BackendCommand>>,
-    event_rx: Option<Receiver<FrontendEvent>>,
+    core: Option<IyonCore>,
     in_flight: bool,
 }
 
-impl BackendEventHandler {
-    pub(crate) fn new(
-        command_tx: Sender<BackendCommand>,
-        event_rx: Receiver<FrontendEvent>,
-    ) -> Self {
+impl fmt::Debug for BackendEventHandler {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BackendEventHandler")
+            .field("core_attached", &self.core.is_some())
+            .field("in_flight", &self.in_flight)
+            .finish()
+    }
+}
+
+impl Default for BackendEventHandler {
+    fn default() -> Self {
         Self {
-            command_tx: Some(command_tx),
-            event_rx: Some(event_rx),
+            core: iyon_core::spawn().ok(),
+            in_flight: false,
+        }
+    }
+}
+
+impl BackendEventHandler {
+    pub(crate) fn new(core: IyonCore) -> Self {
+        Self {
+            core: Some(core),
             in_flight: false,
         }
     }
 
     pub(crate) fn try_submit_turn(&mut self, text: String) -> Result<SubmitTurnResult> {
-        let Some(command_tx) = self.command_tx.as_ref() else {
+        let Some(core) = self.core.as_ref() else {
             return Ok(SubmitTurnResult::NoBackendAttached);
         };
 
-        command_tx.try_send(BackendCommand::SubmitTurn { text })?;
+        core.try_send(CoreCommand::SubmitTurn { text })?;
         self.in_flight = true;
         Ok(SubmitTurnResult::Sent)
     }
 
     pub(crate) fn try_cancel_active_turn(&mut self) -> Result<()> {
-        let Some(command_tx) = self.command_tx.as_ref() else {
+        let Some(core) = self.core.as_ref() else {
             return Ok(());
         };
 
-        command_tx.try_send(BackendCommand::CancelActiveTurn)?;
+        core.try_send(CoreCommand::CancelActiveTurn)?;
         Ok(())
     }
 
@@ -64,39 +78,32 @@ impl BackendEventHandler {
     }
 
     pub(crate) fn drain_events(&mut self) -> Result<Vec<FrontendEvent>> {
-        let Some(event_rx) = self.event_rx.as_mut() else {
+        let Some(core) = self.core.as_mut() else {
             return Ok(Vec::new());
         };
 
         let mut events = Vec::new();
-        loop {
-            match event_rx.try_recv() {
-                Ok(FrontendEvent::TurnStarted) => {
+        for event in core.drain_events() {
+            match event {
+                CoreEvent::TurnStarted { .. } => {
                     self.in_flight = true;
                     events.push(FrontendEvent::TurnStarted);
                 }
-                Ok(FrontendEvent::AssistantDelta { text }) => {
-                    events.push(FrontendEvent::AssistantDelta { text });
-                }
-                Ok(FrontendEvent::TurnFinished) => {
+                CoreEvent::MessageDelta {
+                    delta: MessageDelta::Text(text),
+                    ..
+                } => events.push(FrontendEvent::AssistantDelta { text }),
+                CoreEvent::TurnFinished { .. } => {
                     self.in_flight = false;
                     events.push(FrontendEvent::TurnFinished);
                 }
-                Ok(FrontendEvent::TurnFailed { message }) => {
+                CoreEvent::TurnFailed { message, .. } => {
                     self.in_flight = false;
                     events.push(FrontendEvent::TurnFailed { message });
                 }
-                Err(TryRecvError::Empty) => return Ok(events),
-                Err(TryRecvError::Disconnected) => {
-                    if self.in_flight {
-                        self.in_flight = false;
-                        events.push(FrontendEvent::TurnFailed {
-                            message: "backend disconnected".to_string(),
-                        });
-                    }
-                    return Ok(events);
-                }
             }
         }
+
+        Ok(events)
     }
 }

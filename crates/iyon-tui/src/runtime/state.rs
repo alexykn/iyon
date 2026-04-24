@@ -22,11 +22,7 @@ impl AppState {
     }
 
     pub(crate) fn append_assistant_message(&mut self, text: String) {
-        if text.is_empty() {
-            return;
-        }
-        self.transcript
-            .push_item(TimelineItem::AssistantMessage { text });
+        self.transcript.append_assistant_fragment(text);
     }
 
     pub(crate) fn append_error_message(&mut self, text: String) {

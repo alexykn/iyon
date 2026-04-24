@@ -123,12 +123,30 @@ impl Renderable<ActiveView<'_>> for Renderer {
                 Line::from(format!("{} Working", active.spinner_frame())),
                 Line::from(""),
             ],
-            ActivePaneKind::AssistantStreaming => vec![Line::from(
-                active
-                    .stream()
-                    .map(ActiveStreamState::active_tail)
-                    .unwrap_or_default(),
-            )],
+            ActivePaneKind::AssistantStreaming => active
+                .stream()
+                .and_then(ActiveStreamState::rendered_tail_rows)
+                .map(|rows| {
+                    let body_height = usize::from(area.height.saturating_sub(2)).max(1);
+                    let visible = &rows[rows.len().saturating_sub(body_height)..];
+                    let mut out = Vec::with_capacity(visible.len() + 2);
+                    out.push(Line::from(""));
+                    out.extend_from_slice(visible);
+                    out.push(Line::from(""));
+                    out
+                })
+                .unwrap_or_else(|| {
+                    vec![
+                        Line::from(""),
+                        Line::from(
+                            active
+                                .stream()
+                                .map(ActiveStreamState::active_tail)
+                                .unwrap_or_default(),
+                        ),
+                        Line::from(""),
+                    ]
+                }),
             ActivePaneKind::SlashMenu => vec![Line::from("")],
             ActivePaneKind::FilePicker => vec![Line::from("")],
         };
