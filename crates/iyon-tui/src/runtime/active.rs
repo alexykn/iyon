@@ -1,5 +1,12 @@
 use std::time::{Duration, Instant};
 
+use ratatui::text::Line;
+
+use crate::transcript::{
+    model::TuiFormatter,
+    wrap::{TranscriptCommitBoundary, wrap_transcript_rows},
+};
+
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 #[derive(Debug, Clone)]
@@ -63,6 +70,25 @@ impl ActivePaneState {
         }
     }
 
+    pub(crate) fn ensure_stream_render_cache(&mut self, width: u16) {
+        if let Some(stream) = self.stream_mut() {
+            stream.ensure_render_cache(width);
+        }
+    }
+
+    pub(crate) fn desired_height(&self) -> u16 {
+        match self {
+            Self::WorkingSpinner { .. } => 3,
+            Self::AssistantStreaming { stream } => stream.desired_height(),
+            Self::SlashMenu | Self::FilePicker => 3,
+        }
+    }
+
+    pub(crate) fn spill_overflow_rows(&mut self, visible_rows: usize) -> Option<String> {
+        let stream = self.stream_mut()?;
+        stream.spill_overflow_rows(visible_rows)
+    }
+
     pub(crate) fn tick(&mut self) {
         if let Self::WorkingSpinner { spinner_frame, .. } = self {
             *spinner_frame = spinner_frame.wrapping_add(1);
@@ -116,6 +142,8 @@ impl ActivePaneState {
 pub(crate) struct ActiveStreamState {
     full_text: String,
     frozen_until: usize,
+    revision: u64,
+    render_cache: Option<ActiveStreamRenderCache>,
 }
 
 impl ActiveStreamState {
@@ -123,6 +151,8 @@ impl ActiveStreamState {
         Self {
             full_text: String::new(),
             frozen_until: 0,
+            revision: 0,
+            render_cache: None,
         }
     }
 
@@ -138,8 +168,15 @@ impl ActiveStreamState {
         &self.full_text[self.frozen_until..]
     }
 
+    pub(crate) fn rendered_tail_rows(&self) -> Option<&[Line<'static>]> {
+        self.render_cache
+            .as_ref()
+            .map(|cache| cache.body_rows.as_slice())
+    }
+
     pub(crate) fn push_delta(&mut self, chunk: &str) {
         self.full_text.push_str(chunk);
+        self.revision = self.revision.wrapping_add(1);
     }
 
     pub(crate) fn advance_frozen_until(&mut self, mut next: usize) {
@@ -150,7 +187,71 @@ impl ActiveStreamState {
 
         if next > self.frozen_until {
             self.frozen_until = next;
+            self.revision = self.revision.wrapping_add(1);
         }
+    }
+
+    fn desired_height(&self) -> u16 {
+        let body_rows = self
+            .render_cache
+            .as_ref()
+            .map_or(1, |cache| cache.body_rows.len());
+        u16::try_from(body_rows.saturating_add(2))
+            .unwrap_or(u16::MAX)
+            .max(3)
+    }
+
+    fn spill_overflow_rows(&mut self, visible_rows: usize) -> Option<String> {
+        let body_capacity = visible_rows.saturating_sub(2).max(1);
+        let cache = self.render_cache.as_ref()?;
+        if cache.body_rows.len() <= body_capacity {
+            return None;
+        }
+
+        let overflow = cache.body_rows.len() - body_capacity;
+        let boundary = cache.row_end_boundaries[overflow - 1];
+        let tail_bytes = self.boundary_to_tail_byte(boundary);
+        if tail_bytes == 0 {
+            return None;
+        }
+
+        let next_frozen = self.frozen_until + tail_bytes;
+        let fragment = self.full_text[self.frozen_until..next_frozen].to_string();
+        self.advance_frozen_until(next_frozen);
+        Some(fragment)
+    }
+
+    fn ensure_render_cache(&mut self, width: u16) {
+        let width = width.max(1);
+        let key = (self.revision, width);
+        if self
+            .render_cache
+            .as_ref()
+            .is_some_and(|cache| cache.key == key)
+        {
+            return;
+        }
+
+        let logical_rows = TuiFormatter.format_assistant_body(self.active_tail());
+        let wrapped =
+            wrap_transcript_rows(width, &logical_rows, TranscriptCommitBoundary::default());
+        self.render_cache = Some(ActiveStreamRenderCache {
+            key,
+            body_rows: wrapped.rows,
+            row_end_boundaries: wrapped.row_end_boundaries,
+        });
+    }
+
+    fn boundary_to_tail_byte(&self, boundary: TranscriptCommitBoundary) -> usize {
+        let tail = self.active_tail();
+        let mut byte = 0usize;
+        for (row, line) in tail.split('\n').enumerate() {
+            if row == boundary.logical_row {
+                return (byte + boundary.byte_offset.min(line.len())).min(tail.len());
+            }
+            byte = byte.saturating_add(line.len()).saturating_add(1);
+        }
+        tail.len()
     }
 
     fn into_unfrozen_text(mut self) -> String {
@@ -160,6 +261,13 @@ impl ActiveStreamState {
 
         self.full_text.split_off(self.frozen_until)
     }
+}
+
+#[derive(Debug, Clone)]
+struct ActiveStreamRenderCache {
+    key: (u64, u16),
+    body_rows: Vec<Line<'static>>,
+    row_end_boundaries: Vec<TranscriptCommitBoundary>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -10,4 +10,5 @@ ratatui = { workspace = true, features = ["scrolling-regions"] }
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
 tokio.workspace = true
+iyon-core.workspace = true
 textwrap = "0.16.2"

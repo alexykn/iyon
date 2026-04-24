@@ -655,12 +655,18 @@ dependencies = [
 name = "iyon-api"
 version = "0.1.0"
 dependencies = [
- "iyon-core",
+ "anyhow",
+ "tokio",
 ]
 
 [[package]]
 name = "iyon-core"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "iyon-api",
+ "tokio",
+]
 
 [[package]]
 name = "iyon-tui"
@@ -668,6 +674,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "crossterm",
+ "iyon-core",
  "ratatui",
  "textwrap",
  "tokio",

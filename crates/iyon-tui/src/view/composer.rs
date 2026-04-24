@@ -2,7 +2,10 @@ use ratatui::layout::Rect;
 
 use crate::{
     input::WrapCache,
-    runtime::{AppState, active::ActiveBehavior},
+    runtime::{
+        AppState,
+        active::{ActiveBehavior, ActivePaneState},
+    },
     view::{
         layout::{CommitCapacityPolicy, ComputedLayout, LayoutConfig},
         render::{ActiveView, ChatView, InfoView, InputView, Renderable, Renderer},
@@ -17,6 +20,9 @@ pub(crate) struct RunningView<'a> {
     pub(crate) input: InputView<'a>,
     pub(crate) info: InfoView<'a>,
 }
+
+const MIN_ACTIVE_HEIGHT: u16 = 3;
+const MIN_CHAT_HEIGHT: u16 = 1;
 
 #[derive(Debug, Default)]
 pub(crate) struct RunningFrameComposer;
@@ -34,6 +40,9 @@ impl RunningFrameComposer {
             state.input.text(),
             area.width.max(1),
         );
+        if let Some(active) = state.active.as_mut() {
+            active.ensure_stream_render_cache(area.width.max(1));
+        }
         let layout = Self::compute_layout(base_layout, renderer, area, state, input_wrap_ranges);
         state.input_view.content_width = layout.input_area.width.max(1);
 
@@ -95,7 +104,10 @@ impl RunningFrameComposer {
             lines: state.transcript.uncommitted_rows(),
         };
 
-        let active_height = if state.active.is_some() { 3 } else { 0 };
+        let active_height = state
+            .active
+            .as_ref()
+            .map_or(0, ActivePaneState::desired_height);
         let commit_capacity_policy = match state.active.as_ref().map(|pane| pane.behavior()) {
             Some(ActiveBehavior::OccludeOnly) => CommitCapacityPolicy::OccludeOnly,
             _ => CommitCapacityPolicy::SpillToTranscript,
@@ -138,7 +150,14 @@ impl RunningFrameComposer {
         };
         let input_height = renderer.desired_height(&input_view, pass1.input_area);
 
+        let active_height = clamp_active_height(
+            active_height,
+            root.height,
+            input_height,
+            base_cfg.info_height,
+        );
         let pass2_cfg = LayoutConfig {
+            active_height,
             input_height,
             ..base_cfg.clone()
         };
@@ -153,4 +172,20 @@ impl RunningFrameComposer {
 
         final_cfg.compute(root)
     }
+}
+
+fn clamp_active_height(desired: u16, root_height: u16, input_height: u16, info_height: u16) -> u16 {
+    if desired == 0 {
+        return 0;
+    }
+
+    let max_height = root_height
+        .saturating_sub(input_height)
+        .saturating_sub(info_height)
+        .saturating_sub(MIN_CHAT_HEIGHT);
+    if max_height == 0 {
+        return 0;
+    }
+
+    desired.clamp(MIN_ACTIVE_HEIGHT.min(max_height), max_height)
 }

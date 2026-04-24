@@ -4,4 +4,5 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-iyon-core = { path = "../iyon-core" }
+anyhow.workspace = true
+tokio.workspace = true

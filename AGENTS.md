@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Defaults
-- Be brief and concise in your replies.
+- IMPORTANT: Be brief and concise in your replies.
 - Preserve existing behavior unless the task explicitly requires a change.
 - Keep changes tightly scoped and aligned with the existing architecture.
 - Do not modify unrelated files.

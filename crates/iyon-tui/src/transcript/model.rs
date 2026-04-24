@@ -27,9 +27,17 @@ impl TuiFormatter {
 
         let mut rows = Vec::new();
         rows.push(Line::styled("", style));
-        rows.extend(styled_lines_preserving_newlines(&text, style));
+        rows.extend(Self::format_text_body(&text, style));
         rows.push(Line::styled("", style));
         rows
+    }
+
+    pub(crate) fn format_assistant_body(&self, text: &str) -> Vec<Line<'static>> {
+        Self::format_text_body(text, Style::default())
+    }
+
+    fn format_text_body(text: &str, style: Style) -> Vec<Line<'static>> {
+        styled_lines_preserving_newlines(text, style)
     }
 }
 
@@ -56,12 +64,29 @@ impl Default for TranscriptState {
 
 impl TranscriptState {
     pub(crate) fn push_item(&mut self, item: TimelineItem) {
-        if !self.logical_rows_cache.is_empty() {
-            self.logical_rows_cache.push(Line::from(""));
+        self.canonical_items.push(item);
+        self.rebuild_logical_rows_cache();
+    }
+
+    pub(crate) fn append_assistant_fragment(&mut self, text: String) {
+        if text.is_empty() {
+            return;
         }
 
-        self.logical_rows_cache.extend(self.formatter.format(&item));
-        self.canonical_items.push(item);
+        match self.canonical_items.last_mut() {
+            Some(TimelineItem::AssistantMessage { text: existing }) => existing.push_str(&text),
+            _ => self
+                .canonical_items
+                .push(TimelineItem::AssistantMessage { text }),
+        }
+        self.rebuild_logical_rows_cache();
+    }
+
+    fn rebuild_logical_rows_cache(&mut self) {
+        self.logical_rows_cache.clear();
+        for item in &self.canonical_items {
+            self.logical_rows_cache.extend(self.formatter.format(item));
+        }
         self.rendered_rows_cache = None;
     }
 
