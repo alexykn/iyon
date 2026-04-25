@@ -59,10 +59,16 @@ impl StreamSmoother {
             return None;
         }
 
+        let pending = std::mem::take(&mut self.pending);
+        self.clear();
+        Some(pending)
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.pending.clear();
         self.pending_chars = 0;
         self.carry_chars = 0.0;
         self.last_drain = None;
-        Some(std::mem::take(&mut self.pending))
     }
 
     pub(crate) fn has_pending(&self) -> bool {

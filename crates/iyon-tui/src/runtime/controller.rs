@@ -72,7 +72,11 @@ impl AppController {
                 Ok(true)
             }
             FrontendAction::RequestExit => {
-                state.request_exit();
+                if state.active.is_some() {
+                    backend.try_cancel_active_turn()?;
+                } else {
+                    state.request_exit();
+                }
                 Ok(true)
             }
             FrontendAction::RedrawOnly => Ok(true),

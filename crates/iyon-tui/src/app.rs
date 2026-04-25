@@ -20,7 +20,6 @@ const IDLE_POLL_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const SPINNER_TICK_INTERVAL: Duration = Duration::from_millis(80);
 const BACKEND_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
-#[derive(Debug)]
 pub(super) struct App {
     pub(super) input_handler: InputEventHandler,
     pub(super) wrap_cache: WrapCache,
@@ -217,6 +216,11 @@ impl App {
                 state.fail_active_turn(message);
                 true
             }
+            FrontendEvent::TurnCancelled => {
+                self.stream_smoother.clear();
+                state.finish_active_turn();
+                true
+            }
         }
     }
 
@@ -284,7 +288,7 @@ impl App {
             &mut state.transcript,
             EXIT_DRAIN_CHUNK,
         )? {
-            FlushResult::Done => state.exit_state = ExitState::FinalFrame,
+            FlushResult::Done | FlushResult::Blocked => state.exit_state = ExitState::FinalFrame,
             FlushResult::More => {}
         }
         Ok(())
@@ -297,13 +301,6 @@ impl App {
     ) -> Result<()> {
         let root = self.current_root_rect(terminal)?;
         state.transcript.ensure_render_cache(root.width.max(1));
-
-        if state.transcript.uncommitted_len() != 0 {
-            return Err(anyhow::anyhow!(
-                "shutdown final frame reached with {} uncommitted transcript rows",
-                state.transcript.uncommitted_len()
-            ));
-        }
 
         terminal.draw(|frame| self.draw_exit_anchor(frame))?;
 

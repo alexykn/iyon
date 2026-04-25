@@ -219,7 +219,11 @@ impl InputEventHandler {
         Ok(actions)
     }
 
-    fn handle_event(&mut self, event: Event, editor: &mut InputEditor<'_>) -> Vec<FrontendAction> {
+    pub(crate) fn handle_event(
+        &mut self,
+        event: Event,
+        editor: &mut InputEditor<'_>,
+    ) -> Vec<FrontendAction> {
         match event {
             Event::Key(key_event) => {
                 if !matches!(key_event.kind, Press | Repeat) {
