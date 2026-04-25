@@ -62,7 +62,7 @@ impl AppController {
             return false;
         };
 
-        state.append_assistant_message(fragment);
+        state.append_assistant_stream_fragment(fragment);
         true
     }
 

@@ -8,6 +8,7 @@ use crate::transcript::{
 };
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const ACTIVE_STREAM_UNSTABLE_TAIL_ROWS: usize = 1;
 
 #[derive(Debug, Clone)]
 pub(crate) enum ActivePaneState {
@@ -196,26 +197,39 @@ impl ActiveStreamState {
             .render_cache
             .as_ref()
             .map_or(1, |cache| cache.body_rows.len());
-        u16::try_from(body_rows.saturating_add(2))
+        let top_padding = if self.has_spilled_content() { 0 } else { 1 };
+        u16::try_from(body_rows.saturating_add(top_padding))
             .unwrap_or(u16::MAX)
-            .max(3)
+            .max(1)
     }
 
     fn spill_overflow_rows(&mut self, visible_rows: usize) -> Option<String> {
-        let body_capacity = visible_rows.saturating_sub(2).max(1);
+        let top_padding = if self.has_spilled_content() { 0 } else { 1 };
+        let body_capacity = visible_rows.saturating_sub(top_padding).max(1);
         let cache = self.render_cache.as_ref()?;
         if cache.body_rows.len() <= body_capacity {
             return None;
         }
 
-        let overflow = cache.body_rows.len() - body_capacity;
-        let boundary = cache.row_end_boundaries[overflow - 1];
+        let row_count = cache.body_rows.len();
+        let stable_rows = row_count.saturating_sub(ACTIVE_STREAM_UNSTABLE_TAIL_ROWS);
+        let desired_spill = row_count - body_capacity;
+        let spill_rows = desired_spill.min(stable_rows);
+        if spill_rows == 0 {
+            return None;
+        }
+
+        let boundary = cache.row_end_boundaries[spill_rows - 1];
         let tail_bytes = self.boundary_to_tail_byte(boundary);
         if tail_bytes == 0 {
             return None;
         }
 
-        let next_frozen = self.frozen_until + tail_bytes;
+        let mut next_frozen = self.frozen_until + tail_bytes;
+        if next_frozen < self.full_text.len() && self.full_text[next_frozen..].starts_with('\n') {
+            next_frozen += '\n'.len_utf8();
+        }
+
         let fragment = self.full_text[self.frozen_until..next_frozen].to_string();
         self.advance_frozen_until(next_frozen);
         Some(fragment)
@@ -240,6 +254,10 @@ impl ActiveStreamState {
             body_rows: wrapped.rows,
             row_end_boundaries: wrapped.row_end_boundaries,
         });
+    }
+
+    fn has_spilled_content(&self) -> bool {
+        self.frozen_until > 0
     }
 
     fn boundary_to_tail_byte(&self, boundary: TranscriptCommitBoundary) -> usize {

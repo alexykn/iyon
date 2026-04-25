@@ -157,6 +157,16 @@ impl App {
             layout.commit_chat_capacity_rows,
         )?;
 
+        let root = self.current_root_rect(terminal)?;
+        state.transcript.ensure_render_cache(root.width.max(1));
+        layout = RunningFrameComposer::prepare(
+            &self.renderer,
+            &self.layout,
+            state,
+            &mut self.wrap_cache,
+            root,
+        );
+
         terminal.draw(|frame| {
             let view =
                 RunningFrameComposer::view(layout, state, &mut self.wrap_cache, frame.area());
@@ -262,10 +272,6 @@ impl App {
     }
 
     fn current_root_rect(&mut self, terminal: &mut InlineTerminal) -> Result<Rect> {
-        if let Some(area) = terminal.last_viewport_area() {
-            return Ok(area);
-        }
-
-        terminal.size()
+        terminal.current_viewport_area()
     }
 }

@@ -21,7 +21,7 @@ impl ModelApi for MockModelApi {
                 let _ = tx.send(Ok(ModelStreamEvent::Started)).await;
                 let response = format!("Mock response to: {prompt}");
                 for chunk in response.split_inclusive(' ') {
-                    sleep(Duration::from_millis(80)).await;
+                    sleep(Duration::from_millis(20)).await;
                     if tx
                         .send(Ok(ModelStreamEvent::TextDelta {
                             delta: chunk.to_string(),
