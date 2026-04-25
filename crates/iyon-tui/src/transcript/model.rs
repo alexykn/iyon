@@ -17,23 +17,42 @@ pub(crate) struct TuiFormatter;
 
 impl TuiFormatter {
     pub(crate) fn format(&self, item: &TimelineItem) -> Vec<Line<'static>> {
-        let (text, style) = match item {
+        match item {
             TimelineItem::UserMessage { text } => {
-                (text.clone(), Style::default().bg(Color::Rgb(45, 55, 72)))
+                self.format_text_message(text, Style::default().bg(Color::Rgb(45, 55, 72)), true)
             }
-            TimelineItem::AssistantMessage { text } => (text.clone(), Style::default()),
-            TimelineItem::ErrorMessage { text } => (text.clone(), Style::default().fg(Color::Red)),
-        };
+            TimelineItem::AssistantMessage { text } => self.format_assistant_message(text, true),
+            TimelineItem::ErrorMessage { text } => {
+                self.format_text_message(text, Style::default().fg(Color::Red), true)
+            }
+        }
+    }
 
-        let mut rows = Vec::new();
-        rows.push(Line::styled("", style));
-        rows.extend(Self::format_text_body(&text, style));
-        rows.push(Line::styled("", style));
-        rows
+    pub(crate) fn format_assistant_message(
+        &self,
+        text: &str,
+        include_trailing_blank: bool,
+    ) -> Vec<Line<'static>> {
+        self.format_text_message(text, Style::default(), include_trailing_blank)
     }
 
     pub(crate) fn format_assistant_body(&self, text: &str) -> Vec<Line<'static>> {
         Self::format_text_body(text, Style::default())
+    }
+
+    fn format_text_message(
+        &self,
+        text: &str,
+        style: Style,
+        include_trailing_blank: bool,
+    ) -> Vec<Line<'static>> {
+        let mut rows = Vec::new();
+        rows.push(Line::styled("", style));
+        rows.extend(Self::format_text_body(text, style));
+        if include_trailing_blank {
+            rows.push(Line::styled("", style));
+        }
+        rows
     }
 
     fn format_text_body(text: &str, style: Style) -> Vec<Line<'static>> {
@@ -48,6 +67,7 @@ pub(crate) struct TranscriptState {
     rendered_rows_cache: Option<TranscriptRenderCache>,
     commit_boundary: TranscriptCommitBoundary,
     formatter: TuiFormatter,
+    assistant_stream_open: bool,
 }
 
 impl Default for TranscriptState {
@@ -58,17 +78,35 @@ impl Default for TranscriptState {
             rendered_rows_cache: None,
             commit_boundary: TranscriptCommitBoundary::default(),
             formatter: TuiFormatter,
+            assistant_stream_open: false,
         }
     }
 }
 
 impl TranscriptState {
     pub(crate) fn push_item(&mut self, item: TimelineItem) {
+        self.assistant_stream_open = false;
         self.canonical_items.push(item);
         self.rebuild_logical_rows_cache();
     }
 
     pub(crate) fn append_assistant_fragment(&mut self, text: String) {
+        self.append_assistant_text(text, false);
+    }
+
+    pub(crate) fn append_assistant_stream_fragment(&mut self, text: String) {
+        self.append_assistant_text(text, true);
+    }
+
+    pub(crate) fn finish_assistant_stream(&mut self) {
+        if !self.assistant_stream_open {
+            return;
+        }
+        self.assistant_stream_open = false;
+        self.rebuild_logical_rows_cache();
+    }
+
+    fn append_assistant_text(&mut self, text: String, stream_open: bool) {
         if text.is_empty() {
             return;
         }
@@ -79,13 +117,28 @@ impl TranscriptState {
                 .canonical_items
                 .push(TimelineItem::AssistantMessage { text }),
         }
+        self.assistant_stream_open = stream_open;
         self.rebuild_logical_rows_cache();
     }
 
     fn rebuild_logical_rows_cache(&mut self) {
         self.logical_rows_cache.clear();
-        for item in &self.canonical_items {
-            self.logical_rows_cache.extend(self.formatter.format(item));
+        let open_assistant_idx = self.assistant_stream_open.then(|| {
+            self.canonical_items
+                .iter()
+                .rposition(|item| matches!(item, TimelineItem::AssistantMessage { .. }))
+        });
+        for (idx, item) in self.canonical_items.iter().enumerate() {
+            match item {
+                TimelineItem::AssistantMessage { text }
+                    if open_assistant_idx == Some(Some(idx)) =>
+                {
+                    let mut rows = self.formatter.format_assistant_body(text);
+                    drop_trailing_empty_row(&mut rows);
+                    self.logical_rows_cache.extend(rows);
+                }
+                _ => self.logical_rows_cache.extend(self.formatter.format(item)),
+            }
         }
         self.rendered_rows_cache = None;
     }
@@ -163,6 +216,20 @@ fn styled_lines_preserving_newlines(text: &str, style: Style) -> Vec<Line<'stati
     text.split('\n')
         .map(|line| Line::styled(line.to_string(), style))
         .collect()
+}
+
+fn drop_trailing_empty_row(rows: &mut Vec<Line<'static>>) {
+    let Some(last) = rows.last() else {
+        return;
+    };
+
+    let is_empty = last
+        .spans
+        .iter()
+        .all(|span| span.content.as_ref().is_empty());
+    if is_empty {
+        rows.pop();
+    }
 }
 
 #[cfg(test)]

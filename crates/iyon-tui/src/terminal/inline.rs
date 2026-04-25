@@ -4,16 +4,16 @@ use ratatui::{DefaultTerminal, Frame, layout::Rect, text::Line};
 #[derive(Debug)]
 pub(crate) struct InlineTerminal {
     terminal: DefaultTerminal,
-    last_viewport_area: Option<Rect>,
     invalidate_next_draw: bool,
+    last_drawn_cursor: Option<(u16, u16)>,
 }
 
 impl InlineTerminal {
     pub(crate) fn new(terminal: DefaultTerminal) -> Self {
         Self {
             terminal,
-            last_viewport_area: None,
             invalidate_next_draw: false,
+            last_drawn_cursor: None,
         }
     }
 
@@ -26,12 +26,16 @@ impl InlineTerminal {
             self.invalidate_next_draw = false;
         }
 
-        let mut area = None;
         self.terminal.draw(|frame| {
-            area = Some(frame.area());
             draw_fn(frame);
         })?;
-        self.last_viewport_area = area;
+
+        self.last_drawn_cursor = self
+            .terminal
+            .get_cursor_position()
+            .ok()
+            .map(|position| (position.x, position.y));
+
         Ok(())
     }
 
@@ -43,8 +47,6 @@ impl InlineTerminal {
         let height = u16::try_from(rows.len()).unwrap_or(u16::MAX);
         let rendered_rows = usize::from(height);
         let rows = &rows[..rendered_rows];
-
-        let cursor_before_insert = self.terminal.get_cursor_position().ok();
 
         self.terminal.insert_before(height, |buffer| {
             let width = buffer.area.width;
@@ -61,15 +63,16 @@ impl InlineTerminal {
             }
         })?;
 
-        if let Some(cursor_position) = cursor_before_insert {
-            self.terminal.set_cursor_position(cursor_position)?;
+        if let Some((x, y)) = self.last_drawn_cursor {
+            self.terminal.set_cursor_position((x, y))?;
         }
 
         Ok(rendered_rows)
     }
 
-    pub(crate) fn last_viewport_area(&self) -> Option<Rect> {
-        self.last_viewport_area
+    pub(crate) fn current_viewport_area(&mut self) -> Result<Rect> {
+        self.terminal.autoresize()?;
+        Ok(self.terminal.get_frame().area())
     }
 
     pub(crate) fn invalidate_next_draw(&mut self) {
@@ -83,6 +86,7 @@ impl InlineTerminal {
 
     pub(crate) fn set_cursor_position(&mut self, position: (u16, u16)) -> Result<()> {
         self.terminal.set_cursor_position(position)?;
+        self.last_drawn_cursor = Some(position);
         Ok(())
     }
 }

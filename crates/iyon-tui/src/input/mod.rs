@@ -18,13 +18,15 @@ pub(crate) use wrap::{WrapCache, cursor_xy, wrapped_line_index_by_start};
 use crate::{input::wrap::cursor_for_display_col, runtime::controller::FrontendAction};
 
 const WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
+const LARGE_PASTE_CHAR_THRESHOLD: usize = 1000;
+const LARGE_PASTE_LINE_THRESHOLD: usize = 10;
 
 #[derive(Debug)]
 enum CustomKeyEvent {
     None,
     Send,
     CtrlC,
-    InsertText { text: String },
+    InsertPaste { text: String },
     InsertChar { char: char },
     InsertNewline,
     DeleteChar,
@@ -131,8 +133,12 @@ impl<'a> InputEditor<'a> {
         self.buffer.insert_char(char);
     }
 
-    fn insert_str(&mut self, text: &str) {
-        self.buffer.insert_str(text);
+    fn insert_paste(&mut self, text: &str) {
+        self.buffer.insert_paste(text);
+    }
+
+    fn submission_text(&self) -> String {
+        self.buffer.submission_text()
     }
 
     fn delete_char(&mut self) {
@@ -223,7 +229,7 @@ impl InputEventHandler {
                 self.handle_key_event(custom_key_event, editor)
             }
             Event::Paste(text) => {
-                self.handle_key_event(CustomKeyEvent::InsertText { text }, editor)
+                self.handle_key_event(CustomKeyEvent::InsertPaste { text }, editor)
             }
             Event::Resize(_, _) => vec![FrontendAction::RedrawOnly],
             _ => Vec::new(),
@@ -240,7 +246,7 @@ impl InputEventHandler {
                 if editor.text().is_empty() {
                     return Vec::new();
                 }
-                let text = editor.text().to_string();
+                let text = editor.submission_text();
                 editor.clear();
                 vec![FrontendAction::SubmitTurn { text }]
             }
@@ -255,8 +261,8 @@ impl InputEventHandler {
                 editor.insert_char(char);
                 vec![FrontendAction::RedrawOnly]
             }
-            CustomKeyEvent::InsertText { text } => {
-                editor.insert_str(&text.replace('\t', "    "));
+            CustomKeyEvent::InsertPaste { text } => {
+                editor.insert_paste(&text);
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::InsertNewline => {
@@ -323,6 +329,14 @@ pub(crate) struct InputBuffer {
     cursor: usize,
     preferred_col: Option<usize>,
     kill_buffer: String,
+    large_pastes: Vec<LargePaste>,
+    next_paste_id: u64,
+}
+
+#[derive(Debug, Clone)]
+struct LargePaste {
+    marker: String,
+    text: String,
 }
 
 impl InputBuffer {
@@ -359,6 +373,45 @@ impl InputBuffer {
         self.set_cursor(self.cursor + input.len());
         self.mark_text_changed();
         self.preferred_col = None;
+    }
+
+    pub(crate) fn insert_paste(&mut self, input: &str) {
+        let normalized = normalize_paste(input);
+        if !is_large_paste(&normalized) {
+            self.insert_str(&normalized);
+            return;
+        }
+
+        let marker = self.next_large_paste_marker(normalized.chars().count());
+        self.insert_str(&marker);
+        self.large_pastes.push(LargePaste {
+            marker,
+            text: normalized,
+        });
+    }
+
+    pub(crate) fn submission_text(&self) -> String {
+        let mut text = self.text.clone();
+        for paste in &self.large_pastes {
+            if text.contains(&paste.marker) {
+                text = text.replace(&paste.marker, &paste.text);
+            }
+        }
+        text
+    }
+
+    fn next_large_paste_marker(&mut self, char_count: usize) -> String {
+        self.next_paste_id = self.next_paste_id.wrapping_add(1).max(1);
+        let base = format!("[Pasted Content {char_count} chars]");
+        if !self.text.contains(&base) && !self.large_pastes.iter().any(|paste| paste.marker == base)
+        {
+            return base;
+        }
+
+        format!(
+            "[Pasted Content {char_count} chars #{}]",
+            self.next_paste_id
+        )
     }
 
     pub(crate) fn insert_char(&mut self, c: char) {
@@ -425,6 +478,7 @@ impl InputBuffer {
             self.text.clear();
             self.mark_text_changed();
         }
+        self.large_pastes.clear();
         self.set_cursor(0);
         self.preferred_col = None;
     }
@@ -671,5 +725,84 @@ impl InputBuffer {
             .grapheme_indices(true)
             .next()
             .map_or(pos, |(_, grapheme)| pos + grapheme.len())
+    }
+}
+
+fn normalize_paste(input: &str) -> String {
+    input
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .replace('\t', "    ")
+}
+
+fn is_large_paste(text: &str) -> bool {
+    text.chars().count() > LARGE_PASTE_CHAR_THRESHOLD
+        || text.split('\n').count() > LARGE_PASTE_LINE_THRESHOLD
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn small_paste_inserts_visible_text_directly() {
+        let mut input = InputBuffer::default();
+
+        input.insert_paste("hello\tworld");
+
+        assert_eq!(input.text(), "hello    world");
+        assert_eq!(input.submission_text(), "hello    world");
+    }
+
+    #[test]
+    fn large_paste_uses_placeholder_but_submits_full_text() {
+        let mut input = InputBuffer::default();
+        let paste = "x".repeat(LARGE_PASTE_CHAR_THRESHOLD + 1);
+
+        input.insert_paste(&paste);
+
+        assert_eq!(input.text(), "[Pasted Content 1001 chars]");
+        assert_eq!(input.submission_text(), paste);
+    }
+
+    #[test]
+    fn multiline_large_paste_uses_placeholder() {
+        let mut input = InputBuffer::default();
+        let paste = (0..=LARGE_PASTE_LINE_THRESHOLD)
+            .map(|idx| format!("line{idx}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        input.insert_paste(&paste);
+
+        assert_eq!(input.text(), "[Pasted Content 66 chars]");
+        assert_eq!(input.submission_text(), paste);
+    }
+
+    #[test]
+    fn duplicate_large_paste_markers_are_unique_and_expand() {
+        let mut input = InputBuffer::default();
+        let paste = "x".repeat(LARGE_PASTE_CHAR_THRESHOLD + 1);
+
+        input.insert_paste(&paste);
+        input.insert_char(' ');
+        input.insert_paste(&paste);
+
+        assert_eq!(
+            input.text(),
+            "[Pasted Content 1001 chars] [Pasted Content 1001 chars #2]"
+        );
+        assert_eq!(input.submission_text(), format!("{paste} {paste}"));
+    }
+
+    #[test]
+    fn edited_placeholder_does_not_expand_stale_paste() {
+        let mut input = InputBuffer::default();
+        let paste = "x".repeat(LARGE_PASTE_CHAR_THRESHOLD + 1);
+
+        input.insert_paste(&paste);
+        input.delete_char();
+
+        assert_eq!(input.submission_text(), "[Pasted Content 1001 chars");
     }
 }

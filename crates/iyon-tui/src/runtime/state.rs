@@ -25,6 +25,14 @@ impl AppState {
         self.transcript.append_assistant_fragment(text);
     }
 
+    pub(crate) fn append_assistant_stream_fragment(&mut self, text: String) {
+        self.transcript.append_assistant_stream_fragment(text);
+    }
+
+    pub(crate) fn finish_assistant_stream(&mut self) {
+        self.transcript.finish_assistant_stream();
+    }
+
     pub(crate) fn append_error_message(&mut self, text: String) {
         if text.is_empty() {
             return;
@@ -68,8 +76,9 @@ impl AppState {
 
     pub(crate) fn finish_active_turn(&mut self) {
         if let Some(text) = self.take_active_unfrozen_transcript_text() {
-            self.append_assistant_message(text);
+            self.append_assistant_stream_fragment(text);
         }
+        self.finish_assistant_stream();
     }
 
     pub(crate) fn fail_active_turn(&mut self, message: String) {
