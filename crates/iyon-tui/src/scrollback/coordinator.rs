@@ -8,6 +8,19 @@ use crate::{scrollback::committer::ScrollbackCommitter, terminal::InlineTerminal
 pub(crate) enum FlushResult {
     Done,
     More,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CommitRowsOutcome {
+    inserted: usize,
+    requested: usize,
+}
+
+impl CommitRowsOutcome {
+    fn is_blocked(self) -> bool {
+        self.requested != 0 && self.inserted == 0
+    }
 }
 
 #[derive(Debug, Default)]
@@ -21,28 +34,42 @@ impl ScrollbackCoordinator {
         terminal: &mut InlineTerminal,
         rows: &[Line<'static>],
     ) -> Result<()> {
+        let outcome = self.commit_rows_lossless(terminal, rows)?;
+        if outcome.inserted != outcome.requested {
+            return Err(anyhow::anyhow!(
+                "scrollback commit incomplete: inserted {} of {} rows",
+                outcome.inserted,
+                outcome.requested
+            ));
+        }
+        Ok(())
+    }
+
+    fn commit_rows_lossless(
+        &mut self,
+        terminal: &mut InlineTerminal,
+        rows: &[Line<'static>],
+    ) -> Result<CommitRowsOutcome> {
         const MAX_ROWS_PER_COMMIT: usize = u16::MAX as usize;
 
+        let mut inserted = 0usize;
         for chunk in rows.chunks(MAX_ROWS_PER_COMMIT) {
             let result = self.committer.commit_rows(terminal, chunk)?;
-            if let Some(diagnostics) = result.diagnostics {
-                return Err(anyhow::anyhow!(
-                    "scrollback commit truncated: inserted {} of {} rows (truncated {})",
-                    result.rows_inserted,
-                    diagnostics.requested_rows,
-                    diagnostics.truncated_rows
-                ));
-            }
-            if result.rows_inserted != chunk.len() {
-                return Err(anyhow::anyhow!(
-                    "scrollback commit mismatch: inserted {} of {} rows",
-                    result.rows_inserted,
-                    chunk.len()
-                ));
+            inserted = inserted.saturating_add(result.rows_inserted);
+
+            // A partial insert means the terminal accepted only part of the requested
+            // scrollback mutation, usually because the viewport changed under us. Stop
+            // here and let the caller mark exactly the rows that actually made it into
+            // history; never advance TranscriptState past what the terminal accepted.
+            if result.rows_inserted != chunk.len() || result.diagnostics.is_some() {
+                break;
             }
         }
 
-        Ok(())
+        Ok(CommitRowsOutcome {
+            inserted,
+            requested: rows.len(),
+        })
     }
 
     pub(crate) fn commit_running_overflow(
@@ -58,8 +85,8 @@ impl ScrollbackCoordinator {
 
         let overflow = uncommitted_len - commit_capacity_rows;
         let rows = transcript.uncommitted_rows()[..overflow].to_vec();
-        self.commit_rows_checked(terminal, &rows)?;
-        transcript.mark_rows_committed(rows.len());
+        let outcome = self.commit_rows_lossless(terminal, &rows)?;
+        transcript.mark_rows_committed(outcome.inserted);
         Ok(())
     }
 
@@ -76,12 +103,14 @@ impl ScrollbackCoordinator {
 
         let chunk_len = uncommitted_len.min(max_rows);
         let rows = transcript.uncommitted_rows()[..chunk_len].to_vec();
-        self.commit_rows_checked(terminal, &rows)?;
-        transcript.mark_rows_committed(chunk_len);
+        let outcome = self.commit_rows_lossless(terminal, &rows)?;
+        transcript.mark_rows_committed(outcome.inserted);
         terminal.invalidate_next_draw();
 
         if transcript.uncommitted_len() == 0 {
             Ok(FlushResult::Done)
+        } else if outcome.is_blocked() {
+            Ok(FlushResult::Blocked)
         } else {
             Ok(FlushResult::More)
         }
