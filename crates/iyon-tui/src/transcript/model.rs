@@ -133,7 +133,18 @@ impl TranscriptState {
                 TimelineItem::AssistantMessage { text }
                     if open_assistant_idx == Some(Some(idx)) =>
                 {
-                    let mut rows = self.formatter.format_assistant_body(text);
+                    // While an assistant stream is open, the transcript owns only the
+                    // frozen/spilled portion of that assistant message. Keep the normal
+                    // message top padding so the gap from the preceding user message is
+                    // stable, but omit the official bottom padding: the live active pane
+                    // owns the active/input margin until the stream is finalized.
+                    let mut rows = self.formatter.format_assistant_message(text, false);
+
+                    // The frozen transcript and live active pane touch at this boundary.
+                    // If the spilled fragment currently ends in an empty rendered row,
+                    // suppress exactly one such row so the seam does not show a moving
+                    // blank gap while streaming. Finalized messages are rebuilt through
+                    // the normal formatter path and regain their bottom padding.
                     drop_trailing_empty_row(&mut rows);
                     self.logical_rows_cache.extend(rows);
                 }

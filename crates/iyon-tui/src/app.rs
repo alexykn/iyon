@@ -5,7 +5,10 @@ use ratatui::{Frame, layout::Rect, text::Line};
 
 use crate::{
     input::{InputEditor, InputEventHandler, WrapCache},
-    runtime::{ActiveTicker, AppController, AppState, BackendEventHandler, ExitState},
+    runtime::{
+        ActiveTicker, AppController, AppState, BackendEventHandler, ExitState, FrontendEvent,
+        StreamSmoother,
+    },
     scrollback::{FlushResult, ScrollbackCoordinator},
     terminal::InlineTerminal,
     view::{LayoutConfig, Renderer, RunningFrameComposer},
@@ -27,6 +30,7 @@ pub(super) struct App {
     backend_handler: BackendEventHandler,
     controller: AppController,
     active_ticker: ActiveTicker,
+    stream_smoother: StreamSmoother,
     needs_redraw: bool,
 }
 
@@ -41,6 +45,7 @@ impl Default for App {
             backend_handler: BackendEventHandler::default(),
             controller: AppController,
             active_ticker: ActiveTicker::new(SPINNER_TICK_INTERVAL),
+            stream_smoother: StreamSmoother::default(),
             needs_redraw: true,
         }
     }
@@ -105,14 +110,13 @@ impl App {
         }
 
         let backend_events = self.backend_handler.drain_events()?;
-        let backend_dirty = self
-            .controller
-            .apply_backend_events(backend_events, state)?;
-        let active_dirty = self
-            .active_ticker
-            .tick_if_due(Instant::now(), state.active.as_mut());
+        let backend_dirty = self.apply_backend_events(backend_events, state);
 
-        if input_dirty || backend_dirty || active_dirty {
+        let now = Instant::now();
+        let active_dirty = self.active_ticker.tick_if_due(now, state.active.as_mut());
+        let smoothed_dirty = self.drain_stream_smoother(state, now);
+
+        if input_dirty || backend_dirty || active_dirty || smoothed_dirty {
             self.draw_dirty_running_frame(terminal, state)?;
         }
 
@@ -175,20 +179,90 @@ impl App {
         Ok(())
     }
 
+    fn apply_backend_events(
+        &mut self,
+        events: impl IntoIterator<Item = FrontendEvent>,
+        state: &mut AppState,
+    ) -> bool {
+        let mut dirty = false;
+        for event in events {
+            dirty |= self.apply_backend_event(event, state);
+        }
+        dirty
+    }
+
+    fn apply_backend_event(&mut self, event: FrontendEvent, state: &mut AppState) -> bool {
+        match event {
+            FrontendEvent::TurnStarted => {
+                state.start_working_pane();
+                true
+            }
+            FrontendEvent::AssistantDelta { text } => {
+                // Backend chunks are intentionally not appended directly to the visible
+                // active stream. They enter a presentation buffer first, then the event
+                // loop drains that buffer at a steady cadence for smoother streaming.
+                self.stream_smoother.push(&text);
+                state.start_working_pane();
+                true
+            }
+            FrontendEvent::TurnFinished => {
+                // Flush before closing the active turn; otherwise buffered text would be
+                // appended after TranscriptState has rebuilt the assistant message as final.
+                self.flush_stream_smoother(state);
+                state.finish_active_turn();
+                true
+            }
+            FrontendEvent::TurnFailed { message } => {
+                self.flush_stream_smoother(state);
+                state.fail_active_turn(message);
+                true
+            }
+        }
+    }
+
+    fn drain_stream_smoother(&mut self, state: &mut AppState, now: Instant) -> bool {
+        let Some(text) = self.stream_smoother.drain_ready(now) else {
+            return false;
+        };
+
+        state.receive_assistant_delta(&text);
+        true
+    }
+
+    fn flush_stream_smoother(&mut self, state: &mut AppState) -> bool {
+        let Some(text) = self.stream_smoother.flush() else {
+            return false;
+        };
+
+        state.receive_assistant_delta(&text);
+        true
+    }
+
     fn next_wait_timeout(&mut self, state: &AppState) -> Duration {
         let active_timeout = self.active_ticker.wait_timeout(
             Instant::now(),
             state.active.as_ref(),
             IDLE_POLL_TIMEOUT,
         );
-        if self.backend_handler.has_in_flight_turn() {
+        let mut timeout = if self.backend_handler.has_in_flight_turn() {
             active_timeout.min(BACKEND_POLL_INTERVAL)
         } else {
             active_timeout
+        };
+
+        // The backend may deliver text in chunky bursts. While the smoother has buffered
+        // text, keep the event loop waking at its animation cadence so pending characters
+        // can be released even if there is no input/backend event to wake us.
+        if let Some(smoother_timeout) = self.stream_smoother.next_tick_interval() {
+            timeout = timeout.min(smoother_timeout);
         }
+
+        timeout
     }
 
     fn step_finalize_active(&mut self, state: &mut AppState) -> Result<()> {
+        self.flush_stream_smoother(state);
+
         if let Some(text) = state.take_active_unfrozen_transcript_text() {
             state.append_assistant_message(text);
         }

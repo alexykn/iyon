@@ -3,7 +3,7 @@ use std::ops::Range;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
@@ -65,6 +65,30 @@ pub(crate) struct Renderer;
 
 impl Renderer {
     pub(crate) fn draw_running(&self, frame: &mut Frame, view: &RunningView<'_>) {
+        if debug_area_backgrounds_enabled() {
+            let buffer = frame.buffer_mut();
+            buffer.set_style(
+                view.layout.spacer_area,
+                Style::default().bg(Color::Rgb(66, 44, 72)),
+            );
+            buffer.set_style(
+                view.layout.chat_area,
+                Style::default().bg(Color::Rgb(18, 34, 48)),
+            );
+            buffer.set_style(
+                view.layout.active_area,
+                Style::default().bg(Color::Rgb(42, 24, 24)),
+            );
+            buffer.set_style(
+                view.layout.input_area,
+                Style::default().bg(Color::Rgb(20, 36, 20)),
+            );
+            buffer.set_style(
+                view.layout.info_area,
+                Style::default().bg(Color::Rgb(36, 30, 18)),
+            );
+        }
+
         let spacer_view = SpacerView;
         self.render(&spacer_view, frame, view.layout.spacer_area);
         self.render(&view.chat, frame, view.layout.chat_area);
@@ -127,23 +151,40 @@ impl Renderable<ActiveView<'_>> for Renderer {
                 Some(stream) => stream
                     .rendered_tail_rows()
                     .map(|rows| {
-                        let top_padding = if stream.frozen_until() == 0 { 1 } else { 0 };
-                        let body_height =
-                            usize::from(area.height).saturating_sub(top_padding).max(1);
+                        // Active streaming renders pane margins explicitly. Top padding is
+                        // temporary until the assistant message has spilled into transcript;
+                        // bottom padding is the stable gap above the input box. Keep this
+                        // calculation in sync with ActiveStreamState::spill_overflow_rows.
+                        let top_padding = stream.top_padding_rows();
+                        let bottom_padding = stream.bottom_padding_rows();
+                        let reserved_rows = top_padding.saturating_add(bottom_padding);
+                        let body_height = usize::from(area.height)
+                            .saturating_sub(reserved_rows)
+                            .max(1);
                         let visible = &rows[rows.len().saturating_sub(body_height)..];
-                        let mut out = Vec::with_capacity(visible.len().saturating_add(top_padding));
-                        if top_padding == 1 {
-                            out.push(Line::from(""));
-                        }
+
+                        let mut out = Vec::with_capacity(
+                            visible
+                                .len()
+                                .saturating_add(top_padding)
+                                .saturating_add(bottom_padding),
+                        );
+                        out.extend(std::iter::repeat_with(|| Line::from("")).take(top_padding));
                         out.extend_from_slice(visible);
+                        out.extend(std::iter::repeat_with(|| Line::from("")).take(bottom_padding));
                         out
                     })
                     .unwrap_or_else(|| {
                         let mut out = Vec::new();
-                        if stream.frozen_until() == 0 {
-                            out.push(Line::from(""));
-                        }
+                        out.extend(
+                            std::iter::repeat_with(|| Line::from(""))
+                                .take(stream.top_padding_rows()),
+                        );
                         out.push(Line::from(stream.active_tail()));
+                        out.extend(
+                            std::iter::repeat_with(|| Line::from(""))
+                                .take(stream.bottom_padding_rows()),
+                        );
                         out
                     }),
                 None => vec![Line::from("")],
@@ -197,7 +238,22 @@ impl Renderable<InputView<'_>> for Renderer {
 
         let max_x = area.x.saturating_add(area.width.saturating_sub(1));
         let max_y = area.y.saturating_add(area.height.saturating_sub(1));
-        frame.set_cursor_position((x.min(max_x), y.min(max_y)));
+        let cursor_area = Rect {
+            x: x.min(max_x),
+            y: y.min(max_y),
+            width: 1,
+            height: 1,
+        };
+
+        // Own the visual input cursor as a styled buffer cell instead of handing the
+        // cursor to ratatui/the terminal for every running-frame draw. Streaming redraws
+        // can otherwise repeatedly refocus the real terminal cursor and make it flicker
+        // in place, even when its coordinates are stable. Styling the existing cell keeps
+        // unicode/wide-character text intact and makes the cursor part of the frame diff.
+        frame.buffer_mut().set_style(
+            cursor_area,
+            Style::default().add_modifier(Modifier::REVERSED),
+        );
     }
 
     fn desired_height(&self, view: &InputView<'_>, area: Rect) -> u16 {
@@ -249,4 +305,13 @@ impl Renderable<InfoView<'_>> for Renderer {
         let widget = Paragraph::new(view.status).wrap(Wrap { trim: false });
         frame.render_widget(widget, area);
     }
+}
+
+fn debug_area_backgrounds_enabled() -> bool {
+    std::env::var("IYON_TUI_DEBUG_AREAS")
+        .ok()
+        .is_some_and(|value| {
+            let value = value.trim();
+            !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+        })
 }
