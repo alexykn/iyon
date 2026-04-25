@@ -197,15 +197,25 @@ impl ActiveStreamState {
             .render_cache
             .as_ref()
             .map_or(1, |cache| cache.body_rows.len());
-        let top_padding = if self.has_spilled_content() { 0 } else { 1 };
-        u16::try_from(body_rows.saturating_add(top_padding))
-            .unwrap_or(u16::MAX)
-            .max(1)
+
+        // Active streaming has pane-level margins that are not part of the message body:
+        // - top padding exists only before any text has spilled into the transcript;
+        //   after spilling, the transcript's assistant top padding owns that gap.
+        // - bottom padding is always reserved so the live pane does not crash into input.
+        let total_rows = body_rows
+            .saturating_add(self.top_padding_rows())
+            .saturating_add(self.bottom_padding_rows());
+
+        u16::try_from(total_rows).unwrap_or(u16::MAX).max(1)
     }
 
     fn spill_overflow_rows(&mut self, visible_rows: usize) -> Option<String> {
-        let top_padding = if self.has_spilled_content() { 0 } else { 1 };
-        let body_capacity = visible_rows.saturating_sub(top_padding).max(1);
+        // Keep spill capacity in sync with ActiveView rendering. These reserved rows are
+        // pane margins, not stream body rows, so they must not delay overflow/spilling.
+        let reserved_rows = self
+            .top_padding_rows()
+            .saturating_add(self.bottom_padding_rows());
+        let body_capacity = visible_rows.saturating_sub(reserved_rows).max(1);
         let cache = self.render_cache.as_ref()?;
         if cache.body_rows.len() <= body_capacity {
             return None;
@@ -254,6 +264,20 @@ impl ActiveStreamState {
             body_rows: wrapped.rows,
             row_end_boundaries: wrapped.row_end_boundaries,
         });
+    }
+
+    pub(crate) fn top_padding_rows(&self) -> usize {
+        // Before the first spill, there is no open assistant row in the transcript yet,
+        // so the live pane must render the assistant message's leading gap itself. Once
+        // anything has spilled, TranscriptState preserves that top padding instead.
+        if self.has_spilled_content() { 0 } else { 1 }
+    }
+
+    pub(crate) fn bottom_padding_rows(&self) -> usize {
+        // This is the active pane's margin above the input box. It deliberately lives in
+        // the live pane rather than in streamed text, so it stays present even when the
+        // stream does not end with a newline.
+        1
     }
 
     fn has_spilled_content(&self) -> bool {

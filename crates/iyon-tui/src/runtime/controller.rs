@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::runtime::{
     AppState,
     active::ActiveBehavior,
-    backend::{BackendEventHandler, FrontendEvent, SubmitTurnResult},
+    backend::{BackendEventHandler, SubmitTurnResult},
 };
 
 #[derive(Debug)]
@@ -26,18 +26,6 @@ impl AppController {
         let mut dirty = false;
         for action in actions {
             dirty |= self.apply(action, state, backend)?;
-        }
-        Ok(dirty)
-    }
-
-    pub(crate) fn apply_backend_events(
-        &mut self,
-        events: impl IntoIterator<Item = FrontendEvent>,
-        state: &mut AppState,
-    ) -> Result<bool> {
-        let mut dirty = false;
-        for event in events {
-            dirty |= self.apply_backend_event(event, state);
         }
         Ok(dirty)
     }
@@ -88,27 +76,6 @@ impl AppController {
                 Ok(true)
             }
             FrontendAction::RedrawOnly => Ok(true),
-        }
-    }
-
-    fn apply_backend_event(&mut self, event: FrontendEvent, state: &mut AppState) -> bool {
-        match event {
-            FrontendEvent::TurnStarted => {
-                state.start_working_pane();
-                true
-            }
-            FrontendEvent::AssistantDelta { text } => {
-                state.receive_assistant_delta(&text);
-                true
-            }
-            FrontendEvent::TurnFinished => {
-                state.finish_active_turn();
-                true
-            }
-            FrontendEvent::TurnFailed { message } => {
-                state.fail_active_turn(message);
-                true
-            }
         }
     }
 }
