@@ -1,8 +1,9 @@
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 use anyhow::Result;
 use iyon_core::{
     CoreCommand, CoreCommandSender, CoreEvent, CoreEventReceiver, IyonCore, MessageDelta,
+    MessageRole,
 };
 
 #[derive(Debug)]
@@ -14,6 +15,7 @@ pub(crate) enum BackendCommand {
 #[derive(Debug)]
 pub(crate) enum FrontendEvent {
     TurnStarted,
+    UserMessage { text: String },
     AssistantDelta { text: String },
     TurnFinished,
     TurnFailed { message: String },
@@ -30,6 +32,7 @@ pub(crate) struct BackendEventHandler {
     command_tx: Option<CoreCommandSender>,
     event_rx: Option<CoreEventReceiver>,
     in_flight: bool,
+    message_roles: HashMap<u64, MessageRole>,
 }
 
 impl fmt::Debug for BackendEventHandler {
@@ -38,6 +41,7 @@ impl fmt::Debug for BackendEventHandler {
             .field("core_attached", &self.command_tx.is_some())
             .field("event_rx_attached", &self.event_rx.is_some())
             .field("in_flight", &self.in_flight)
+            .field("tracked_messages", &self.message_roles.len())
             .finish()
     }
 }
@@ -56,6 +60,7 @@ impl Default for BackendEventHandler {
                 command_tx: None,
                 event_rx: None,
                 in_flight: false,
+                message_roles: HashMap::new(),
             },
         }
     }
@@ -68,6 +73,7 @@ impl BackendEventHandler {
             command_tx: Some(command_tx),
             event_rx: Some(event_rx),
             in_flight: false,
+            message_roles: HashMap::new(),
         }
     }
 
@@ -113,31 +119,57 @@ impl BackendEventHandler {
     ) -> Vec<FrontendEvent> {
         events
             .into_iter()
-            .map(|event| self.map_core_event(event))
+            .filter_map(|event| self.map_core_event(event))
             .collect()
     }
 
-    pub(crate) fn map_core_event(&mut self, event: CoreEvent) -> FrontendEvent {
+    pub(crate) fn map_core_event(&mut self, event: CoreEvent) -> Option<FrontendEvent> {
         match event {
+            CoreEvent::AgentStarted | CoreEvent::AgentFinished => None,
             CoreEvent::TurnStarted { .. } => {
                 self.in_flight = true;
-                FrontendEvent::TurnStarted
+                Some(FrontendEvent::TurnStarted)
+            }
+            CoreEvent::MessageStarted {
+                message_id, role, ..
+            } => {
+                self.message_roles.insert(message_id, role);
+                None
             }
             CoreEvent::MessageDelta {
+                message_id,
                 delta: MessageDelta::Text(text),
                 ..
-            } => FrontendEvent::AssistantDelta { text },
+            } => match self.message_roles.get(&message_id).copied() {
+                Some(MessageRole::User) => Some(FrontendEvent::UserMessage { text }),
+                Some(MessageRole::Assistant) => Some(FrontendEvent::AssistantDelta { text }),
+                Some(MessageRole::ToolResult | MessageRole::Status) | None => None,
+            },
+            CoreEvent::MessageDelta {
+                delta: MessageDelta::ToolCall { .. },
+                ..
+            } => None,
+            CoreEvent::MessageFinished { message_id, .. } => {
+                self.message_roles.remove(&message_id);
+                None
+            }
+            CoreEvent::ToolCallStarted { .. }
+            | CoreEvent::ToolCallFinished { .. }
+            | CoreEvent::ToolCallUpdated { .. }
+            | CoreEvent::ToolApprovalRequested { .. }
+            | CoreEvent::ToolApprovalResolved { .. } => None,
             CoreEvent::TurnFinished { .. } => {
                 self.in_flight = false;
-                FrontendEvent::TurnFinished
+                Some(FrontendEvent::TurnFinished)
             }
             CoreEvent::TurnFailed { message, .. } => {
                 self.in_flight = false;
-                FrontendEvent::TurnFailed { message }
+                Some(FrontendEvent::TurnFailed { message })
             }
             CoreEvent::TurnCancelled { .. } => {
                 self.in_flight = false;
-                FrontendEvent::TurnCancelled
+                self.message_roles.clear();
+                Some(FrontendEvent::TurnCancelled)
             }
         }
     }
