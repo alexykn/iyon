@@ -74,6 +74,18 @@ Does not own:
 
 The TUI sends `CoreCommand` values and drains `CoreEvent` values.
 
+## Conversation vs presentation ownership
+
+Core is the source of truth for semantic conversation state. The TUI may keep a transcript-shaped presentation cache, but that cache is a projection of `CoreEvent` messages, not an independent conversation log.
+
+Consequences:
+- user input is sent as `CoreCommand::SubmitTurn`; the TUI does not commit a user transcript item optimistically
+- core appends the user `AgentMessage` to `SessionState` and emits user `MessageStarted`/`MessageDelta`/`MessageFinished` events
+- assistant/tool/status messages follow the same semantic event path
+- TUI-owned active panes, markdown formatting, layout, and scrollback remain presentation concerns only
+
+This keeps message IDs, turn IDs, transcript ordering, request construction, and future persistence under core ownership while preserving a replaceable frontend.
+
 ---
 
 ## High-level Runtime Flow
@@ -274,17 +286,23 @@ pub enum StopReason {
 
 ```rust
 pub trait ModelApi: Send + Sync {
-    fn stream(&self, request: ModelRequest) -> ModelStream;
+    fn stream(&self, request: ModelRequest) -> ModelStreamFuture<'_>;
 }
 ```
 
-`ModelStream` can be a boxed async stream:
+`ModelStream` is a boxed async stream so `iyon-core` can hold providers behind `Arc<dyn ModelApi>` while each provider keeps its own concrete stream implementation private:
 
 ```rust
 pub type ModelStream = Pin<
     Box<dyn Stream<Item = Result<ModelStreamEvent, ModelError>> + Send>
 >;
+
+pub type ModelStreamFuture<'a> = Pin<
+    Box<dyn Future<Output = Result<ModelStream, ModelError>> + Send + 'a>
+>;
 ```
+
+The core/provider boundary is a direct async stream API, not an mpsc actor boundary. mpsc is reserved for the client/core command-event boundary. Provider implementations may use channels internally if their transport is callback-driven, but that is hidden behind `ModelStream`.
 
 Provider failures should be normalized into `ModelStreamEvent::Error` or `ModelError` depending on whether the stream could be established.
 
@@ -638,17 +656,15 @@ The agent loop is the central orchestration mechanism.
 
 ## Responsibilities
 
-- append user messages
-- emit lifecycle events
-- build model requests
+- build model requests from a local session snapshot
 - consume model stream events
 - update partial assistant messages
 - assemble streamed tool calls
 - execute requested tools
-- append tool result messages
+- append assistant/tool-result messages to the local continuation transcript
 - continue the model loop after tool results
-- handle cancellation and errors
-- drain steering/follow-up queues at safe boundaries
+- return produced messages to the runtime supervisor for durable commit
+- handle model/tool errors according to normalized core semantics
 
 ## Suggested Modules
 
@@ -656,44 +672,42 @@ The agent loop is the central orchestration mechanism.
 crates/iyon-core/src/agent/
   mod.rs
   loop.rs          # model -> tools -> model loop
-  turn.rs          # one submitted user turn
+  turn.rs          # one model stream response
   state.rs         # AgentState
   transcript.rs    # AgentMessage helpers
   request.rs       # AgentMessage -> iyon_api::ModelRequest
-  tool_calls.rs    # streamed tool-call assembly
+  tool_call.rs     # streamed tool-call assembly
+  tool_execution.rs # tool lookup/execution -> AgentMessage::ToolResult
 ```
 
 ## Loop Shape
 
 ```txt
-run_turn(input):
-  append user message
-  emit TurnStarted
+run_agent_loop(input):
+  clone/use session snapshot from runtime
 
   loop:
-    drain steering messages, if any
-    build ModelRequest
-    stream assistant response
-    append final assistant message
+    build ModelRequest from local SessionState + ToolRegistry
+    stream one assistant response with run_model_turn
+    append final assistant message to local transcript
 
-    if assistant stop reason is error/aborted:
-      emit TurnFailed
-      return
+    match normalized StopReason:
+      ToolUse:
+        require assembled tool calls
+        execute tool calls sequentially
+        append tool result messages locally
+        continue
 
-    if assistant has tool calls:
-      execute tool calls
-      append tool result messages
-      if all tool results requested terminate:
+      Stop | Length:
+        require no assembled tool calls
         emit TurnFinished
-        return
-      continue
+        return produced messages
 
-    if follow-up queue has messages:
-      append follow-up messages
-      continue
+      Error | Aborted:
+        fail turn
 
-    emit TurnFinished
-    return
+    if StopReason and tool-call content disagree:
+      fail as provider protocol error
 ```
 
 ## Partial Assistant Message Handling
@@ -711,11 +725,11 @@ TextDelta
 
 ThinkingDelta
   -> update partial assistant content
-  -> emit MessageDelta::Thinking
+  -> may emit a semantic thinking delta when the frontend needs it
 
 ToolCallDelta
   -> update ToolCallAssembler
-  -> emit MessageDelta::ToolCallArguments if useful
+  -> may emit MessageDelta::ToolCall when the frontend needs it
 
 Done/Error
   -> finalize assistant message
@@ -741,6 +755,8 @@ pub struct ToolDefinition {
     pub execution_mode: ToolExecutionMode,
     pub approval: ToolApprovalPolicy,
     pub source: ToolSource,
+    pub prompt_snippet: Option<String>,
+    pub prompt_guidelines: Vec<String>,
 }
 ```
 
@@ -753,9 +769,8 @@ pub enum ToolExecutionMode {
 
 ```rust
 pub enum ToolApprovalPolicy {
-    Always,
-    Never,
-    Ask,
+    NeverAsk,
+    AlwaysAsk,
 }
 ```
 
@@ -763,22 +778,28 @@ pub enum ToolApprovalPolicy {
 pub enum ToolSource {
     Builtin,
     Extension { extension_id: String },
+    Sdk,
 }
 ```
+
+`prompt_snippet` and `prompt_guidelines` are definition metadata for later system-prompt construction. They are not sent in `ModelToolSpec` directly. Core intentionally does not store render callbacks on tool definitions; UI rendering remains a frontend concern.
 
 ## Tool Executor Trait
 
 ```rust
-#[async_trait]
+pub type ToolFuture<'a> = Pin<
+    Box<dyn Future<Output = anyhow::Result<ToolResult>> + Send + 'a>
+>;
+
 pub trait ToolExecutor: Send + Sync {
     fn definition(&self) -> ToolDefinition;
 
-    async fn execute(
-        &self,
+    fn execute<'a>(
+        &'a self,
         ctx: ToolContext,
         input: serde_json::Value,
         updates: ToolUpdateSink,
-    ) -> Result<ToolResult>;
+    ) -> ToolFuture<'a>;
 }
 ```
 
@@ -791,9 +812,11 @@ pub struct ToolContext {
     pub tool_call_id: ToolCallId,
     pub cwd: PathBuf,
     pub workspace: Workspace,
-    pub cancellation: CancellationToken,
+    pub cancellation: tokio_util::sync::CancellationToken,
 }
 ```
+
+Cancellation is cooperative and flows from runtime to agent loop to model turns and tool execution.
 
 ## Tool Result
 
@@ -812,7 +835,8 @@ pub struct ToolResult {
 
 ```rust
 pub struct ToolRegistry {
-    tools: HashMap<String, Arc<dyn ToolExecutor>>,
+    tools: BTreeMap<String, Arc<dyn ToolExecutor>>,
+    active_tool_names: BTreeSet<String>,
 }
 ```
 
@@ -820,9 +844,15 @@ pub struct ToolRegistry {
 impl ToolRegistry {
     pub fn register(&mut self, tool: Arc<dyn ToolExecutor>) -> Result<()>;
     pub fn get(&self, name: &str) -> Option<Arc<dyn ToolExecutor>>;
+    pub fn definitions(&self) -> Vec<ToolDefinition>;
+    pub fn active_definitions(&self) -> Vec<ToolDefinition>;
+    pub fn set_active_tools<I, S>(&mut self, names: I) -> Result<()>;
+    pub fn active_tool_names(&self) -> Vec<String>;
     pub fn model_specs(&self) -> Vec<iyon_api::ModelToolSpec>;
 }
 ```
+
+`model_specs()` returns active tools only, in deterministic order. This mirrors the extension-friendly split between all registered tools and the subset currently exposed to the model.
 
 ## Tool Execution Flow
 
@@ -1247,55 +1277,129 @@ crates/
 
 # Build Order
 
-## Phase 1: Core channel boundary and mock model
+## Phase 1: Provider-neutral model stream boundary
 
-- Define `CoreCommand`, `CoreEvent`, `IyonCore`.
-- Make `iyon_core::spawn()` own mpsc setup.
-- Add `iyon-api` mock provider that streams text deltas.
-- Wire TUI to `IyonCore` instead of local placeholder backend events.
+- Keep `CoreCommand`/`CoreEvent` and `IyonCore` as the mpsc client/core boundary.
+- Use a direct `ModelApi::stream(ModelRequest) -> ModelStreamFuture` API for core/provider communication.
+- Make `ModelStream` a boxed async stream of `Result<ModelStreamEvent, ModelError>`.
+- Add typed `ModelError`/`ModelErrorKind`.
+- Ensure `ModelRequest` includes params and metadata.
+- Ensure model-visible tool schemas and tool-call arguments use structured JSON values.
+- Add provider-normalized stream events for text, thinking, tool calls, usage, done, and error.
+- Keep mock provider streaming through this API without exposing mpsc.
+- Keep TUI behavior unchanged.
 
 Acceptance:
+- `iyon-core` consumes the mock provider with `StreamExt::next()`
 - user submits message in TUI
 - core receives command
 - mock model streams deltas
 - TUI active pane shows assistant streaming
 - turn finishes cleanly
 
-## Phase 2: Agent transcript and request builder
+## Phase 2: Core IDs, session state, and transcript model
 
-- Add `SessionState` and `AgentMessage`.
-- Convert `AgentMessage` to `ModelRequest`.
-- Preserve assistant final messages in session transcript.
+- Add explicit ID newtypes for sessions, turns, messages, tool calls, and approvals.
+- Add `SessionState`, `ModelSelection`, and `SessionMetadata`.
+- Add the core `AgentMessage` transcript format.
+- Add basic `AgentState` placeholders for active turn/message state and future queues.
+- Make the runtime supervisor own `SessionState` and ID allocation.
+- Append user messages on submit and finalized assistant messages on successful completion.
+- Keep request construction temporary and local until Phase 3.
+
+Acceptance:
+- core owns a durable transcript independent of provider request shape
+- submitted user turns append user transcript entries
+- completed mock responses append assistant transcript entries
+- existing TUI streaming behavior is unchanged
+
+## Phase 3: Deterministic request builder
+
+- Add `agent/request.rs`.
+- Convert `AgentMessage` to `iyon_api::ModelMessage` at the model boundary.
+- Build `ModelRequest` from `SessionState`, model params/metadata, and tool specs.
+- Preserve transcript ordering deterministically.
+- Filter app-only/status messages only in this boundary.
+- Runtime builds request snapshots from `SessionState` after appending the submitted user message.
+- Turn tasks consume immutable `ModelRequest` snapshots rather than raw user input.
 
 Acceptance:
 - second turn includes first turn's transcript in model request
-- request construction is deterministic
+- request construction is deterministic and unit-tested
+- status messages are filtered out of provider context
+- tool result messages lower to provider-neutral tool result messages
 
-## Phase 3: Tool call assembly and registry
+## Phase 4: Agent turn extraction and core-driven message events
 
-- Add `ToolRegistry` and `ToolExecutor`.
-- Add streamed tool-call assembler.
-- Add one simple builtin read-only tool.
-- Add model loop continuation after tool result.
-
-Acceptance:
-- mock model requests a tool
-- core executes tool
-- tool result is appended
-- model loop continues
-
-## Phase 4: Approval and cancellation
-
-- Add approval policy.
-- Add pending approval state.
-- Add cancellation token support.
+- Move model stream consumption from `runtime.rs` into `agent/turn.rs`.
+- Keep the runtime supervisor responsible for command dispatch, runtime state, active turn tracking, and transcript commits.
+- Keep the agent turn runner responsible for assistant stream handling, assistant accumulation, stream-event mapping, and turn outcome creation.
+- Add semantic lifecycle events for agent and message start/finish.
+- Core emits user message lifecycle events after committing the user message to `SessionState`.
+- TUI presents user messages from core events instead of appending them optimistically on submit.
 
 Acceptance:
-- dangerous tool can request approval
-- TUI can approve/reject
-- cancel stops active turn deterministically
+- existing mock streaming still works
+- runtime no longer owns model stream consumption
+- user and assistant presentation are projections of core message events
+- no TUI rendering concepts enter core
 
-## Phase 5: Extension skeleton
+## Phase 5: Tool registry and filesystem safety foundation
+
+- Add `ToolDefinition`, `ToolExecutor`, `ToolRegistry`, `ToolContext`, `ToolResult`, and `ToolUpdate`.
+- Track registered tools and active tool names separately.
+- Return model tool specs for active tools in deterministic order.
+- Add `Workspace` and `FsPermissions` as the filesystem safety boundary below tools.
+- Add one builtin read-only `read` tool using the workspace layer.
+- Update request construction to accept a `RequestBuildContext` and advertise active tool specs.
+- Runtime owns a tool registry and advertises builtin defaults, but does not execute model-requested tools yet.
+
+Acceptance:
+- request builder includes active tool specs from `ToolRegistry`
+- builtin `read` is registered and advertised deterministically
+- read tool uses `Workspace` safety checks
+- no model-requested tool execution happens yet
+
+## Phase 6: Agent loop tool foundation
+
+- Add `agent::tool_call` to assemble streamed model tool calls into ordered tool-call requests.
+- Add `agent::tool_execution` to orchestrate lookup/execution and convert tool outcomes into `AgentMessage::ToolResult`.
+- Split one model response handling from the full continuation loop:
+  - `agent::turn` owns a single provider stream response.
+  - `agent::loop` owns model → tools → model continuation.
+- Runtime still owns durable `SessionState`; the spawned agent loop mutates a local session snapshot and returns produced messages for runtime commit.
+- Runtime seeds the loop with the next message ID and advances the durable counter only after successful commit.
+- The agent loop uses normalized `StopReason` as an API contract:
+  - `ToolUse` requires tool calls and continues.
+  - `Stop`/`Length` require no tool calls and finish.
+  - `Error`/`Aborted` fail the turn.
+  - stop-reason/content disagreement is a provider protocol error.
+- Tool execution errors and missing tools become model-visible tool result messages with `is_error=true`.
+- Tool calls execute sequentially for deterministic transcript ordering.
+
+Acceptance:
+- model requests a tool with normalized `StopReason::ToolUse`
+- core executes builtin `read` through `ToolRegistry`
+- assistant tool-call and tool-result messages are appended to the local continuation transcript
+- continuation request includes assistant tool call + tool result
+- runtime commits loop-produced messages after successful completion
+
+## Phase 7: Approval, cancellation, and tool progress
+
+- Use `tokio_util::sync::CancellationToken` as the cooperative cancellation primitive.
+- Runtime owns the active turn cancellation token and forwards per-turn control messages to the agent loop.
+- Add approval commands and events for tool calls.
+- Enforce `ToolApprovalPolicy::NeverAsk` / `AlwaysAsk` in centralized tool execution.
+- Add cancellation to `ModelTurnInput`, `AgentLoopInput`, `ToolContext`, and `ToolUpdateSink`.
+- Wire `ToolUpdateSink` to emit semantic `ToolCallUpdated` events.
+
+Acceptance:
+- active turn cancellation is token-driven with task abort as fallback
+- approval-required tools can pause for approve/reject control messages
+- rejected tools produce model-visible error tool results
+- tool progress updates flow through core events
+
+## Phase 8: Extension skeleton
 
 - Add `ExtensionRegistry`.
 - Support extension-provided tools and before/after tool hooks.
@@ -1304,7 +1408,7 @@ Acceptance:
 - builtin and extension tools execute through same path
 - hooks can block or modify tool results
 
-## Phase 6: Real providers
+## Phase 9: Real providers
 
 - Add one real provider in `iyon-api`.
 - Keep provider-specific details out of core.

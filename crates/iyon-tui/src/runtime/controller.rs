@@ -62,7 +62,6 @@ impl AppController {
     ) -> Result<bool> {
         match action {
             FrontendAction::SubmitTurn { text } => {
-                state.submit_user_message(text.clone());
                 match backend.try_submit_turn(text)? {
                     SubmitTurnResult::Sent => {}
                     SubmitTurnResult::NoBackendAttached => {

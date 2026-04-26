@@ -94,7 +94,8 @@ Active pane state lives in `core::active`:
 - tiny internal spinner frame state for `WorkingSpinner`
 
 Current behavior:
-- On submit, the user message is committed directly to transcript and a `WorkingSpinner` active pane appears.
+- On submit, the TUI sends `CoreCommand::SubmitTurn`; the user message is appended to presentation transcript only when projected back from core message events.
+- `TurnStarted` creates a `WorkingSpinner` active pane.
 - `WorkingSpinner` renders as a three-row pane without borders: blank/text/blank.
 - `AgentStreaming` can render `active_tail()` once backend deltas arrive.
 - Active -> transcript spill is still a near-term step; finalization appends only `full_text[frozen_until..]` to avoid duplication.
@@ -228,7 +229,7 @@ Behavior:
 - Without active animation or backend in-flight state, the input poll timeout is long and idle redraws stop.
 - While `WorkingSpinner` is active, the loop wakes at the spinner tick rate and redraws only when the spinner advances.
 - While a backend turn is in flight, the loop also wakes at `BACKEND_POLL_INTERVAL` to drain `mpsc` events, but redraws only if events were received/applied.
-- Backend event ingestion is structurally wired through `BackendEventHandler`, but no real backend task is attached yet.
+- Backend event ingestion is structurally wired through `BackendEventHandler`, backed by `iyon-core` and the mock `iyon-api` provider.
 
 In crossterm-style sync code this remains:
 
@@ -240,8 +241,8 @@ In crossterm-style sync code this remains:
 
 ## 10) Next concrete steps
 
-1. Attach a real backend task/channel pair to `BackendEventHandler`.
-2. Define the first real backend `BackendCommand`/`FrontendEvent` payload metadata (`turn_id`, chunk shape, error shape) without leaking UI concepts into backend code.
+1. Preserve `BackendEventHandler` as the thin adapter from semantic `CoreEvent` values into TUI-local `FrontendEvent` values.
+2. Add richer backend payload metadata (`turn_id`, message ids, chunk shape, error shape) without leaking UI concepts into backend code.
 3. Implement active streaming spill (`full_text` + monotonic `frozen_until`) into transcript.
 4. Add markdown/live formatting for streaming assistant content while preserving the shared canonical formatting path.
 5. Add occluding pane constructors/rendering/disengage only when menu/file-picker UX is actually implemented.

@@ -37,25 +37,36 @@ Important:
 - This layer is an adapter/normalizer, not a UI formatter.
 - It should not produce ratatui-specific output or width/theme-dependent formatting.
 
-Example trait shape:
+Implemented trait shape:
 
 ```rust
-use futures::stream::BoxStream;
+use std::{future::Future, pin::Pin};
 
-pub trait ModelApi {
-    async fn stream(
-        &self,
-        req: ModelRequest,
-    ) -> anyhow::Result<BoxStream<'static, anyhow::Result<ModelStreamEvent>>>;
+use futures_core::Stream;
+
+pub type ModelStream = Pin<
+    Box<dyn Stream<Item = Result<ModelStreamEvent, ModelError>> + Send>
+>;
+
+pub type ModelStreamFuture<'a> = Pin<
+    Box<dyn Future<Output = Result<ModelStream, ModelError>> + Send + 'a>
+>;
+
+pub trait ModelApi: Send + Sync {
+    fn stream(&self, request: ModelRequest) -> ModelStreamFuture<'_>;
 }
 ```
 
-`ModelStreamEvent` should be provider-agnostic (for example `Token`, `ToolCallDelta`, `Done`, `Usage`, `Error`).
+`ModelStreamEvent` should be provider-agnostic and model-semantic, not UI formatted.
 
-Example `ModelStreamEvent` intent:
-- `TextDelta { text }`
-- `ToolCallDelta { id, name, args_delta }`
-- `Usage { input_tokens, output_tokens }`
+`Done { stop_reason }` is part of the generic API contract. Provider adapters must normalize native finish reasons into `StopReason` and keep the final reason consistent with final assistant content. If the response contains tool calls, adapters should report `StopReason::ToolUse`, following the same normalizing pattern used by Pi's provider layer.
+
+`ModelStreamEvent` is provider-semantic and includes:
+- `Started`
+- `TextStart/TextDelta/TextEnd`
+- `ThinkingStart/ThinkingDelta/ThinkingEnd`
+- `ToolCallStart/ToolCallDelta/ToolCallEnd`
+- `Usage`
 - `Done`
 - `Error { message }`
 
@@ -73,10 +84,19 @@ This is orchestration logic, not provider transport.
 
 Responsibilities:
 - Receive frontend commands through `mpsc`.
-- Build model request from conversation/session state.
-- Call generic API asynchronously.
-- Consume stream events and update backend session state.
-- Emit frontend-facing events through `mpsc`.
+- Own durable `SessionState` and runtime turn lifecycle.
+- Build model requests from conversation/session state.
+- Spawn an agent loop for each submitted turn.
+- Commit completed agent-loop messages back into durable session state.
+- Emit frontend-facing/core events through `mpsc`.
+
+The agent loop owns transient per-turn continuation state:
+- clone the session snapshot at turn start
+- call the generic model API
+- execute tools through `ToolRegistry`
+- append assistant/tool-result messages to the local snapshot
+- continue model calls until normalized `StopReason` indicates completion
+- return produced messages to the runtime supervisor for durable commit
 
 Important:
 - This can be implemented as normal async control flow (no giant manual enum required).
@@ -103,7 +123,7 @@ pub enum FrontendEvent {
 }
 ```
 
-Current frontend placeholder shape is intentionally smaller while backend metadata is still fluid:
+The current frontend adapter shape is intentionally smaller than the core event model while backend metadata is still fluid:
 
 ```rust
 pub(crate) enum BackendCommand {
@@ -113,6 +133,7 @@ pub(crate) enum BackendCommand {
 
 pub(crate) enum FrontendEvent {
     TurnStarted,
+    UserMessage { text: String },
     AssistantDelta { text: String },
     TurnFinished,
     TurnFailed { message: String },
@@ -122,9 +143,10 @@ pub(crate) enum FrontendEvent {
 The placeholder should evolve toward the metadata-rich shape above once the backend turn model is implemented.
 
 Frontend composition should interpret these events with explicit transient-pane transitions:
+- `UserMessage` -> append a user presentation item projected from core state.
 - `TurnStarted` -> show ephemeral `WorkingSpinner` pane above input.
-- First `Delta` for the turn -> replace spinner with `StreamingAssistant` pane.
-- Subsequent `Delta` -> update the same pane in place.
+- First assistant delta for the turn -> replace spinner with `StreamingAssistant` pane.
+- Subsequent assistant deltas -> update the same pane in place.
 - `TurnFinished`/`TurnFailed` -> finalize pane into a normal transcript item (or error item).
 
 This keeps backend transport semantic and UI-agnostic while still giving the frontend a deterministic state machine.
@@ -177,22 +199,30 @@ Pattern:
 
 1. User submits input.
 2. `InputEventHandler` emits `FrontendAction::SubmitTurn { text }`.
-3. `AppController` commits the user message to transcript, starts `WorkingSpinner`, and sends `BackendCommand::SubmitTurn` through `BackendEventHandler`.
-4. Backend builds `ModelRequest` from session state.
-5. Backend calls `ModelApi::stream(req).await`.
-6. Backend receives stream events and emits frontend events (`AssistantDelta`/future `Delta` updates).
-7. Frontend drains backend events, maps them to `FrontendAction`s, updates active pane/transcript state, and runs formatting as needed.
-8. Frontend renders when dirty.
-9. On completion/failure, backend emits terminal event (`TurnFinished`/`TurnFailed`), and frontend finalizes/fails the active pane.
+3. `AppController` sends `BackendCommand::SubmitTurn` through `BackendEventHandler`; it does not commit a conversation transcript item optimistically.
+4. Backend appends the submitted user message to `SessionState` and emits user message lifecycle events.
+5. Frontend projects those core events into a user presentation item.
+6. Backend clones a session snapshot, tool registry snapshot, workspace, and next message ID into the spawned agent loop.
+7. Agent loop builds immutable `ModelRequest` snapshots from its local `SessionState` via the deterministic request builder.
+8. Agent loop calls `ModelApi::stream(req).await` for one model response.
+9. Agent loop emits assistant message lifecycle/delta events while assembling final assistant content.
+10. If `StopReason::ToolUse` is returned with tool calls, agent loop executes tools through `ToolRegistry`, appends tool results locally, and builds a continuation request.
+11. If `StopReason::Stop` or `StopReason::Length` is returned without tool calls, agent loop completes.
+12. Runtime commits produced assistant/tool-result messages to durable `SessionState` and advances the durable message ID counter.
+13. Frontend drains backend events, maps them to `FrontendEvent`s, updates active pane/transcript state, and runs formatting as needed.
+14. Frontend renders when dirty.
+15. On completion/failure, backend emits terminal event (`TurnFinished`/`TurnFailed`), and frontend finalizes/fails the active pane.
 
 ## State Ownership
 
 Frontend owns:
 - UI state (focus, scroll, cursor position, pane geometry).
-- Render cache / formatted view model for display.
+- Active pane, markdown formatting, scrollback, and render cache.
+- A presentation transcript projected from core events, not the authoritative conversation transcript.
 
 Backend owns:
 - Session/turn state for API interaction.
+- `SessionState` and the provider-agnostic `AgentMessage` transcript.
 - In-flight request lifecycle and cancellation.
 - Provider-agnostic transcript for request construction and prompt caching strategy.
 
@@ -217,7 +247,8 @@ Suggested starting bounds:
 ## Failure/Cancellation
 
 - All network/provider errors must map to typed backend/frontend events.
-- Cancellation should be explicit command (`CancelActiveTurn`) and handled via `tokio::select!`.
+- Cancellation is explicit command (`CancelActiveTurn`) and uses `tokio_util::sync::CancellationToken` through runtime, agent loop, model turn, and tool execution.
+- Runtime signals cooperative cancellation and may abort the task as a fallback while provider/tool cancellation support matures.
 - Dropping stream/request resources should terminate active generation deterministically.
 
 ## Minimal Rust Skeleton

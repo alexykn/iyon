@@ -9,7 +9,7 @@ It captures the decisions we made so far and turns them into a build checklist.
 ## 0) Goals
 
 - Keep input pinned at bottom.
-- Show user message immediately in transcript when submitted.
+- Show user message when core confirms it through semantic message events.
 - Show an active pane right below that message (`Working...` first, then streaming assistant).
 - Stream long assistant output smoothly from active pane into transcript and then into native scrollback.
 - Render markdown while streaming (not only when finalized).
@@ -22,7 +22,7 @@ It captures the decisions we made so far and turns them into a build checklist.
 ## 1) Non-negotiable invariants
 
 1. **User messages are never in active pane.**
-   - On submit, user message is committed directly to transcript.
+   - On submit, the TUI sends the command to core; user message presentation is appended only from core message events.
 
 2. **Active pane is transient and bottom-anchored.**
    - It lives between chat and input.
@@ -106,10 +106,11 @@ Important: transcript stores canonical content, not permanently wrapped rows.
 
 1. Validate input (ignore empty if desired).
 2. `InputEventHandler` emits `FrontendAction::SubmitTurn { text }`.
-3. `AppController` pushes `UserMessage` into transcript immediately.
-4. Clear input.
-5. `AppController` sends `BackendCommand::SubmitTurn` through `BackendEventHandler` when a backend is attached.
-6. Create active pane:
+3. Clear input.
+4. `AppController` sends `BackendCommand::SubmitTurn` through `BackendEventHandler` when a backend is attached.
+5. Core appends the user message to `SessionState` and emits user message lifecycle events.
+6. The frontend projects those events into a `UserMessage` presentation item.
+7. Create active pane:
    - `kind = WorkingSpinner`
    - `height = 3`
    - rendered as blank/spinner text/blank with no active-pane borders
@@ -310,7 +311,7 @@ Resize expectations:
 
 Implemented foundation:
 - Active pane state and kinds live in `core::active`.
-- On submit: `InputEventHandler` emits `SubmitTurn`, `AppController` commits user msg + creates `WorkingSpinner` active pane.
+- On submit: `InputEventHandler` emits `SubmitTurn`, `AppController` sends it to core, and core message events drive user-message presentation; `TurnStarted` creates `WorkingSpinner`.
 - `WorkingSpinner` renders and animates through `ActiveTicker`.
 - `BackendEventHandler` and `AppController` are in place as hook points for future backend events.
 

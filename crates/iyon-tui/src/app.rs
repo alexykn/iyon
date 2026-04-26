@@ -196,6 +196,10 @@ impl App {
                 state.start_working_pane();
                 true
             }
+            FrontendEvent::UserMessage { text } => {
+                state.submit_user_message(text);
+                true
+            }
             FrontendEvent::AssistantDelta { text } => {
                 // Backend chunks are intentionally not appended directly to the visible
                 // active stream. They enter a presentation buffer first, then the event
