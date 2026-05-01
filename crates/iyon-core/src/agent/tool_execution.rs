@@ -17,7 +17,7 @@ use crate::{
     fs::Workspace,
     ids::{ApprovalId, MessageId, SessionId, TurnId},
     tools::{
-        AfterToolCallContext, BeforeToolCallContext, BeforeToolCallDecision, ToolApprovalPolicy,
+        AfterToolCallContext, BeforeToolCallContext, BeforeToolCallResolution, ToolApprovalPolicy,
         ToolContext, ToolHookSnapshot, ToolRegistry, ToolResult, ToolUpdateSink,
     },
 };
@@ -86,10 +86,30 @@ where
             turn_id: input.turn_id,
             message_id: input.message_id,
             call: &input.call,
-            policy: definition.approval,
+            policy: effective_approval_policy(definition.approval, &input.call),
             cancellation: input.cancellation.clone(),
         })
     }
+}
+
+fn effective_approval_policy(
+    policy: ToolApprovalPolicy,
+    call: &AssembledToolCall,
+) -> ToolApprovalPolicy {
+    if call.name == "bash" && bash_command_uses_sudo(&call.arguments) {
+        return ToolApprovalPolicy::AlwaysAsk;
+    }
+    policy
+}
+
+fn bash_command_uses_sudo(arguments: &Value) -> bool {
+    let Some(command) = arguments.get("command").and_then(Value::as_str) else {
+        return false;
+    };
+
+    command
+        .split(|ch: char| ch.is_whitespace() || matches!(ch, ';' | '&' | '|' | '(' | ')'))
+        .any(|token| token == "sudo")
 }
 
 impl<'a> From<&'a ToolExecutionInput<'a>> for ToolContext {
@@ -117,10 +137,9 @@ pub(crate) async fn execute_tool_call(
     .await;
     let message = match input.tools.get(&input.call.name) {
         Some(tool) => {
-            let before = run_before_hooks(&input).await;
-            match before {
-                Ok(BeforeToolCallDecision::Allow) => {}
-                Ok(BeforeToolCallDecision::Block { reason }) => {
+            let prepared_args = match run_before_hooks(&input).await {
+                Ok(BeforeToolCallResolution::Proceed { args }) => args,
+                Ok(BeforeToolCallResolution::Block { reason }) => {
                     let text = reason.unwrap_or_else(|| "Tool execution was blocked".to_string());
                     let message = error_tool_result_message(
                         input.message_id,
@@ -157,7 +176,7 @@ pub(crate) async fn execute_tool_call(
                     .await;
                     return Ok(ToolExecutionOutcome::Completed(message));
                 }
-            }
+            };
 
             let decision = await_approval_if_required(ApprovalInput::try_from(&mut input)?).await;
 
@@ -165,10 +184,7 @@ pub(crate) async fn execute_tool_call(
                 ApprovalDecision::Approved => {
                     let ctx = ToolContext::from(&input);
                     let updates = ToolUpdateSink::new(input.event_tx.clone(), &input);
-                    let mut result = match tool
-                        .execute(ctx, input.call.arguments.clone(), updates)
-                        .await
-                    {
+                    let mut result = match tool.execute(ctx, prepared_args.clone(), updates).await {
                         Ok(result) => result,
                         Err(error) => ToolResult {
                             content: vec![ContentBlock::Text {
@@ -179,7 +195,7 @@ pub(crate) async fn execute_tool_call(
                             terminate: false,
                         },
                     };
-                    match run_after_hooks(&input, &result).await {
+                    match run_after_hooks(&input, &prepared_args, &result).await {
                         Ok(patch) => apply_after_patch(&mut result, patch),
                         Err(error) => {
                             result = ToolResult {
@@ -328,7 +344,7 @@ async fn emit_approval_resolved(
         .await;
 }
 
-async fn run_before_hooks(input: &ToolExecutionInput<'_>) -> Result<BeforeToolCallDecision> {
+async fn run_before_hooks(input: &ToolExecutionInput<'_>) -> Result<BeforeToolCallResolution> {
     input
         .tool_hooks
         .run_before_hooks(BeforeToolCallContext {
@@ -343,6 +359,7 @@ async fn run_before_hooks(input: &ToolExecutionInput<'_>) -> Result<BeforeToolCa
 
 async fn run_after_hooks(
     input: &ToolExecutionInput<'_>,
+    args: &Value,
     result: &ToolResult,
 ) -> Result<crate::tools::AfterToolCallPatch> {
     input
@@ -351,7 +368,7 @@ async fn run_after_hooks(
             turn_id: input.turn_id,
             tool_call_id: &input.call.id,
             tool_name: &input.call.name,
-            args: &input.call.arguments,
+            args,
             result,
             session: input.session,
         })
@@ -511,7 +528,7 @@ mod tests {
     use std::{
         path::PathBuf,
         sync::{
-            Arc,
+            Arc, Mutex,
             atomic::{AtomicBool, Ordering},
         },
     };
@@ -537,6 +554,7 @@ mod tests {
 
     struct TestTool {
         called: Arc<AtomicBool>,
+        seen_input: Arc<Mutex<Option<serde_json::Value>>>,
         result: ToolResult,
     }
 
@@ -558,10 +576,11 @@ mod tests {
         fn execute(
             &self,
             _ctx: ToolContext,
-            _input: serde_json::Value,
+            input: serde_json::Value,
             _updates: ToolUpdateSink,
         ) -> ToolFuture<'_> {
             self.called.store(true, Ordering::SeqCst);
+            *self.seen_input.lock().unwrap() = Some(input);
             let result = self.result.clone();
             Box::pin(async move { Ok(result) })
         }
@@ -578,6 +597,28 @@ mod tests {
                     reason: Some("blocked".to_string()),
                 })
             })
+        }
+    }
+
+    struct PatchArgsHookOne;
+    impl BeforeToolCallHook for PatchArgsHookOne {
+        fn before_tool_call<'a>(
+            &'a self,
+            _ctx: BeforeToolCallContext<'a>,
+        ) -> crate::tools::hooks::BeforeHookFuture<'a> {
+            Box::pin(async { Ok(BeforeToolCallDecision::PatchArgs(json!({"one": true}))) })
+        }
+    }
+
+    struct PatchArgsHookTwo;
+    impl BeforeToolCallHook for PatchArgsHookTwo {
+        fn before_tool_call<'a>(
+            &'a self,
+            ctx: BeforeToolCallContext<'a>,
+        ) -> crate::tools::hooks::BeforeHookFuture<'a> {
+            let mut next = ctx.args.clone();
+            next["two"] = json!(true);
+            Box::pin(async move { Ok(BeforeToolCallDecision::PatchArgs(next)) })
         }
     }
 
@@ -605,6 +646,7 @@ mod tests {
         let called = Arc::new(AtomicBool::new(false));
         let tool = Arc::new(TestTool {
             called: called.clone(),
+            seen_input: Arc::new(Mutex::new(None)),
             result: ToolResult {
                 content: vec![iyon_api::ContentBlock::Text {
                     text: "ok".to_string(),
@@ -671,8 +713,10 @@ mod tests {
     #[tokio::test]
     async fn after_hook_can_patch_tool_result() {
         let called = Arc::new(AtomicBool::new(false));
+        let seen_input = Arc::new(Mutex::new(None));
         let tool = Arc::new(TestTool {
             called,
+            seen_input: seen_input.clone(),
             result: ToolResult {
                 content: vec![iyon_api::ContentBlock::Text {
                     text: "ok".to_string(),
@@ -734,8 +778,71 @@ mod tests {
                     })
                     .unwrap();
                 assert_eq!(text, "patched");
+                assert_eq!(seen_input.lock().unwrap().clone(), Some(json!({})));
             }
             _ => panic!("expected completed tool result"),
         }
+    }
+
+    #[tokio::test]
+    async fn before_hooks_patch_args_in_deterministic_chain_order() {
+        let called = Arc::new(AtomicBool::new(false));
+        let seen_input = Arc::new(Mutex::new(None));
+        let tool = Arc::new(TestTool {
+            called,
+            seen_input: seen_input.clone(),
+            result: ToolResult {
+                content: vec![iyon_api::ContentBlock::Text {
+                    text: "ok".to_string(),
+                }],
+                details: json!({}),
+                is_error: false,
+                terminate: false,
+            },
+        });
+
+        let mut registry = crate::tools::ToolRegistry::new();
+        registry.register(tool).unwrap();
+
+        let mut hooks = ToolHookSet::default();
+        hooks.register_before_fn(PatchArgsHookOne);
+        hooks.register_before_fn(PatchArgsHookTwo);
+
+        let session = SessionState::new(SessionId(1), PathBuf::from("."));
+        let workspace = Workspace::new(PathBuf::from("."), FsPermissions::default());
+        let (event_tx, _event_rx) = mpsc::channel(32);
+        let (_control_tx, mut control_rx) = mpsc::channel(8);
+        let mut next_approval_id = 1;
+
+        let outcome = execute_tool_call(ToolExecutionInput {
+            session_id: session.id,
+            session: &session,
+            turn_id: TurnId(1),
+            message_id: MessageId(1),
+            call: AssembledToolCall {
+                id: ToolCallId("call-1".to_string()),
+                name: "test".to_string(),
+                arguments: json!({"orig": true}),
+            },
+            cwd: PathBuf::from("."),
+            workspace,
+            tools: &registry,
+            tool_hooks: hooks.snapshot(),
+            event_tx,
+            control_rx: &mut control_rx,
+            next_approval_id: &mut next_approval_id,
+            cancellation: CancellationToken::new(),
+        })
+        .await
+        .unwrap();
+
+        assert!(matches!(
+            outcome,
+            ToolExecutionOutcome::Completed(AgentMessage::ToolResult { .. })
+        ));
+        assert_eq!(
+            seen_input.lock().unwrap().clone(),
+            Some(json!({"one": true, "two": true}))
+        );
     }
 }

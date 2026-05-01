@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use iyon_api::{ModelApi, StopReason};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -23,7 +23,6 @@ use crate::{
     tools::{ToolHookSnapshot, ToolRegistry},
 };
 
-const MAX_AGENT_LOOP_ITERATIONS: usize = 8;
 const MAX_TOOL_CALLS_PER_MODEL_TURN: usize = 16;
 
 enum LoopAction {
@@ -101,7 +100,7 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
     let mut next_approval_id = next_approval_id;
     let mut produced_messages = Vec::new();
 
-    for _ in 0..MAX_AGENT_LOOP_ITERATIONS {
+    loop {
         if cancellation.is_cancelled() {
             return Ok(TurnOutcome::Cancelled);
         }
@@ -172,10 +171,6 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
             return Ok(TurnOutcome::Cancelled);
         }
     }
-
-    Err(anyhow!(
-        "agent loop exceeded maximum iterations ({MAX_AGENT_LOOP_ITERATIONS})"
-    ))
 }
 
 fn classify_stop_reason(

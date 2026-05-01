@@ -25,21 +25,48 @@ impl Workspace {
     }
 
     pub fn resolve_safe(&self, path: &str) -> anyhow::Result<PathBuf> {
+        self.resolve_path_for_operation(path, true, true)
+    }
+
+    pub fn resolve_read_path(&self, path: &str) -> anyhow::Result<PathBuf> {
+        let resolved = self.resolve_path_for_operation(path, true, false)?;
+        self.ensure_read_allowed(&resolved)?;
+        Ok(resolved)
+    }
+
+    pub fn resolve_write_path(&self, path: &str) -> anyhow::Result<PathBuf> {
+        self.resolve_path_for_operation(path, false, true)
+    }
+
+    pub fn resolve_search_path(&self, path: Option<&str>) -> anyhow::Result<PathBuf> {
+        let path = path.unwrap_or(".");
+        let resolved = self.resolve_path_for_operation(path, true, false)?;
+        self.ensure_read_allowed(&resolved)?;
+        Ok(resolved)
+    }
+
+    fn resolve_path_for_operation(
+        &self,
+        path: &str,
+        read: bool,
+        write: bool,
+    ) -> anyhow::Result<PathBuf> {
         if path.trim().is_empty() {
             bail!("path must not be empty");
         }
 
-        if !self.permissions.allow_hidden && contains_hidden_component(Path::new(path)) {
+        let expanded = expand_home(path);
+        if !self.permissions.allow_hidden && contains_hidden_component(Path::new(&expanded)) {
             bail!("hidden paths are not allowed: {path}");
         }
 
         for pattern in &self.permissions.deny_patterns {
-            if !pattern.is_empty() && path.contains(pattern) {
+            if !pattern.is_empty() && expanded.contains(pattern) {
                 bail!("path matches denied pattern: {pattern}");
             }
         }
 
-        let input = Path::new(path);
+        let input = Path::new(&expanded);
         let joined = if input.is_absolute() {
             input.to_path_buf()
         } else {
@@ -47,10 +74,9 @@ impl Workspace {
         };
         let resolved = normalize_lexical(&joined);
 
-        if !resolved.starts_with(&self.root)
-            && !self.permissions.allow_read_outside_root
-            && !self.permissions.allow_write_outside_root
-        {
+        let allow_outside_root = (read && self.permissions.allow_read_outside_root)
+            || (write && self.permissions.allow_write_outside_root);
+        if !resolved.starts_with(&self.root) && !allow_outside_root {
             bail!("path escapes workspace root: {path}");
         }
 
@@ -95,6 +121,26 @@ impl Workspace {
 
         Ok(())
     }
+}
+
+fn expand_home(path: &str) -> String {
+    if path == "~" {
+        return home_dir().map_or_else(
+            || path.to_string(),
+            |home| home.to_string_lossy().into_owned(),
+        );
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        return home_dir().map_or_else(
+            || path.to_string(),
+            |home| home.join(rest).to_string_lossy().into_owned(),
+        );
+    }
+    path.to_string()
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from)
 }
 
 fn absolutize_lexical(path: &Path) -> PathBuf {
