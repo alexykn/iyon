@@ -230,10 +230,11 @@ impl App {
             FrontendEvent::ToolCallStarted {
                 tool_call_id,
                 tool_name,
+                arguments,
                 ..
             } => {
                 self.flush_stream_smoother(state);
-                state.start_tool_call(tool_call_id, tool_name);
+                state.start_tool_call(tool_call_id, tool_name, arguments);
                 true
             }
             FrontendEvent::ToolCallUpdated {
@@ -272,9 +273,10 @@ impl App {
                 tool_call_id,
                 tool_name,
                 text,
+                details,
                 is_error,
             } => {
-                state.push_tool_result(tool_call_id, tool_name, text, is_error);
+                state.push_tool_result(tool_call_id, tool_name, text, details, is_error);
                 true
             }
         }

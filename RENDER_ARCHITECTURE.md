@@ -100,6 +100,7 @@ Current behavior:
 - `AgentStreaming` can render `active_tail()` once backend deltas arrive.
 - Tool activity uses active pane only for transient current status/approval prompts.
 - Tool calls and tool results are canonical transcript presentation items, so they flow through the same formatter/cache/scrollback path as chat messages.
+- Tool presentation keeps structured call arguments and result details in `TimelineItem`; builtin-specific formatting lives in the TUI formatter, not in core.
 - Active -> transcript spill is still a near-term step; finalization appends only `full_text[frozen_until..]` to avoid duplication.
 
 ## Event/control modules
