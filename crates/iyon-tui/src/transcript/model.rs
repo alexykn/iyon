@@ -19,13 +19,14 @@ pub(crate) enum TimelineItem {
     ToolCall {
         tool_call_id: String,
         tool_name: String,
-        arguments_preview: String,
+        arguments: serde_json::Value,
         status: ToolTimelineStatus,
     },
     ToolResult {
         tool_call_id: String,
         tool_name: String,
         text: String,
+        details: serde_json::Value,
         is_error: bool,
     },
 }
@@ -55,16 +56,17 @@ impl TuiFormatter {
             }
             TimelineItem::ToolCall {
                 tool_name,
-                arguments_preview,
+                arguments,
                 status,
                 ..
-            } => self.format_tool_call(tool_name, arguments_preview, *status),
+            } => self.format_tool_call(tool_name, arguments, *status),
             TimelineItem::ToolResult {
                 tool_name,
                 text,
+                details,
                 is_error,
                 ..
-            } => self.format_tool_result(tool_name, text, *is_error),
+            } => self.format_tool_result(tool_name, text, details, *is_error),
         }
     }
 
@@ -83,25 +85,19 @@ impl TuiFormatter {
     fn format_tool_call(
         &self,
         tool_name: &str,
-        arguments_preview: &str,
+        arguments: &serde_json::Value,
         status: ToolTimelineStatus,
     ) -> Vec<Line<'static>> {
-        let style = Style::default().fg(Color::Rgb(160, 174, 192));
-        let status = match status {
-            ToolTimelineStatus::PendingApproval => "waiting for approval",
-            ToolTimelineStatus::Running => "running",
-            ToolTimelineStatus::Approved => "approved",
-            ToolTimelineStatus::Rejected => "rejected",
-            ToolTimelineStatus::Finished => "finished",
-            ToolTimelineStatus::Failed => "failed",
-        };
+        let style = tool_style(status);
+        let status = tool_status_label(status);
         let mut rows = vec![
             Line::from(""),
-            Line::styled(format!("● tool {tool_name} — {status}"), style),
+            Line::styled(format_tool_call_title(tool_name, arguments, status), style),
         ];
-        if !arguments_preview.is_empty() {
+        let preview = format_tool_call_preview(tool_name, arguments);
+        if !preview.is_empty() {
             rows.extend(
-                arguments_preview
+                preview
                     .lines()
                     .map(|line| Line::styled(format!("  {line}"), style)),
             );
@@ -113,6 +109,7 @@ impl TuiFormatter {
         &self,
         tool_name: &str,
         text: &str,
+        details: &serde_json::Value,
         is_error: bool,
     ) -> Vec<Line<'static>> {
         let style = if is_error {
@@ -120,16 +117,7 @@ impl TuiFormatter {
         } else {
             Style::default().fg(Color::Rgb(113, 128, 150))
         };
-        let title = if is_error { "failed" } else { "result" };
-        let mut rows = vec![Line::styled(format!("  {tool_name} {title}"), style)];
-        rows.extend(Self::format_text_body(text, style).into_iter().map(|line| {
-            let text = line
-                .spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect::<String>();
-            Line::styled(format!("  {text}"), style)
-        }));
+        let mut rows = format_tool_specific_result(tool_name, text, details, is_error, style);
         rows.push(Line::from(""));
         rows
     }
@@ -152,6 +140,192 @@ impl TuiFormatter {
     fn format_text_body(text: &str, style: Style) -> Vec<Line<'static>> {
         styled_lines_preserving_newlines(text, style)
     }
+}
+
+fn tool_style(status: ToolTimelineStatus) -> Style {
+    match status {
+        ToolTimelineStatus::Failed | ToolTimelineStatus::Rejected => {
+            Style::default().fg(Color::Red)
+        }
+        ToolTimelineStatus::Finished | ToolTimelineStatus::Approved => {
+            Style::default().fg(Color::Rgb(104, 211, 145))
+        }
+        ToolTimelineStatus::PendingApproval => Style::default().fg(Color::Yellow),
+        ToolTimelineStatus::Running => Style::default().fg(Color::Rgb(160, 174, 192)),
+    }
+}
+
+fn tool_status_label(status: ToolTimelineStatus) -> &'static str {
+    match status {
+        ToolTimelineStatus::PendingApproval => "waiting for approval",
+        ToolTimelineStatus::Running => "running",
+        ToolTimelineStatus::Approved => "approved",
+        ToolTimelineStatus::Rejected => "rejected",
+        ToolTimelineStatus::Finished => "finished",
+        ToolTimelineStatus::Failed => "failed",
+    }
+}
+
+fn format_tool_call_title(tool_name: &str, args: &serde_json::Value, status: &str) -> String {
+    match tool_name {
+        "bash" => format!(
+            "● $ {} — {status}",
+            string_arg(args, "command").unwrap_or_default()
+        ),
+        "read" => format!(
+            "● read {}{} — {status}",
+            string_arg(args, "path").unwrap_or("..."),
+            range_suffix(args)
+        ),
+        "write" => format!(
+            "● write {} — {status}",
+            string_arg(args, "path").unwrap_or("...")
+        ),
+        "edit" => format!(
+            "● edit {} — {status}",
+            string_arg(args, "path").unwrap_or("...")
+        ),
+        "grep" => format!(
+            "● grep /{}/ in {} — {status}",
+            string_arg(args, "pattern").unwrap_or(""),
+            string_arg(args, "path").unwrap_or(".")
+        ),
+        "find" => format!(
+            "● find {} in {} — {status}",
+            string_arg(args, "pattern").unwrap_or(""),
+            string_arg(args, "path").unwrap_or(".")
+        ),
+        "ls" => format!(
+            "● ls {} — {status}",
+            string_arg(args, "path").unwrap_or(".")
+        ),
+        _ => format!("● tool {tool_name} — {status}"),
+    }
+}
+
+fn format_tool_call_preview(tool_name: &str, args: &serde_json::Value) -> String {
+    match tool_name {
+        "write" => string_arg(args, "content")
+            .map(truncate_preview_text)
+            .unwrap_or_default(),
+        "edit" => args.get("edits").map(compact_json).unwrap_or_default(),
+        "bash" | "read" | "grep" | "find" | "ls" => String::new(),
+        _ => compact_json(args),
+    }
+}
+
+fn format_tool_specific_result(
+    tool_name: &str,
+    text: &str,
+    details: &serde_json::Value,
+    is_error: bool,
+    style: Style,
+) -> Vec<Line<'static>> {
+    match tool_name {
+        "edit" if !is_error => format_edit_result(text, details, style),
+        "bash" => format_bash_result(text, details, is_error, style),
+        _ => format_generic_tool_result(tool_name, text, is_error, style),
+    }
+}
+
+fn format_generic_tool_result(
+    tool_name: &str,
+    text: &str,
+    is_error: bool,
+    style: Style,
+) -> Vec<Line<'static>> {
+    let title = if is_error { "failed" } else { "result" };
+    let mut rows = vec![Line::styled(format!("  {tool_name} {title}"), style)];
+    rows.extend(indented_body(text, style));
+    rows
+}
+
+fn format_bash_result(
+    text: &str,
+    details: &serde_json::Value,
+    is_error: bool,
+    style: Style,
+) -> Vec<Line<'static>> {
+    let title = if is_error {
+        "bash failed"
+    } else {
+        "bash result"
+    };
+    let mut rows = vec![Line::styled(format!("  {title}"), style)];
+    rows.extend(indented_body(text, style));
+    if let Some(path) = details
+        .get("fullOutputPath")
+        .and_then(serde_json::Value::as_str)
+    {
+        rows.push(Line::styled(
+            format!("  [Full output: {path}]"),
+            Style::default().fg(Color::Yellow),
+        ));
+    }
+    rows
+}
+
+fn format_edit_result(text: &str, details: &serde_json::Value, style: Style) -> Vec<Line<'static>> {
+    let mut rows = vec![Line::styled(format!("  {text}"), style)];
+    if let Some(diff) = details.get("diff").and_then(serde_json::Value::as_str) {
+        rows.extend(diff.lines().map(format_diff_line));
+    }
+    rows
+}
+
+fn format_diff_line(line: &str) -> Line<'static> {
+    let style = if line.starts_with('+') && !line.starts_with("+++") {
+        Style::default().fg(Color::Green)
+    } else if line.starts_with('-') && !line.starts_with("---") {
+        Style::default().fg(Color::Red)
+    } else if line.starts_with("@@") {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::Rgb(113, 128, 150))
+    };
+    Line::styled(format!("  {line}"), style)
+}
+
+fn indented_body(text: &str, style: Style) -> Vec<Line<'static>> {
+    styled_lines_preserving_newlines(text, style)
+        .into_iter()
+        .map(|line| {
+            let text = line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>();
+            Line::styled(format!("  {text}"), style)
+        })
+        .collect()
+}
+
+fn string_arg<'a>(args: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    args.get(key).and_then(serde_json::Value::as_str)
+}
+
+fn range_suffix(args: &serde_json::Value) -> String {
+    let offset = args.get("offset").and_then(serde_json::Value::as_u64);
+    let limit = args.get("limit").and_then(serde_json::Value::as_u64);
+    match (offset, limit) {
+        (Some(offset), Some(limit)) => format!(":{offset}-{}", offset + limit.saturating_sub(1)),
+        (Some(offset), None) => format!(":{offset}"),
+        _ => String::new(),
+    }
+}
+
+fn compact_json(value: &serde_json::Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
+}
+
+fn truncate_preview_text(text: &str) -> String {
+    const MAX_CHARS: usize = 800;
+    if text.chars().count() <= MAX_CHARS {
+        return text.to_string();
+    }
+    let mut output: String = text.chars().take(MAX_CHARS).collect();
+    output.push('…');
+    output
 }
 
 #[derive(Debug, Clone)]
@@ -188,13 +362,13 @@ impl TranscriptState {
         &mut self,
         tool_call_id: String,
         tool_name: String,
-        arguments_preview: Option<String>,
+        arguments: serde_json::Value,
         status: ToolTimelineStatus,
     ) {
         self.assistant_stream_open = false;
         if let Some(TimelineItem::ToolCall {
             tool_name: existing_name,
-            arguments_preview: existing_arguments,
+            arguments: existing_arguments,
             status: existing_status,
             ..
         }) = self.canonical_items.iter_mut().find(|item| {
@@ -206,19 +380,41 @@ impl TranscriptState {
             if !tool_name.is_empty() {
                 *existing_name = tool_name;
             }
-            if let Some(arguments_preview) = arguments_preview {
-                *existing_arguments = arguments_preview;
-            }
+            *existing_arguments = arguments;
             *existing_status = status;
         } else {
             self.canonical_items.push(TimelineItem::ToolCall {
                 tool_call_id,
                 tool_name,
-                arguments_preview: arguments_preview.unwrap_or_default(),
+                arguments,
                 status,
             });
         }
         self.rebuild_logical_rows_cache();
+    }
+
+    pub(crate) fn update_tool_call_status(
+        &mut self,
+        tool_call_id: String,
+        tool_name: String,
+        status: ToolTimelineStatus,
+    ) {
+        if let Some(TimelineItem::ToolCall {
+            tool_name: existing_name,
+            status: existing_status,
+            ..
+        }) = self.canonical_items.iter_mut().find(|item| {
+            matches!(
+                item,
+                TimelineItem::ToolCall { tool_call_id: existing, .. } if existing == &tool_call_id
+            )
+        }) {
+            if !tool_name.is_empty() {
+                *existing_name = tool_name;
+            }
+            *existing_status = status;
+            self.rebuild_logical_rows_cache();
+        }
     }
 
     pub(crate) fn finish_tool_call(&mut self, tool_call_id: &str, is_error: bool) {
@@ -246,6 +442,7 @@ impl TranscriptState {
         tool_call_id: String,
         tool_name: String,
         text: String,
+        details: serde_json::Value,
         is_error: bool,
     ) {
         self.assistant_stream_open = false;
@@ -253,6 +450,7 @@ impl TranscriptState {
             tool_call_id,
             tool_name,
             text,
+            details,
             is_error,
         });
         self.rebuild_logical_rows_cache();

@@ -437,6 +437,7 @@ async fn emit_tool_started(
             message_id: message_id.0,
             tool_call_id: call.id.0.clone(),
             tool_name: call.name.clone(),
+            arguments: call.arguments.clone(),
         })
         .await;
 }
@@ -467,6 +468,7 @@ async fn emit_tool_result_message(
     let AgentMessage::ToolResult {
         id,
         content,
+        details,
         is_error: _,
         ..
     } = message
@@ -517,6 +519,28 @@ async fn emit_tool_result_message(
             message_id: id.0,
         })
         .await;
+    let _ = event_tx
+        .send(CoreEvent::ToolResultFinished {
+            turn_id: turn_id.0,
+            message_id: id.0,
+            tool_call_id: tool_call_id.0.clone(),
+            tool_name: tool_name.clone(),
+            text: text_content(content),
+            details: details.clone(),
+            is_error: *is_error,
+        })
+        .await;
+}
+
+fn text_content(content: &[ContentBlock]) -> String {
+    content
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn tool_result_is_error(message: &AgentMessage) -> bool {

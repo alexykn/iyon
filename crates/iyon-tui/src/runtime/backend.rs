@@ -30,6 +30,7 @@ pub(crate) enum FrontendEvent {
         message_id: u64,
         tool_call_id: String,
         tool_name: String,
+        arguments: serde_json::Value,
     },
     ToolCallUpdated {
         message_id: u64,
@@ -58,6 +59,7 @@ pub(crate) enum FrontendEvent {
         tool_call_id: String,
         tool_name: String,
         text: String,
+        details: serde_json::Value,
         is_error: bool,
     },
 }
@@ -267,6 +269,7 @@ impl BackendEventHandler {
                             tool_call_id: result.tool_call_id,
                             tool_name: result.tool_name,
                             text: result.text,
+                            details: serde_json::Value::Null,
                             is_error: result.is_error,
                         }
                     });
@@ -277,11 +280,13 @@ impl BackendEventHandler {
                 message_id,
                 tool_call_id,
                 tool_name,
+                arguments,
                 ..
             } => Some(FrontendEvent::ToolCallStarted {
                 message_id,
                 tool_call_id,
                 tool_name,
+                arguments,
             }),
             CoreEvent::ToolCallUpdated {
                 message_id,
@@ -329,24 +334,21 @@ impl BackendEventHandler {
                 approved,
                 reason,
             }),
-            CoreEvent::ToolResultStarted {
-                message_id,
+            CoreEvent::ToolResultStarted { .. } => None,
+            CoreEvent::ToolResultFinished {
                 tool_call_id,
                 tool_name,
+                text,
+                details,
                 is_error,
                 ..
-            } => {
-                self.tool_results.insert(
-                    message_id,
-                    PendingToolResultPresentation {
-                        tool_call_id,
-                        tool_name,
-                        is_error,
-                        text: String::new(),
-                    },
-                );
-                None
-            }
+            } => Some(FrontendEvent::ToolResult {
+                tool_call_id,
+                tool_name,
+                text,
+                details,
+                is_error,
+            }),
             CoreEvent::TurnFinished { .. } => {
                 self.in_flight = false;
                 Some(FrontendEvent::TurnFinished)

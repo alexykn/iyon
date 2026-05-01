@@ -24,6 +24,7 @@ pub enum CoreEvent {
         message_id: u64,
         tool_call_id: String,
         tool_name: String,
+        arguments: serde_json::Value,
     },
     ToolCallFinished {
         turn_id: u64,
@@ -44,6 +45,15 @@ pub enum CoreEvent {
         message_id: u64,
         tool_call_id: String,
         tool_name: String,
+        is_error: bool,
+    },
+    ToolResultFinished {
+        turn_id: u64,
+        message_id: u64,
+        tool_call_id: String,
+        tool_name: String,
+        text: String,
+        details: serde_json::Value,
         is_error: bool,
     },
     ToolApprovalRequested {

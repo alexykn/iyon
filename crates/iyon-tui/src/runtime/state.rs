@@ -37,12 +37,17 @@ impl AppState {
         self.transcript.finish_assistant_stream();
     }
 
-    pub(crate) fn start_tool_call(&mut self, tool_call_id: String, tool_name: String) {
+    pub(crate) fn start_tool_call(
+        &mut self,
+        tool_call_id: String,
+        tool_name: String,
+        arguments: serde_json::Value,
+    ) {
         self.finish_active_turn();
         self.transcript.upsert_tool_call(
             tool_call_id,
             tool_name.clone(),
-            None,
+            arguments,
             ToolTimelineStatus::Running,
         );
         self.active = Some(ActivePaneState::Tool {
@@ -63,7 +68,7 @@ impl AppState {
         self.transcript.upsert_tool_call(
             tool_call_id.clone(),
             tool_name.clone(),
-            Some(arguments_preview.clone()),
+            arguments,
             ToolTimelineStatus::PendingApproval,
         );
         self.pending_tool_approval = Some(PendingToolApproval {
@@ -103,7 +108,7 @@ impl AppState {
             ToolTimelineStatus::Rejected
         };
         self.transcript
-            .upsert_tool_call(tool_call_id, tool_name, None, status);
+            .update_tool_call_status(tool_call_id, tool_name, status);
     }
 
     pub(crate) fn update_tool_call(&mut self, tool_name: String, update: ToolUpdatePresentation) {
@@ -127,10 +132,11 @@ impl AppState {
         tool_call_id: String,
         tool_name: String,
         text: String,
+        details: serde_json::Value,
         is_error: bool,
     ) {
         self.transcript
-            .push_tool_result(tool_call_id, tool_name, text, is_error);
+            .push_tool_result(tool_call_id, tool_name, text, details, is_error);
     }
 
     pub(crate) fn append_error_message(&mut self, text: String) {
