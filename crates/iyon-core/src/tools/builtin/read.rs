@@ -38,12 +38,7 @@ impl ToolExecutor for ReadTool {
         }
     }
 
-    fn execute<'a>(
-        &'a self,
-        ctx: ToolContext,
-        input: Value,
-        _updates: ToolUpdateSink,
-    ) -> ToolFuture<'a> {
+    fn execute(&self, ctx: ToolContext, input: Value, _updates: ToolUpdateSink) -> ToolFuture<'_> {
         Box::pin(async move {
             let path = input
                 .get("path")

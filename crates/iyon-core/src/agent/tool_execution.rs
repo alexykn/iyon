@@ -16,7 +16,10 @@ use crate::{
     },
     fs::Workspace,
     ids::{ApprovalId, MessageId, SessionId, TurnId},
-    tools::{ToolApprovalPolicy, ToolContext, ToolRegistry, ToolUpdateSink},
+    tools::{
+        AfterToolCallContext, BeforeToolCallContext, BeforeToolCallDecision, ToolApprovalPolicy,
+        ToolContext, ToolHookSnapshot, ToolRegistry, ToolResult, ToolUpdateSink,
+    },
 };
 
 struct ApprovalInput<'a> {
@@ -38,12 +41,14 @@ enum ApprovalDecision {
 
 pub(crate) struct ToolExecutionInput<'a> {
     pub session_id: SessionId,
+    pub session: &'a crate::session::state::SessionState,
     pub turn_id: TurnId,
     pub message_id: MessageId,
     pub call: AssembledToolCall,
     pub cwd: PathBuf,
     pub workspace: Workspace,
     pub tools: &'a ToolRegistry,
+    pub tool_hooks: ToolHookSnapshot,
     pub event_tx: mpsc::Sender<CoreEvent>,
     pub control_rx: &'a mut mpsc::Receiver<AgentLoopControl>,
     pub next_approval_id: &'a mut u64,
@@ -76,7 +81,7 @@ where
 
         Ok(ApprovalInput {
             event_tx: &input.event_tx,
-            control_rx: &mut input.control_rx, // mutable borrow
+            control_rx: input.control_rx, // mutable borrow
             next_approval_id: input.next_approval_id,
             turn_id: input.turn_id,
             message_id: input.message_id,
@@ -112,31 +117,90 @@ pub(crate) async fn execute_tool_call(
     .await;
     let message = match input.tools.get(&input.call.name) {
         Some(tool) => {
+            let before = run_before_hooks(&input).await;
+            match before {
+                Ok(BeforeToolCallDecision::Allow) => {}
+                Ok(BeforeToolCallDecision::Block { reason }) => {
+                    let text = reason.unwrap_or_else(|| "Tool execution was blocked".to_string());
+                    let message = error_tool_result_message(
+                        input.message_id,
+                        input.call.id.clone(),
+                        input.call.name.clone(),
+                        text,
+                    );
+                    emit_tool_result_message(&input.event_tx, input.turn_id, &message).await;
+                    emit_tool_finished(
+                        &input.event_tx,
+                        input.turn_id,
+                        input.message_id,
+                        &input.call,
+                        true,
+                    )
+                    .await;
+                    return Ok(ToolExecutionOutcome::Completed(message));
+                }
+                Err(error) => {
+                    let message = error_tool_result_message(
+                        input.message_id,
+                        input.call.id.clone(),
+                        input.call.name.clone(),
+                        format!("Before-tool hook failed: {error}"),
+                    );
+                    emit_tool_result_message(&input.event_tx, input.turn_id, &message).await;
+                    emit_tool_finished(
+                        &input.event_tx,
+                        input.turn_id,
+                        input.message_id,
+                        &input.call,
+                        true,
+                    )
+                    .await;
+                    return Ok(ToolExecutionOutcome::Completed(message));
+                }
+            }
+
             let decision = await_approval_if_required(ApprovalInput::try_from(&mut input)?).await;
 
             match decision {
                 ApprovalDecision::Approved => {
                     let ctx = ToolContext::from(&input);
                     let updates = ToolUpdateSink::new(input.event_tx.clone(), &input);
-                    match tool
+                    let mut result = match tool
                         .execute(ctx, input.call.arguments.clone(), updates)
                         .await
                     {
-                        Ok(result) => tool_result_message(
-                            input.message_id,
-                            input.call.id.clone(),
-                            input.call.name.clone(),
-                            result.content,
-                            result.details,
-                            result.is_error,
-                        ),
-                        Err(error) => error_tool_result_message(
-                            input.message_id,
-                            input.call.id.clone(),
-                            input.call.name.clone(),
-                            format!("Tool \"{}\" failed: {error}", input.call.name),
-                        ),
+                        Ok(result) => result,
+                        Err(error) => ToolResult {
+                            content: vec![ContentBlock::Text {
+                                text: format!("Tool \"{}\" failed: {error}", input.call.name),
+                            }],
+                            details: json!({}),
+                            is_error: true,
+                            terminate: false,
+                        },
+                    };
+                    match run_after_hooks(&input, &result).await {
+                        Ok(patch) => apply_after_patch(&mut result, patch),
+                        Err(error) => {
+                            result = ToolResult {
+                                content: vec![ContentBlock::Text {
+                                    text: format!("After-tool hook failed: {error}"),
+                                }],
+                                details: json!({}),
+                                is_error: true,
+                                terminate: false,
+                            }
+                        }
                     }
+
+                    tool_result_message(
+                        input.message_id,
+                        input.call.id.clone(),
+                        input.call.name.clone(),
+                        result.content,
+                        result.details,
+                        result.is_error,
+                    )
                 }
                 ApprovalDecision::Rejected { reason } => error_tool_result_message(
                     input.message_id,
@@ -209,7 +273,7 @@ async fn await_approval_if_required(input: ApprovalInput<'_>) -> ApprovalDecisio
 
     loop {
         tokio::select! {
-            _ = cancellation.cancelled() => return ApprovalDecision::Cancelled,
+            () = cancellation.cancelled() => return ApprovalDecision::Cancelled,
             control = control_rx.recv() => match control {
                 Some(AgentLoopControl::ApproveToolCall { approval_id: id }) if id == approval_id => {
                     emit_approval_resolved(event_tx, turn_id, approval_id, call, true, None).await;
@@ -262,6 +326,51 @@ async fn emit_approval_resolved(
             reason,
         })
         .await;
+}
+
+async fn run_before_hooks(input: &ToolExecutionInput<'_>) -> Result<BeforeToolCallDecision> {
+    input
+        .tool_hooks
+        .run_before_hooks(BeforeToolCallContext {
+            turn_id: input.turn_id,
+            tool_call_id: &input.call.id,
+            tool_name: &input.call.name,
+            args: &input.call.arguments,
+            session: input.session,
+        })
+        .await
+}
+
+async fn run_after_hooks(
+    input: &ToolExecutionInput<'_>,
+    result: &ToolResult,
+) -> Result<crate::tools::AfterToolCallPatch> {
+    input
+        .tool_hooks
+        .run_after_hooks(AfterToolCallContext {
+            turn_id: input.turn_id,
+            tool_call_id: &input.call.id,
+            tool_name: &input.call.name,
+            args: &input.call.arguments,
+            result,
+            session: input.session,
+        })
+        .await
+}
+
+fn apply_after_patch(result: &mut ToolResult, patch: crate::tools::AfterToolCallPatch) {
+    if let Some(content) = patch.content_override {
+        result.content = content;
+    }
+    if let Some(details) = patch.details_override {
+        result.details = details;
+    }
+    if let Some(is_error) = patch.is_error_override {
+        result.is_error = is_error;
+    }
+    if let Some(terminate) = patch.terminate_override {
+        result.terminate = terminate;
+    }
 }
 
 fn tool_result_message(
@@ -348,6 +457,25 @@ async fn emit_tool_result_message(
         return;
     };
 
+    let AgentMessage::ToolResult {
+        tool_call_id,
+        tool_name,
+        is_error,
+        ..
+    } = message
+    else {
+        return;
+    };
+
+    let _ = event_tx
+        .send(CoreEvent::ToolResultStarted {
+            turn_id: turn_id.0,
+            message_id: id.0,
+            tool_call_id: tool_call_id.0.clone(),
+            tool_name: tool_name.clone(),
+            is_error: *is_error,
+        })
+        .await;
     let _ = event_tx
         .send(CoreEvent::MessageStarted {
             turn_id: turn_id.0,
@@ -376,4 +504,238 @@ async fn emit_tool_result_message(
 
 fn tool_result_is_error(message: &AgentMessage) -> bool {
     matches!(message, AgentMessage::ToolResult { is_error: true, .. })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        path::PathBuf,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
+
+    use serde_json::json;
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
+
+    use crate::{
+        agent::{tool_call::AssembledToolCall, transcript::AgentMessage},
+        fs::{FsPermissions, Workspace},
+        ids::{MessageId, SessionId, ToolCallId, TurnId},
+        session::state::SessionState,
+        tools::{
+            AfterToolCallContext, AfterToolCallHook, AfterToolCallPatch, BeforeToolCallContext,
+            BeforeToolCallDecision, BeforeToolCallHook, ToolApprovalPolicy, ToolContext,
+            ToolDefinition, ToolExecutionMode, ToolExecutor, ToolFuture, ToolHookSet, ToolResult,
+            ToolSource, ToolUpdateSink,
+        },
+    };
+
+    use super::{ToolExecutionInput, ToolExecutionOutcome, execute_tool_call};
+
+    struct TestTool {
+        called: Arc<AtomicBool>,
+        result: ToolResult,
+    }
+
+    impl ToolExecutor for TestTool {
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition {
+                name: "test".to_string(),
+                label: "test".to_string(),
+                description: "test tool".to_string(),
+                input_schema: json!({"type":"object"}),
+                execution_mode: ToolExecutionMode::Sequential,
+                approval: ToolApprovalPolicy::NeverAsk,
+                source: ToolSource::Builtin,
+                prompt_snippet: None,
+                prompt_guidelines: vec![],
+            }
+        }
+
+        fn execute(
+            &self,
+            _ctx: ToolContext,
+            _input: serde_json::Value,
+            _updates: ToolUpdateSink,
+        ) -> ToolFuture<'_> {
+            self.called.store(true, Ordering::SeqCst);
+            let result = self.result.clone();
+            Box::pin(async move { Ok(result) })
+        }
+    }
+
+    struct BlockBeforeHook;
+    impl BeforeToolCallHook for BlockBeforeHook {
+        fn before_tool_call<'a>(
+            &'a self,
+            _ctx: BeforeToolCallContext<'a>,
+        ) -> crate::tools::hooks::BeforeHookFuture<'a> {
+            Box::pin(async {
+                Ok(BeforeToolCallDecision::Block {
+                    reason: Some("blocked".to_string()),
+                })
+            })
+        }
+    }
+
+    struct PatchAfterHook;
+    impl AfterToolCallHook for PatchAfterHook {
+        fn after_tool_call<'a>(
+            &'a self,
+            _ctx: AfterToolCallContext<'a>,
+        ) -> crate::tools::hooks::AfterHookFuture<'a> {
+            Box::pin(async {
+                Ok(Some(AfterToolCallPatch {
+                    content_override: Some(vec![iyon_api::ContentBlock::Text {
+                        text: "patched".to_string(),
+                    }]),
+                    details_override: Some(json!({"patched": true})),
+                    is_error_override: Some(true),
+                    terminate_override: None,
+                }))
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn before_hook_can_block_tool_execution() {
+        let called = Arc::new(AtomicBool::new(false));
+        let tool = Arc::new(TestTool {
+            called: called.clone(),
+            result: ToolResult {
+                content: vec![iyon_api::ContentBlock::Text {
+                    text: "ok".to_string(),
+                }],
+                details: json!({}),
+                is_error: false,
+                terminate: false,
+            },
+        });
+
+        let mut registry = crate::tools::ToolRegistry::new();
+        registry.register(tool).unwrap();
+
+        let mut hooks = ToolHookSet::default();
+        hooks.register_before(Arc::new(BlockBeforeHook));
+
+        let session = SessionState::new(SessionId(1), PathBuf::from("."));
+        let workspace = Workspace::new(PathBuf::from("."), FsPermissions::default());
+        let (event_tx, _event_rx) = mpsc::channel(32);
+        let (_control_tx, mut control_rx) = mpsc::channel(8);
+        let mut next_approval_id = 1;
+
+        let outcome = execute_tool_call(ToolExecutionInput {
+            session_id: session.id,
+            session: &session,
+            turn_id: TurnId(1),
+            message_id: MessageId(1),
+            call: AssembledToolCall {
+                id: ToolCallId("call-1".to_string()),
+                name: "test".to_string(),
+                arguments: json!({}),
+            },
+            cwd: PathBuf::from("."),
+            workspace,
+            tools: &registry,
+            tool_hooks: hooks.snapshot(),
+            event_tx,
+            control_rx: &mut control_rx,
+            next_approval_id: &mut next_approval_id,
+            cancellation: CancellationToken::new(),
+        })
+        .await
+        .unwrap();
+
+        assert!(!called.load(Ordering::SeqCst));
+        match outcome {
+            ToolExecutionOutcome::Completed(AgentMessage::ToolResult {
+                is_error, content, ..
+            }) => {
+                assert!(is_error);
+                let text = content
+                    .into_iter()
+                    .find_map(|b| match b {
+                        iyon_api::ContentBlock::Text { text } => Some(text),
+                        _ => None,
+                    })
+                    .unwrap();
+                assert!(text.contains("blocked"));
+            }
+            _ => panic!("expected completed tool result"),
+        }
+    }
+
+    #[tokio::test]
+    async fn after_hook_can_patch_tool_result() {
+        let called = Arc::new(AtomicBool::new(false));
+        let tool = Arc::new(TestTool {
+            called,
+            result: ToolResult {
+                content: vec![iyon_api::ContentBlock::Text {
+                    text: "ok".to_string(),
+                }],
+                details: json!({"orig": true}),
+                is_error: false,
+                terminate: false,
+            },
+        });
+
+        let mut registry = crate::tools::ToolRegistry::new();
+        registry.register(tool).unwrap();
+
+        let mut hooks = ToolHookSet::default();
+        hooks.register_after(Arc::new(PatchAfterHook));
+
+        let session = SessionState::new(SessionId(1), PathBuf::from("."));
+        let workspace = Workspace::new(PathBuf::from("."), FsPermissions::default());
+        let (event_tx, _event_rx) = mpsc::channel(32);
+        let (_control_tx, mut control_rx) = mpsc::channel(8);
+        let mut next_approval_id = 1;
+
+        let outcome = execute_tool_call(ToolExecutionInput {
+            session_id: session.id,
+            session: &session,
+            turn_id: TurnId(1),
+            message_id: MessageId(1),
+            call: AssembledToolCall {
+                id: ToolCallId("call-1".to_string()),
+                name: "test".to_string(),
+                arguments: json!({}),
+            },
+            cwd: PathBuf::from("."),
+            workspace,
+            tools: &registry,
+            tool_hooks: hooks.snapshot(),
+            event_tx,
+            control_rx: &mut control_rx,
+            next_approval_id: &mut next_approval_id,
+            cancellation: CancellationToken::new(),
+        })
+        .await
+        .unwrap();
+
+        match outcome {
+            ToolExecutionOutcome::Completed(AgentMessage::ToolResult {
+                is_error,
+                content,
+                details,
+                ..
+            }) => {
+                assert!(is_error);
+                assert_eq!(details, json!({"patched": true}));
+                let text = content
+                    .into_iter()
+                    .find_map(|b| match b {
+                        iyon_api::ContentBlock::Text { text } => Some(text),
+                        _ => None,
+                    })
+                    .unwrap();
+                assert_eq!(text, "patched");
+            }
+            _ => panic!("expected completed tool result"),
+        }
+    }
 }

@@ -21,12 +21,7 @@ pub type ToolFuture<'a> = Pin<Box<dyn Future<Output = anyhow::Result<ToolResult>
 pub trait ToolExecutor: Send + Sync {
     fn definition(&self) -> ToolDefinition;
 
-    fn execute<'a>(
-        &'a self,
-        ctx: ToolContext,
-        input: Value,
-        updates: ToolUpdateSink,
-    ) -> ToolFuture<'a>;
+    fn execute(&self, ctx: ToolContext, input: Value, updates: ToolUpdateSink) -> ToolFuture<'_>;
 }
 
 #[derive(Debug, Clone)]
@@ -83,9 +78,7 @@ impl ToolUpdateSink {
         }
     }
 
-    pub(crate) fn noop() {
-        return;
-    }
+    pub(crate) fn noop() {}
 
     pub async fn send(&self, update: ToolUpdate) -> anyhow::Result<()> {
         if self.cancellation.is_cancelled() {

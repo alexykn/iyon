@@ -54,6 +54,10 @@ Owns:
 - extension/plugin registry and hooks
 - cancellation and approval flow
 
+Auth/session bootstrap note:
+- OAuth login, credential storage, and token refresh happen in the app/bootstrap layer (`iyon` binary), not in `iyon-core`.
+- `iyon-core` receives an already-constructed `Arc<dyn ModelApi>` and remains provider/auth agnostic.
+
 ### `iyon-tui`
 
 One client of `iyon-core`.
@@ -73,6 +77,12 @@ Does not own:
 - provider selection internals
 
 The TUI sends `CoreCommand` values and drains `CoreEvent` values.
+
+Tool hook snapshot note:
+- `iyon-core` owns before/after tool hooks as orchestration policy.
+- Runtime receives a `ToolHookSet` at core spawn and snapshots it per turn.
+- Runtime passes an immutable per-turn `ToolHookSnapshot` into the agent loop.
+- This keeps hook behavior deterministic per turn and avoids mutable global hook state races.
 
 ## Conversation vs presentation ownership
 

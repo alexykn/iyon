@@ -97,9 +97,11 @@ impl App {
             state.input_view.content_width,
             &mut self.wrap_cache,
         );
-        let input_actions = self
-            .input_handler
-            .poll_and_handle(timeout, &mut input_editor)?;
+        let input_actions = self.input_handler.poll_and_handle(
+            timeout,
+            &mut input_editor,
+            state.pending_tool_approval.is_some(),
+        )?;
         let input_dirty =
             self.controller
                 .apply_all(input_actions, state, &mut self.backend_handler)?;
@@ -223,6 +225,56 @@ impl App {
             FrontendEvent::TurnCancelled => {
                 self.stream_smoother.clear();
                 state.finish_active_turn();
+                true
+            }
+            FrontendEvent::ToolCallStarted {
+                tool_call_id,
+                tool_name,
+                ..
+            } => {
+                self.flush_stream_smoother(state);
+                state.start_tool_call(tool_call_id, tool_name);
+                true
+            }
+            FrontendEvent::ToolCallUpdated {
+                tool_name, update, ..
+            } => {
+                state.update_tool_call(tool_name, update);
+                true
+            }
+            FrontendEvent::ToolCallFinished {
+                tool_call_id,
+                is_error,
+            } => {
+                state.finish_tool_call(tool_call_id, is_error);
+                true
+            }
+            FrontendEvent::ToolApprovalRequested {
+                approval_id,
+                tool_call_id,
+                tool_name,
+                arguments,
+                ..
+            } => {
+                state.request_tool_approval(approval_id, tool_call_id, tool_name, arguments);
+                true
+            }
+            FrontendEvent::ToolApprovalResolved {
+                approval_id,
+                tool_call_id,
+                approved,
+                ..
+            } => {
+                state.resolve_tool_approval(approval_id, tool_call_id, approved);
+                true
+            }
+            FrontendEvent::ToolResult {
+                tool_call_id,
+                tool_name,
+                text,
+                is_error,
+            } => {
+                state.push_tool_result(tool_call_id, tool_name, text, is_error);
                 true
             }
         }

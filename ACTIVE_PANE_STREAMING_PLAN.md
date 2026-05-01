@@ -211,7 +211,7 @@ Start with one slot and enum-like modes, but split them into two behavior classe
 ## 8.1 Spill-capable kinds (transcript-producing)
 - `WorkingSpinner`
 - `AgentStreaming`
-- later maybe tool-progress panes that should become transcript history
+- tool-progress panes only for transient status; tool calls/results become canonical transcript items directly
 
 Rules:
 - can participate in active->transcript spill behavior

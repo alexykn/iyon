@@ -14,7 +14,8 @@ Examples: OpenAI, Anthropic, local model server.
 
 Responsibilities:
 - Perform provider-specific HTTP/SSE/WebSocket calls.
-- Handle provider auth, endpoint details, request/response schema.
+- Handle provider auth headers, endpoint details, request/response schema.
+- Apply provider-local retry/backoff for transient transport/status failures.
 - Stream provider chunks asynchronously.
 
 Rules:
@@ -31,7 +32,7 @@ Purpose:
 Responsibilities:
 - Convert unified request model to provider request.
 - Normalize provider stream output into unified stream events.
-- Normalize errors.
+- Normalize provider failures into `ModelErrorKind` (`Authentication`, `RateLimited`, `InvalidRequest`, etc.).
 
 Important:
 - This layer is an adapter/normalizer, not a UI formatter.
@@ -94,6 +95,7 @@ The agent loop owns transient per-turn continuation state:
 - clone the session snapshot at turn start
 - call the generic model API
 - execute tools through `ToolRegistry`
+- run before/after tool hooks from a per-turn immutable hook snapshot
 - append assistant/tool-result messages to the local snapshot
 - continue model calls until normalized `StopReason` indicates completion
 - return produced messages to the runtime supervisor for durable commit
@@ -142,11 +144,12 @@ pub(crate) enum FrontendEvent {
 
 The placeholder should evolve toward the metadata-rich shape above once the backend turn model is implemented.
 
-Frontend composition should interpret these events with explicit transient-pane transitions:
+Frontend composition should interpret these events with explicit presentation transitions:
 - `UserMessage` -> append a user presentation item projected from core state.
 - `TurnStarted` -> show ephemeral `WorkingSpinner` pane above input.
 - First assistant delta for the turn -> replace spinner with `StreamingAssistant` pane.
 - Subsequent assistant deltas -> update the same pane in place.
+- Tool call/result events -> append/update canonical tool presentation items in `TranscriptState`; active pane may show transient status/approval only.
 - `TurnFinished`/`TurnFailed` -> finalize pane into a normal transcript item (or error item).
 
 This keeps backend transport semantic and UI-agnostic while still giving the frontend a deterministic state machine.

@@ -90,23 +90,22 @@ impl ToolCallAssembler {
                 bail!("tool call did not finish: {id}");
             }
 
-            let parsed = match call.final_arguments.clone() {
-                Some(arguments) => arguments,
-                None => {
-                    let text = call.arguments_text.trim();
-                    if text.is_empty() {
-                        json!({})
-                    } else {
-                        match serde_json::from_str(text) {
-                            Ok(arguments) => arguments,
-                            Err(error) => {
-                                output.push(ToolCallRequest::Invalid(InvalidToolCall {
-                                    id: call.id.clone(),
-                                    name: call.name.clone(),
-                                    error: error.to_string(),
-                                }));
-                                continue;
-                            }
+            let parsed = if let Some(arguments) = call.final_arguments.clone() {
+                arguments
+            } else {
+                let text = call.arguments_text.trim();
+                if text.is_empty() {
+                    json!({})
+                } else {
+                    match serde_json::from_str(text) {
+                        Ok(arguments) => arguments,
+                        Err(error) => {
+                            output.push(ToolCallRequest::Invalid(InvalidToolCall {
+                                id: call.id.clone(),
+                                name: call.name.clone(),
+                                error: error.to_string(),
+                            }));
+                            continue;
                         }
                     }
                 }

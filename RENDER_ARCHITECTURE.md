@@ -98,6 +98,8 @@ Current behavior:
 - `TurnStarted` creates a `WorkingSpinner` active pane.
 - `WorkingSpinner` renders as a three-row pane without borders: blank/text/blank.
 - `AgentStreaming` can render `active_tail()` once backend deltas arrive.
+- Tool activity uses active pane only for transient current status/approval prompts.
+- Tool calls and tool results are canonical transcript presentation items, so they flow through the same formatter/cache/scrollback path as chat messages.
 - Active -> transcript spill is still a near-term step; finalization appends only `full_text[frozen_until..]` to avoid duplication.
 
 ## Event/control modules

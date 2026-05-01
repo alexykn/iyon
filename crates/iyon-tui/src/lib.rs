@@ -15,9 +15,18 @@ use crossterm::{
     execute,
 };
 use ratatui::{TerminalOptions, Viewport};
+use runtime::BackendEventHandler;
 use terminal::InlineTerminal;
 
 pub fn run() -> Result<()> {
+    run_with_backend_handler(BackendEventHandler::default())
+}
+
+pub fn run_with_core(core: iyon_core::IyonCore) -> Result<()> {
+    run_with_backend_handler(BackendEventHandler::new(core))
+}
+
+fn run_with_backend_handler(backend_handler: BackendEventHandler) -> Result<()> {
     execute!(stdout(), EnableBracketedPaste)?;
 
     let options = TerminalOptions {
@@ -27,7 +36,7 @@ pub fn run() -> Result<()> {
     execute!(stdout(), EnableBracketedPaste)?;
     let result = {
         let mut terminal = InlineTerminal::new(terminal);
-        App::default().run(&mut terminal)
+        App::with_backend_handler(backend_handler).run(&mut terminal)
     };
 
     if let Err(error) = execute!(stdout(), DisableBracketedPaste) {

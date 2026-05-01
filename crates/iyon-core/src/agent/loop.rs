@@ -20,7 +20,7 @@ use crate::{
     fs::Workspace,
     ids::{MessageId, TurnId},
     session::state::SessionState,
-    tools::ToolRegistry,
+    tools::{ToolHookSnapshot, ToolRegistry},
 };
 
 const MAX_AGENT_LOOP_ITERATIONS: usize = 8;
@@ -39,6 +39,7 @@ pub(crate) struct AgentLoopInput {
     pub model: Arc<dyn ModelApi>,
     pub tools: ToolRegistry,
     pub workspace: Workspace,
+    pub tool_hooks: ToolHookSnapshot,
     pub event_tx: mpsc::Sender<CoreEvent>,
     pub control_rx: mpsc::Receiver<AgentLoopControl>,
     pub cancellation: CancellationToken,
@@ -52,6 +53,7 @@ struct ExecuteToolRequestsInput<'a> {
     turn_id: TurnId,
     workspace: &'a Workspace,
     tools: &'a ToolRegistry,
+    tool_hooks: &'a ToolHookSnapshot,
     event_tx: &'a mpsc::Sender<CoreEvent>,
     control_rx: &'a mut mpsc::Receiver<AgentLoopControl>,
     next_approval_id: &'a mut u64,
@@ -75,7 +77,7 @@ pub(crate) async fn run_agent_loop(input: AgentLoopInput) -> TurnOutcome {
     match run_agent_loop_inner(input).await {
         Ok(outcome) => outcome,
         Err(error) => TurnOutcome::Failed {
-            error: error.to_string(),
+            error: format!("{error:#}"),
         },
     }
 }
@@ -89,6 +91,7 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
         model,
         tools,
         workspace,
+        tool_hooks,
         event_tx,
         mut control_rx,
         cancellation,
@@ -116,7 +119,7 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
             cancellation: cancellation.child_token(),
         });
         let turn = tokio::select! {
-            _ = cancellation.cancelled() => return Ok(TurnOutcome::Cancelled),
+            () = cancellation.cancelled() => return Ok(TurnOutcome::Cancelled),
             turn = turn => turn?,
         };
 
@@ -158,6 +161,7 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
             turn_id,
             workspace: &workspace,
             tools: &tools,
+            tool_hooks: &tool_hooks,
             event_tx: &event_tx,
             control_rx: &mut control_rx,
             next_approval_id: &mut next_approval_id,
@@ -215,6 +219,7 @@ async fn execute_tool_requests(input: ExecuteToolRequestsInput<'_>) -> bool {
             input.turn_id,
             input.workspace,
             input.tools,
+            input.tool_hooks,
             input.event_tx,
             input.control_rx,
             input.next_approval_id,
@@ -237,6 +242,7 @@ async fn execute_one_tool_request(
     turn_id: TurnId,
     workspace: &Workspace,
     tools: &ToolRegistry,
+    tool_hooks: &ToolHookSnapshot,
     event_tx: &mpsc::Sender<CoreEvent>,
     control_rx: &mut mpsc::Receiver<AgentLoopControl>,
     next_approval_id: &mut u64,
@@ -246,12 +252,14 @@ async fn execute_one_tool_request(
         ToolCallRequest::Ready(call) => {
             execute_tool_call(ToolExecutionInput {
                 session_id: session.id,
+                session,
                 turn_id,
                 message_id,
                 call,
                 cwd: PathBuf::from(&session.cwd),
                 workspace: workspace.clone(),
                 tools,
+                tool_hooks: tool_hooks.clone(),
                 event_tx: event_tx.clone(),
                 control_rx,
                 next_approval_id,

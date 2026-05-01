@@ -4,7 +4,11 @@ use anyhow::Result;
 use iyon_api::{MockModelApi, ModelApi};
 use tokio::{runtime::Runtime, sync::mpsc};
 
-use crate::{CoreCommand, CoreEvent, runtime};
+use crate::{
+    CoreCommand, CoreEvent,
+    runtime::{self, RuntimeConfig},
+    tools::ToolHookSet,
+};
 
 pub struct IyonCore {
     command_tx: CoreCommandSender,
@@ -32,11 +36,23 @@ impl IyonCore {
     }
 
     pub fn spawn_with_owned_runtime(model: Arc<dyn ModelApi>) -> Result<Self> {
+        Self::spawn_with_owned_runtime_and_hooks(model, ToolHookSet::default())
+    }
+
+    pub fn spawn_with_owned_runtime_and_hooks(
+        model: Arc<dyn ModelApi>,
+        tool_hooks: ToolHookSet,
+    ) -> Result<Self> {
         let runtime = Runtime::new()?;
         let (command_tx, command_rx) = mpsc::channel(32);
         let (event_tx, event_rx) = mpsc::channel(1024);
 
-        runtime.spawn(runtime::run(command_rx, event_tx, model));
+        runtime.spawn(runtime::run(
+            command_rx,
+            event_tx,
+            model,
+            RuntimeConfig { tool_hooks },
+        ));
 
         Ok(Self {
             command_tx: CoreCommandSender { command_tx },
@@ -47,15 +63,28 @@ impl IyonCore {
         })
     }
 
+    #[must_use]
     pub fn spawn_default_on_current_runtime() -> Self {
         Self::spawn_on_current_runtime(Arc::new(MockModelApi))
     }
 
     pub fn spawn_on_current_runtime(model: Arc<dyn ModelApi>) -> Self {
+        Self::spawn_on_current_runtime_and_hooks(model, ToolHookSet::default())
+    }
+
+    pub fn spawn_on_current_runtime_and_hooks(
+        model: Arc<dyn ModelApi>,
+        tool_hooks: ToolHookSet,
+    ) -> Self {
         let (command_tx, command_rx) = mpsc::channel(32);
         let (event_tx, event_rx) = mpsc::channel(1024);
 
-        tokio::spawn(runtime::run(command_rx, event_tx, model));
+        tokio::spawn(runtime::run(
+            command_rx,
+            event_tx,
+            model,
+            RuntimeConfig { tool_hooks },
+        ));
 
         Self {
             command_tx: CoreCommandSender { command_tx },
@@ -107,10 +136,7 @@ impl Drop for CoreEventReceiver {
 
 impl CoreEventReceiver {
     pub fn try_recv_event(&mut self) -> Option<CoreEvent> {
-        match self.event_rx.try_recv() {
-            Ok(event) => Some(event),
-            Err(mpsc::error::TryRecvError::Empty | mpsc::error::TryRecvError::Disconnected) => None,
-        }
+        self.event_rx.try_recv().ok()
     }
 
     pub fn blocking_recv_event(&mut self) -> Option<CoreEvent> {

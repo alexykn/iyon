@@ -108,7 +108,11 @@ impl RunningFrameComposer {
             .active
             .as_ref()
             .map_or(0, ActivePaneState::desired_height);
-        let commit_capacity_policy = match state.active.as_ref().map(|pane| pane.behavior()) {
+        let commit_capacity_policy = match state
+            .active
+            .as_ref()
+            .map(super::super::runtime::active::ActivePaneState::behavior)
+        {
             Some(ActiveBehavior::OccludeOnly) => CommitCapacityPolicy::OccludeOnly,
             _ => CommitCapacityPolicy::SpillToTranscript,
         };
