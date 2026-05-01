@@ -82,7 +82,23 @@ Tool hook snapshot note:
 - `iyon-core` owns before/after tool hooks as orchestration policy.
 - Runtime receives a `ToolHookSet` at core spawn and snapshots it per turn.
 - Runtime passes an immutable per-turn `ToolHookSnapshot` into the agent loop.
+- Before hooks run in deterministic registration order, can patch tool args, and first block short-circuits.
 - This keeps hook behavior deterministic per turn and avoids mutable global hook state races.
+
+Builtin tool status:
+- Read-only builtins registered by default: `read`, `ls`, `find`, `grep`.
+- Builtins run yolo by default: `write`, `edit`, and `bash` do not ask for approval in the normal case.
+- `find` prefers `fd` and falls back to system `find`.
+- `grep` prefers `rg` and falls back to system `grep`.
+- `write` and `edit` share a per-path mutation queue so edits to the same file serialize.
+- `bash` streams output updates, supports timeout/cancellation, and model-truncates final output from the tail with optional full-output temp log metadata.
+- `bash` commands containing a standalone `sudo` token still require approval.
+
+Tool output policy:
+- `iyon-core` decides model-visible tool results stored in `SessionState`.
+- `iyon-tui` may independently collapse/truncate presentation, but it does not decide model context.
+- Generated search/process outputs (`grep`, `find`, `ls`, `bash`) may be model-truncated with explicit structured metadata.
+- File reads should avoid silent full-file truncation; large unsliced reads should ask the model to paginate with `offset`/`limit`.
 
 ## Conversation vs presentation ownership
 

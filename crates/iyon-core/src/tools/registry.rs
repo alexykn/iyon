@@ -8,7 +8,13 @@ use std::{
 use anyhow::bail;
 use iyon_api::ModelToolSpec;
 
-use crate::tools::{ToolDefinition, ToolExecutor, builtin::read::ReadTool};
+use crate::tools::{
+    FileMutationQueue, ToolDefinition, ToolExecutor,
+    builtin::{
+        bash::BashTool, edit::EditTool, find::FindTool, grep::GrepTool, ls::LsTool, read::ReadTool,
+        write::WriteTool,
+    },
+};
 
 #[derive(Clone, Default)]
 pub struct ToolRegistry {
@@ -80,7 +86,22 @@ impl ToolRegistry {
             .collect()
     }
 
-    pub fn register_builtin_defaults(&mut self) -> anyhow::Result<()> {
-        self.register(Arc::new(ReadTool))
+    pub fn register_builtin_defaults(
+        &mut self,
+        mutation_queue: FileMutationQueue,
+    ) -> anyhow::Result<()> {
+        self.register_read_only_defaults()?;
+        self.register(Arc::new(WriteTool::new(mutation_queue.clone())))?;
+        self.register(Arc::new(EditTool::new(mutation_queue)))?;
+        self.register(Arc::new(BashTool))?;
+        Ok(())
+    }
+
+    pub fn register_read_only_defaults(&mut self) -> anyhow::Result<()> {
+        self.register(Arc::new(ReadTool))?;
+        self.register(Arc::new(LsTool))?;
+        self.register(Arc::new(FindTool))?;
+        self.register(Arc::new(GrepTool))?;
+        Ok(())
     }
 }

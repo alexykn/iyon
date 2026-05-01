@@ -154,6 +154,8 @@ Frontend composition should interpret these events with explicit presentation tr
 
 This keeps backend transport semantic and UI-agnostic while still giving the frontend a deterministic state machine.
 
+Model-visible tool output and TUI presentation are separate policies. Core/tool code may bound generated outputs before appending them to `SessionState`, with explicit metadata. TUI formatting may apply a different display-only truncation/collapse policy without changing the semantic transcript. Read-only default builtins currently include `read`, `ls`, `find`, and `grep`; search tools prefer Pi-like external tools (`fd`, `rg`) and fall back to system tools (`find`, `grep`). Mutation/process builtins `write`, `edit`, and `bash` run yolo by default; `write`/`edit` share a per-path mutation queue, while `bash` streams progress and model-truncates final output from the tail. `bash` commands containing a standalone `sudo` token still require approval.
+
 ## 4) Formatter Stage
 
 Purpose:

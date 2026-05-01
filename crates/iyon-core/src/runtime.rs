@@ -14,7 +14,7 @@ use crate::{
     fs::{FsPermissions, Workspace},
     ids::{ApprovalId, MessageId, SessionId, TurnId},
     session::state::SessionState,
-    tools::{ToolHookSet, ToolRegistry},
+    tools::{FileMutationQueue, ToolHookSet, ToolRegistry},
 };
 use iyon_api::{ContentBlock, ModelApi, StopReason};
 
@@ -54,9 +54,10 @@ pub(crate) struct RuntimeConfig {
 impl RuntimeState {
     fn new(cwd: PathBuf, config: RuntimeConfig) -> Self {
         let workspace = Workspace::new(cwd.clone(), FsPermissions::default());
+        let mutation_queue = FileMutationQueue::default();
         let mut tools = ToolRegistry::new();
         tools
-            .register_builtin_defaults()
+            .register_builtin_defaults(mutation_queue)
             .expect("builtin tool registration should be valid");
 
         Self {

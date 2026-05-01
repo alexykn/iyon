@@ -47,6 +47,12 @@ pub struct BeforeToolCallContext<'a> {
 
 pub enum BeforeToolCallDecision {
     Allow,
+    PatchArgs(Value),
+    Block { reason: Option<String> },
+}
+
+pub enum BeforeToolCallResolution {
+    Proceed { args: Value },
     Block { reason: Option<String> },
 }
 
@@ -103,17 +109,27 @@ impl ToolHookSnapshot {
     pub async fn run_before_hooks(
         &self,
         ctx: BeforeToolCallContext<'_>,
-    ) -> Result<BeforeToolCallDecision> {
+    ) -> Result<BeforeToolCallResolution> {
+        let mut args = ctx.args.clone();
         for hook in &self.before {
             match hook
-                .before_tool_call(BeforeToolCallContext { ..ctx })
+                .before_tool_call(BeforeToolCallContext {
+                    turn_id: ctx.turn_id,
+                    tool_call_id: ctx.tool_call_id,
+                    tool_name: ctx.tool_name,
+                    args: &args,
+                    session: ctx.session,
+                })
                 .await?
             {
                 BeforeToolCallDecision::Allow => {}
-                decision @ BeforeToolCallDecision::Block { .. } => return Ok(decision),
+                BeforeToolCallDecision::PatchArgs(patched) => args = patched,
+                BeforeToolCallDecision::Block { reason } => {
+                    return Ok(BeforeToolCallResolution::Block { reason });
+                }
             }
         }
-        Ok(BeforeToolCallDecision::Allow)
+        Ok(BeforeToolCallResolution::Proceed { args })
     }
 
     pub async fn run_after_hooks(
