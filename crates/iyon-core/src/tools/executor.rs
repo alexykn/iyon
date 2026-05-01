@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     CoreEvent, ToolUpdateEvent,
+    agent::tool_execution::ToolExecutionInput,
     fs::Workspace,
     ids::{MessageId, SessionId, ToolCallId, TurnId},
     tools::definition::ToolDefinition,
@@ -70,32 +71,20 @@ pub struct ToolUpdateSink {
 impl ToolUpdateSink {
     pub(crate) fn new(
         event_tx: mpsc::Sender<CoreEvent>,
-        turn_id: TurnId,
-        message_id: MessageId,
-        tool_call_id: ToolCallId,
-        tool_name: String,
-        cancellation: CancellationToken,
+        tool_input: &ToolExecutionInput<'_>,
     ) -> Self {
         Self {
             event_tx,
-            turn_id,
-            message_id,
-            tool_call_id,
-            tool_name,
-            cancellation,
+            turn_id: tool_input.turn_id,
+            message_id: tool_input.message_id,
+            tool_call_id: tool_input.call.id.clone(),
+            tool_name: tool_input.call.name.clone(),
+            cancellation: tool_input.cancellation.clone(),
         }
     }
 
-    pub(crate) fn noop() -> Self {
-        let (event_tx, _event_rx) = mpsc::channel(1);
-        Self::new(
-            event_tx,
-            TurnId(0),
-            MessageId(0),
-            ToolCallId(String::new()),
-            String::new(),
-            CancellationToken::new(),
-        )
+    pub(crate) fn noop() {
+        return;
     }
 
     pub async fn send(&self, update: ToolUpdate) -> anyhow::Result<()> {
@@ -113,12 +102,6 @@ impl ToolUpdateSink {
             })
             .await?;
         Ok(())
-    }
-}
-
-impl Default for ToolUpdateSink {
-    fn default() -> Self {
-        Self::noop()
     }
 }
 

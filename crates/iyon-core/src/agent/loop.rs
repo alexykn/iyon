@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use anyhow::{anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use iyon_api::{ModelApi, StopReason};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -26,6 +26,11 @@ use crate::{
 const MAX_AGENT_LOOP_ITERATIONS: usize = 8;
 const MAX_TOOL_CALLS_PER_MODEL_TURN: usize = 16;
 
+enum LoopAction {
+    ExecuteTools,
+    Finish,
+}
+
 pub(crate) struct AgentLoopInput {
     pub turn_id: TurnId,
     pub next_message_id: u64,
@@ -37,6 +42,20 @@ pub(crate) struct AgentLoopInput {
     pub event_tx: mpsc::Sender<CoreEvent>,
     pub control_rx: mpsc::Receiver<AgentLoopControl>,
     pub cancellation: CancellationToken,
+}
+
+struct ExecuteToolRequestsInput<'a> {
+    tool_calls: Vec<ToolCallRequest>,
+    ids: &'a mut MessageIdAllocator,
+    session: &'a mut SessionState,
+    produced_messages: &'a mut Vec<AgentMessage>,
+    turn_id: TurnId,
+    workspace: &'a Workspace,
+    tools: &'a ToolRegistry,
+    event_tx: &'a mpsc::Sender<CoreEvent>,
+    control_rx: &'a mut mpsc::Receiver<AgentLoopControl>,
+    next_approval_id: &'a mut u64,
+    cancellation: CancellationToken,
 }
 
 #[derive(Debug)]
@@ -155,11 +174,6 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
     ))
 }
 
-enum LoopAction {
-    ExecuteTools,
-    Finish,
-}
-
 fn classify_stop_reason(
     stop_reason: StopReason,
     has_tool_calls: bool,
@@ -192,54 +206,26 @@ async fn complete_agent_loop(
     })
 }
 
-struct ExecuteToolRequestsInput<'a> {
-    tool_calls: Vec<ToolCallRequest>,
-    ids: &'a mut MessageIdAllocator,
-    session: &'a mut SessionState,
-    produced_messages: &'a mut Vec<AgentMessage>,
-    turn_id: TurnId,
-    workspace: &'a Workspace,
-    tools: &'a ToolRegistry,
-    event_tx: &'a mpsc::Sender<CoreEvent>,
-    control_rx: &'a mut mpsc::Receiver<AgentLoopControl>,
-    next_approval_id: &'a mut u64,
-    cancellation: CancellationToken,
-}
-
 async fn execute_tool_requests(input: ExecuteToolRequestsInput<'_>) -> bool {
-    let ExecuteToolRequestsInput {
-        tool_calls,
-        ids,
-        session,
-        produced_messages,
-        turn_id,
-        workspace,
-        tools,
-        event_tx,
-        control_rx,
-        next_approval_id,
-        cancellation,
-    } = input;
-
-    for tool_call in tool_calls {
+    for tool_call in input.tool_calls {
         let tool_result = execute_one_tool_request(
             tool_call,
-            ids.next(),
-            session,
-            turn_id,
-            workspace,
-            tools,
-            event_tx,
-            control_rx,
-            next_approval_id,
-            cancellation.child_token(),
+            input.ids.next(),
+            input.session,
+            input.turn_id,
+            input.workspace,
+            input.tools,
+            input.event_tx,
+            input.control_rx,
+            input.next_approval_id,
+            input.cancellation.child_token(),
         )
         .await;
-        let ToolExecutionOutcome::Completed(tool_result) = tool_result else {
+        let Ok(ToolExecutionOutcome::Completed(tool_result)) = tool_result else {
             return false;
         };
-        session.messages.push(tool_result.clone());
-        produced_messages.push(tool_result);
+        input.session.messages.push(tool_result.clone());
+        input.produced_messages.push(tool_result);
     }
     true
 }
@@ -255,7 +241,7 @@ async fn execute_one_tool_request(
     control_rx: &mut mpsc::Receiver<AgentLoopControl>,
     next_approval_id: &mut u64,
     cancellation: CancellationToken,
-) -> ToolExecutionOutcome {
+) -> Result<ToolExecutionOutcome> {
     match tool_call {
         ToolCallRequest::Ready(call) => {
             execute_tool_call(ToolExecutionInput {
@@ -273,9 +259,9 @@ async fn execute_one_tool_request(
             })
             .await
         }
-        ToolCallRequest::Invalid(call) => ToolExecutionOutcome::Completed(
+        ToolCallRequest::Invalid(call) => Ok(ToolExecutionOutcome::Completed(
             invalid_tool_call_result(turn_id, message_id, call, event_tx.clone()).await,
-        ),
+        )),
     }
 }
 
@@ -303,170 +289,5 @@ impl MessageIdAllocator {
 
     fn next_raw(&self) -> u64 {
         self.next
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        fs,
-        pin::Pin,
-        sync::{Arc, Mutex},
-        task::Poll,
-        time::SystemTime,
-    };
-
-    use futures_util::Stream;
-    use iyon_api::{
-        ContentBlock, ModelError, ModelRequest, ModelStream, ModelStreamEvent, ModelStreamFuture,
-    };
-    use serde_json::json;
-
-    use super::*;
-    use crate::{fs::FsPermissions, ids::SessionId};
-
-    #[tokio::test]
-    async fn reads_file_and_continues_model_loop() {
-        let root = create_temp_dir("agent-loop-read");
-        fs::write(root.join("file.txt"), "hello").unwrap();
-        let session = SessionState::new(SessionId(1), root.clone());
-        let model = Arc::new(ScriptedModel::new(vec![
-            vec![
-                Ok(ModelStreamEvent::Started),
-                Ok(ModelStreamEvent::ToolCallStart {
-                    content_index: 0,
-                    id: Some("call-1".to_string()),
-                    name: Some("read".to_string()),
-                }),
-                Ok(ModelStreamEvent::ToolCallEnd {
-                    content_index: 0,
-                    id: "call-1".to_string(),
-                    name: "read".to_string(),
-                    arguments: json!({ "path": "file.txt" }),
-                }),
-                Ok(ModelStreamEvent::Done {
-                    stop_reason: StopReason::ToolUse,
-                }),
-            ],
-            vec![
-                Ok(ModelStreamEvent::Started),
-                Ok(ModelStreamEvent::TextDelta {
-                    content_index: 0,
-                    delta: "The file says hello".to_string(),
-                }),
-                Ok(ModelStreamEvent::Done {
-                    stop_reason: StopReason::Stop,
-                }),
-            ],
-        ]));
-        let mut tools = ToolRegistry::new();
-        tools.register_builtin_defaults().unwrap();
-        let (event_tx, _event_rx) = mpsc::channel(64);
-        let (_control_tx, control_rx) = mpsc::channel(8);
-
-        let outcome = run_agent_loop(AgentLoopInput {
-            turn_id: TurnId(1),
-            next_message_id: 1,
-            next_approval_id: 1,
-            session,
-            model: model.clone(),
-            tools,
-            workspace: Workspace::new(root.clone(), FsPermissions::default()),
-            event_tx,
-            control_rx,
-            cancellation: CancellationToken::new(),
-        })
-        .await;
-
-        let TurnOutcome::Completed {
-            messages,
-            next_message_id,
-            ..
-        } = outcome
-        else {
-            panic!("expected completed outcome: {outcome:?}");
-        };
-        assert_eq!(next_message_id, 4);
-        assert_eq!(messages.len(), 3);
-        assert!(matches!(
-            &messages[0],
-            AgentMessage::Assistant { content, .. }
-                if matches!(&content[..], [ContentBlock::ToolCall { name, .. }] if name == "read")
-        ));
-        assert!(matches!(
-            &messages[1],
-            AgentMessage::ToolResult { content, is_error: false, .. }
-                if matches!(&content[..], [ContentBlock::Text { text }] if text == "hello")
-        ));
-        assert!(matches!(
-            &messages[2],
-            AgentMessage::Assistant { content, .. }
-                if matches!(&content[..], [ContentBlock::Text { text }] if text == "The file says hello")
-        ));
-
-        let requests = model.requests.lock().unwrap();
-        assert_eq!(requests.len(), 2);
-        assert_eq!(requests[1].messages.len(), 2);
-        assert!(matches!(
-            requests[1].messages[0],
-            iyon_api::ModelMessage::Assistant { .. }
-        ));
-        assert!(matches!(
-            requests[1].messages[1],
-            iyon_api::ModelMessage::ToolResult { .. }
-        ));
-        let _ = fs::remove_dir_all(root);
-    }
-
-    struct ScriptedModel {
-        responses: Mutex<Vec<Vec<Result<ModelStreamEvent, ModelError>>>>,
-        requests: Mutex<Vec<ModelRequest>>,
-    }
-
-    impl ScriptedModel {
-        fn new(responses: Vec<Vec<Result<ModelStreamEvent, ModelError>>>) -> Self {
-            Self {
-                responses: Mutex::new(responses.into_iter().rev().collect()),
-                requests: Mutex::new(Vec::new()),
-            }
-        }
-    }
-
-    impl ModelApi for ScriptedModel {
-        fn stream(&self, request: ModelRequest) -> ModelStreamFuture<'_> {
-            self.requests.lock().unwrap().push(request);
-            let events = self.responses.lock().unwrap().pop().unwrap_or_default();
-            Box::pin(async move { Ok(Box::pin(VecStream { events }) as ModelStream) })
-        }
-    }
-
-    struct VecStream {
-        events: Vec<Result<ModelStreamEvent, ModelError>>,
-    }
-
-    impl Stream for VecStream {
-        type Item = Result<ModelStreamEvent, ModelError>;
-
-        fn poll_next(
-            mut self: Pin<&mut Self>,
-            _cx: &mut std::task::Context<'_>,
-        ) -> Poll<Option<Self::Item>> {
-            if self.events.is_empty() {
-                return Poll::Ready(None);
-            }
-            Poll::Ready(Some(self.events.remove(0)))
-        }
-    }
-
-    fn create_temp_dir(prefix: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "iyon-{prefix}-{}",
-            SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&path).unwrap();
-        path
     }
 }

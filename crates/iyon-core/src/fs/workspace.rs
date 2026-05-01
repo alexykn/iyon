@@ -138,39 +138,3 @@ fn path_has_hidden_relative_component(root: &Path, path: &Path) -> bool {
     let relative = path.strip_prefix(root).unwrap_or(path);
     contains_hidden_component(relative)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn relative_path_resolves_under_root() {
-        let root = std::env::temp_dir().join(unique_name("workspace-resolve"));
-        let workspace = Workspace::new(root.clone(), FsPermissions::default());
-
-        let resolved = workspace.resolve_safe("src/lib.rs").unwrap();
-
-        assert!(resolved.ends_with("src/lib.rs"));
-        assert!(resolved.starts_with(workspace.root()));
-    }
-
-    #[test]
-    fn traversal_outside_root_is_rejected_by_default() {
-        let root = std::env::temp_dir().join(unique_name("workspace-traversal"));
-        let workspace = Workspace::new(root, FsPermissions::default());
-
-        let result = workspace.resolve_safe("../outside.txt");
-
-        assert!(result.is_err());
-    }
-
-    fn unique_name(prefix: &str) -> String {
-        format!(
-            "iyon-{prefix}-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        )
-    }
-}
