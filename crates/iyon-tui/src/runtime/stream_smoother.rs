@@ -31,7 +31,9 @@ impl StreamSmoother {
         }
 
         let first_drain = self.last_drain.is_none();
-        let last_drain = self.last_drain.unwrap_or(now - TICK_INTERVAL);
+        let last_drain = self
+            .last_drain
+            .unwrap_or(now.checked_sub(TICK_INTERVAL).unwrap());
         self.last_drain = Some(now);
 
         let elapsed = now.saturating_duration_since(last_drain);

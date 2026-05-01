@@ -39,6 +39,13 @@ pub enum CoreEvent {
         tool_name: String,
         update: ToolUpdateEvent,
     },
+    ToolResultStarted {
+        turn_id: u64,
+        message_id: u64,
+        tool_call_id: String,
+        tool_name: String,
+        is_error: bool,
+    },
     ToolApprovalRequested {
         turn_id: u64,
         approval_id: u64,

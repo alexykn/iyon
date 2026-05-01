@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt};
 use anyhow::Result;
 use iyon_core::{
     CoreCommand, CoreCommandSender, CoreEvent, CoreEventReceiver, IyonCore, MessageDelta,
-    MessageRole,
+    MessageRole, ToolUpdateEvent,
 };
 
 #[derive(Debug)]
@@ -15,11 +15,70 @@ pub(crate) enum BackendCommand {
 #[derive(Debug)]
 pub(crate) enum FrontendEvent {
     TurnStarted,
-    UserMessage { text: String },
-    AssistantDelta { text: String },
+    UserMessage {
+        text: String,
+    },
+    AssistantDelta {
+        text: String,
+    },
     TurnFinished,
-    TurnFailed { message: String },
+    TurnFailed {
+        message: String,
+    },
     TurnCancelled,
+    ToolCallStarted {
+        message_id: u64,
+        tool_call_id: String,
+        tool_name: String,
+    },
+    ToolCallUpdated {
+        message_id: u64,
+        tool_call_id: String,
+        tool_name: String,
+        update: ToolUpdatePresentation,
+    },
+    ToolCallFinished {
+        tool_call_id: String,
+        is_error: bool,
+    },
+    ToolApprovalRequested {
+        approval_id: u64,
+        message_id: u64,
+        tool_call_id: String,
+        tool_name: String,
+        arguments: serde_json::Value,
+    },
+    ToolApprovalResolved {
+        approval_id: u64,
+        tool_call_id: String,
+        approved: bool,
+        reason: Option<String>,
+    },
+    ToolResult {
+        tool_call_id: String,
+        tool_name: String,
+        text: String,
+        is_error: bool,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ToolUpdatePresentation {
+    Text(String),
+    Progress {
+        label: String,
+        current: Option<u64>,
+        total: Option<u64>,
+    },
+    Details(serde_json::Value),
+}
+
+#[derive(Debug, Clone)]
+struct PendingToolResultPresentation {
+    tool_call_id: String,
+    tool_name: String,
+    is_error: bool,
+    text: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +92,7 @@ pub(crate) struct BackendEventHandler {
     event_rx: Option<CoreEventReceiver>,
     in_flight: bool,
     message_roles: HashMap<u64, MessageRole>,
+    tool_results: HashMap<u64, PendingToolResultPresentation>,
 }
 
 impl fmt::Debug for BackendEventHandler {
@@ -42,6 +102,7 @@ impl fmt::Debug for BackendEventHandler {
             .field("event_rx_attached", &self.event_rx.is_some())
             .field("in_flight", &self.in_flight)
             .field("tracked_messages", &self.message_roles.len())
+            .field("tracked_tool_results", &self.tool_results.len())
             .finish()
     }
 }
@@ -61,8 +122,25 @@ impl Default for BackendEventHandler {
                 event_rx: None,
                 in_flight: false,
                 message_roles: HashMap::new(),
+                tool_results: HashMap::new(),
             },
         }
+    }
+}
+
+fn lower_tool_update(update: ToolUpdateEvent) -> ToolUpdatePresentation {
+    match update {
+        ToolUpdateEvent::Text(text) => ToolUpdatePresentation::Text(text),
+        ToolUpdateEvent::Progress {
+            label,
+            current,
+            total,
+        } => ToolUpdatePresentation::Progress {
+            label,
+            current,
+            total,
+        },
+        ToolUpdateEvent::Details(details) => ToolUpdatePresentation::Details(details),
     }
 }
 
@@ -74,6 +152,7 @@ impl BackendEventHandler {
             event_rx: Some(event_rx),
             in_flight: false,
             message_roles: HashMap::new(),
+            tool_results: HashMap::new(),
         }
     }
 
@@ -93,6 +172,31 @@ impl BackendEventHandler {
         };
 
         command_tx.try_send(CoreCommand::CancelActiveTurn)?;
+        Ok(())
+    }
+
+    pub(crate) fn try_approve_tool_call(&mut self, approval_id: u64) -> Result<()> {
+        let Some(command_tx) = self.command_tx.as_ref() else {
+            return Ok(());
+        };
+
+        command_tx.try_send(CoreCommand::ApproveToolCall { approval_id })?;
+        Ok(())
+    }
+
+    pub(crate) fn try_reject_tool_call(
+        &mut self,
+        approval_id: u64,
+        reason: Option<String>,
+    ) -> Result<()> {
+        let Some(command_tx) = self.command_tx.as_ref() else {
+            return Ok(());
+        };
+
+        command_tx.try_send(CoreCommand::RejectToolCall {
+            approval_id,
+            reason,
+        })?;
         Ok(())
     }
 
@@ -143,21 +247,106 @@ impl BackendEventHandler {
             } => match self.message_roles.get(&message_id).copied() {
                 Some(MessageRole::User) => Some(FrontendEvent::UserMessage { text }),
                 Some(MessageRole::Assistant) => Some(FrontendEvent::AssistantDelta { text }),
-                Some(MessageRole::ToolResult | MessageRole::Status) | None => None,
+                Some(MessageRole::ToolResult) => {
+                    if let Some(result) = self.tool_results.get_mut(&message_id) {
+                        result.text.push_str(&text);
+                    }
+                    None
+                }
+                Some(MessageRole::Status) | None => None,
             },
             CoreEvent::MessageDelta {
                 delta: MessageDelta::ToolCall { .. },
                 ..
             } => None,
             CoreEvent::MessageFinished { message_id, .. } => {
-                self.message_roles.remove(&message_id);
+                let role = self.message_roles.remove(&message_id);
+                if matches!(role, Some(MessageRole::ToolResult)) {
+                    return self.tool_results.remove(&message_id).map(|result| {
+                        FrontendEvent::ToolResult {
+                            tool_call_id: result.tool_call_id,
+                            tool_name: result.tool_name,
+                            text: result.text,
+                            is_error: result.is_error,
+                        }
+                    });
+                }
                 None
             }
-            CoreEvent::ToolCallStarted { .. }
-            | CoreEvent::ToolCallFinished { .. }
-            | CoreEvent::ToolCallUpdated { .. }
-            | CoreEvent::ToolApprovalRequested { .. }
-            | CoreEvent::ToolApprovalResolved { .. } => None,
+            CoreEvent::ToolCallStarted {
+                message_id,
+                tool_call_id,
+                tool_name,
+                ..
+            } => Some(FrontendEvent::ToolCallStarted {
+                message_id,
+                tool_call_id,
+                tool_name,
+            }),
+            CoreEvent::ToolCallUpdated {
+                message_id,
+                tool_call_id,
+                tool_name,
+                update,
+                ..
+            } => Some(FrontendEvent::ToolCallUpdated {
+                message_id,
+                tool_call_id,
+                tool_name,
+                update: lower_tool_update(update),
+            }),
+            CoreEvent::ToolCallFinished {
+                tool_call_id,
+                is_error,
+                ..
+            } => Some(FrontendEvent::ToolCallFinished {
+                tool_call_id,
+                is_error,
+            }),
+            CoreEvent::ToolApprovalRequested {
+                approval_id,
+                message_id,
+                tool_call_id,
+                tool_name,
+                arguments,
+                ..
+            } => Some(FrontendEvent::ToolApprovalRequested {
+                approval_id,
+                message_id,
+                tool_call_id,
+                tool_name,
+                arguments,
+            }),
+            CoreEvent::ToolApprovalResolved {
+                approval_id,
+                tool_call_id,
+                approved,
+                reason,
+                ..
+            } => Some(FrontendEvent::ToolApprovalResolved {
+                approval_id,
+                tool_call_id,
+                approved,
+                reason,
+            }),
+            CoreEvent::ToolResultStarted {
+                message_id,
+                tool_call_id,
+                tool_name,
+                is_error,
+                ..
+            } => {
+                self.tool_results.insert(
+                    message_id,
+                    PendingToolResultPresentation {
+                        tool_call_id,
+                        tool_name,
+                        is_error,
+                        text: String::new(),
+                    },
+                );
+                None
+            }
             CoreEvent::TurnFinished { .. } => {
                 self.in_flight = false;
                 Some(FrontendEvent::TurnFinished)

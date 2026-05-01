@@ -19,6 +19,11 @@ pub(crate) enum ActivePaneState {
     AssistantStreaming {
         stream: ActiveStreamState,
     },
+    Tool {
+        tool_name: String,
+        status: ToolActiveStatus,
+        detail: Option<String>,
+    },
     SlashMenu,
     FilePicker,
 }
@@ -35,6 +40,7 @@ impl ActivePaneState {
         match self {
             Self::WorkingSpinner { .. } => ActivePaneKind::WorkingSpinner,
             Self::AssistantStreaming { .. } => ActivePaneKind::AssistantStreaming,
+            Self::Tool { .. } => ActivePaneKind::Tool,
             Self::SlashMenu => ActivePaneKind::SlashMenu,
             Self::FilePicker => ActivePaneKind::FilePicker,
         }
@@ -45,7 +51,7 @@ impl ActivePaneState {
             Self::WorkingSpinner { .. } | Self::AssistantStreaming { .. } => {
                 ActiveBehavior::SpillToTranscript
             }
-            Self::SlashMenu | Self::FilePicker => ActiveBehavior::OccludeOnly,
+            Self::Tool { .. } | Self::SlashMenu | Self::FilePicker => ActiveBehavior::OccludeOnly,
         }
     }
 
@@ -58,7 +64,7 @@ impl ActivePaneState {
             Self::WorkingSpinner { stream, .. } | Self::AssistantStreaming { stream } => {
                 Some(stream)
             }
-            Self::SlashMenu | Self::FilePicker => None,
+            Self::Tool { .. } | Self::SlashMenu | Self::FilePicker => None,
         }
     }
 
@@ -67,7 +73,7 @@ impl ActivePaneState {
             Self::WorkingSpinner { stream, .. } | Self::AssistantStreaming { stream } => {
                 Some(stream)
             }
-            Self::SlashMenu | Self::FilePicker => None,
+            Self::Tool { .. } | Self::SlashMenu | Self::FilePicker => None,
         }
     }
 
@@ -81,7 +87,7 @@ impl ActivePaneState {
         match self {
             Self::WorkingSpinner { .. } => 3,
             Self::AssistantStreaming { stream } => stream.desired_height(),
-            Self::SlashMenu | Self::FilePicker => 3,
+            Self::Tool { .. } | Self::SlashMenu | Self::FilePicker => 3,
         }
     }
 
@@ -131,12 +137,19 @@ impl ActivePaneState {
     pub(crate) fn into_unfrozen_transcript_text(self) -> Option<String> {
         let stream = match self {
             Self::WorkingSpinner { stream, .. } | Self::AssistantStreaming { stream } => stream,
-            Self::SlashMenu | Self::FilePicker => return None,
+            Self::Tool { .. } | Self::SlashMenu | Self::FilePicker => return None,
         };
 
         let text = stream.into_unfrozen_text();
         if text.is_empty() { None } else { Some(text) }
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ToolActiveStatus {
+    WaitingForApproval { approval_id: u64 },
+    Running,
+    Finished { is_error: bool },
 }
 
 #[derive(Debug, Clone)]
@@ -270,7 +283,7 @@ impl ActiveStreamState {
         // Before the first spill, there is no open assistant row in the transcript yet,
         // so the live pane must render the assistant message's leading gap itself. Once
         // anything has spilled, TranscriptState preserves that top padding instead.
-        if self.has_spilled_content() { 0 } else { 1 }
+        usize::from(!self.has_spilled_content())
     }
 
     pub(crate) fn bottom_padding_rows(&self) -> usize {
@@ -316,6 +329,7 @@ struct ActiveStreamRenderCache {
 pub(crate) enum ActivePaneKind {
     WorkingSpinner,
     AssistantStreaming,
+    Tool,
     SlashMenu,
     FilePicker,
 }
@@ -391,7 +405,7 @@ impl ActiveTicker {
 
 fn is_spinner_animating(active: Option<&ActivePaneState>) -> bool {
     matches!(
-        active.map(|active| active.kind()),
+        active.map(ActivePaneState::kind),
         Some(ActivePaneKind::WorkingSpinner)
     )
 }

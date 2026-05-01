@@ -1,7 +1,10 @@
 use crate::{
     input::InputBuffer,
-    runtime::active::ActivePaneState,
-    transcript::{TimelineItem, TranscriptState},
+    runtime::{
+        active::{ActivePaneState, ToolActiveStatus},
+        backend::ToolUpdatePresentation,
+    },
+    transcript::{TimelineItem, ToolTimelineStatus, TranscriptState},
 };
 
 #[derive(Debug, Default)]
@@ -9,6 +12,7 @@ pub(crate) struct AppState {
     pub(crate) input: InputBuffer,
     pub(crate) transcript: TranscriptState,
     pub(crate) active: Option<ActivePaneState>,
+    pub(crate) pending_tool_approval: Option<PendingToolApproval>,
 
     pub(crate) input_view: InputViewState,
     pub(crate) info: InfoState,
@@ -31,6 +35,102 @@ impl AppState {
 
     pub(crate) fn finish_assistant_stream(&mut self) {
         self.transcript.finish_assistant_stream();
+    }
+
+    pub(crate) fn start_tool_call(&mut self, tool_call_id: String, tool_name: String) {
+        self.finish_active_turn();
+        self.transcript.upsert_tool_call(
+            tool_call_id,
+            tool_name.clone(),
+            None,
+            ToolTimelineStatus::Running,
+        );
+        self.active = Some(ActivePaneState::Tool {
+            tool_name,
+            status: ToolActiveStatus::Running,
+            detail: None,
+        });
+    }
+
+    pub(crate) fn request_tool_approval(
+        &mut self,
+        approval_id: u64,
+        tool_call_id: String,
+        tool_name: String,
+        arguments: serde_json::Value,
+    ) {
+        let arguments_preview = format_arguments_preview(&arguments);
+        self.transcript.upsert_tool_call(
+            tool_call_id.clone(),
+            tool_name.clone(),
+            Some(arguments_preview.clone()),
+            ToolTimelineStatus::PendingApproval,
+        );
+        self.pending_tool_approval = Some(PendingToolApproval {
+            approval_id,
+            tool_call_id,
+            tool_name: tool_name.clone(),
+        });
+        self.active = Some(ActivePaneState::Tool {
+            tool_name,
+            status: ToolActiveStatus::WaitingForApproval { approval_id },
+            detail: Some(arguments_preview),
+        });
+    }
+
+    pub(crate) fn resolve_tool_approval(
+        &mut self,
+        approval_id: u64,
+        tool_call_id: String,
+        approved: bool,
+    ) {
+        let tool_name = self
+            .pending_tool_approval
+            .as_ref()
+            .filter(|pending| pending.approval_id == approval_id)
+            .map(|pending| pending.tool_name.clone())
+            .unwrap_or_default();
+        if self
+            .pending_tool_approval
+            .as_ref()
+            .is_some_and(|pending| pending.approval_id == approval_id)
+        {
+            self.pending_tool_approval = None;
+        }
+        let status = if approved {
+            ToolTimelineStatus::Approved
+        } else {
+            ToolTimelineStatus::Rejected
+        };
+        self.transcript
+            .upsert_tool_call(tool_call_id, tool_name, None, status);
+    }
+
+    pub(crate) fn update_tool_call(&mut self, tool_name: String, update: ToolUpdatePresentation) {
+        let detail = format_tool_update(update);
+        self.active = Some(ActivePaneState::Tool {
+            tool_name,
+            status: ToolActiveStatus::Running,
+            detail,
+        });
+    }
+
+    pub(crate) fn finish_tool_call(&mut self, tool_call_id: String, is_error: bool) {
+        self.transcript.finish_tool_call(&tool_call_id, is_error);
+        if let Some(ActivePaneState::Tool { status, .. }) = self.active.as_mut() {
+            *status = ToolActiveStatus::Finished { is_error };
+        }
+    }
+
+    pub(crate) fn push_tool_result(
+        &mut self,
+        tool_call_id: String,
+        tool_name: String,
+        text: String,
+        is_error: bool,
+    ) {
+        self.transcript
+            .push_tool_result(tool_call_id, tool_name, text, is_error);
     }
 
     pub(crate) fn append_error_message(&mut self, text: String) {
@@ -59,8 +159,12 @@ impl AppState {
     }
 
     pub(crate) fn receive_assistant_delta(&mut self, chunk: &str) {
-        if self.active.is_none() {
-            self.start_working_pane();
+        if !self
+            .active
+            .as_ref()
+            .is_some_and(super::active::ActivePaneState::is_spillable)
+        {
+            self.active = Some(ActivePaneState::working_spinner());
         }
 
         if let Some(active) = self.active.as_mut() {
@@ -85,6 +189,46 @@ impl AppState {
         self.finish_active_turn();
         self.append_error_message(message);
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PendingToolApproval {
+    pub(crate) approval_id: u64,
+    pub(crate) tool_call_id: String,
+    pub(crate) tool_name: String,
+}
+
+fn format_arguments_preview(value: &serde_json::Value) -> String {
+    let text = serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
+    truncate_preview(text)
+}
+
+fn format_tool_update(update: ToolUpdatePresentation) -> Option<String> {
+    let text = match update {
+        ToolUpdatePresentation::Text(text) => text,
+        ToolUpdatePresentation::Progress {
+            label,
+            current,
+            total,
+        } => match (current, total) {
+            (Some(current), Some(total)) => format!("{label}: {current}/{total}"),
+            (Some(current), None) => format!("{label}: {current}"),
+            (None, Some(total)) => format!("{label}: 0/{total}"),
+            (None, None) => label,
+        },
+        ToolUpdatePresentation::Details(details) => details.to_string(),
+    };
+    (!text.is_empty()).then(|| truncate_preview(text))
+}
+
+fn truncate_preview(mut text: String) -> String {
+    const MAX_CHARS: usize = 1000;
+    if text.chars().count() <= MAX_CHARS {
+        return text;
+    }
+    text = text.chars().take(MAX_CHARS).collect();
+    text.push('…');
+    text
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

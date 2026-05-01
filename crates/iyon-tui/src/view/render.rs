@@ -10,7 +10,7 @@ use ratatui::{
 
 use crate::{
     input::{cursor_xy, wrapped_line_index_by_start},
-    runtime::active::{ActivePaneKind, ActivePaneState},
+    runtime::active::{ActivePaneKind, ActivePaneState, ToolActiveStatus},
     view::RunningView,
 };
 
@@ -148,9 +148,21 @@ impl Renderable<ActiveView<'_>> for Renderer {
                 Line::from(""),
             ],
             ActivePaneKind::AssistantStreaming => match active.stream() {
-                Some(stream) => stream
-                    .rendered_tail_rows()
-                    .map(|rows| {
+                Some(stream) => stream.rendered_tail_rows().map_or_else(
+                    || {
+                        let mut out = Vec::new();
+                        out.extend(
+                            std::iter::repeat_with(|| Line::from(""))
+                                .take(stream.top_padding_rows()),
+                        );
+                        out.push(Line::from(stream.active_tail()));
+                        out.extend(
+                            std::iter::repeat_with(|| Line::from(""))
+                                .take(stream.bottom_padding_rows()),
+                        );
+                        out
+                    },
+                    |rows| {
                         // Active streaming renders pane margins explicitly. Top padding is
                         // temporary until the assistant message has spilled into transcript;
                         // bottom padding is the stable gap above the input box. Keep this
@@ -173,27 +185,41 @@ impl Renderable<ActiveView<'_>> for Renderer {
                         out.extend_from_slice(visible);
                         out.extend(std::iter::repeat_with(|| Line::from("")).take(bottom_padding));
                         out
-                    })
-                    .unwrap_or_else(|| {
-                        let mut out = Vec::new();
-                        out.extend(
-                            std::iter::repeat_with(|| Line::from(""))
-                                .take(stream.top_padding_rows()),
-                        );
-                        out.push(Line::from(stream.active_tail()));
-                        out.extend(
-                            std::iter::repeat_with(|| Line::from(""))
-                                .take(stream.bottom_padding_rows()),
-                        );
-                        out
-                    }),
+                    },
+                ),
                 None => vec![Line::from("")],
+            },
+            ActivePaneKind::Tool => match active {
+                ActivePaneState::Tool {
+                    tool_name,
+                    status,
+                    detail,
+                } => render_tool_active(tool_name, status, detail.as_deref()),
+                _ => vec![Line::from("")],
             },
             ActivePaneKind::SlashMenu => vec![Line::from("")],
             ActivePaneKind::FilePicker => vec![Line::from("")],
         };
         frame.render_widget(Paragraph::new(Text::from(lines)), area);
     }
+}
+
+fn render_tool_active(
+    tool_name: &str,
+    status: &ToolActiveStatus,
+    detail: Option<&str>,
+) -> Vec<Line<'static>> {
+    let status = match status {
+        ToolActiveStatus::WaitingForApproval { .. } => "approval required",
+        ToolActiveStatus::Running => "running",
+        ToolActiveStatus::Finished { is_error: false } => "finished",
+        ToolActiveStatus::Finished { is_error: true } => "failed",
+    };
+    vec![
+        Line::from(""),
+        Line::from(format!("tool {tool_name}: {status}")),
+        Line::from(detail.unwrap_or("").to_string()),
+    ]
 }
 
 impl Renderable<InputView<'_>> for Renderer {

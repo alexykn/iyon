@@ -3,7 +3,7 @@ use std::{ops::Range, time::Duration};
 use anyhow::Result;
 use crossterm::event::{
     self, Event,
-    KeyCode::{Backspace, Char, Down, End, Enter, Home, Left, Right, Up},
+    KeyCode::{Backspace, Char, Down, End, Enter, Esc, Home, Left, Right, Up},
     KeyEvent,
     KeyEventKind::{Press, Repeat},
     KeyModifiers,
@@ -41,6 +41,14 @@ enum CustomKeyEvent {
     MoveLeftOne,
     MoveLeftWord,
     MoveLineStart,
+}
+
+fn map_approval_key_event(key_event: KeyEvent) -> Option<FrontendAction> {
+    match (key_event.code, key_event.modifiers) {
+        (Enter | Char('y'), KeyModifiers::NONE) => Some(FrontendAction::ApprovePendingTool),
+        (Esc | Char('n'), KeyModifiers::NONE) => Some(FrontendAction::RejectPendingTool),
+        _ => None,
+    }
 }
 
 fn map_key_event(key_event: KeyEvent) -> CustomKeyEvent {
@@ -206,15 +214,16 @@ impl InputEventHandler {
         &mut self,
         timeout: Duration,
         editor: &mut InputEditor<'_>,
+        approval_pending: bool,
     ) -> Result<Vec<FrontendAction>> {
         if !event::poll(timeout)? {
             return Ok(Vec::new());
         }
 
-        let mut actions = self.handle_event(event::read()?, editor);
+        let mut actions = self.handle_event(event::read()?, editor, approval_pending);
 
         while event::poll(Duration::from_millis(0))? {
-            actions.extend(self.handle_event(event::read()?, editor));
+            actions.extend(self.handle_event(event::read()?, editor, approval_pending));
         }
         Ok(actions)
     }
@@ -223,11 +232,15 @@ impl InputEventHandler {
         &mut self,
         event: Event,
         editor: &mut InputEditor<'_>,
+        approval_pending: bool,
     ) -> Vec<FrontendAction> {
         match event {
             Event::Key(key_event) => {
                 if !matches!(key_event.kind, Press | Repeat) {
                     return Vec::new();
+                }
+                if approval_pending && let Some(action) = map_approval_key_event(key_event) {
+                    return vec![action];
                 }
                 let custom_key_event = map_key_event(key_event);
                 self.handle_key_event(custom_key_event, editor)

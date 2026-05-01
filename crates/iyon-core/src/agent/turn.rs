@@ -63,7 +63,7 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
 
     loop {
         let event = tokio::select! {
-            _ = cancellation.cancelled() => bail!("turn cancelled"),
+            () = cancellation.cancelled() => bail!("turn cancelled"),
             event = stream.next() => event,
         };
         let Some(event) = event else {

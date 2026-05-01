@@ -7,9 +7,37 @@ use crate::transcript::wrap::{TranscriptCommitBoundary, wrap_transcript_rows};
 
 #[derive(Debug, Clone)]
 pub(crate) enum TimelineItem {
-    UserMessage { text: String },
-    AssistantMessage { text: String },
-    ErrorMessage { text: String },
+    UserMessage {
+        text: String,
+    },
+    AssistantMessage {
+        text: String,
+    },
+    ErrorMessage {
+        text: String,
+    },
+    ToolCall {
+        tool_call_id: String,
+        tool_name: String,
+        arguments_preview: String,
+        status: ToolTimelineStatus,
+    },
+    ToolResult {
+        tool_call_id: String,
+        tool_name: String,
+        text: String,
+        is_error: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolTimelineStatus {
+    PendingApproval,
+    Running,
+    Approved,
+    Rejected,
+    Finished,
+    Failed,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -25,6 +53,18 @@ impl TuiFormatter {
             TimelineItem::ErrorMessage { text } => {
                 self.format_text_message(text, Style::default().fg(Color::Red), true)
             }
+            TimelineItem::ToolCall {
+                tool_name,
+                arguments_preview,
+                status,
+                ..
+            } => self.format_tool_call(tool_name, arguments_preview, *status),
+            TimelineItem::ToolResult {
+                tool_name,
+                text,
+                is_error,
+                ..
+            } => self.format_tool_result(tool_name, text, *is_error),
         }
     }
 
@@ -38,6 +78,60 @@ impl TuiFormatter {
 
     pub(crate) fn format_assistant_body(&self, text: &str) -> Vec<Line<'static>> {
         Self::format_text_body(text, Style::default())
+    }
+
+    fn format_tool_call(
+        &self,
+        tool_name: &str,
+        arguments_preview: &str,
+        status: ToolTimelineStatus,
+    ) -> Vec<Line<'static>> {
+        let style = Style::default().fg(Color::Rgb(160, 174, 192));
+        let status = match status {
+            ToolTimelineStatus::PendingApproval => "waiting for approval",
+            ToolTimelineStatus::Running => "running",
+            ToolTimelineStatus::Approved => "approved",
+            ToolTimelineStatus::Rejected => "rejected",
+            ToolTimelineStatus::Finished => "finished",
+            ToolTimelineStatus::Failed => "failed",
+        };
+        let mut rows = vec![
+            Line::from(""),
+            Line::styled(format!("● tool {tool_name} — {status}"), style),
+        ];
+        if !arguments_preview.is_empty() {
+            rows.extend(
+                arguments_preview
+                    .lines()
+                    .map(|line| Line::styled(format!("  {line}"), style)),
+            );
+        }
+        rows
+    }
+
+    fn format_tool_result(
+        &self,
+        tool_name: &str,
+        text: &str,
+        is_error: bool,
+    ) -> Vec<Line<'static>> {
+        let style = if is_error {
+            Style::default().fg(Color::Red)
+        } else {
+            Style::default().fg(Color::Rgb(113, 128, 150))
+        };
+        let title = if is_error { "failed" } else { "result" };
+        let mut rows = vec![Line::styled(format!("  {tool_name} {title}"), style)];
+        rows.extend(Self::format_text_body(text, style).into_iter().map(|line| {
+            let text = line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>();
+            Line::styled(format!("  {text}"), style)
+        }));
+        rows.push(Line::from(""));
+        rows
     }
 
     fn format_text_message(
@@ -87,6 +181,80 @@ impl TranscriptState {
     pub(crate) fn push_item(&mut self, item: TimelineItem) {
         self.assistant_stream_open = false;
         self.canonical_items.push(item);
+        self.rebuild_logical_rows_cache();
+    }
+
+    pub(crate) fn upsert_tool_call(
+        &mut self,
+        tool_call_id: String,
+        tool_name: String,
+        arguments_preview: Option<String>,
+        status: ToolTimelineStatus,
+    ) {
+        self.assistant_stream_open = false;
+        if let Some(TimelineItem::ToolCall {
+            tool_name: existing_name,
+            arguments_preview: existing_arguments,
+            status: existing_status,
+            ..
+        }) = self.canonical_items.iter_mut().find(|item| {
+            matches!(
+                item,
+                TimelineItem::ToolCall { tool_call_id: existing, .. } if existing == &tool_call_id
+            )
+        }) {
+            if !tool_name.is_empty() {
+                *existing_name = tool_name;
+            }
+            if let Some(arguments_preview) = arguments_preview {
+                *existing_arguments = arguments_preview;
+            }
+            *existing_status = status;
+        } else {
+            self.canonical_items.push(TimelineItem::ToolCall {
+                tool_call_id,
+                tool_name,
+                arguments_preview: arguments_preview.unwrap_or_default(),
+                status,
+            });
+        }
+        self.rebuild_logical_rows_cache();
+    }
+
+    pub(crate) fn finish_tool_call(&mut self, tool_call_id: &str, is_error: bool) {
+        let status = if is_error {
+            ToolTimelineStatus::Failed
+        } else {
+            ToolTimelineStatus::Finished
+        };
+        if let Some(TimelineItem::ToolCall {
+            status: existing_status,
+            ..
+        }) = self.canonical_items.iter_mut().find(|item| {
+            matches!(
+                item,
+                TimelineItem::ToolCall { tool_call_id: existing, .. } if existing == tool_call_id
+            )
+        }) {
+            *existing_status = status;
+            self.rebuild_logical_rows_cache();
+        }
+    }
+
+    pub(crate) fn push_tool_result(
+        &mut self,
+        tool_call_id: String,
+        tool_name: String,
+        text: String,
+        is_error: bool,
+    ) {
+        self.assistant_stream_open = false;
+        self.canonical_items.push(TimelineItem::ToolResult {
+            tool_call_id,
+            tool_name,
+            text,
+            is_error,
+        });
         self.rebuild_logical_rows_cache();
     }
 

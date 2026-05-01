@@ -6,7 +6,7 @@ mod handle;
 pub mod ids;
 mod runtime;
 pub(crate) mod session;
-pub(crate) mod tools;
+pub mod tools;
 
 pub use command::CoreCommand;
 pub use event::{CoreEvent, MessageDelta, MessageRole, ToolUpdateEvent};

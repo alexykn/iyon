@@ -11,6 +11,8 @@ pub(crate) enum FrontendAction {
     SubmitTurn { text: String },
     RequestExit,
     RedrawOnly,
+    ApprovePendingTool,
+    RejectPendingTool,
 }
 
 #[derive(Debug, Default)]
@@ -36,7 +38,10 @@ impl AppController {
         visible_rows: usize,
     ) -> bool {
         if !matches!(
-            state.active.as_ref().map(|pane| pane.behavior()),
+            state
+                .active
+                .as_ref()
+                .map(super::active::ActivePaneState::behavior),
             Some(ActiveBehavior::SpillToTranscript)
         ) {
             return false;
@@ -79,6 +84,21 @@ impl AppController {
                 Ok(true)
             }
             FrontendAction::RedrawOnly => Ok(true),
+            FrontendAction::ApprovePendingTool => {
+                if let Some(pending) = state.pending_tool_approval.as_ref() {
+                    backend.try_approve_tool_call(pending.approval_id)?;
+                }
+                Ok(true)
+            }
+            FrontendAction::RejectPendingTool => {
+                if let Some(pending) = state.pending_tool_approval.as_ref() {
+                    backend.try_reject_tool_call(
+                        pending.approval_id,
+                        Some("Rejected by user".to_string()),
+                    )?;
+                }
+                Ok(true)
+            }
         }
     }
 }

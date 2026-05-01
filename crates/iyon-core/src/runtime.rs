@@ -14,7 +14,7 @@ use crate::{
     fs::{FsPermissions, Workspace},
     ids::{ApprovalId, MessageId, SessionId, TurnId},
     session::state::SessionState,
-    tools::ToolRegistry,
+    tools::{ToolHookSet, ToolRegistry},
 };
 use iyon_api::{ContentBlock, ModelApi, StopReason};
 
@@ -26,6 +26,7 @@ struct RuntimeState {
     next_approval_id: u64,
     active_turn: Option<ActiveTurn>,
     tools: ToolRegistry,
+    tool_hooks: ToolHookSet,
     #[allow(dead_code)]
     workspace: Workspace,
 }
@@ -45,8 +46,13 @@ enum RuntimeEvent {
     },
 }
 
+#[derive(Default)]
+pub(crate) struct RuntimeConfig {
+    pub tool_hooks: ToolHookSet,
+}
+
 impl RuntimeState {
-    fn new(cwd: PathBuf) -> Self {
+    fn new(cwd: PathBuf, config: RuntimeConfig) -> Self {
         let workspace = Workspace::new(cwd.clone(), FsPermissions::default());
         let mut tools = ToolRegistry::new();
         tools
@@ -61,6 +67,7 @@ impl RuntimeState {
             next_approval_id: 1,
             active_turn: None,
             tools,
+            tool_hooks: config.tool_hooks,
             workspace,
         }
     }
@@ -108,13 +115,6 @@ impl RuntimeState {
         self.next_message_id = next_message_id;
     }
 
-    #[cfg(test)]
-    fn push_assistant_text(&mut self, text: String, stop_reason: Option<StopReason>) -> MessageId {
-        let id = self.next_message_id();
-        self.push_assistant_text_with_id(id, text, stop_reason);
-        id
-    }
-
     fn mark_turn_started(&mut self, turn_id: TurnId, assistant_message_id: MessageId) {
         self.agent.is_running = true;
         self.agent.active_turn_id = Some(turn_id);
@@ -133,10 +133,11 @@ pub async fn run(
     mut command_rx: mpsc::Receiver<CoreCommand>,
     event_tx: mpsc::Sender<CoreEvent>,
     model: Arc<dyn ModelApi>,
+    config: RuntimeConfig,
 ) {
     let (runtime_event_tx, mut runtime_event_rx) = mpsc::channel(32);
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut state = RuntimeState::new(cwd);
+    let mut state = RuntimeState::new(cwd, config);
 
     loop {
         tokio::select! {
@@ -169,6 +170,7 @@ pub async fn run(
                         let session = state.session.clone();
                         let tools = state.tools.clone();
                         let workspace = state.workspace.clone();
+                        let tool_hooks = state.tool_hooks.snapshot();
                         let next_message_id = state.next_message_id;
                         let next_approval_id = state.next_approval_id;
                         let (control_tx, control_rx) = mpsc::channel(8);
@@ -183,6 +185,7 @@ pub async fn run(
                                 model,
                                 tools,
                                 workspace,
+                                tool_hooks,
                                 event_tx,
                                 control_rx,
                                 cancellation: task_cancellation,
