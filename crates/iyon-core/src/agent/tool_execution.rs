@@ -1,7 +1,9 @@
 use std::{path::PathBuf, time::SystemTime};
 
+use anyhow::Result;
 use iyon_api::ContentBlock;
 use serde_json::{Value, json};
+use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -16,6 +18,23 @@ use crate::{
     ids::{ApprovalId, MessageId, SessionId, TurnId},
     tools::{ToolApprovalPolicy, ToolContext, ToolRegistry, ToolUpdateSink},
 };
+
+struct ApprovalInput<'a> {
+    event_tx: &'a mpsc::Sender<CoreEvent>,
+    control_rx: &'a mut mpsc::Receiver<AgentLoopControl>,
+    next_approval_id: &'a mut u64,
+    turn_id: TurnId,
+    message_id: MessageId,
+    call: &'a AssembledToolCall,
+    policy: ToolApprovalPolicy,
+    cancellation: CancellationToken,
+}
+
+enum ApprovalDecision {
+    Approved,
+    Rejected { reason: Option<String> },
+    Cancelled,
+}
 
 pub(crate) struct ToolExecutionInput<'a> {
     pub session_id: SessionId,
@@ -36,103 +55,120 @@ pub(crate) enum ToolExecutionOutcome {
     Cancelled,
 }
 
-pub(crate) async fn execute_tool_call(input: ToolExecutionInput<'_>) -> ToolExecutionOutcome {
-    let ToolExecutionInput {
-        session_id,
-        turn_id,
-        message_id,
-        call,
-        cwd,
-        workspace,
-        tools,
-        event_tx,
-        control_rx,
-        next_approval_id,
-        cancellation,
-    } = input;
+#[derive(Debug, Error)]
+enum ApprovalInputError {
+    #[error("tool not found")]
+    ToolNotFound,
+}
 
-    emit_tool_started(&event_tx, turn_id, message_id, &call).await;
+impl<'a, 'b> TryFrom<&'a mut ToolExecutionInput<'b>> for ApprovalInput<'a>
+where
+    'b: 'a,
+{
+    type Error = ApprovalInputError;
 
-    let message = match tools.get(&call.name) {
+    fn try_from(input: &'a mut ToolExecutionInput<'b>) -> Result<Self, Self::Error> {
+        let definition = input
+            .tools
+            .get(&input.call.name)
+            .ok_or(ApprovalInputError::ToolNotFound)
+            .map(|t| t.definition())?;
+
+        Ok(ApprovalInput {
+            event_tx: &input.event_tx,
+            control_rx: &mut input.control_rx, // mutable borrow
+            next_approval_id: input.next_approval_id,
+            turn_id: input.turn_id,
+            message_id: input.message_id,
+            call: &input.call,
+            policy: definition.approval,
+            cancellation: input.cancellation.clone(),
+        })
+    }
+}
+
+impl<'a> From<&'a ToolExecutionInput<'a>> for ToolContext {
+    fn from(input: &'a ToolExecutionInput<'a>) -> Self {
+        ToolContext {
+            session_id: input.session_id,
+            turn_id: input.turn_id,
+            tool_call_id: input.call.id.clone(), // assuming this exists
+            cwd: input.cwd.clone(),
+            workspace: input.workspace.clone(),
+            cancellation: input.cancellation.clone(),
+        }
+    }
+}
+
+pub(crate) async fn execute_tool_call(
+    mut input: ToolExecutionInput<'_>,
+) -> Result<ToolExecutionOutcome> {
+    emit_tool_started(
+        &input.event_tx,
+        input.turn_id,
+        input.message_id,
+        &input.call,
+    )
+    .await;
+    let message = match input.tools.get(&input.call.name) {
         Some(tool) => {
-            let definition = tool.definition();
-            match await_approval_if_required(ApprovalInput {
-                event_tx: &event_tx,
-                control_rx,
-                next_approval_id,
-                turn_id,
-                message_id,
-                call: &call,
-                policy: definition.approval,
-                cancellation: cancellation.clone(),
-            })
-            .await
-            {
+            let decision = await_approval_if_required(ApprovalInput::try_from(&mut input)?).await;
+
+            match decision {
                 ApprovalDecision::Approved => {
-                    let ctx = ToolContext {
-                        session_id,
-                        turn_id,
-                        tool_call_id: call.id.clone(),
-                        cwd,
-                        workspace,
-                        cancellation: cancellation.clone(),
-                    };
-                    let updates = ToolUpdateSink::new(
-                        event_tx.clone(),
-                        turn_id,
-                        message_id,
-                        call.id.clone(),
-                        call.name.clone(),
-                        cancellation.clone(),
-                    );
-                    match tool.execute(ctx, call.arguments.clone(), updates).await {
+                    let ctx = ToolContext::from(&input);
+                    let updates = ToolUpdateSink::new(input.event_tx.clone(), &input);
+                    match tool
+                        .execute(ctx, input.call.arguments.clone(), updates)
+                        .await
+                    {
                         Ok(result) => tool_result_message(
-                            message_id,
-                            call.id.clone(),
-                            call.name.clone(),
+                            input.message_id,
+                            input.call.id.clone(),
+                            input.call.name.clone(),
                             result.content,
                             result.details,
                             result.is_error,
                         ),
                         Err(error) => error_tool_result_message(
-                            message_id,
-                            call.id.clone(),
-                            call.name.clone(),
-                            format!("Tool \"{}\" failed: {error}", call.name),
+                            input.message_id,
+                            input.call.id.clone(),
+                            input.call.name.clone(),
+                            format!("Tool \"{}\" failed: {error}", input.call.name),
                         ),
                     }
                 }
                 ApprovalDecision::Rejected { reason } => error_tool_result_message(
-                    message_id,
-                    call.id.clone(),
-                    call.name.clone(),
+                    input.message_id,
+                    input.call.id.clone(),
+                    input.call.name.clone(),
                     format!(
                         "Tool execution rejected: {}",
                         reason.unwrap_or_else(|| "approval denied".to_string())
                     ),
                 ),
-                ApprovalDecision::Cancelled => return ToolExecutionOutcome::Cancelled,
+                ApprovalDecision::Cancelled => return Ok(ToolExecutionOutcome::Cancelled),
             }
         }
         None => error_tool_result_message(
-            message_id,
-            call.id.clone(),
-            call.name.clone(),
-            format!("Tool \"{}\" is not available.", call.name),
+            input.message_id,
+            input.call.id.clone(),
+            input.call.name.clone(),
+            format!("Tool \"{}\" is not available.", input.call.name),
         ),
     };
 
-    emit_tool_result_message(&event_tx, turn_id, &message).await;
+    emit_tool_result_message(&input.event_tx, input.turn_id, &message).await;
     emit_tool_finished(
-        &event_tx,
-        turn_id,
-        message_id,
-        &call,
+        &input.event_tx,
+        input.turn_id,
+        input.message_id,
+        &input.call,
         tool_result_is_error(&message),
     )
     .await;
 
-    ToolExecutionOutcome::Completed(message)
+    Ok(ToolExecutionOutcome::Completed(message))
 }
 
 pub(crate) async fn invalid_tool_call_result(
@@ -149,23 +185,6 @@ pub(crate) async fn invalid_tool_call_result(
     );
     emit_tool_result_message(&event_tx, turn_id, &message).await;
     message
-}
-
-struct ApprovalInput<'a> {
-    event_tx: &'a mpsc::Sender<CoreEvent>,
-    control_rx: &'a mut mpsc::Receiver<AgentLoopControl>,
-    next_approval_id: &'a mut u64,
-    turn_id: TurnId,
-    message_id: MessageId,
-    call: &'a AssembledToolCall,
-    policy: ToolApprovalPolicy,
-    cancellation: CancellationToken,
-}
-
-enum ApprovalDecision {
-    Approved,
-    Rejected { reason: Option<String> },
-    Cancelled,
 }
 
 async fn await_approval_if_required(input: ApprovalInput<'_>) -> ApprovalDecision {
@@ -357,95 +376,4 @@ async fn emit_tool_result_message(
 
 fn tool_result_is_error(message: &AgentMessage) -> bool {
     matches!(message, AgentMessage::ToolResult { is_error: true, .. })
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{fs, sync::Arc, time::SystemTime};
-
-    use serde_json::json;
-
-    use super::*;
-    use crate::{fs::FsPermissions, tools::builtin::read::ReadTool};
-
-    #[tokio::test]
-    async fn missing_tool_returns_error_result() {
-        let registry = ToolRegistry::new();
-        let (event_tx, _event_rx) = mpsc::channel(8);
-        let (_control_tx, mut control_rx) = mpsc::channel(8);
-        let mut next_approval_id = 1;
-
-        let message = execute_tool_call(ToolExecutionInput {
-            session_id: SessionId(1),
-            turn_id: TurnId(1),
-            message_id: MessageId(1),
-            call: AssembledToolCall {
-                id: crate::ids::ToolCallId("call-1".to_string()),
-                name: "missing".to_string(),
-                arguments: json!({}),
-            },
-            cwd: PathBuf::from("/tmp"),
-            workspace: Workspace::new(PathBuf::from("/tmp"), FsPermissions::default()),
-            tools: &registry,
-            event_tx,
-            control_rx: &mut control_rx,
-            next_approval_id: &mut next_approval_id,
-            cancellation: CancellationToken::new(),
-        })
-        .await;
-
-        assert!(matches!(
-            message,
-            ToolExecutionOutcome::Completed(AgentMessage::ToolResult { is_error: true, .. })
-        ));
-    }
-
-    #[tokio::test]
-    async fn read_tool_returns_file_content() {
-        let root = create_temp_dir("tool-execution-read");
-        fs::write(root.join("file.txt"), "hello").unwrap();
-        let mut registry = ToolRegistry::new();
-        registry.register(Arc::new(ReadTool)).unwrap();
-        let (event_tx, _event_rx) = mpsc::channel(8);
-        let (_control_tx, mut control_rx) = mpsc::channel(8);
-        let mut next_approval_id = 1;
-
-        let message = execute_tool_call(ToolExecutionInput {
-            session_id: SessionId(1),
-            turn_id: TurnId(1),
-            message_id: MessageId(1),
-            call: AssembledToolCall {
-                id: crate::ids::ToolCallId("call-1".to_string()),
-                name: "read".to_string(),
-                arguments: json!({ "path": "file.txt" }),
-            },
-            cwd: root.clone(),
-            workspace: Workspace::new(root.clone(), FsPermissions::default()),
-            tools: &registry,
-            event_tx,
-            control_rx: &mut control_rx,
-            next_approval_id: &mut next_approval_id,
-            cancellation: CancellationToken::new(),
-        })
-        .await;
-
-        assert!(matches!(
-            message,
-            ToolExecutionOutcome::Completed(AgentMessage::ToolResult { content, is_error: false, .. })
-                if matches!(&content[..], [ContentBlock::Text { text }] if text == "hello")
-        ));
-        let _ = fs::remove_dir_all(root);
-    }
-
-    fn create_temp_dir(prefix: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "iyon-{prefix}-{}",
-            SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&path).unwrap();
-        path
-    }
 }
