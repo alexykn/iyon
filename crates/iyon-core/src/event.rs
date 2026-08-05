@@ -114,6 +114,8 @@ pub enum ToolUpdateEvent {
 #[derive(Debug, Clone)]
 pub enum MessageDelta {
     Text(String),
+    /// Streamed reasoning/thinking text (muted + italic in the TUI).
+    Thinking(String),
     ToolCall {
         tool_call_id: String,
         tool_name: String,

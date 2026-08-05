@@ -3,7 +3,9 @@ use std::time::{Duration, Instant};
 use ratatui::text::Line;
 
 use crate::transcript::{
+    AssistantSegment, SegmentKind,
     model::TuiFormatter,
+    slice_segments,
     wrap::{TranscriptCommitBoundary, wrap_transcript_rows},
 };
 
@@ -91,7 +93,7 @@ impl ActivePaneState {
         }
     }
 
-    pub(crate) fn spill_overflow_rows(&mut self, visible_rows: usize) -> Option<String> {
+    pub(crate) fn spill_overflow_rows(&mut self, visible_rows: usize) -> Option<Vec<AssistantSegment>> {
         let stream = self.stream_mut()?;
         stream.spill_overflow_rows(visible_rows)
     }
@@ -110,7 +112,7 @@ impl ActivePaneState {
         SPINNER_FRAMES[frame % SPINNER_FRAMES.len()]
     }
 
-    pub(crate) fn push_assistant_delta(&mut self, chunk: &str) {
+    pub(crate) fn push_assistant_segment(&mut self, kind: SegmentKind, chunk: &str) {
         if chunk.is_empty() || !self.is_spillable() {
             return;
         }
@@ -130,18 +132,18 @@ impl ActivePaneState {
             }
         };
 
-        stream.push_delta(chunk);
+        stream.push_delta(kind, chunk);
         *self = Self::AssistantStreaming { stream };
     }
 
-    pub(crate) fn into_unfrozen_transcript_text(self) -> Option<String> {
+    pub(crate) fn into_unfrozen_transcript_segments(self) -> Option<Vec<AssistantSegment>> {
         let stream = match self {
             Self::WorkingSpinner { stream, .. } | Self::AssistantStreaming { stream } => stream,
             Self::Tool { .. } | Self::SlashMenu | Self::FilePicker => return None,
         };
 
-        let text = stream.into_unfrozen_text();
-        if text.is_empty() { None } else { Some(text) }
+        let segments = stream.into_unfrozen_segments();
+        if segments.is_empty() { None } else { Some(segments) }
     }
 }
 
@@ -154,6 +156,7 @@ pub(crate) enum ToolActiveStatus {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveStreamState {
+    segments: Vec<AssistantSegment>,
     full_text: String,
     frozen_until: usize,
     revision: u64,
@@ -163,6 +166,7 @@ pub(crate) struct ActiveStreamState {
 impl ActiveStreamState {
     pub(crate) fn new() -> Self {
         Self {
+            segments: Vec::new(),
             full_text: String::new(),
             frozen_until: 0,
             revision: 0,
@@ -170,10 +174,17 @@ impl ActiveStreamState {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn full_text(&self) -> &str {
         &self.full_text
     }
 
+    #[cfg(test)]
+    pub(crate) fn segments(&self) -> &[AssistantSegment] {
+        &self.segments
+    }
+
+    #[cfg(test)]
     pub(crate) fn frozen_until(&self) -> usize {
         self.frozen_until
     }
@@ -188,8 +199,51 @@ impl ActiveStreamState {
             .map(|cache| cache.body_rows.as_slice())
     }
 
-    pub(crate) fn push_delta(&mut self, chunk: &str) {
+    /// Appends a streamed chunk to the active stream. `full_text` (the flat byte
+    /// source for freeze/spill math) and `segments` (the kind-annotated logical
+    /// representation) are kept in sync: the chunk is appended to both, merging
+    /// into the trailing segment when it is the same kind.
+    pub(crate) fn push_delta(&mut self, kind: SegmentKind, chunk: &str) {
+        if chunk.is_empty() {
+            return;
+        }
+
+        // UX: the agent's answer starts on its own line after reasoning. Insert a
+        // single newline when the first answer text arrives after a thinking
+        // segment (unless that thinking already ended with a newline). Doing this in
+        // the stream keeps `full_text`/segments consistent for byte-exact spill math.
+        let mut chunk = chunk;
+        let mut buffer = String::new();
+        if kind == SegmentKind::Text {
+            let insert_newline = match self.segments.last() {
+                Some(AssistantSegment::Thinking(text)) => !text.ends_with('\n'),
+                _ => false,
+            };
+            if insert_newline {
+                buffer.push('\n');
+                buffer.push_str(chunk);
+                chunk = &buffer;
+            }
+        }
+
         self.full_text.push_str(chunk);
+        match kind {
+            SegmentKind::Text => {
+                if let Some(AssistantSegment::Text(text)) = self.segments.last_mut() {
+                    text.push_str(chunk);
+                } else {
+                    self.segments.push(AssistantSegment::Text(chunk.to_string()));
+                }
+            }
+            SegmentKind::Thinking => {
+                if let Some(AssistantSegment::Thinking(text)) = self.segments.last_mut() {
+                    text.push_str(chunk);
+                } else {
+                    self.segments
+                        .push(AssistantSegment::Thinking(chunk.to_string()));
+                }
+            }
+        }
         self.revision = self.revision.wrapping_add(1);
     }
 
@@ -222,7 +276,7 @@ impl ActiveStreamState {
         u16::try_from(total_rows).unwrap_or(u16::MAX).max(1)
     }
 
-    fn spill_overflow_rows(&mut self, visible_rows: usize) -> Option<String> {
+    fn spill_overflow_rows(&mut self, visible_rows: usize) -> Option<Vec<AssistantSegment>> {
         // Keep spill capacity in sync with ActiveView rendering. These reserved rows are
         // pane margins, not stream body rows, so they must not delay overflow/spilling.
         let reserved_rows = self
@@ -253,7 +307,7 @@ impl ActiveStreamState {
             next_frozen += '\n'.len_utf8();
         }
 
-        let fragment = self.full_text[self.frozen_until..next_frozen].to_string();
+        let fragment = slice_segments(&self.segments, self.frozen_until, next_frozen);
         self.advance_frozen_until(next_frozen);
         Some(fragment)
     }
@@ -269,11 +323,13 @@ impl ActiveStreamState {
             return;
         }
 
-        let logical_rows = TuiFormatter::default().format_assistant_body(self.active_tail());
+        let tail_segments = slice_segments(&self.segments, self.frozen_until, usize::MAX);
+        let logical_rows = TuiFormatter::default().format_assistant_body(&tail_segments);
         let wrapped =
             wrap_transcript_rows(width, &logical_rows, TranscriptCommitBoundary::default());
         self.render_cache = Some(ActiveStreamRenderCache {
             key,
+            logical_rows,
             body_rows: wrapped.rows,
             row_end_boundaries: wrapped.row_end_boundaries,
         });
@@ -297,30 +353,49 @@ impl ActiveStreamState {
         self.frozen_until > 0
     }
 
+    /// Maps a wrap-produced boundary back to a byte offset within the active tail
+    /// (0-based from `frozen_until`). It sums logical-row byte lengths and per-span
+    /// offsets, so it stays byte-exact even when a single line mixes thinking and
+    /// answer spans.
     fn boundary_to_tail_byte(&self, boundary: TranscriptCommitBoundary) -> usize {
-        let tail = self.active_tail();
+        let Some(cache) = self.render_cache.as_ref() else {
+            return 0;
+        };
+        let rows = &cache.logical_rows;
         let mut byte = 0usize;
-        for (row, line) in tail.split('\n').enumerate() {
-            if row == boundary.logical_row {
-                return (byte + boundary.byte_offset.min(line.len())).min(tail.len());
+
+        for (index, row) in rows.iter().enumerate() {
+            if index == boundary.logical_row {
+                let mut within_row = 0usize;
+                for (span_index, span) in row.spans.iter().enumerate() {
+                    if span_index == boundary.span_index {
+                        within_row += boundary.byte_offset.min(span.content.len());
+                        return byte + within_row;
+                    }
+                    within_row += span.content.len();
+                }
+                // Boundary refers past this row's spans: end of the row.
+                return byte + within_row;
             }
-            byte = byte.saturating_add(line.len()).saturating_add(1);
-        }
-        tail.len()
-    }
-
-    fn into_unfrozen_text(mut self) -> String {
-        if self.frozen_until >= self.full_text.len() {
-            return String::new();
+            byte += row_byte_len(row) + 1; // + the '\n' between logical rows
         }
 
-        self.full_text.split_off(self.frozen_until)
+        byte
     }
+
+    fn into_unfrozen_segments(&self) -> Vec<AssistantSegment> {
+        slice_segments(&self.segments, self.frozen_until, usize::MAX)
+    }
+}
+
+fn row_byte_len(row: &Line<'static>) -> usize {
+    row.spans.iter().map(|span| span.content.len()).sum()
 }
 
 #[derive(Debug, Clone)]
 struct ActiveStreamRenderCache {
     key: (u64, u16),
+    logical_rows: Vec<Line<'static>>,
     body_rows: Vec<Line<'static>>,
     row_end_boundaries: Vec<TranscriptCommitBoundary>,
 }
@@ -408,4 +483,167 @@ fn is_spinner_animating(active: Option<&ActivePaneState>) -> bool {
         active.map(ActivePaneState::kind),
         Some(ActivePaneKind::WorkingSpinner)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transcript::{AssistantSegment, SegmentKind, slice_segments};
+
+    fn concat_text(segments: &[AssistantSegment]) -> String {
+        segments
+            .iter()
+            .map(|segment| segment.text().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn push_delta_merges_contiguous_same_kind_segments() {
+        let mut thinking = ActiveStreamState::new();
+        thinking.push_delta(SegmentKind::Thinking, "a");
+        thinking.push_delta(SegmentKind::Thinking, "b");
+        assert_eq!(
+            thinking.segments(),
+            &[AssistantSegment::Thinking("ab".to_string())]
+        );
+        assert_eq!(thinking.full_text(), "ab");
+
+        let mut text = ActiveStreamState::new();
+        text.push_delta(SegmentKind::Text, "p");
+        text.push_delta(SegmentKind::Text, "q");
+        assert_eq!(text.segments(), &[AssistantSegment::Text("pq".to_string())]);
+        assert_eq!(text.full_text(), "pq");
+    }
+
+    #[test]
+    fn push_delta_inserts_single_newline_between_thinking_and_text() {
+        let mut stream = ActiveStreamState::new();
+        stream.push_delta(SegmentKind::Thinking, "a");
+        stream.push_delta(SegmentKind::Thinking, "b");
+        stream.push_delta(SegmentKind::Text, "c");
+        stream.push_delta(SegmentKind::Thinking, "d");
+
+        assert_eq!(
+            stream.segments(),
+            &[
+                AssistantSegment::Thinking("ab".to_string()),
+                AssistantSegment::Text("\nc".to_string()),
+                AssistantSegment::Thinking("d".to_string()),
+            ]
+        );
+        assert_eq!(stream.full_text(), "ab\ncd");
+
+        // No extra newline when the thinking segment already ended with one.
+        let mut already_ended = ActiveStreamState::new();
+        already_ended.push_delta(SegmentKind::Thinking, "x\n");
+        already_ended.push_delta(SegmentKind::Text, "y");
+        assert_eq!(already_ended.full_text(), "x\ny");
+    }
+
+    #[test]
+    fn active_tail_reflects_frozen_until() {
+        let mut stream = ActiveStreamState::new();
+        stream.push_delta(SegmentKind::Text, "hello");
+        stream.advance_frozen_until(2);
+        assert_eq!(stream.active_tail(), "llo");
+    }
+
+    #[test]
+    fn advance_frozen_until_clamps_to_utf8_char_boundary() {
+        let mut stream = ActiveStreamState::new();
+        stream.push_delta(SegmentKind::Text, "héllo");
+        stream.advance_frozen_until(2); // 2 is mid 'é' (bytes 1..=2) -> clamps down to 1
+        assert_eq!(stream.frozen_until(), 1);
+    }
+
+    #[test]
+    fn into_unfrozen_returns_only_non_frozen_segments() {
+        let mut stream = ActiveStreamState::new();
+        stream.push_delta(SegmentKind::Thinking, "ab");
+        stream.push_delta(SegmentKind::Text, "cd"); // injected newline -> "ab\ncd"
+        stream.advance_frozen_until(2);
+
+        assert_eq!(
+            stream.into_unfrozen_segments(),
+            vec![AssistantSegment::Text("\ncd".to_string())]
+        );
+    }
+
+    #[test]
+    fn boundary_to_tail_byte_is_span_aware_on_mixed_lines() {
+        let mut stream = ActiveStreamState::new();
+        // A Text->Thinking transition has no injected newline, so the thinking span
+        // lands on the same logical row as the preceding answer text. This is the
+        // case where span-aware byte accounting matters.
+        stream.push_delta(SegmentKind::Text, "A");
+        stream.push_delta(SegmentKind::Thinking, "B");
+        stream.ensure_render_cache(10); // wide enough to keep one visual row
+
+        let cache = stream.render_cache.as_ref().expect("render cache");
+        assert_eq!(cache.logical_rows.len(), 1);
+        assert_eq!(cache.logical_rows[0].spans.len(), 2);
+        // Spans: ["A"(text), "B"(thinking)] -> flat bytes A=0, B=1.
+        let end_of_a = TranscriptCommitBoundary {
+            logical_row: 0,
+            span_index: 0,
+            byte_offset: 1,
+        };
+        assert_eq!(stream.boundary_to_tail_byte(end_of_a), 1);
+
+        let start_of_b = TranscriptCommitBoundary {
+            logical_row: 0,
+            span_index: 1,
+            byte_offset: 0,
+        };
+        assert_eq!(stream.boundary_to_tail_byte(start_of_b), 1);
+
+        let end_of_b = TranscriptCommitBoundary {
+            logical_row: 0,
+            span_index: 1,
+            byte_offset: 1,
+        };
+        assert_eq!(stream.boundary_to_tail_byte(end_of_b), 2);
+    }
+
+    #[test]
+    fn spill_never_loses_or_duplicates_text_across_segments() {
+        let mut stream = ActiveStreamState::new();
+        let thinking = "think one\nthink two\n";
+        let text = "answer one\nanswer two\n";
+        stream.push_delta(SegmentKind::Thinking, thinking);
+        stream.push_delta(SegmentKind::Text, text);
+
+        let width = 5u16;
+        let visible_rows = 2usize;
+
+        let mut spilled: Vec<AssistantSegment> = Vec::new();
+        for _ in 0..50 {
+            stream.ensure_render_cache(width);
+            match stream.spill_overflow_rows(visible_rows) {
+                Some(fragment) => spilled.extend(fragment),
+                None => break,
+            }
+        }
+
+        let remaining = stream.into_unfrozen_segments();
+        let all = format!("{}{}", concat_text(&spilled), concat_text(&remaining));
+        let full = format!("{thinking}{text}");
+        assert_eq!(all, full, "segment-aware spill must round-trip the full stream");
+    }
+
+    #[test]
+    fn slice_segments_handles_mid_segment_split() {
+        let segments = vec![
+            AssistantSegment::Thinking("abc".to_string()),
+            AssistantSegment::Text("def".to_string()),
+        ];
+        // bytes: a=0 b=1 c=2 d=3 e=4 f=5 -> [1,4) = "bc" (thinking) + "d" (text)
+        assert_eq!(
+            slice_segments(&segments, 1, 4),
+            vec![
+                AssistantSegment::Thinking("bc".to_string()),
+                AssistantSegment::Text("d".to_string()),
+            ]
+        );
+    }
 }

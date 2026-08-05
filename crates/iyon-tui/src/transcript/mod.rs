@@ -1,4 +1,7 @@
 pub(crate) mod model;
 pub(crate) mod wrap;
 
-pub(crate) use model::{TimelineItem, ToolTimelineStatus, TranscriptState};
+pub(crate) use model::{
+    AssistantSegment, SegmentKind, TimelineItem, ToolTimelineStatus, TranscriptState,
+    slice_segments,
+};

@@ -4,7 +4,7 @@ use crate::{
         active::{ActivePaneState, ToolActiveStatus},
         backend::ToolUpdatePresentation,
     },
-    transcript::{TimelineItem, ToolTimelineStatus, TranscriptState},
+    transcript::{AssistantSegment, SegmentKind, TimelineItem, ToolTimelineStatus, TranscriptState},
 };
 use iyon_core::ReasoningLevel;
 
@@ -26,12 +26,12 @@ impl AppState {
         self.transcript.push_item(item);
     }
 
-    pub(crate) fn append_assistant_message(&mut self, text: String) {
-        self.transcript.append_assistant_fragment(text);
+    pub(crate) fn append_assistant_message(&mut self, segments: Vec<AssistantSegment>) {
+        self.transcript.append_assistant_fragment(segments);
     }
 
-    pub(crate) fn append_assistant_stream_fragment(&mut self, text: String) {
-        self.transcript.append_assistant_stream_fragment(text);
+    pub(crate) fn append_assistant_stream_fragment(&mut self, segments: Vec<AssistantSegment>) {
+        self.transcript.append_assistant_stream_fragment(segments);
     }
 
     pub(crate) fn finish_assistant_stream(&mut self) {
@@ -165,29 +165,33 @@ impl AppState {
         }
     }
 
-    pub(crate) fn receive_assistant_delta(&mut self, chunk: &str) {
-        if !self
-            .active
-            .as_ref()
-            .is_some_and(super::active::ActivePaneState::is_spillable)
-        {
-            self.active = Some(ActivePaneState::working_spinner());
-        }
+    pub(crate) fn receive_stream_segments(&mut self, chunks: Vec<(SegmentKind, String)>) {
+        for (kind, text) in chunks {
+            if !self
+                .active
+                .as_ref()
+                .is_some_and(super::active::ActivePaneState::is_spillable)
+            {
+                self.active = Some(ActivePaneState::working_spinner());
+            }
 
-        if let Some(active) = self.active.as_mut() {
-            active.push_assistant_delta(chunk);
+            if let Some(active) = self.active.as_mut() {
+                active.push_assistant_segment(kind, &text);
+            }
         }
     }
 
-    pub(crate) fn take_active_unfrozen_transcript_text(&mut self) -> Option<String> {
+    pub(crate) fn take_active_unfrozen_transcript_segments(
+        &mut self,
+    ) -> Option<Vec<AssistantSegment>> {
         self.active
             .take()
-            .and_then(ActivePaneState::into_unfrozen_transcript_text)
+            .and_then(ActivePaneState::into_unfrozen_transcript_segments)
     }
 
     pub(crate) fn finish_active_turn(&mut self) {
-        if let Some(text) = self.take_active_unfrozen_transcript_text() {
-            self.append_assistant_stream_fragment(text);
+        if let Some(segments) = self.take_active_unfrozen_transcript_segments() {
+            self.append_assistant_stream_fragment(segments);
         }
         self.finish_assistant_stream();
     }

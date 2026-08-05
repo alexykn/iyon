@@ -13,6 +13,7 @@ use crate::{
     terminal::InlineTerminal,
     view::{LayoutConfig, Renderer, RunningFrameComposer},
 };
+use crate::transcript::SegmentKind;
 
 const EXIT_DRAIN_CHUNK: usize = 256;
 const EXIT_GOODBYE: &str = "Goodbye.";
@@ -212,7 +213,12 @@ impl App {
                 // Backend chunks are intentionally not appended directly to the visible
                 // active stream. They enter a presentation buffer first, then the event
                 // loop drains that buffer at a steady cadence for smoother streaming.
-                self.stream_smoother.push(&text);
+                self.stream_smoother.push(SegmentKind::Text, &text);
+                state.start_working_pane();
+                true
+            }
+            FrontendEvent::ThinkingDelta { text } => {
+                self.stream_smoother.push(SegmentKind::Thinking, &text);
                 state.start_working_pane();
                 true
             }
@@ -297,20 +303,20 @@ impl App {
     }
 
     fn drain_stream_smoother(&mut self, state: &mut AppState, now: Instant) -> bool {
-        let Some(text) = self.stream_smoother.drain_ready(now) else {
+        let Some(chunks) = self.stream_smoother.drain_ready(now) else {
             return false;
         };
 
-        state.receive_assistant_delta(&text);
+        state.receive_stream_segments(chunks);
         true
     }
 
     fn flush_stream_smoother(&mut self, state: &mut AppState) -> bool {
-        let Some(text) = self.stream_smoother.flush() else {
+        let Some(chunks) = self.stream_smoother.flush() else {
             return false;
         };
 
-        state.receive_assistant_delta(&text);
+        state.receive_stream_segments(chunks);
         true
     }
 
@@ -341,8 +347,8 @@ impl App {
     fn step_finalize_active(&mut self, state: &mut AppState) -> Result<()> {
         self.flush_stream_smoother(state);
 
-        if let Some(text) = state.take_active_unfrozen_transcript_text() {
-            state.append_assistant_message(text);
+        if let Some(segments) = state.take_active_unfrozen_transcript_segments() {
+            state.append_assistant_message(segments);
         }
 
         state.exit_state = ExitState::FlushHistory;
