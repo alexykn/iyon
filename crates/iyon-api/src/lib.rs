@@ -10,5 +10,5 @@ pub use model::{
     CacheRetention, ContentBlock, ModelMessage, ModelMetadata, ModelParams, ModelRequest,
     ModelToolSpec, ReasoningLevel,
 };
-pub use providers::{mock::MockModelApi, openai_codex::OpenAICodexModelApi};
+pub use providers::{mock::MockModelApi, openai_codex::OpenAICodexModelApi, openrouter::OpenRouterModelApi};
 pub use stream::{ModelStreamEvent, StopReason, Usage};
