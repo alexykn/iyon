@@ -118,6 +118,23 @@ used for in-flight turns).
 - `commit_boundary: TranscriptCommitBoundary` monotonic logical/span/byte boundary into formatted transcript rows
 - `formatter: TuiFormatter`
 
+`TimelineItem::AssistantMessage` is a **segment list** (`Vec<AssistantSegment>`,
+`AssistantSegment::{Text, Thinking}`) rather than a flat string, so reasoning is a
+first-class logical part of an answer — independently styleable, hidden, or
+truncated without touching core, which always retains the complete transcript.
+Both providers stream thinking deltas (`CoreEvent::MessageDelta::Thinking` →
+`FrontendEvent::ThinkingDelta`), which flow through the same smoothed active-stream
+pipeline as answer text. `AssistantSegment` is the lightweight "IR" between the raw
+stream and terminal styling: presentation transforms (e.g. future reasoning
+collapse/truncation) apply to segments before formatting, with no separate layer.
+
+Formatting styles `Thinking` segments **muted + italic** (`thinking_style()`), and
+the stream inserts a single `\n` at a Thinking→Text boundary so the answer starts on
+its own line (see `ActiveStreamState::push_delta`). Because that newline lives in the
+TUI stream data, the freeze/spill byte math in `ActiveStreamState` (which formats the
+tail from segments and maps wrap boundaries back to exact bytes span-aware) stays
+byte-exact for mixed styling.
+
 Important behavior:
 - Width change => cache recompute from canonical items and the monotonic commit boundary.
 - New item invalidates the rendered-row cache.
@@ -129,7 +146,7 @@ Active pane state lives in `core::active`:
 
 - `ActivePaneKind`: `WorkingSpinner | AgentStreaming | SlashMenu | FilePicker`
 - `ActiveBehavior`: `SpillToTranscript | OccludeOnly`
-- `ActiveStreamState { full_text, frozen_until }` for spill-capable panes
+- `ActiveStreamState { segments, full_text, frozen_until }` for spill-capable panes
 - tiny internal spinner frame state for `WorkingSpinner`
 
 Current behavior:

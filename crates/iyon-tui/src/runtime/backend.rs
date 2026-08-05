@@ -21,6 +21,9 @@ pub(crate) enum FrontendEvent {
     AssistantDelta {
         text: String,
     },
+    ThinkingDelta {
+        text: String,
+    },
     TurnFinished,
     TurnFailed {
         message: String,
@@ -289,6 +292,20 @@ impl BackendEventHandler {
                 delta: MessageDelta::ToolCall { .. },
                 ..
             } => None,
+            CoreEvent::MessageDelta {
+                message_id,
+                delta: MessageDelta::Thinking(text),
+                ..
+            } => {
+                if matches!(
+                    self.message_roles.get(&message_id).copied(),
+                    Some(MessageRole::Assistant)
+                ) {
+                    Some(FrontendEvent::ThinkingDelta { text })
+                } else {
+                    None
+                }
+            }
             CoreEvent::MessageFinished { message_id, .. } => {
                 let role = self.message_roles.remove(&message_id);
                 if matches!(role, Some(MessageRole::ToolResult)) {

@@ -83,6 +83,14 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
             ModelStreamEvent::ThinkingStart { .. } => {}
             ModelStreamEvent::ThinkingDelta { delta, .. } => {
                 thinking.push_str(&delta);
+                event_tx
+                    .send(CoreEvent::MessageDelta {
+                        turn_id: turn_id.0,
+                        message_id: assistant_message_id.0,
+                        delta: MessageDelta::Thinking(delta),
+                    })
+                    .await
+                    .context("failed to emit assistant thinking delta")?;
             }
             ModelStreamEvent::ThinkingEnd {
                 text: final_thinking,
@@ -294,4 +302,95 @@ fn non_empty_tool_call_id(id: String, content_index: usize) -> String {
 
 fn generated_tool_call_id(content_index: usize) -> String {
     format!("tool_call_{content_index}")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use futures_util::stream::iter;
+    use iyon_api::{
+        ModelApi, ModelRequest, ModelStream, ModelStreamEvent, ModelStreamFuture, StopReason,
+    };
+
+    use super::{ModelTurnInput, run_model_turn};
+    use crate::ids::{MessageId, TurnId};
+
+    struct ScriptedModel {
+        events: Vec<ModelStreamEvent>,
+    }
+
+    impl ModelApi for ScriptedModel {
+        fn stream(&self, _request: ModelRequest) -> ModelStreamFuture<'_> {
+            let events = self.events.clone();
+            Box::pin(async move {
+                let stream: ModelStream = Box::pin(iter(events.into_iter().map(Ok)));
+                Ok(stream)
+            })
+        }
+    }
+
+    fn model_events() -> Vec<ModelStreamEvent> {
+        vec![
+            ModelStreamEvent::Started,
+            ModelStreamEvent::TextStart { content_index: 0 },
+            ModelStreamEvent::ThinkingDelta {
+                content_index: 0,
+                delta: "think1".to_string(),
+            },
+            ModelStreamEvent::TextDelta {
+                content_index: 0,
+                delta: "hi ".to_string(),
+            },
+            ModelStreamEvent::ThinkingDelta {
+                content_index: 0,
+                delta: "think2".to_string(),
+            },
+            ModelStreamEvent::TextDelta {
+                content_index: 0,
+                delta: "there".to_string(),
+            },
+            ModelStreamEvent::Done {
+                stop_reason: StopReason::Stop,
+            },
+        ]
+    }
+
+    #[tokio::test]
+    async fn thinking_deltas_are_streamed_as_core_events_in_order() {
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(64);
+        let model = Arc::new(ScriptedModel {
+            events: model_events(),
+        });
+
+        let outcome = run_model_turn(ModelTurnInput {
+            turn_id: TurnId(7),
+            assistant_message_id: MessageId(9),
+            request: ModelRequest::default(),
+            model,
+            event_tx: event_tx.clone(),
+            cancellation: tokio_util::sync::CancellationToken::new(),
+        })
+        .await
+        .expect("turn should succeed");
+
+        assert_eq!(outcome.stop_reason, StopReason::Stop);
+
+        drop(event_tx);
+        let mut deltas: Vec<String> = Vec::new();
+        while let Ok(event) = event_rx.try_recv() {
+            if let crate::CoreEvent::MessageDelta { delta, .. } = event {
+                match delta {
+                    crate::MessageDelta::Thinking(text) => deltas.push(format!("T:{text}")),
+                    crate::MessageDelta::Text(text) => deltas.push(format!("X:{text}")),
+                    crate::MessageDelta::ToolCall { .. } => deltas.push("C".to_string()),
+                }
+            }
+        }
+
+        assert_eq!(
+            deltas,
+            vec!["T:think1", "X:hi ", "T:think2", "X:there"]
+        );
+    }
 }
