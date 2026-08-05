@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     CoreEvent, MessageDelta, MessageRole,
     agent::{
+        control::AgentLoopControl,
         tool_call::{ToolCallAssembler, ToolCallRequest},
         transcript::AgentMessage,
     },
@@ -15,29 +16,43 @@ use crate::{
 };
 use iyon_api::{ContentBlock, ModelApi, ModelRequest, ModelStreamEvent, StopReason, Usage};
 
-pub(crate) struct ModelTurnInput {
+pub(crate) struct ModelTurnInput<'a> {
     pub turn_id: TurnId,
     pub assistant_message_id: MessageId,
     pub request: ModelRequest,
     pub model: Arc<dyn ModelApi>,
     pub event_tx: mpsc::Sender<CoreEvent>,
+    pub control_rx: &'a mut mpsc::Receiver<AgentLoopControl>,
     pub cancellation: CancellationToken,
 }
 
 #[derive(Debug)]
-pub(crate) struct ModelTurnOutcome {
-    pub assistant_message: AgentMessage,
-    pub tool_calls: Vec<ToolCallRequest>,
-    pub stop_reason: StopReason,
+pub(crate) enum ModelTurnOutcome {
+    Completed {
+        assistant_message: AgentMessage,
+        tool_calls: Vec<ToolCallRequest>,
+        stop_reason: StopReason,
+    },
+    Interrupted {
+        assistant_message: AgentMessage,
+        reason: InterruptionReason,
+    },
 }
 
-pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<ModelTurnOutcome> {
+#[derive(Debug)]
+pub(crate) enum InterruptionReason {
+    Cancelled,
+    Steered { text: String },
+}
+
+pub(crate) async fn run_model_turn(input: ModelTurnInput<'_>) -> anyhow::Result<ModelTurnOutcome> {
     let ModelTurnInput {
         turn_id,
         assistant_message_id,
         request,
         model,
         event_tx,
+        control_rx,
         cancellation,
     } = input;
 
@@ -63,7 +78,68 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
 
     loop {
         let event = tokio::select! {
-            () = cancellation.cancelled() => bail!("turn cancelled"),
+            () = cancellation.cancelled() => {
+                return finish_interrupted(FinishModelTurnInput {
+                    event_tx: &event_tx,
+                    turn_id,
+                    assistant_message_id,
+                    content,
+                    text,
+                    thinking,
+                    usage,
+                    tool_calls,
+                    stop_reason: StopReason::Aborted,
+                }, InterruptionReason::Cancelled).await;
+            }
+            control = control_rx.recv() => {
+                let Some(control) = control else {
+                    return finish_interrupted(FinishModelTurnInput {
+                        event_tx: &event_tx,
+                        turn_id,
+                        assistant_message_id,
+                        content,
+                        text,
+                        thinking,
+                        usage,
+                        tool_calls,
+                        stop_reason: StopReason::Aborted,
+                    }, InterruptionReason::Cancelled).await;
+                };
+                match control {
+                    AgentLoopControl::Cancel => {
+                        return finish_interrupted(FinishModelTurnInput {
+                            event_tx: &event_tx,
+                            turn_id,
+                            assistant_message_id,
+                            content,
+                            text,
+                            thinking,
+                            usage,
+                            tool_calls,
+                            stop_reason: StopReason::Aborted,
+                        }, InterruptionReason::Cancelled).await;
+                    }
+                    AgentLoopControl::Steer { text: steer_text } => {
+                        return finish_interrupted(FinishModelTurnInput {
+                            event_tx: &event_tx,
+                            turn_id,
+                            assistant_message_id,
+                            content,
+                            text,
+                            thinking,
+                            usage,
+                            tool_calls,
+                            stop_reason: StopReason::Aborted,
+                        }, InterruptionReason::Steered { text: steer_text }).await;
+                    }
+                    AgentLoopControl::ApproveToolCall { .. }
+                    | AgentLoopControl::RejectToolCall { .. } => {
+                        // Approvals arrive while tool execution awaits a decision, never
+                        // during model streaming; ignore defensively and keep streaming.
+                        continue;
+                    }
+                }
+            }
             event = stream.next() => event,
         };
         let Some(event) = event else {
@@ -245,24 +321,19 @@ async fn finish_model_turn(input: FinishModelTurnInput<'_>) -> anyhow::Result<Mo
         event_tx,
         turn_id,
         assistant_message_id,
-        mut content,
-        mut text,
-        mut thinking,
+        content,
+        text,
+        thinking,
         usage,
         tool_calls,
         stop_reason,
     } = input;
 
-    flush_text_and_thinking(&mut content, &mut text, &mut thinking);
-    event_tx
-        .send(CoreEvent::MessageFinished {
-            turn_id: turn_id.0,
-            message_id: assistant_message_id.0,
-        })
-        .await
-        .context("failed to emit assistant message finish")?;
+    let content =
+        flush_content_and_emit_finished(event_tx, turn_id, assistant_message_id, content, text, thinking)
+            .await?;
 
-    Ok(ModelTurnOutcome {
+    Ok(ModelTurnOutcome::Completed {
         assistant_message: AgentMessage::Assistant {
             id: assistant_message_id,
             content,
@@ -273,6 +344,59 @@ async fn finish_model_turn(input: FinishModelTurnInput<'_>) -> anyhow::Result<Mo
         tool_calls: tool_calls.finish_all()?,
         stop_reason,
     })
+}
+
+async fn finish_interrupted(
+    input: FinishModelTurnInput<'_>,
+    reason: InterruptionReason,
+) -> anyhow::Result<ModelTurnOutcome> {
+    let FinishModelTurnInput {
+        event_tx,
+        turn_id,
+        assistant_message_id,
+        content,
+        text,
+        thinking,
+        usage,
+        ..
+    } = input;
+
+    let content =
+        flush_content_and_emit_finished(event_tx, turn_id, assistant_message_id, content, text, thinking)
+            .await?;
+
+    Ok(ModelTurnOutcome::Interrupted {
+        assistant_message: AgentMessage::Assistant {
+            id: assistant_message_id,
+            content,
+            usage,
+            stop_reason: Some(StopReason::Aborted),
+            timestamp: SystemTime::now(),
+        },
+        reason,
+    })
+}
+
+/// Flushes accumulated text/thinking into content blocks and emits `MessageFinished`
+/// so the transcript seals the assistant message. Shared by the normal-completion and
+/// interruption finalizers so a partial reply is sealed identically in both cases.
+async fn flush_content_and_emit_finished(
+    event_tx: &mpsc::Sender<CoreEvent>,
+    turn_id: TurnId,
+    assistant_message_id: MessageId,
+    mut content: Vec<ContentBlock>,
+    mut text: String,
+    mut thinking: String,
+) -> anyhow::Result<Vec<ContentBlock>> {
+    flush_text_and_thinking(&mut content, &mut text, &mut thinking);
+    event_tx
+        .send(CoreEvent::MessageFinished {
+            turn_id: turn_id.0,
+            message_id: assistant_message_id.0,
+        })
+        .await
+        .context("failed to emit assistant message finish")?;
+    Ok(content)
 }
 
 fn flush_text_and_thinking(
@@ -313,8 +437,9 @@ mod tests {
         ModelApi, ModelRequest, ModelStream, ModelStreamEvent, ModelStreamFuture, StopReason,
     };
 
-    use super::{ModelTurnInput, run_model_turn};
+    use super::{InterruptionReason, ModelTurnInput, ModelTurnOutcome, run_model_turn};
     use crate::ids::{MessageId, TurnId};
+    use crate::agent::control::AgentLoopControl;
 
     struct ScriptedModel {
         events: Vec<ModelStreamEvent>,
@@ -328,6 +453,38 @@ mod tests {
                 Ok(stream)
             })
         }
+    }
+
+    /// A model whose stream is driven by a test-owned channel (`tx`), giving the
+    /// test deterministic control over *when* each event is observed so it can send
+    /// interrupt/steer controls mid-stream. Each `DrivenModel` supports one stream.
+    struct DrivenModel {
+        rx: Arc<std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<ModelStreamEvent>>>>,
+    }
+
+    impl ModelApi for DrivenModel {
+        fn stream(&self, _request: ModelRequest) -> ModelStreamFuture<'_> {
+            let rx = Arc::clone(&self.rx);
+            Box::pin(async move {
+                let rx = rx
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .expect("DrivenModel supports a single stream");
+                let stream: ModelStream = Box::pin(futures_util::stream::unfold(rx, |mut rx| {
+                    async move { rx.recv().await.map(|event| (Ok(event), rx)) }
+                }));
+                Ok(stream)
+            })
+        }
+    }
+
+    fn driven_model_events() -> (Arc<DrivenModel>, tokio::sync::mpsc::Sender<ModelStreamEvent>) {
+        let (tx, rx) = tokio::sync::mpsc::channel(16);
+        let model = Arc::new(DrivenModel {
+            rx: Arc::new(std::sync::Mutex::new(Some(rx))),
+        });
+        (model, tx)
     }
 
     fn model_events() -> Vec<ModelStreamEvent> {
@@ -362,6 +519,7 @@ mod tests {
         let model = Arc::new(ScriptedModel {
             events: model_events(),
         });
+        let (_control_tx, mut control_rx) = tokio::sync::mpsc::channel(8);
 
         let outcome = run_model_turn(ModelTurnInput {
             turn_id: TurnId(7),
@@ -369,12 +527,13 @@ mod tests {
             request: ModelRequest::default(),
             model,
             event_tx: event_tx.clone(),
+            control_rx: &mut control_rx,
             cancellation: tokio_util::sync::CancellationToken::new(),
         })
         .await
         .expect("turn should succeed");
 
-        assert_eq!(outcome.stop_reason, StopReason::Stop);
+        assert!(matches!(outcome, ModelTurnOutcome::Completed { .. }));
 
         drop(event_tx);
         let mut deltas: Vec<String> = Vec::new();
@@ -391,6 +550,151 @@ mod tests {
         assert_eq!(
             deltas,
             vec!["T:think1", "X:hi ", "T:think2", "X:there"]
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_preserves_partial_text_and_thinking() {
+        let (event_tx, _event_rx) = tokio::sync::mpsc::channel(64);
+        let (model, tx) = driven_model_events();
+        let (control_tx, mut control_rx) = tokio::sync::mpsc::channel(8);
+
+        // Drive the stream + send the interrupt from a spawned task while the test
+        // task awaits the turn (which borrows `control_rx` by &mut, so it can't be
+        // spawned itself). Small sleeps let the turn drain already-queued deltas
+        // before the control lands, so partials are present at interrupt time.
+        let driver_tx = tx.clone();
+        let driver_control = control_tx.clone();
+        let driver = tokio::spawn(async move {
+            driver_tx.send(ModelStreamEvent::Started).await.unwrap();
+            driver_tx
+                .send(ModelStreamEvent::TextStart { content_index: 0 })
+                .await
+                .unwrap();
+            driver_tx
+                .send(ModelStreamEvent::ThinkingDelta {
+                    content_index: 0,
+                    delta: "a thought".to_string(),
+                })
+                .await
+                .unwrap();
+            driver_tx
+                .send(ModelStreamEvent::TextDelta {
+                    content_index: 0,
+                    delta: "partial".to_string(),
+                })
+                .await
+                .unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            driver_control.send(AgentLoopControl::Cancel).await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            drop(driver_tx);
+        });
+
+        let outcome = run_model_turn(ModelTurnInput {
+            turn_id: TurnId(3),
+            assistant_message_id: MessageId(5),
+            request: ModelRequest::default(),
+            model,
+            event_tx: event_tx.clone(),
+            control_rx: &mut control_rx,
+            cancellation: tokio_util::sync::CancellationToken::new(),
+        })
+        .await
+        .expect("turn should return cleanly");
+        driver.await.unwrap();
+
+        let ModelTurnOutcome::Interrupted {
+            assistant_message,
+            reason,
+        } = outcome
+        else {
+            panic!("expected interrupted outcome");
+        };
+        assert!(matches!(reason, InterruptionReason::Cancelled));
+
+        use iyon_api::ContentBlock;
+        let crate::agent::transcript::AgentMessage::Assistant { content, .. } = &assistant_message
+        else {
+            panic!("expected assistant message");
+        };
+        let text: Vec<String> = content
+            .iter()
+            .map(|block| match block {
+                ContentBlock::Text { text } => text.clone(),
+                ContentBlock::Thinking { text } => text.clone(),
+                ContentBlock::ToolCall { .. } | ContentBlock::Image { .. } => String::new(),
+            })
+            .collect();
+        assert!(text.iter().any(|t| t.contains("partial")), "text: {text:?}");
+        assert!(text.iter().any(|t| t.contains("a thought")), "text: {text:?}");
+    }
+
+    #[tokio::test]
+    async fn steer_carries_steered_text_and_preserves_partial() {
+        let (event_tx, _event_rx) = tokio::sync::mpsc::channel(64);
+        let (model, tx) = driven_model_events();
+        let (control_tx, mut control_rx) = tokio::sync::mpsc::channel(8);
+
+        let driver_tx = tx.clone();
+        let driver_control = control_tx.clone();
+        let driver = tokio::spawn(async move {
+            driver_tx.send(ModelStreamEvent::Started).await.unwrap();
+            driver_tx
+                .send(ModelStreamEvent::TextDelta {
+                    content_index: 0,
+                    delta: "partial".to_string(),
+                })
+                .await
+                .unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            driver_control
+                .send(AgentLoopControl::Steer {
+                    text: "steer!".to_string(),
+                })
+                .await
+                .unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            drop(driver_tx);
+        });
+
+        let outcome = run_model_turn(ModelTurnInput {
+            turn_id: TurnId(4),
+            assistant_message_id: MessageId(6),
+            request: ModelRequest::default(),
+            model,
+            event_tx: event_tx.clone(),
+            control_rx: &mut control_rx,
+            cancellation: tokio_util::sync::CancellationToken::new(),
+        })
+        .await
+        .expect("turn should return cleanly");
+        driver.await.unwrap();
+
+        let ModelTurnOutcome::Interrupted {
+            assistant_message,
+            reason,
+        } = outcome
+        else {
+            panic!("expected interrupted outcome");
+        };
+        match reason {
+            InterruptionReason::Steered { text } => assert_eq!(text, "steer!"),
+            other => panic!("expected Steered, got {other:?}"),
+        }
+
+        use iyon_api::ContentBlock;
+        let crate::agent::transcript::AgentMessage::Assistant { content, .. } = &assistant_message
+        else {
+            panic!("expected assistant message");
+        };
+        let has_partial = content
+            .iter()
+            .any(|block| matches!(block, ContentBlock::Text { text } if text.contains("partial")));
+        assert!(
+            has_partial,
+            "partial reply should be preserved: {:?}",
+            content
         );
     }
 }

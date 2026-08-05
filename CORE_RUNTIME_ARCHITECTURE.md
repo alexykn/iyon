@@ -683,7 +683,17 @@ pub struct ActiveTurn {
 }
 ```
 
-Cancellation is explicit. `CoreCommand::CancelActiveTurn` cancels this token and the agent loop cooperates with it.
+Cancellation is explicit. `CoreCommand::CancelActiveTurn` (Esc in the TUI) requests a
+*graceful* interrupt: it cancels the token and sends `AgentLoopControl::Cancel`, but does
+not abort the task. The running model turn finalizes its partial reply, the loop returns a
+`TurnOutcome::Cancelled { messages, .. }`, and the runtime commits those partials to the
+session before emitting `TurnCancelled`. A hard `handle.abort()` is reserved for teardown
+(`Shutdown` / channel close), where preserving the in-flight reply no longer matters.
+
+While a turn is running, a new `CoreCommand::SubmitTurn` is treated as a **steer**: the
+runtime forwards `AgentLoopControl::Steer { text }` to the running loop instead of aborting
+it. The loop interrupts the current model stream, preserves the partial reply, injects a
+user message, and continues to the next model response — the same agent run keeps going.
 
 ---
 
@@ -728,24 +738,52 @@ run_agent_loop(input):
     stream one assistant response with run_model_turn
     append final assistant message to local transcript
 
-    match normalized StopReason:
-      ToolUse:
-        require assembled tool calls
-        execute tool calls sequentially
-        append tool result messages locally
-        continue
+    match model-turn outcome:
+      Completed:
+        match normalized StopReason:
+          ToolUse:
+            require assembled tool calls
+            execute tool calls sequentially
+            append tool result messages locally
+            continue
+          Stop | Length:
+            require no assembled tool calls
+            emit TurnFinished
+            return produced messages
+          Aborted:
+            preserve partial, return Cancelled with produced messages
+          Error:
+            fail turn
 
-      Stop | Length:
-        require no assembled tool calls
-        emit TurnFinished
-        return produced messages
-
-      Error | Aborted:
-        fail turn
-
-    if StopReason and tool-call content disagree:
-      fail as provider protocol error
+      Interrupted:
+        append partial assistant locally
+        match interruption reason:
+          Cancelled:
+            return Cancelled with produced messages (runtime commits partials)
+          Steered { text }:
+            emit + append the steered User message locally
+            continue   -> next iteration streams with [partial, steer] context
 ```
+
+## Interrupt & Steering
+
+Interruption is handled at the boundary where it is observed, always preserving the
+partial reply for the next request:
+
+- `run_model_turn` selects on `cancellation`, `control_rx`, and the stream. On `Cancel`
+  (Esc) it finalizes the partial text/thinking into an assistant `AgentMessage` with
+  `stop_reason: Aborted`, emits `MessageFinished`, and returns
+  `ModelTurnOutcome::Interrupted { reason: Cancelled }`.
+- On `Steer { text }` it returns `Interrupted { reason: Steered }`; the loop appends the
+  steered user message and continues, so the next `ModelRequest` includes both the partial
+  assistant reply and the steered message.
+- Because `build_model_request` lowers the entire `SessionState.messages`, any preserved
+  partial (assistant reply or steered user message) flows into the next request.
+
+Steering follows pi's model: sending while the agent streams interrupts the current
+response, keeps the partial, and answers the new message as a continuation of the same run
+(no separate turn). Follow-up messaging (process after the agent would naturally stop) is
+not implemented yet.
 
 ## Partial Assistant Message Handling
 

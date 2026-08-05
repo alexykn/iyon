@@ -14,6 +14,7 @@ pub(crate) enum FrontendAction {
     ApprovePendingTool,
     RejectPendingTool,
     CycleReasoningEffort,
+    InterruptActiveTurn,
 }
 
 #[derive(Debug, Default)]
@@ -105,6 +106,12 @@ impl AppController {
                 // looks like it ignored the key while core round-trips.
                 state.cycle_reasoning_effort();
                 backend.try_cycle_reasoning_effort()?;
+                Ok(true)
+            }
+            FrontendAction::InterruptActiveTurn => {
+                if state.active.is_some() || state.pending_tool_approval.is_some() {
+                    backend.try_cancel_active_turn()?;
+                }
                 Ok(true)
             }
         }

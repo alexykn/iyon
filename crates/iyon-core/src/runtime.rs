@@ -158,7 +158,19 @@ pub async fn run(
 
                 match command {
                     CoreCommand::SubmitTurn { text } => {
-                        cancel_active_turn(&mut state, &event_tx).await;
+                        // If a turn is already running, steer the new message into that
+                        // loop rather than aborting it and losing the partial reply.
+                        if state.active_turn.as_ref().is_some_and(|active| {
+                            active
+                                .control_tx
+                                .try_send(AgentLoopControl::Steer { text: text.clone() })
+                                .is_ok()
+                        }) {
+                            continue;
+                        }
+                        // The running loop is ending (channel closed); fall through to
+                        // start a fresh turn so the message is never dropped. The old
+                        // turn's stale completion is ignored by the turn_id guard.
 
                         let turn_id = state.next_turn_id();
                         let user_message_id = state.push_user_message(text.clone());
@@ -212,7 +224,7 @@ pub async fn run(
                         });
                     }
                     CoreCommand::CancelActiveTurn => {
-                        cancel_active_turn(&mut state, &event_tx).await;
+                        request_interrupt(&state).await;
                     }
                     CoreCommand::CycleReasoningEffort => {
                         let provider = state.session.model.provider.as_str();
@@ -272,7 +284,16 @@ pub async fn run(
                         state.commit_turn_messages(messages, next_message_id);
                         state.next_approval_id = next_approval_id;
                     }
-                    TurnOutcome::Cancelled => {
+                    TurnOutcome::Cancelled {
+                        messages,
+                        next_message_id,
+                        next_approval_id,
+                    } => {
+                        // Preserve the partial reply (and any steered user messages / tool
+                        // results produced before the interrupt) so a subsequent turn or
+                        // steer continues from a fully consistent session.
+                        state.commit_turn_messages(messages, next_message_id);
+                        state.next_approval_id = next_approval_id;
                         let _ = event_tx
                             .send(CoreEvent::TurnCancelled { turn_id: turn_id.0 })
                             .await;
@@ -325,6 +346,21 @@ async fn emit_turn_start_and_user_message(
         .await;
 }
 
+/// Gracefully interrupts the running turn: signals the loop to stop and preserves its
+/// partial output. Unlike a hard abort, this does NOT clear `active_turn` or emit
+/// `TurnCancelled` — the loop task settles via `TurnTaskFinished` with a `Cancelled`
+/// outcome whose partial messages are committed there (then `TurnCancelled` is emitted).
+async fn request_interrupt(state: &RuntimeState) {
+    let Some(active) = state.active_turn.as_ref() else {
+        return;
+    };
+    active.cancellation.cancel();
+    let _ = active.control_tx.try_send(AgentLoopControl::Cancel);
+}
+
+/// Hard-aborts the running turn, discarding partial output. Used only on teardown
+/// (shutdown / command-channel close) where a prompt exit matters more than
+/// preserving the in-flight reply, which is safely discarded.
 async fn cancel_active_turn(state: &mut RuntimeState, event_tx: &mpsc::Sender<CoreEvent>) {
     let Some(active) = state.active_turn.take() else {
         return;

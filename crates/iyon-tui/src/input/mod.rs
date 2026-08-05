@@ -42,6 +42,7 @@ enum CustomKeyEvent {
     MoveLeftWord,
     MoveLineStart,
     CycleReasoningEffort,
+    Interrupt,
 }
 
 fn map_approval_key_event(key_event: KeyEvent) -> Option<FrontendAction> {
@@ -97,6 +98,7 @@ fn map_key_event(key_event: KeyEvent) -> CustomKeyEvent {
 
         (BackTab, _) => CustomKeyEvent::CycleReasoningEffort,
         (Tab, m) if m.contains(KeyModifiers::SHIFT) => CustomKeyEvent::CycleReasoningEffort,
+        (Esc, _) => CustomKeyEvent::Interrupt,
 
         (Char(c), m) => {
             let is_altgr = m.contains(KeyModifiers::CONTROL) && m.contains(KeyModifiers::ALT);
@@ -339,6 +341,7 @@ impl InputEventHandler {
                 vec![FrontendAction::RedrawOnly]
             }
             CustomKeyEvent::CycleReasoningEffort => vec![FrontendAction::CycleReasoningEffort],
+            CustomKeyEvent::Interrupt => vec![FrontendAction::InterruptActiveTurn],
             CustomKeyEvent::None => Vec::new(),
         }
     }
@@ -826,5 +829,19 @@ mod tests {
         input.delete_char();
 
         assert_eq!(input.submission_text(), "[Pasted Content 1001 chars");
+    }
+
+    #[test]
+    fn esc_maps_to_interrupt_in_normal_mode() {
+        assert!(matches!(
+            map_key_event(KeyEvent::new(Esc, KeyModifiers::NONE)),
+            CustomKeyEvent::Interrupt
+        ));
+        // In approval mode the controller routes Esc to reject-first via the
+        // higher-priority approval mapping.
+        assert!(matches!(
+            map_approval_key_event(KeyEvent::new(Esc, KeyModifiers::NONE)),
+            Some(FrontendAction::RejectPendingTool)
+        ));
     }
 }
