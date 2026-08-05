@@ -1,4 +1,4 @@
-use iyon_api::{ModelMessage, ModelMetadata, ModelRequest};
+use iyon_api::{ModelMessage, ModelMetadata, ModelParams, ModelRequest};
 
 use crate::{agent::transcript::AgentMessage, session::state::SessionState, tools::ToolRegistry};
 
@@ -8,11 +8,14 @@ pub(crate) struct RequestBuildContext<'a> {
 }
 
 pub(crate) fn build_model_request(ctx: RequestBuildContext<'_>) -> ModelRequest {
+    let mut params = ModelParams::default();
+    params.reasoning = Some(ctx.session.reasoning_effort);
+
     ModelRequest {
         system_prompt: non_empty_system_prompt(&ctx.session.system_prompt),
         messages: lower_messages(&ctx.session.messages),
         tools: ctx.tools.map_or_else(Vec::new, ToolRegistry::model_specs),
-        params: Default::default(),
+        params,
         metadata: lower_metadata(ctx.session),
     }
 }

@@ -7,6 +7,7 @@ use tokio::{runtime::Runtime, sync::mpsc};
 use crate::{
     CoreCommand, CoreEvent,
     runtime::{self, RuntimeConfig},
+    session::state::ModelSelection,
     tools::ToolHookSet,
 };
 
@@ -51,7 +52,10 @@ impl IyonCore {
             command_rx,
             event_tx,
             model,
-            RuntimeConfig { tool_hooks },
+            RuntimeConfig {
+                tool_hooks,
+                selection: ModelSelection::default(),
+            },
         ));
 
         Ok(Self {
@@ -83,7 +87,10 @@ impl IyonCore {
             command_rx,
             event_tx,
             model,
-            RuntimeConfig { tool_hooks },
+            RuntimeConfig {
+                tool_hooks,
+                selection: ModelSelection::default(),
+            },
         ));
 
         Self {
@@ -113,6 +120,32 @@ impl IyonCore {
 
     pub fn drain_events(&mut self) -> Vec<CoreEvent> {
         self.event_rx.drain_events()
+    }
+    pub fn spawn_on_current_runtime_with_selection_and_hooks(
+        model: Arc<dyn ModelApi>,
+        selection: ModelSelection,
+        tool_hooks: ToolHookSet,
+    ) -> Self {
+        let (command_tx, command_rx) = mpsc::channel(32);
+        let (event_tx, event_rx) = mpsc::channel(1024);
+
+        tokio::spawn(runtime::run(
+            command_rx,
+            event_tx,
+            model,
+            RuntimeConfig {
+                tool_hooks,
+                selection,
+            },
+        ));
+
+        Self {
+            command_tx: CoreCommandSender { command_tx },
+            event_rx: CoreEventReceiver {
+                event_rx,
+                _runtime: RuntimeGuard::External,
+            },
+        }
     }
 }
 

@@ -12,6 +12,8 @@ pub use command::CoreCommand;
 pub use event::{CoreEvent, MessageDelta, MessageRole, ToolUpdateEvent};
 pub use handle::{CoreCommandSender, CoreEventReceiver, IyonCore};
 pub use ids::{ApprovalId, MessageId, SessionId, ToolCallId, TurnId};
+pub use session::state::{ModelSelection, SessionState};
+pub use iyon_api::ReasoningLevel;
 
 pub fn spawn() -> anyhow::Result<IyonCore> {
     IyonCore::spawn()

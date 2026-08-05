@@ -1,5 +1,6 @@
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
+use iyon_api::{ContentBlock, ModelApi, ReasoningLevel, StopReason};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
@@ -13,10 +14,9 @@ use crate::{
     },
     fs::{FsPermissions, Workspace},
     ids::{ApprovalId, MessageId, SessionId, TurnId},
-    session::state::SessionState,
+    session::state::{ModelSelection, SessionState},
     tools::{FileMutationQueue, ToolHookSet, ToolRegistry},
 };
-use iyon_api::{ContentBlock, ModelApi, StopReason};
 
 struct RuntimeState {
     session: SessionState,
@@ -49,6 +49,7 @@ enum RuntimeEvent {
 #[derive(Default)]
 pub(crate) struct RuntimeConfig {
     pub tool_hooks: ToolHookSet,
+    pub selection: ModelSelection,
 }
 
 impl RuntimeState {
@@ -60,8 +61,11 @@ impl RuntimeState {
             .register_builtin_defaults(mutation_queue)
             .expect("builtin tool registration should be valid");
 
+        let mut session = SessionState::new(SessionId(1), cwd);
+        session.model = config.selection;
+
         Self {
-            session: SessionState::new(SessionId(1), cwd),
+            session,
             agent: AgentState::default(),
             next_turn_id: 1,
             next_message_id: 1,
@@ -140,6 +144,10 @@ pub async fn run(
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut state = RuntimeState::new(cwd, config);
 
+    // Surface the initial provider/model/effort so the TUI status bar can render
+    // immediately on first drain, before any turn.
+    emit_config_changed(&event_tx, &state).await;
+
     loop {
         tokio::select! {
             command = command_rx.recv() => {
@@ -205,6 +213,14 @@ pub async fn run(
                     }
                     CoreCommand::CancelActiveTurn => {
                         cancel_active_turn(&mut state, &event_tx).await;
+                    }
+                    CoreCommand::CycleReasoningEffort => {
+                        let provider = state.session.model.provider.as_str();
+                        let next = ReasoningLevel::next_for(state.session.reasoning_effort, provider);
+                        if next != state.session.reasoning_effort {
+                            state.session.reasoning_effort = next;
+                            emit_config_changed(&event_tx, &state).await;
+                        }
                     }
                     CoreCommand::ApproveToolCall { approval_id } => {
                         forward_active_control(
@@ -331,4 +347,14 @@ async fn forward_active_control(state: &RuntimeState, control: AgentLoopControl)
         return;
     };
     let _ = active.control_tx.send(control).await;
+}
+
+async fn emit_config_changed(event_tx: &mpsc::Sender<CoreEvent>, state: &RuntimeState) {
+    let _ = event_tx
+        .send(CoreEvent::ConfigChanged {
+            provider: state.session.model.provider.clone(),
+            model_id: state.session.model.model_id.clone(),
+            reasoning_effort: state.session.reasoning_effort,
+        })
+        .await;
 }

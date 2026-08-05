@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use iyon_api::ReasoningLevel;
+
 use crate::{agent::transcript::AgentMessage, ids::SessionId};
 
 #[derive(Debug, Clone)]
@@ -10,11 +12,12 @@ pub struct SessionState {
     pub cwd: PathBuf,
     pub messages: Vec<AgentMessage>,
     pub model: ModelSelection,
+    pub reasoning_effort: ReasoningLevel,
     pub system_prompt: String,
     pub metadata: SessionMetadata,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ModelSelection {
     pub provider: String,
     pub model_id: String,
@@ -35,6 +38,7 @@ impl SessionState {
                 provider: "mock".to_string(),
                 model_id: "mock".to_string(),
             },
+            reasoning_effort: ReasoningLevel::Medium,
             system_prompt: String::new(),
             metadata: SessionMetadata::default(),
         }
