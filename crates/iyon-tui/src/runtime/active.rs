@@ -269,7 +269,7 @@ impl ActiveStreamState {
             return;
         }
 
-        let logical_rows = TuiFormatter.format_assistant_body(self.active_tail());
+        let logical_rows = TuiFormatter::default().format_assistant_body(self.active_tail());
         let wrapped =
             wrap_transcript_rows(width, &logical_rows, TranscriptCommitBoundary::default());
         self.render_cache = Some(ActiveStreamRenderCache {

@@ -3,6 +3,7 @@ mod input;
 mod runtime;
 mod scrollback;
 mod terminal;
+mod tools;
 mod transcript;
 mod view;
 
