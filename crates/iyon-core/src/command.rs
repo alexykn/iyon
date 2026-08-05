@@ -4,6 +4,8 @@ pub enum CoreCommand {
         text: String,
     },
     CancelActiveTurn,
+    // Cycle the session's reasoning effort to the next provider-supported level.
+    CycleReasoningEffort,
     ApproveToolCall {
         approval_id: u64,
     },

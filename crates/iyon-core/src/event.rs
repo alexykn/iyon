@@ -1,3 +1,5 @@
+use iyon_api::ReasoningLevel;
+
 #[derive(Debug, Clone)]
 pub enum CoreEvent {
     AgentStarted,
@@ -80,6 +82,13 @@ pub enum CoreEvent {
     },
     TurnCancelled {
         turn_id: u64,
+    },
+    /// Emitted at core start and whenever the current provider/model or reasoning
+    /// effort changes. Source of truth for the TUI status bar.
+    ConfigChanged {
+        provider: String,
+        model_id: String,
+        reasoning_effort: ReasoningLevel,
     },
 }
 
