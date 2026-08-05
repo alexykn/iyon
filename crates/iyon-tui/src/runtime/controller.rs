@@ -13,6 +13,7 @@ pub(crate) enum FrontendAction {
     RedrawOnly,
     ApprovePendingTool,
     RejectPendingTool,
+    CycleReasoningEffort,
 }
 
 #[derive(Debug, Default)]
@@ -97,6 +98,13 @@ impl AppController {
                         Some("Rejected by user".to_string()),
                     )?;
                 }
+                Ok(true)
+            }
+            FrontendAction::CycleReasoningEffort => {
+                // Optimistic: draw the next effort a frame ahead so the UI never
+                // looks like it ignored the key while core round-trips.
+                state.cycle_reasoning_effort();
+                backend.try_cycle_reasoning_effort()?;
                 Ok(true)
             }
         }

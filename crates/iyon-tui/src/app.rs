@@ -61,6 +61,12 @@ impl App {
     pub(super) fn run(&mut self, terminal: &mut InlineTerminal) -> Result<()> {
         let mut state = AppState::default();
 
+        // Apply any core state already available (e.g. the initial ConfigChanged)
+        // before the first frame so the status bar is populated immediately rather
+        // than waiting for the first user input to trigger a drain.
+        let initial_events = self.backend_handler.drain_events()?;
+        self.apply_backend_events(initial_events, &mut state);
+
         loop {
             self.step(terminal, &mut state)?;
             if matches!(state.exit_state, ExitState::Done) {
@@ -279,6 +285,14 @@ impl App {
                 state.push_tool_result(tool_call_id, tool_name, text, details, is_error);
                 true
             }
+            FrontendEvent::ConfigChanged {
+                provider,
+                model_id,
+                reasoning_effort,
+            } => {
+                state.apply_config(provider, model_id, reasoning_effort);
+                true
+            }
         }
     }
 
@@ -306,7 +320,9 @@ impl App {
             state.active.as_ref(),
             IDLE_POLL_TIMEOUT,
         );
-        let mut timeout = if self.backend_handler.has_in_flight_turn() {
+        let mut timeout = if self.backend_handler.has_in_flight_turn()
+            || self.backend_handler.has_pending_config_sync()
+        {
             active_timeout.min(BACKEND_POLL_INTERVAL)
         } else {
             active_timeout

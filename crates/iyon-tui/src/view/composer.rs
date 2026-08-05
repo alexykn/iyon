@@ -88,6 +88,9 @@ impl RunningFrameComposer {
                 wrapped_ranges: input_wrap_ranges,
             },
             info: InfoView {
+                provider: &state.info.provider,
+                model_id: &state.info.model_id,
+                reasoning_effort: state.info.reasoning_effort,
                 status: &state.info.status,
             },
         }
