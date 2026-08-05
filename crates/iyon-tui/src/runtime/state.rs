@@ -123,9 +123,11 @@ impl AppState {
 
     pub(crate) fn finish_tool_call(&mut self, tool_call_id: String, is_error: bool) {
         self.transcript.finish_tool_call(&tool_call_id, is_error);
-        if let Some(ActivePaneState::Tool { status, .. }) = self.active.as_mut() {
-            *status = ToolActiveStatus::Finished { is_error };
-        }
+        // The tool's output is already rendered in the transcript right above the
+        // input. Drop the redundant "tool x: finished/failed" banner from the active
+        // pane instead of echoing it (failed results are signalled by transcript
+        // styling, not a separate banner).
+        self.active = None;
     }
 
     pub(crate) fn push_tool_result(

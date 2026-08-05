@@ -151,7 +151,6 @@ impl ActivePaneState {
 pub(crate) enum ToolActiveStatus {
     WaitingForApproval { approval_id: u64 },
     Running,
-    Finished { is_error: bool },
 }
 
 #[derive(Debug, Clone)]

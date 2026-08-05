@@ -216,8 +216,6 @@ fn render_tool_active(
     let status = match status {
         ToolActiveStatus::WaitingForApproval { .. } => "approval required",
         ToolActiveStatus::Running => "running",
-        ToolActiveStatus::Finished { is_error: false } => "finished",
-        ToolActiveStatus::Finished { is_error: true } => "failed",
     };
     vec![
         Line::from(""),
