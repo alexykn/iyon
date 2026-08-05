@@ -3,7 +3,7 @@ use ratatui::layout::Rect;
 use crate::{
     input::WrapCache,
     runtime::{
-        AppState,
+        AppState, BottomPanelBar,
         active::{ActiveBehavior, ActivePaneState},
     },
     view::{
@@ -17,6 +17,7 @@ pub(crate) struct RunningView<'a> {
     pub(crate) layout: ComputedLayout,
     pub(crate) chat: ChatView<'a>,
     pub(crate) active: ActiveView<'a>,
+    pub(crate) panel: &'a BottomPanelBar,
     pub(crate) input: InputView<'a>,
     pub(crate) info: InfoView<'a>,
 }
@@ -81,6 +82,7 @@ impl RunningFrameComposer {
             active: ActiveView {
                 active: state.active.as_ref(),
             },
+            panel: &state.bottom_panel,
             input: InputView {
                 text: state.input.text(),
                 cursor_bytes: state.input.cursor_bytes(),
@@ -144,6 +146,7 @@ impl RunningFrameComposer {
     ) -> ComputedLayout {
         let base_cfg = LayoutConfig {
             active_height,
+            panel_height: state.bottom_panel.desired_height(root.width.max(1)),
             commit_capacity_policy,
             ..base_layout.clone()
         };
@@ -160,6 +163,7 @@ impl RunningFrameComposer {
         let active_height = clamp_active_height(
             active_height,
             root.height,
+            base_cfg.panel_height,
             input_height,
             base_cfg.info_height,
         );
@@ -181,12 +185,19 @@ impl RunningFrameComposer {
     }
 }
 
-fn clamp_active_height(desired: u16, root_height: u16, input_height: u16, info_height: u16) -> u16 {
+fn clamp_active_height(
+    desired: u16,
+    root_height: u16,
+    panel_height: u16,
+    input_height: u16,
+    info_height: u16,
+) -> u16 {
     if desired == 0 {
         return 0;
     }
 
     let max_height = root_height
+        .saturating_sub(panel_height)
         .saturating_sub(input_height)
         .saturating_sub(info_height)
         .saturating_sub(MIN_CHAT_HEIGHT);

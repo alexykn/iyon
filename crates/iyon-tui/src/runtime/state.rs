@@ -3,6 +3,7 @@ use crate::{
     runtime::{
         active::{ActivePaneState, ToolActiveStatus},
         backend::ToolUpdatePresentation,
+        panel::BottomPanelBar,
     },
     transcript::{AssistantSegment, SegmentKind, TimelineItem, ToolTimelineStatus, TranscriptState},
 };
@@ -14,6 +15,8 @@ pub(crate) struct AppState {
     pub(crate) transcript: TranscriptState,
     pub(crate) active: Option<ActivePaneState>,
     pub(crate) pending_tool_approval: Option<PendingToolApproval>,
+
+    pub(crate) bottom_panel: BottomPanelBar,
 
     pub(crate) input_view: InputViewState,
     pub(crate) info: InfoState,
@@ -156,8 +159,15 @@ impl AppState {
         // user message is appended after it (not interleaved into a live pane). This
         // is a no-op when no assistant stream is active.
         self.finish_active_turn();
+        // If this user message is a delivered steer, remove it from the pending queue
+        // (it has now actually been sent to the agent).
+        self.bottom_panel.steer_delivered(&text);
         self.append_timeline_item(TimelineItem::UserMessage { text });
         self.start_working_pane();
+    }
+
+    pub(crate) fn enqueue_steer(&mut self, text: String) {
+        self.bottom_panel.steer_queued(text);
     }
 
     pub(crate) fn request_exit(&mut self) {
@@ -332,5 +342,22 @@ mod tests {
         }
         // The active pane is a fresh working spinner (no leftover partial stream).
         assert!(state.active.as_ref().is_some());
+    }
+
+    /// A steered message stays in the pending queue until it is actually delivered to
+    /// the agent; `submit_user_message` (the delivery path) removes it and appends it
+    /// to the transcript.
+    #[test]
+    fn submit_user_message_removes_delivered_steer_from_queue() {
+        let mut state = AppState::default();
+        state.enqueue_steer("hello".to_string());
+        assert_eq!(state.bottom_panel.desired_height(80), 1);
+
+        state.submit_user_message("hello".to_string());
+
+        assert_eq!(state.bottom_panel.desired_height(80), 0);
+        let items = state.transcript.test_items();
+        assert_eq!(items.len(), 1);
+        assert!(matches!(items[0], TimelineItem::UserMessage { .. }));
     }
 }

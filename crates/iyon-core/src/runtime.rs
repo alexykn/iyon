@@ -158,14 +158,18 @@ pub async fn run(
 
                 match command {
                     CoreCommand::SubmitTurn { text } => {
-                        // If a turn is already running, steer the new message into that
-                        // loop rather than aborting it and losing the partial reply.
+                        // If a turn is already running, queue the new message as a steer
+                        // rather than aborting the in-flight reply. It is delivered to the
+                        // running loop at the next turn boundary and shown as pending.
                         if state.active_turn.as_ref().is_some_and(|active| {
                             active
                                 .control_tx
                                 .try_send(AgentLoopControl::Steer { text: text.clone() })
                                 .is_ok()
                         }) {
+                            let _ = event_tx
+                                .send(CoreEvent::SteerQueued { text: text.clone() })
+                                .await;
                             continue;
                         }
                         // The running loop is ending (channel closed); fall through to
@@ -355,7 +359,6 @@ async fn request_interrupt(state: &RuntimeState) {
         return;
     };
     active.cancellation.cancel();
-    let _ = active.control_tx.try_send(AgentLoopControl::Cancel);
 }
 
 /// Hard-aborts the running turn, discarding partial output. Used only on teardown
@@ -367,7 +370,6 @@ async fn cancel_active_turn(state: &mut RuntimeState, event_tx: &mpsc::Sender<Co
     };
 
     active.cancellation.cancel();
-    let _ = active.control_tx.try_send(AgentLoopControl::Cancel);
     active.handle.abort();
     state.mark_turn_finished();
     let _ = event_tx

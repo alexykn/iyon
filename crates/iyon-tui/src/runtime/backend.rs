@@ -15,6 +15,9 @@ pub(crate) enum BackendCommand {
 #[derive(Debug)]
 pub(crate) enum FrontendEvent {
     TurnStarted,
+    SteerQueued {
+        text: String,
+    },
     UserMessage {
         text: String,
     },
@@ -267,6 +270,7 @@ impl BackendEventHandler {
                 self.in_flight = true;
                 Some(FrontendEvent::TurnStarted)
             }
+            CoreEvent::SteerQueued { text } => Some(FrontendEvent::SteerQueued { text }),
             CoreEvent::MessageStarted {
                 message_id, role, ..
             } => {
