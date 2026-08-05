@@ -3,7 +3,10 @@ use ratatui::{
     text::Line,
 };
 
-use crate::transcript::wrap::{TranscriptCommitBoundary, wrap_transcript_rows};
+use crate::{
+    tools::{ToolCallRenderInput, ToolRendererRegistry, ToolResultRenderInput},
+    transcript::wrap::{TranscriptCommitBoundary, wrap_transcript_rows},
+};
 
 #[derive(Debug, Clone)]
 pub(crate) enum TimelineItem {
@@ -41,8 +44,10 @@ pub(crate) enum ToolTimelineStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct TuiFormatter;
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TuiFormatter {
+    tool_renderers: ToolRendererRegistry,
+}
 
 impl TuiFormatter {
     pub(crate) fn format(&self, item: &TimelineItem) -> Vec<Line<'static>> {
@@ -89,20 +94,13 @@ impl TuiFormatter {
         status: ToolTimelineStatus,
     ) -> Vec<Line<'static>> {
         let style = tool_style(status);
-        let status = tool_status_label(status);
-        let mut rows = vec![
-            Line::from(""),
-            Line::styled(format_tool_call_title(tool_name, arguments, status), style),
-        ];
-        let preview = format_tool_call_preview(tool_name, arguments);
-        if !preview.is_empty() {
-            rows.extend(
-                preview
-                    .lines()
-                    .map(|line| Line::styled(format!("  {line}"), style)),
-            );
-        }
-        rows
+        let status_label = tool_status_label(status);
+        self.tool_renderers.render_call(ToolCallRenderInput {
+            tool_name,
+            arguments,
+            status: status_label,
+            style,
+        })
     }
 
     fn format_tool_result(
@@ -117,7 +115,13 @@ impl TuiFormatter {
         } else {
             Style::default().fg(Color::Rgb(113, 128, 150))
         };
-        let mut rows = format_tool_specific_result(tool_name, text, details, is_error, style);
+        let mut rows = self.tool_renderers.render_result(ToolResultRenderInput {
+            tool_name,
+            text,
+            details,
+            is_error,
+            style,
+        });
         rows.push(Line::from(""));
         rows
     }
@@ -166,168 +170,6 @@ fn tool_status_label(status: ToolTimelineStatus) -> &'static str {
     }
 }
 
-fn format_tool_call_title(tool_name: &str, args: &serde_json::Value, status: &str) -> String {
-    match tool_name {
-        "bash" => format!(
-            "● $ {} — {status}",
-            string_arg(args, "command").unwrap_or_default()
-        ),
-        "read" => format!(
-            "● read {}{} — {status}",
-            string_arg(args, "path").unwrap_or("..."),
-            range_suffix(args)
-        ),
-        "write" => format!(
-            "● write {} — {status}",
-            string_arg(args, "path").unwrap_or("...")
-        ),
-        "edit" => format!(
-            "● edit {} — {status}",
-            string_arg(args, "path").unwrap_or("...")
-        ),
-        "grep" => format!(
-            "● grep /{}/ in {} — {status}",
-            string_arg(args, "pattern").unwrap_or(""),
-            string_arg(args, "path").unwrap_or(".")
-        ),
-        "find" => format!(
-            "● find {} in {} — {status}",
-            string_arg(args, "pattern").unwrap_or(""),
-            string_arg(args, "path").unwrap_or(".")
-        ),
-        "ls" => format!(
-            "● ls {} — {status}",
-            string_arg(args, "path").unwrap_or(".")
-        ),
-        _ => format!("● tool {tool_name} — {status}"),
-    }
-}
-
-fn format_tool_call_preview(tool_name: &str, args: &serde_json::Value) -> String {
-    match tool_name {
-        "write" => string_arg(args, "content")
-            .map(truncate_preview_text)
-            .unwrap_or_default(),
-        "edit" => args.get("edits").map(compact_json).unwrap_or_default(),
-        "bash" | "read" | "grep" | "find" | "ls" => String::new(),
-        _ => compact_json(args),
-    }
-}
-
-fn format_tool_specific_result(
-    tool_name: &str,
-    text: &str,
-    details: &serde_json::Value,
-    is_error: bool,
-    style: Style,
-) -> Vec<Line<'static>> {
-    match tool_name {
-        "edit" if !is_error => format_edit_result(text, details, style),
-        "bash" => format_bash_result(text, details, is_error, style),
-        _ => format_generic_tool_result(tool_name, text, is_error, style),
-    }
-}
-
-fn format_generic_tool_result(
-    tool_name: &str,
-    text: &str,
-    is_error: bool,
-    style: Style,
-) -> Vec<Line<'static>> {
-    let title = if is_error { "failed" } else { "result" };
-    let mut rows = vec![Line::styled(format!("  {tool_name} {title}"), style)];
-    rows.extend(indented_body(text, style));
-    rows
-}
-
-fn format_bash_result(
-    text: &str,
-    details: &serde_json::Value,
-    is_error: bool,
-    style: Style,
-) -> Vec<Line<'static>> {
-    let title = if is_error {
-        "bash failed"
-    } else {
-        "bash result"
-    };
-    let mut rows = vec![Line::styled(format!("  {title}"), style)];
-    rows.extend(indented_body(text, style));
-    if let Some(path) = details
-        .get("fullOutputPath")
-        .and_then(serde_json::Value::as_str)
-    {
-        rows.push(Line::styled(
-            format!("  [Full output: {path}]"),
-            Style::default().fg(Color::Yellow),
-        ));
-    }
-    rows
-}
-
-fn format_edit_result(text: &str, details: &serde_json::Value, style: Style) -> Vec<Line<'static>> {
-    let mut rows = vec![Line::styled(format!("  {text}"), style)];
-    if let Some(diff) = details.get("diff").and_then(serde_json::Value::as_str) {
-        rows.extend(diff.lines().map(format_diff_line));
-    }
-    rows
-}
-
-fn format_diff_line(line: &str) -> Line<'static> {
-    let style = if line.starts_with('+') && !line.starts_with("+++") {
-        Style::default().fg(Color::Green)
-    } else if line.starts_with('-') && !line.starts_with("---") {
-        Style::default().fg(Color::Red)
-    } else if line.starts_with("@@") {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default().fg(Color::Rgb(113, 128, 150))
-    };
-    Line::styled(format!("  {line}"), style)
-}
-
-fn indented_body(text: &str, style: Style) -> Vec<Line<'static>> {
-    styled_lines_preserving_newlines(text, style)
-        .into_iter()
-        .map(|line| {
-            let text = line
-                .spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect::<String>();
-            Line::styled(format!("  {text}"), style)
-        })
-        .collect()
-}
-
-fn string_arg<'a>(args: &'a serde_json::Value, key: &str) -> Option<&'a str> {
-    args.get(key).and_then(serde_json::Value::as_str)
-}
-
-fn range_suffix(args: &serde_json::Value) -> String {
-    let offset = args.get("offset").and_then(serde_json::Value::as_u64);
-    let limit = args.get("limit").and_then(serde_json::Value::as_u64);
-    match (offset, limit) {
-        (Some(offset), Some(limit)) => format!(":{offset}-{}", offset + limit.saturating_sub(1)),
-        (Some(offset), None) => format!(":{offset}"),
-        _ => String::new(),
-    }
-}
-
-fn compact_json(value: &serde_json::Value) -> String {
-    serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
-}
-
-fn truncate_preview_text(text: &str) -> String {
-    const MAX_CHARS: usize = 800;
-    if text.chars().count() <= MAX_CHARS {
-        return text.to_string();
-    }
-    let mut output: String = text.chars().take(MAX_CHARS).collect();
-    output.push('…');
-    output
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct TranscriptState {
     canonical_items: Vec<TimelineItem>,
@@ -345,7 +187,7 @@ impl Default for TranscriptState {
             logical_rows_cache: Vec::new(),
             rendered_rows_cache: None,
             commit_boundary: TranscriptCommitBoundary::default(),
-            formatter: TuiFormatter,
+            formatter: TuiFormatter::default(),
             assistant_stream_open: false,
         }
     }
@@ -622,7 +464,7 @@ mod tests {
 
     #[test]
     fn formatter_preserves_multiline_message_shape() {
-        let formatter = TuiFormatter;
+        let formatter = TuiFormatter::default();
         let item = TimelineItem::UserMessage {
             text: "line1\nline2\n".to_string(),
         };
