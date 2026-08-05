@@ -72,6 +72,45 @@ This keeps shutdown deterministic and avoids dropping transcript rows.
 - `scroll: u16`
 - `exit_state: ExitState`
 
+## `InfoState` (status bar)
+
+`InfoState` is the bottom status bar below the input box, rendered by `InfoView`.
+It holds structured presentation fields rather than a preformatted string:
+
+- `provider: String`
+- `model_id: String`
+- `reasoning_effort: ReasoningLevel`
+- `status: String` (transient/status text, e.g. errors)
+
+`InfoView` composes the single canonical line (`provider · model_id · effort: X`) in
+the renderer, so the live frame and any future scrollback use the same formatting.
+
+### Selection sync: optimistic draw-ahead, core-authoritative
+
+Model/provider/reasoning effort belong to core (`SessionState`). Core emits
+`CoreEvent::ConfigChanged { provider, model_id, reasoning_effort }` at startup and
+on every change; `BackendEventHandler` lowers it to `FrontendEvent::ConfigChanged`
+and `AppState::apply_config` hard-anchors `InfoState` to it.
+
+Shift+Tab cycles reasoning effort. The TUI is **optimistic**: on the keypress it
+immediately advances the displayed effort one frame ahead (`AppState::cycle_reasoning_effort`)
+and sends `CoreCommand::CycleReasoningEffort`. Because the TUI and core both compute
+the next step from the same shared pure function
+(`ReasoningLevel::next_for`), they always agree, so the optimistic frame is never
+wrong in practice.
+
+Core remains authoritative for requests: the request builder reads
+`SessionState.reasoning_effort`, not the TUI value. When the `ConfigChanged` echo
+round-trips, the TUI snaps back to core's value; if core reports it did not change,
+the TUI reflects that. This keeps the UI from appearing laggy (the old behaviour
+only redrew config on the next input, making it look like a subsequent keypress
+re-cycled the effort) without ever letting the display drive the agent loop.
+
+To make the hard anchor real-time rather than deferred, `BackendEventHandler`
+flags `config_refresh_pending` while a config command is outstanding, and the
+`App` loop wakes at `BACKEND_POLL_INTERVAL` to drain it (the same mechanism already
+used for in-flight turns).
+
 ## `TranscriptState`
 
 - `canonical_items: Vec<TimelineItem>`
@@ -231,7 +270,9 @@ Behavior:
 - Initial frame draws immediately.
 - Without active animation or backend in-flight state, the input poll timeout is long and idle redraws stop.
 - While `WorkingSpinner` is active, the loop wakes at the spinner tick rate and redraws only when the spinner advances.
-- While a backend turn is in flight, the loop also wakes at `BACKEND_POLL_INTERVAL` to drain `mpsc` events, but redraws only if events were received/applied.
+- While a backend turn is in flight, or a config-sync command is outstanding, the
+  loop wakes at `BACKEND_POLL_INTERVAL` to drain `mpsc` events, but redraws only if
+  events were received/applied.
 - Backend event ingestion is structurally wired through `BackendEventHandler`, backed by `iyon-core` and the mock `iyon-api` provider.
 
 In crossterm-style sync code this remains:

@@ -435,6 +435,8 @@ pub enum CoreCommand {
 
     CancelActiveTurn,
 
+    CycleReasoningEffort,
+
     ApproveToolCall {
         approval_id: ApprovalId,
     },
@@ -529,6 +531,14 @@ pub enum CoreEvent {
         message: String,
     },
 
+    /// Emitted at core start and whenever the provider/model or reasoning effort
+    /// changes. Source of truth for the TUI status bar.
+    ConfigChanged {
+        provider: String,
+        model_id: String,
+        reasoning_effort: ReasoningLevel,
+    },
+
     RegistryUpdated,
 }
 ```
@@ -596,6 +606,7 @@ pub struct SessionState {
     pub cwd: PathBuf,
     pub messages: Vec<AgentMessage>,
     pub model: ModelSelection,
+    pub reasoning_effort: ReasoningLevel,
     pub system_prompt: String,
     pub metadata: SessionMetadata,
 }
