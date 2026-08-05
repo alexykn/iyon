@@ -23,13 +23,75 @@ pub struct ModelMetadata {
     pub user_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ReasoningLevel {
+    None,
     Minimal,
     Low,
+    #[default]
     Medium,
     High,
     XHigh,
+    Max,
+}
+
+impl ReasoningLevel {
+    /// The full OpenAI-style effort set in ascending order. Both OpenAI and
+    /// OpenRouter use these exact effort names.
+    pub const ALL: [ReasoningLevel; 7] = [
+        ReasoningLevel::None,
+        ReasoningLevel::Minimal,
+        ReasoningLevel::Low,
+        ReasoningLevel::Medium,
+        ReasoningLevel::High,
+        ReasoningLevel::XHigh,
+        ReasoningLevel::Max,
+    ];
+
+    /// The wire-level effort string sent to providers.
+    pub fn code(self) -> &'static str {
+        match self {
+            ReasoningLevel::None => "none",
+            ReasoningLevel::Minimal => "minimal",
+            ReasoningLevel::Low => "low",
+            ReasoningLevel::Medium => "medium",
+            ReasoningLevel::High => "high",
+            ReasoningLevel::XHigh => "xhigh",
+            ReasoningLevel::Max => "max",
+        }
+    }
+
+    /// Candidate effort levels a provider accepts, in ascending cycle order.
+    ///
+    /// Both OpenAI and OpenRouter accept the full set (model-dependent for
+    /// OpenAI; OpenRouter narrows per model via `/api/v1/models`
+    /// `reasoning.supported_efforts`, which we will consult once the model
+    /// catalog lands). Non-reasoning providers (e.g. mock) return none.
+    pub fn candidates(provider: &str) -> &'static [ReasoningLevel] {
+        match provider {
+            "openai-codex" | "openai" | "codex" | "openrouter" => &ReasoningLevel::ALL,
+            _ => &[],
+        }
+    }
+
+    /// The next effort level after `current` in cycle order for `provider`,
+    /// wrapping around. Returns `current` unchanged when the provider has no
+    /// reasoning candidates (e.g. mock).
+    ///
+    /// Shared by the core (authoritative selection) and the TUI (optimistic
+    /// draw-ahead) so both always compute the exact same step from the same
+    /// base value, which keeps them in lockstep.
+    pub fn next_for(current: ReasoningLevel, provider: &str) -> ReasoningLevel {
+        let candidates = Self::candidates(provider);
+        if candidates.is_empty() {
+            return current;
+        }
+        let index = candidates
+            .iter()
+            .position(|&level| level == current)
+            .unwrap_or(0);
+        candidates[(index + 1) % candidates.len()]
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -446,13 +446,11 @@ fn build_request_body(request: ModelRequest, session_id: &str) -> Value {
         Value::Array(request.tools.into_iter().map(convert_tool).collect())
     };
 
-    let effort = match request.params.reasoning.unwrap_or(ReasoningLevel::Medium) {
-        ReasoningLevel::Minimal => "minimal",
-        ReasoningLevel::Low => "low",
-        ReasoningLevel::Medium => "medium",
-        ReasoningLevel::High => "high",
-        ReasoningLevel::XHigh => "xhigh",
-    };
+    let effort = request
+        .params
+        .reasoning
+        .unwrap_or(ReasoningLevel::Medium)
+        .code();
 
     let mut body = json!({
         "model": DEFAULT_MODEL,
