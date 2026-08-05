@@ -6,6 +6,7 @@ use crate::{
     },
     transcript::{TimelineItem, ToolTimelineStatus, TranscriptState},
 };
+use iyon_core::ReasoningLevel;
 
 #[derive(Debug, Default)]
 pub(crate) struct AppState {
@@ -195,6 +196,26 @@ impl AppState {
         self.finish_active_turn();
         self.append_error_message(message);
     }
+
+    pub(crate) fn apply_config(
+        &mut self,
+        provider: String,
+        model_id: String,
+        reasoning_effort: ReasoningLevel,
+    ) {
+        self.info.provider = provider;
+        self.info.model_id = model_id;
+        self.info.reasoning_effort = reasoning_effort;
+    }
+
+    /// Optimistically advances the displayed reasoning effort to the next
+    /// provider-supported level using the same shared step the core applies.
+    /// Purely presentational; the core remains authoritative and re-anchors
+    /// this value via `apply_config` on the next `ConfigChanged` round-trip.
+    pub(crate) fn cycle_reasoning_effort(&mut self) {
+        let provider = self.info.provider.as_str();
+        self.info.reasoning_effort = ReasoningLevel::next_for(self.info.reasoning_effort, provider);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -257,4 +278,7 @@ pub(crate) struct InputViewState {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct InfoState {
     pub(crate) status: String,
+    pub(crate) provider: String,
+    pub(crate) model_id: String,
+    pub(crate) reasoning_effort: ReasoningLevel,
 }

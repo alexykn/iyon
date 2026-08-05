@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt};
 use anyhow::Result;
 use iyon_core::{
     CoreCommand, CoreCommandSender, CoreEvent, CoreEventReceiver, IyonCore, MessageDelta,
-    MessageRole, ToolUpdateEvent,
+    MessageRole, ReasoningLevel, ToolUpdateEvent,
 };
 
 #[derive(Debug)]
@@ -62,6 +62,11 @@ pub(crate) enum FrontendEvent {
         details: serde_json::Value,
         is_error: bool,
     },
+    ConfigChanged {
+        provider: String,
+        model_id: String,
+        reasoning_effort: ReasoningLevel,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +98,11 @@ pub(crate) struct BackendEventHandler {
     command_tx: Option<CoreCommandSender>,
     event_rx: Option<CoreEventReceiver>,
     in_flight: bool,
+    /// True while a control command that produces a `ConfigChanged` echo is
+    /// outstanding, so the event loop wakes at the drain interval to receive it.
+    /// Starts true so the initial `ConfigChanged` (provider/model/effort) is
+    /// drained promptly on startup and the status bar populates early.
+    config_refresh_pending: bool,
     message_roles: HashMap<u64, MessageRole>,
     tool_results: HashMap<u64, PendingToolResultPresentation>,
 }
@@ -123,6 +133,7 @@ impl Default for BackendEventHandler {
                 command_tx: None,
                 event_rx: None,
                 in_flight: false,
+                config_refresh_pending: false,
                 message_roles: HashMap::new(),
                 tool_results: HashMap::new(),
             },
@@ -153,6 +164,9 @@ impl BackendEventHandler {
             command_tx: Some(command_tx),
             event_rx: Some(event_rx),
             in_flight: false,
+            // Pending until the first ConfigChanged lands, so the loop wakes to
+            // pull it in and the status bar is not empty on the first frame.
+            config_refresh_pending: true,
             message_roles: HashMap::new(),
             tool_results: HashMap::new(),
         }
@@ -174,6 +188,16 @@ impl BackendEventHandler {
         };
 
         command_tx.try_send(CoreCommand::CancelActiveTurn)?;
+        Ok(())
+    }
+
+    pub(crate) fn try_cycle_reasoning_effort(&mut self) -> Result<()> {
+        let Some(command_tx) = self.command_tx.as_ref() else {
+            return Ok(());
+        };
+
+        command_tx.try_send(CoreCommand::CycleReasoningEffort)?;
+        self.config_refresh_pending = true;
         Ok(())
     }
 
@@ -204,6 +228,10 @@ impl BackendEventHandler {
 
     pub(crate) fn has_in_flight_turn(&self) -> bool {
         self.in_flight
+    }
+
+    pub(crate) fn has_pending_config_sync(&self) -> bool {
+        self.config_refresh_pending
     }
 
     pub(crate) fn take_event_receiver(&mut self) -> Option<CoreEventReceiver> {
@@ -362,6 +390,18 @@ impl BackendEventHandler {
                 self.message_roles.clear();
                 Some(FrontendEvent::TurnCancelled)
             }
+            CoreEvent::ConfigChanged {
+                provider,
+                model_id,
+                reasoning_effort,
+            } => {
+                self.config_refresh_pending = false;
+                Some(FrontendEvent::ConfigChanged {
+                    provider,
+                    model_id,
+                    reasoning_effort,
+                })
+            },
         }
     }
 }

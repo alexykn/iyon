@@ -3,7 +3,7 @@ use std::{ops::Range, time::Duration};
 use anyhow::Result;
 use crossterm::event::{
     self, Event,
-    KeyCode::{Backspace, Char, Down, End, Enter, Esc, Home, Left, Right, Up},
+    KeyCode::{BackTab, Backspace, Char, Down, End, Enter, Esc, Home, Left, Right, Tab, Up},
     KeyEvent,
     KeyEventKind::{Press, Repeat},
     KeyModifiers,
@@ -41,6 +41,7 @@ enum CustomKeyEvent {
     MoveLeftOne,
     MoveLeftWord,
     MoveLineStart,
+    CycleReasoningEffort,
 }
 
 fn map_approval_key_event(key_event: KeyEvent) -> Option<FrontendAction> {
@@ -93,6 +94,9 @@ fn map_key_event(key_event: KeyEvent) -> CustomKeyEvent {
         (Char('b'), m) if m == KeyModifiers::ALT => CustomKeyEvent::MoveLeftWord,
         (Home, KeyModifiers::NONE) => CustomKeyEvent::MoveLineStart,
         (Char('a'), m) if m == KeyModifiers::CONTROL => CustomKeyEvent::MoveLineStart,
+
+        (BackTab, _) => CustomKeyEvent::CycleReasoningEffort,
+        (Tab, m) if m.contains(KeyModifiers::SHIFT) => CustomKeyEvent::CycleReasoningEffort,
 
         (Char(c), m) => {
             let is_altgr = m.contains(KeyModifiers::CONTROL) && m.contains(KeyModifiers::ALT);
@@ -334,6 +338,7 @@ impl InputEventHandler {
                 editor.move_line_start();
                 vec![FrontendAction::RedrawOnly]
             }
+            CustomKeyEvent::CycleReasoningEffort => vec![FrontendAction::CycleReasoningEffort],
             CustomKeyEvent::None => Vec::new(),
         }
     }

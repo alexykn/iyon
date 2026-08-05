@@ -13,6 +13,7 @@ use crate::{
     runtime::active::{ActivePaneKind, ActivePaneState, ToolActiveStatus},
     view::RunningView,
 };
+use iyon_core::ReasoningLevel;
 
 const MAX_INPUT_HEIGHT: u16 = 13;
 
@@ -45,6 +46,9 @@ impl View for ActiveView<'_> {}
 
 #[derive(Debug, Clone)]
 pub(crate) struct InfoView<'a> {
+    pub(crate) provider: &'a str,
+    pub(crate) model_id: &'a str,
+    pub(crate) reasoning_effort: ReasoningLevel,
     pub(crate) status: &'a str,
 }
 impl View for InfoView<'_> {}
@@ -328,7 +332,20 @@ impl Renderable<ChatView<'_>> for Renderer {
 
 impl Renderable<InfoView<'_>> for Renderer {
     fn render(&self, view: &InfoView, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        let widget = Paragraph::new(view.status).wrap(Wrap { trim: false });
+        let mut parts: Vec<String> = Vec::new();
+        if !view.provider.is_empty() {
+            parts.push(view.provider.to_string());
+        }
+        if !view.model_id.is_empty() {
+            parts.push(view.model_id.to_string());
+        }
+        if !view.provider.is_empty() || !view.model_id.is_empty() {
+            parts.push(format!("effort: {}", view.reasoning_effort.code()));
+        }
+        if !view.status.is_empty() {
+            parts.push(view.status.to_string());
+        }
+        let widget = Paragraph::new(parts.join(" · ")).wrap(Wrap { trim: false });
         frame.render_widget(widget, area);
     }
 }
