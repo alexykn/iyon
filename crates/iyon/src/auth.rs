@@ -40,6 +40,24 @@ struct TokenResponse {
     expires_in: u64,
 }
 
+pub(crate) fn has_codex_credentials() -> bool {
+    load_credentials().is_ok_and(|creds| creds.is_some())
+}
+
+/// Returns an OpenRouter API key from `OPENROUTER_API_KEY` (preferred) or the OS keyring.
+pub(crate) fn openrouter_api_key() -> Option<String> {
+    if let Ok(key) = std::env::var("OPENROUTER_API_KEY")
+        && !key.trim().is_empty()
+    {
+        return Some(key);
+    }
+    let entry = keyring::Entry::new(KEYRING_SERVICE, "openrouter").ok()?;
+    entry
+        .get_password()
+        .ok()
+        .filter(|key| !key.trim().is_empty())
+}
+
 pub(crate) fn load_credentials() -> Result<Option<CodexCredentials>> {
     for account in [PROVIDER, "openai_codex", "openai-codex-responses"] {
         let entry = keyring::Entry::new(KEYRING_SERVICE, account)?;
