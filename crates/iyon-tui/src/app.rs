@@ -108,6 +108,7 @@ impl App {
             timeout,
             &mut input_editor,
             state.pending_tool_approval.is_some(),
+            &mut state.bottom_panel,
         )?;
         let input_dirty =
             self.controller
@@ -203,6 +204,10 @@ impl App {
         match event {
             FrontendEvent::TurnStarted => {
                 state.start_working_pane();
+                true
+            }
+            FrontendEvent::SteerQueued { text } => {
+                state.enqueue_steer(text);
                 true
             }
             FrontendEvent::UserMessage { text } => {

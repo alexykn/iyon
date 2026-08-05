@@ -15,7 +15,7 @@ use crate::{
             ToolExecutionInput, ToolExecutionOutcome, execute_tool_call, invalid_tool_call_result,
         },
         transcript::AgentMessage,
-        turn::{InterruptionReason, ModelTurnInput, ModelTurnOutcome, run_model_turn},
+        turn::{ModelTurnInput, ModelTurnOutcome, run_model_turn},
     },
     fs::Workspace,
     ids::{MessageId, TurnId},
@@ -112,6 +112,23 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
                 next_approval_id,
             });
         }
+
+        // Deliver ALL queued steering messages as context before the next model
+        // response. Steering is drained only at these natural turn boundaries, never
+        // mid-stream, so a steered message never aborts the in-flight reply. Like pi,
+        // the whole pending queue is drained at once so the model sees every queued
+        // message in a single request (one response to them all).
+        let steers = drain_steers(&mut control_rx);
+        inject_steered_messages(
+            &event_tx,
+            turn_id,
+            &mut ids,
+            &mut session,
+            &mut produced_messages,
+            steers,
+        )
+        .await?;
+
         let request = build_model_request(RequestBuildContext {
             session: &session,
             tools: Some(&tools),
@@ -123,7 +140,6 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
             request,
             model: Arc::clone(&model),
             event_tx: event_tx.clone(),
-            control_rx: &mut control_rx,
             cancellation: cancellation.child_token(),
         })
         .await?;
@@ -151,6 +167,22 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
                 match classify_stop_reason(stop_reason, has_tool_calls)? {
                     LoopAction::ExecuteTools => {}
                     LoopAction::Finish => {
+                        // Steers may have arrived while this response was streaming. If
+                        // any did, deliver them all and keep the agent running (one
+                        // response to the whole batch) instead of stopping.
+                        let steers = drain_steers(&mut control_rx);
+                        if !steers.is_empty() {
+                            inject_steered_messages(
+                                &event_tx,
+                                turn_id,
+                                &mut ids,
+                                &mut session,
+                                &mut produced_messages,
+                                steers,
+                            )
+                            .await?;
+                            continue;
+                        }
                         return complete_agent_loop(
                             &event_tx,
                             turn_id,
@@ -193,41 +225,62 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
                     });
                 }
             }
-            ModelTurnOutcome::Interrupted {
-                assistant_message,
-                reason,
-            } => {
+            ModelTurnOutcome::Interrupted { assistant_message } => {
                 // Preserve the partial assistant reply in the session so a follow-up
                 // turn (or the next user submission) continues from it.
                 session.messages.push(assistant_message.clone());
                 produced_messages.push(assistant_message);
-                match reason {
-                    InterruptionReason::Cancelled => {
-                        return Ok(TurnOutcome::Cancelled {
-                            messages: produced_messages,
-                            next_message_id: ids.next_raw(),
-                            next_approval_id,
-                        });
-                    }
-                    InterruptionReason::Steered { text } => {
-                        let message_id = ids.next();
-                        emit_user_message(&event_tx, turn_id, message_id, &text).await?;
-                        let user_message = AgentMessage::User {
-                            id: message_id,
-                            content: vec![ContentBlock::Text {
-                                text: text.clone(),
-                            }],
-                            timestamp: SystemTime::now(),
-                        };
-                        session.messages.push(user_message.clone());
-                        produced_messages.push(user_message);
-                        // Continue the loop: the next model request includes the partial
-                        // assistant reply plus the steered user message.
-                    }
-                }
+                return Ok(TurnOutcome::Cancelled {
+                    messages: produced_messages,
+                    next_message_id: ids.next_raw(),
+                    next_approval_id,
+                });
             }
         }
     }
+}
+
+/// Drains ALL queued `Steer` messages, preserving their arrival order, and returns
+/// them. Runs only at turn boundaries; approval/reject controls should never be present
+/// there (they are consumed during tool execution) and are skipped defensively.
+fn drain_steers(control_rx: &mut mpsc::Receiver<AgentLoopControl>) -> Vec<String> {
+    let mut texts = Vec::new();
+    loop {
+        match control_rx.try_recv() {
+            Ok(AgentLoopControl::Steer { text }) => texts.push(text),
+            Ok(_) => continue,
+            Err(mpsc::error::TryRecvError::Empty | mpsc::error::TryRecvError::Disconnected) => {
+                break
+            }
+        }
+    }
+    texts
+}
+
+/// Emits and appends each steered user message to the session/produced messages so the
+/// next model request carries the whole batch as context.
+async fn inject_steered_messages(
+    event_tx: &mpsc::Sender<CoreEvent>,
+    turn_id: TurnId,
+    ids: &mut MessageIdAllocator,
+    session: &mut SessionState,
+    produced_messages: &mut Vec<AgentMessage>,
+    texts: Vec<String>,
+) -> anyhow::Result<()> {
+    for text in texts {
+        let message_id = ids.next();
+        emit_user_message(event_tx, turn_id, message_id, &text).await?;
+        let user_message = AgentMessage::User {
+            id: message_id,
+            content: vec![ContentBlock::Text {
+                text: text.clone(),
+            }],
+            timestamp: SystemTime::now(),
+        };
+        session.messages.push(user_message.clone());
+        produced_messages.push(user_message);
+    }
+    Ok(())
 }
 
 async fn emit_user_message(
@@ -510,14 +563,15 @@ mod tests {
     #[tokio::test]
     async fn cancel_returns_partials_for_commit() {
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(64);
-        let (model, mut senders) = queued(1);
-        let (control_tx, control_rx) = tokio::sync::mpsc::channel(8);
+        let (model, senders) = queued(1);
+        let (_control_tx, control_rx) = tokio::sync::mpsc::channel(8);
+        let cancel = CancellationToken::new();
 
         let handle = tokio::spawn(run_agent_loop(loop_input(
             model,
             event_tx.clone(),
             control_rx,
-            CancellationToken::new(),
+            cancel.clone(),
         )));
 
         senders[0].send(ModelStreamEvent::Started).await.unwrap();
@@ -530,7 +584,8 @@ mod tests {
             .unwrap();
         wait_for_assistant_text(&mut event_rx, "partial").await;
 
-        control_tx.send(AgentLoopControl::Cancel).await.unwrap();
+        // Esc-interrupt == cancellation token; the partial reply is preserved.
+        cancel.cancel();
 
         let outcome = handle.await.unwrap();
         let TurnOutcome::Cancelled { messages, .. } = outcome else {
@@ -540,11 +595,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn steer_injects_user_message_and_continues() {
+    async fn steer_waits_for_response_to_complete_then_continues() {
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(64);
-        // Two model turns: the partial reply (interrupted by steer), then the answer
-        // to the steered message.
-        let (model, mut senders) = queued(2);
+        // Two model turns: a full first response, then the answer to the steer.
+        let (model, senders) = queued(2);
         let (control_tx, control_rx) = tokio::sync::mpsc::channel(8);
 
         let handle = tokio::spawn(run_agent_loop(loop_input(
@@ -554,20 +608,27 @@ mod tests {
             CancellationToken::new(),
         )));
 
-        // Turn 1: stream a partial reply, then steer before it finishes.
+        // Turn 1: a FULL response that reaches Stop. A steer is queued while it
+        // streams, but must NOT interrupt it — the response runs to completion first.
         senders[0].send(ModelStreamEvent::Started).await.unwrap();
         senders[0]
             .send(ModelStreamEvent::TextDelta {
                 content_index: 0,
-                delta: "partial reply".to_string(),
+                delta: "first full reply".to_string(),
             })
             .await
             .unwrap();
-        wait_for_assistant_text(&mut event_rx, "partial").await;
+        wait_for_assistant_text(&mut event_rx, "first full reply").await;
 
         control_tx
             .send(AgentLoopControl::Steer {
                 text: "steer!".to_string(),
+            })
+            .await
+            .unwrap();
+        senders[0]
+            .send(ModelStreamEvent::Done {
+                stop_reason: StopReason::Stop,
             })
             .await
             .unwrap();
@@ -593,15 +654,11 @@ mod tests {
             panic!("expected Completed, got {outcome:?}");
         };
 
-        // [partial assistant, steered user, answer assistant]
+        // [full assistant (not interrupted), steered user, answer assistant]
         assert_eq!(messages.len(), 3, "messages: {messages:?}");
-        assert!(assistant_text(&messages[0], "partial"), "messages: {messages:?}");
-        assert!(
-            matches!(&messages[1], AgentMessage::User { .. }),
-            "messages: {messages:?}"
-        );
+        assert!(assistant_text(&messages[0], "first full reply"), "messages: {messages:?}");
         let AgentMessage::User { content, .. } = &messages[1] else {
-            unreachable!()
+            panic!("expected user message at index 1: {messages:?}")
         };
         assert!(
             content
@@ -610,5 +667,79 @@ mod tests {
             "messages: {messages:?}"
         );
         assert!(assistant_text(&messages[2], "the answer"), "messages: {messages:?}");
+    }
+
+    #[tokio::test]
+    async fn multiple_steers_are_drained_at_once_into_one_response() {
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(64);
+        // Two model turns: the full first response, then ONE answer to the whole batch.
+        let (model, senders) = queued(2);
+        let (control_tx, control_rx) = tokio::sync::mpsc::channel(8);
+
+        let handle = tokio::spawn(run_agent_loop(loop_input(
+            model,
+            event_tx.clone(),
+            control_rx,
+            CancellationToken::new(),
+        )));
+
+        // Turn 1: a full response; three steers queue while it streams.
+        senders[0].send(ModelStreamEvent::Started).await.unwrap();
+        senders[0]
+            .send(ModelStreamEvent::TextDelta {
+                content_index: 0,
+                delta: "first reply".to_string(),
+            })
+            .await
+            .unwrap();
+        wait_for_assistant_text(&mut event_rx, "first reply").await;
+
+        for text in ["a", "b", "c"] {
+            control_tx
+                .send(AgentLoopControl::Steer {
+                    text: text.to_string(),
+                })
+                .await
+                .unwrap();
+        }
+        senders[0]
+            .send(ModelStreamEvent::Done {
+                stop_reason: StopReason::Stop,
+            })
+            .await
+            .unwrap();
+
+        // Turn 2: a single response addressing all three steers at once.
+        senders[1].send(ModelStreamEvent::Started).await.unwrap();
+        senders[1]
+            .send(ModelStreamEvent::TextDelta {
+                content_index: 0,
+                delta: "batch answer".to_string(),
+            })
+            .await
+            .unwrap();
+        senders[1]
+            .send(ModelStreamEvent::Done {
+                stop_reason: StopReason::Stop,
+            })
+            .await
+            .unwrap();
+
+        let outcome = handle.await.unwrap();
+        let TurnOutcome::Completed { messages, .. } = outcome else {
+            panic!("expected Completed, got {outcome:?}");
+        };
+
+        // [assistant1, User(a), User(b), User(c), assistant2] — all steers are injected
+        // together, feeding a single follow-up response.
+        assert_eq!(messages.len(), 5, "messages: {messages:?}");
+        assert!(assistant_text(&messages[0], "first reply"), "messages: {messages:?}");
+        for idx in 1..=3 {
+            assert!(
+                matches!(&messages[idx], AgentMessage::User { .. }),
+                "message {idx} should be an injected steer: {messages:?}"
+            );
+        }
+        assert!(assistant_text(&messages[4], "batch answer"), "messages: {messages:?}");
     }
 }

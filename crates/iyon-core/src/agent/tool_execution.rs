@@ -299,7 +299,7 @@ async fn await_approval_if_required(input: ApprovalInput<'_>) -> ApprovalDecisio
                     emit_approval_resolved(event_tx, turn_id, approval_id, call, false, reason.clone()).await;
                     return ApprovalDecision::Rejected { reason };
                 }
-                Some(AgentLoopControl::Cancel) | None => return ApprovalDecision::Cancelled,
+                None => return ApprovalDecision::Cancelled,
                 Some(_) => {}
             }
         }
