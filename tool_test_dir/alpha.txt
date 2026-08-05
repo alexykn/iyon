@@ -4,3 +4,4 @@ line3: pattern_XYZ
 line3b: inserted_by_edit
 line4: duplicate
 line5: duplicate
+line6: edited_now
