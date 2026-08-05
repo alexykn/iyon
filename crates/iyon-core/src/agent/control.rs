@@ -3,6 +3,7 @@ use crate::ids::ApprovalId;
 #[derive(Debug)]
 pub(crate) enum AgentLoopControl {
     Cancel,
+    Steer { text: String },
     ApproveToolCall {
         approval_id: ApprovalId,
     },

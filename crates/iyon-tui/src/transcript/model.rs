@@ -442,6 +442,11 @@ impl TranscriptState {
         self.rebuild_logical_rows_cache();
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_items(&self) -> &[TimelineItem] {
+        &self.canonical_items
+    }
+
     fn append_assistant_segments(&mut self, incoming: Vec<AssistantSegment>, stream_open: bool) {
         if incoming.is_empty() {
             return;

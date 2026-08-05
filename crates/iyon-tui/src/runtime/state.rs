@@ -151,6 +151,11 @@ impl AppState {
     }
 
     pub(crate) fn submit_user_message(&mut self, text: String) {
+        // A steered message can arrive while the agent is still streaming a partial
+        // reply. Finalize that partial as a complete assistant message first so the
+        // user message is appended after it (not interleaved into a live pane). This
+        // is a no-op when no assistant stream is active.
+        self.finish_active_turn();
         self.append_timeline_item(TimelineItem::UserMessage { text });
         self.start_working_pane();
     }
@@ -287,4 +292,45 @@ pub(crate) struct InfoState {
     pub(crate) provider: String,
     pub(crate) model_id: String,
     pub(crate) reasoning_effort: ReasoningLevel,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A steered message submitted while the agent is mid-stream must first commit the
+    /// partial assistant reply as a complete message, then append the user message —
+    /// never interleave the user message into the live streaming pane.
+    #[test]
+    fn submit_user_message_finalizes_active_assistant() {
+        let mut state = AppState::default();
+
+        // Stream a partial assistant reply into the active pane.
+        state.receive_stream_segments(vec![(SegmentKind::Text, "partial reply".to_string())]);
+
+        // Steer while streaming.
+        state.submit_user_message("steer message".to_string());
+
+        let items = state.transcript.test_items();
+        assert_eq!(items.len(), 2);
+        match &items[0] {
+            TimelineItem::AssistantMessage { segments } => {
+                let text: String = segments
+                    .iter()
+                    .filter_map(|s| match s {
+                        AssistantSegment::Text(t) => Some(t.clone()),
+                        AssistantSegment::Thinking(_) => None,
+                    })
+                    .collect();
+                assert_eq!(text, "partial reply");
+            }
+            other => panic!("expected assistant message first, got {other:?}"),
+        }
+        match &items[1] {
+            TimelineItem::UserMessage { text } => assert_eq!(text, "steer message"),
+            other => panic!("expected user message after assistant, got {other:?}"),
+        }
+        // The active pane is a fresh working spinner (no leftover partial stream).
+        assert!(state.active.as_ref().is_some());
+    }
 }
