@@ -7,6 +7,7 @@ use crate::transcript::{
     model::TuiFormatter,
     slice_segments,
     wrap::{TranscriptCommitBoundary, wrap_transcript_rows},
+    row::TranscriptRow,
 };
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -366,7 +367,7 @@ impl ActiveStreamState {
         for (index, row) in rows.iter().enumerate() {
             if index == boundary.logical_row {
                 let mut within_row = 0usize;
-                for (span_index, span) in row.spans.iter().enumerate() {
+                for (span_index, span) in row.line.spans.iter().enumerate() {
                     if span_index == boundary.span_index {
                         within_row += boundary.byte_offset.min(span.content.len());
                         return byte + within_row;
@@ -376,7 +377,7 @@ impl ActiveStreamState {
                 // Boundary refers past this row's spans: end of the row.
                 return byte + within_row;
             }
-            byte += row_byte_len(row) + 1; // + the '\n' between logical rows
+            byte += row_byte_len(&row.line) + 1; // + the '\n' between logical rows
         }
 
         byte
@@ -394,7 +395,7 @@ fn row_byte_len(row: &Line<'static>) -> usize {
 #[derive(Debug, Clone)]
 struct ActiveStreamRenderCache {
     key: (u64, u16),
-    logical_rows: Vec<Line<'static>>,
+    logical_rows: Vec<TranscriptRow>,
     body_rows: Vec<Line<'static>>,
     row_end_boundaries: Vec<TranscriptCommitBoundary>,
 }
@@ -580,7 +581,7 @@ mod tests {
 
         let cache = stream.render_cache.as_ref().expect("render cache");
         assert_eq!(cache.logical_rows.len(), 1);
-        assert_eq!(cache.logical_rows[0].spans.len(), 2);
+        assert_eq!(cache.logical_rows[0].line.spans.len(), 2);
         // Spans: ["A"(text), "B"(thinking)] -> flat bytes A=0, B=1.
         let end_of_a = TranscriptCommitBoundary {
             logical_row: 0,

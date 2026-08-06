@@ -1,5 +1,6 @@
-use ratatui::{style::{Color, Style}, text::Line};
+use ratatui::style::{Color, Style};
 
+use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     registry::ToolRenderer,
     types::{ToolCallRenderInput, ToolResultRenderInput},
@@ -13,35 +14,41 @@ impl ToolRenderer for EditRenderer {
         "edit"
     }
 
-    fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<Line<'static>> {
+    fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<TranscriptRow> {
         let path = input
             .arguments
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("...");
         let mut rows = vec![
-            Line::from(""),
-            Line::styled(format!("● edit {path} — {}", input.status), input.style),
+            TranscriptRow::blank(),
+            TranscriptRow::styled(format!("● edit {path} — {}", input.status), input.style),
         ];
         if let Some(edits) = input.arguments.get("edits") {
-            let preview = serde_json::to_string_pretty(edits).unwrap_or_else(|_| edits.to_string());
+            let preview =
+                serde_json::to_string_pretty(edits).unwrap_or_else(|_| edits.to_string());
             rows.extend(
                 preview
                     .lines()
-                    .map(|line| Line::styled(format!("  {line}"), input.style)),
+                    .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
             );
         }
         rows
     }
 
-    fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<Line<'static>> {
+    fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
         if input.is_error {
-            let mut rows = vec![Line::styled("  edit failed", input.style)];
-            rows.extend(input.text.split('\n').map(|line| Line::styled(format!("  {line}"), input.style)));
+            let mut rows = vec![TranscriptRow::indented("edit failed", input.style)];
+            rows.extend(
+                input
+                    .text
+                    .split('\n')
+                    .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
+            );
             return rows;
         }
 
-        let mut rows = vec![Line::styled(format!("  {}", input.text), input.style)];
+        let mut rows = vec![TranscriptRow::indented(input.text, input.style)];
         if let Some(diff) = input.details.get("diff").and_then(serde_json::Value::as_str) {
             rows.extend(diff.lines().map(format_diff_line));
         }
@@ -49,7 +56,10 @@ impl ToolRenderer for EditRenderer {
     }
 }
 
-fn format_diff_line(line: &str) -> Line<'static> {
+/// Formats a single diff line with +/-/hunk coloring. The line carries its own
+/// style both for its content and its indent, matching the previous behavior
+/// where the leading spaces were part of the same styled line.
+fn format_diff_line(line: &str) -> TranscriptRow {
     let style = if line.starts_with('+') && !line.starts_with("+++") {
         Style::default().fg(Color::Green)
     } else if line.starts_with('-') && !line.starts_with("---") {
@@ -59,5 +69,5 @@ fn format_diff_line(line: &str) -> Line<'static> {
     } else {
         Style::default().fg(Color::Rgb(113, 128, 150))
     };
-    Line::styled(format!("  {line}"), style)
+    TranscriptRow::indented(line.to_string(), style)
 }

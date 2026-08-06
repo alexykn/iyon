@@ -1,4 +1,5 @@
 pub(crate) mod model;
+pub(crate) mod row;
 pub(crate) mod wrap;
 
 pub(crate) use model::{

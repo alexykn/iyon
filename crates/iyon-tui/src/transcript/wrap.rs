@@ -3,6 +3,7 @@ use std::ops::Range;
 use ratatui::text::{Line, Span};
 
 use crate::input::wrap::{WrapConfig, wrap_ranges};
+use crate::transcript::row::{LeftMargin, TranscriptRow};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct TranscriptCommitBoundary {
@@ -29,14 +30,14 @@ pub(crate) struct WrappedTranscriptRows {
 
 pub(crate) fn wrap_transcript_rows(
     width: u16,
-    logical_rows: &[Line<'static>],
+    logical_rows: &[TranscriptRow],
     commit_boundary: TranscriptCommitBoundary,
 ) -> WrappedTranscriptRows {
     let mut rows = Vec::new();
     let mut row_end_boundaries = Vec::new();
     let start_row = commit_boundary.logical_row.min(logical_rows.len());
 
-    for (logical_row, line) in logical_rows.iter().enumerate().skip(start_row) {
+    for (logical_row, row) in logical_rows.iter().enumerate().skip(start_row) {
         let start = if logical_row == commit_boundary.logical_row {
             commit_boundary
         } else {
@@ -49,7 +50,7 @@ pub(crate) fn wrap_transcript_rows(
         wrap_transcript_logical_row(
             width.max(1),
             logical_row,
-            line,
+            row,
             start,
             &mut rows,
             &mut row_end_boundaries,
@@ -65,24 +66,52 @@ pub(crate) fn wrap_transcript_rows(
 fn wrap_transcript_logical_row(
     width: u16,
     logical_row: usize,
-    line: &Line<'static>,
+    row: &TranscriptRow,
     start: TranscriptCommitBoundary,
     rows: &mut Vec<Line<'static>>,
     row_end_boundaries: &mut Vec<TranscriptCommitBoundary>,
 ) {
-    let flattened = flatten_line_from_boundary(line, start);
-    let wrapped_ranges = wrap_ranges(&flattened.text, WrapConfig::transcript(width.max(1)));
+    // Wrap within the content width (terminal width minus the hanging indent) so
+    // the indent no longer steals columns, then re-apply the styled margin to
+    // every physical row so wrapped continuation lines keep the same left margin.
+    let content_width = width.saturating_sub(row.margin.width).max(1);
+    let flattened = flatten_line_from_boundary(&row.line, start);
+    let wrapped_ranges = wrap_ranges(&flattened.text, WrapConfig::transcript(content_width));
 
     for range in wrapped_ranges {
-        let row = line_from_flat_range(line, &flattened.segments, range.clone());
+        let mut physical = line_from_flat_range(&row.line, &flattened.segments, range.clone());
+        if !physical.spans.is_empty() {
+            physical = prepend_margin(physical, row.margin);
+        }
         let boundary = flat_offset_to_boundary(
             logical_row,
             &flattened.segments,
             flattened.text.len(),
             range.end,
         );
-        push_row(rows, row_end_boundaries, row, boundary);
+        push_row(rows, row_end_boundaries, physical, boundary);
     }
+}
+
+/// Prepends a styled hanging indent to the first span of a physical row. When the
+/// existing first span shares the margin's style (the common case for uniformly
+/// styled tool-result rows), the indent is merged into it so emission stays a
+/// single styled span; otherwise it is inserted as its own leading span.
+fn prepend_margin(mut line: Line<'static>, margin: LeftMargin) -> Line<'static> {
+    if margin.width == 0 || line.spans.is_empty() {
+        return line;
+    }
+    let indent = " ".repeat(margin.width as usize);
+    if let Some(first) = line.spans.first_mut()
+        && first.style == margin.style
+    {
+        let mut text = indent;
+        text.push_str(first.content.as_ref());
+        first.content = text.into();
+        return line;
+    }
+    line.spans.insert(0, Span::styled(indent, margin.style));
+    line
 }
 
 #[derive(Debug, Clone)]
@@ -223,6 +252,7 @@ mod tests {
     use ratatui::text::Line;
 
     use super::{TranscriptCommitBoundary, wrap_transcript_rows};
+    use crate::transcript::row::{LeftMargin, TranscriptRow};
 
     fn line_text(line: &Line<'static>) -> String {
         line.spans
@@ -235,7 +265,7 @@ mod tests {
     fn transcript_wrap_prefers_word_boundaries() {
         let rows = wrap_transcript_rows(
             10,
-            &[Line::from("hello whatever amazing")],
+            &[TranscriptRow::new(Line::from("hello whatever amazing"))],
             TranscriptCommitBoundary::default(),
         );
 
@@ -247,11 +277,42 @@ mod tests {
     fn transcript_wrap_hard_breaks_long_word() {
         let rows = wrap_transcript_rows(
             5,
-            &[Line::from("abcdefgh")],
+            &[TranscriptRow::new(Line::from("abcdefgh"))],
             TranscriptCommitBoundary::default(),
         );
 
         let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
         assert_eq!(text_rows, ["abcde", "fgh"]);
     }
+
+    #[test]
+    fn wrapped_continuation_lines_keep_the_hanging_indent() {
+        // A 2-column margin wraps within width-2 and re-prefixes every physical
+        // row, so both the indent is preserved AND content uses the full (reduced)
+        // width instead of wrapping 2 columns early.
+        let margin = LeftMargin::new(2, Line::from("").style);
+        let rows = wrap_transcript_rows(
+            6,
+            &[TranscriptRow::with_margin(Line::from("abcdefgh"), margin)],
+            TranscriptCommitBoundary::default(),
+        );
+
+        let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
+        assert_eq!(text_rows, ["  abcd", "  efgh"]);
+    }
+
+    #[test]
+    fn empty_content_row_stays_blank_despite_margin() {
+        let margin = LeftMargin::new(2, Line::from("").style);
+        let rows = wrap_transcript_rows(
+            6,
+            &[TranscriptRow::with_margin(Line::from(""), margin)],
+            TranscriptCommitBoundary::default(),
+        );
+
+        let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
+        assert_eq!(text_rows, [""]);
+    }
+
 }
+
