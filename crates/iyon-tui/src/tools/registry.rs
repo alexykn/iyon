@@ -1,7 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use ratatui::text::Line;
-
+use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     renderers::{
         BashRenderer, EditRenderer, FindRenderer, GenericRenderer, GrepRenderer, LsRenderer,
@@ -10,10 +9,14 @@ use crate::tools::{
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
 
+/// A tool renderer turns a call (or its result) into transcript rows. Rows carry
+/// their intended hanging indent as a first-class `TranscriptRow`; renderers must
+/// NOT bake leading spaces into span content (that breaks wrapped continuation
+/// lines and steals wrap width).
 pub(crate) trait ToolRenderer: Send + Sync {
     fn tool_name(&self) -> &'static str;
-    fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<Line<'static>>;
-    fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<Line<'static>>;
+    fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<TranscriptRow>;
+    fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow>;
 }
 
 #[derive(Clone)]
@@ -52,14 +55,14 @@ impl Default for ToolRendererRegistry {
 }
 
 impl ToolRendererRegistry {
-    pub(crate) fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<Line<'static>> {
+    pub(crate) fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<TranscriptRow> {
         self.builtins
             .get(input.tool_name)
             .unwrap_or(&self.generic)
             .render_call(input)
     }
 
-    pub(crate) fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<Line<'static>> {
+    pub(crate) fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
         self.builtins
             .get(input.tool_name)
             .unwrap_or(&self.generic)

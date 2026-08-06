@@ -1,5 +1,4 @@
-use ratatui::text::Line;
-
+use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     registry::ToolRenderer,
     types::{ToolCallRenderInput, ToolResultRenderInput},
@@ -13,7 +12,7 @@ impl ToolRenderer for ReadRenderer {
         "read"
     }
 
-    fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<Line<'static>> {
+    fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<TranscriptRow> {
         let path = input
             .arguments
             .get("path")
@@ -34,18 +33,23 @@ impl ToolRenderer for ReadRenderer {
         };
 
         vec![
-            Line::from(""),
-            Line::styled(
+            TranscriptRow::blank(),
+            TranscriptRow::styled(
                 format!("● read {path}{suffix} — {}", input.status),
                 input.style,
             ),
         ]
     }
 
-    fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<Line<'static>> {
+    fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
         let title = if input.is_error { "read failed" } else { "read result" };
-        let mut rows = vec![Line::styled(format!("  {title}"), input.style)];
-        rows.extend(input.text.split('\n').map(|line| Line::styled(format!("  {line}"), input.style)));
+        let mut rows = vec![TranscriptRow::indented(title, input.style)];
+        rows.extend(
+            input
+                .text
+                .split('\n')
+                .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
+        );
         rows
     }
 }

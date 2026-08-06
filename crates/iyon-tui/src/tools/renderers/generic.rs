@@ -1,5 +1,4 @@
-use ratatui::text::Line;
-
+use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     registry::ToolRenderer,
     types::{ToolCallRenderInput, ToolResultRenderInput},
@@ -13,10 +12,10 @@ impl ToolRenderer for GenericRenderer {
         "*"
     }
 
-    fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<Line<'static>> {
+    fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<TranscriptRow> {
         let mut rows = vec![
-            Line::from(""),
-            Line::styled(
+            TranscriptRow::blank(),
+            TranscriptRow::styled(
                 format!("● tool {} — {}", input.tool_name, input.status),
                 input.style,
             ),
@@ -27,21 +26,24 @@ impl ToolRenderer for GenericRenderer {
             rows.extend(
                 preview
                     .lines()
-                    .map(|line| Line::styled(format!("  {line}"), input.style)),
+                    .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
             );
         }
         rows
     }
 
-    fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<Line<'static>> {
+    fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
         let title = if input.is_error { "failed" } else { "result" };
-        let mut rows = vec![Line::styled(
-            format!("  {} {title}", input.tool_name),
+        let mut rows = vec![TranscriptRow::indented(
+            format!("{} {title}", input.tool_name),
             input.style,
         )];
-        rows.extend(input.text.split('\n').map(|line| {
-            Line::styled(format!("  {line}"), input.style)
-        }));
+        rows.extend(
+            input
+                .text
+                .split('\n')
+                .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
+        );
         rows
     }
 }

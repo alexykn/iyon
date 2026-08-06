@@ -5,6 +5,7 @@ use ratatui::{
 
 use crate::{
     tools::{ToolCallRenderInput, ToolRendererRegistry, ToolResultRenderInput},
+    transcript::row::TranscriptRow,
     transcript::wrap::{TranscriptCommitBoundary, wrap_transcript_rows},
 };
 
@@ -126,6 +127,10 @@ pub(crate) enum TimelineItem {
         text: String,
         details: serde_json::Value,
         is_error: bool,
+        /// Display collapse state: when true, the result renders truncated to
+        /// [`DISPLAY_MAX_LINES`] with a footer hint. The full `text` is retained
+        /// regardless, so toggling is a pure re-render.
+        collapsed: bool,
     },
 }
 
@@ -145,7 +150,7 @@ pub(crate) struct TuiFormatter {
 }
 
 impl TuiFormatter {
-    pub(crate) fn format(&self, item: &TimelineItem) -> Vec<Line<'static>> {
+    pub(crate) fn format(&self, item: &TimelineItem) -> Vec<TranscriptRow> {
         match item {
             TimelineItem::UserMessage { text } => {
                 self.format_text_message(text, Style::default().bg(Color::Rgb(45, 55, 72)), true)
@@ -165,8 +170,9 @@ impl TuiFormatter {
                 text,
                 details,
                 is_error,
+                collapsed,
                 ..
-            } => self.format_tool_result(tool_name, text, details, *is_error),
+            } => self.format_tool_result(tool_name, text, details, *is_error, *collapsed),
         }
     }
 
@@ -174,23 +180,23 @@ impl TuiFormatter {
         &self,
         segments: &[AssistantSegment],
         include_trailing_blank: bool,
-    ) -> Vec<Line<'static>> {
-        let mut rows = vec![Line::from("")];
+    ) -> Vec<TranscriptRow> {
+        let mut rows = vec![TranscriptRow::blank()];
         rows.extend(Self::format_segments_body(segments));
         if include_trailing_blank {
-            rows.push(Line::from(""));
+            rows.push(TranscriptRow::blank());
         }
         rows
     }
 
-    pub(crate) fn format_assistant_body(&self, segments: &[AssistantSegment]) -> Vec<Line<'static>> {
+    pub(crate) fn format_assistant_body(&self, segments: &[AssistantSegment]) -> Vec<TranscriptRow> {
         Self::format_segments_body(segments)
     }
 
     /// Formats `segments` into logical rows, one per `'\n'` boundary. A single row
     /// may contain multiple spans when a line mixes thinking and answer text; each
     /// run is styled by its segment kind so thinking renders muted + italic.
-    fn format_segments_body(segments: &[AssistantSegment]) -> Vec<Line<'static>> {
+    fn format_segments_body(segments: &[AssistantSegment]) -> Vec<TranscriptRow> {
         let mut rows = Vec::new();
         let mut current: Vec<Span<'static>> = Vec::new();
 
@@ -201,7 +207,7 @@ impl TuiFormatter {
             };
             for (index, piece) in segment.text().split('\n').enumerate() {
                 if index > 0 {
-                    rows.push(Line::from(std::mem::take(&mut current)));
+                    rows.push(TranscriptRow::new(Line::from(std::mem::take(&mut current))));
                 }
                 if !piece.is_empty() {
                     current.push(Span::styled(piece.to_string(), style));
@@ -210,7 +216,7 @@ impl TuiFormatter {
         }
 
         if !current.is_empty() {
-            rows.push(Line::from(current));
+            rows.push(TranscriptRow::new(Line::from(current)));
         }
         rows
     }
@@ -220,7 +226,7 @@ impl TuiFormatter {
         tool_name: &str,
         arguments: &serde_json::Value,
         status: ToolTimelineStatus,
-    ) -> Vec<Line<'static>> {
+    ) -> Vec<TranscriptRow> {
         let style = tool_style(status);
         let status_label = tool_status_label(status);
         self.tool_renderers.render_call(ToolCallRenderInput {
@@ -237,7 +243,8 @@ impl TuiFormatter {
         text: &str,
         details: &serde_json::Value,
         is_error: bool,
-    ) -> Vec<Line<'static>> {
+        collapsed: bool,
+    ) -> Vec<TranscriptRow> {
         let style = if is_error {
             Style::default().fg(Color::Red)
         } else {
@@ -250,7 +257,10 @@ impl TuiFormatter {
             is_error,
             style,
         });
-        rows.push(Line::from(""));
+        if collapsed {
+            rows = apply_display_truncation(rows);
+        }
+        rows.push(TranscriptRow::blank());
         rows
     }
 
@@ -259,19 +269,52 @@ impl TuiFormatter {
         text: &str,
         style: Style,
         include_trailing_blank: bool,
-    ) -> Vec<Line<'static>> {
+    ) -> Vec<TranscriptRow> {
         let mut rows = Vec::new();
-        rows.push(Line::styled("", style));
+        rows.push(TranscriptRow::new(Line::styled("", style)));
         rows.extend(Self::format_text_body(text, style));
         if include_trailing_blank {
-            rows.push(Line::styled("", style));
+            rows.push(TranscriptRow::new(Line::styled("", style)));
         }
         rows
     }
 
-    fn format_text_body(text: &str, style: Style) -> Vec<Line<'static>> {
+    fn format_text_body(text: &str, style: Style) -> Vec<TranscriptRow> {
         styled_lines_preserving_newlines(text, style)
+            .into_iter()
+            .map(TranscriptRow::new)
+            .collect()
     }
+}
+
+/// Maximum number of tool-result rows shown in the collapsed (default) display
+/// state. Longer results are sliced at render time with a footer hint; the full
+/// text stays on the timeline item for a future expand/collapse interaction.
+const DISPLAY_MAX_LINES: usize = 25;
+
+/// Cuts a rendered tool-result block down to [`DISPLAY_MAX_LINES`] logical rows,
+/// appending a styled footer noting how many lines were hidden. This is a pure,
+/// tool-agnostic choke point: every renderer maps result text 1:1 to rows, so the
+/// slice applies uniformly regardless of tool. Applies `Style::reset()` margins
+/// guard via the footer's own indented row.
+fn apply_display_truncation(mut rows: Vec<TranscriptRow>) -> Vec<TranscriptRow> {
+    if rows.len() <= DISPLAY_MAX_LINES {
+        return rows;
+    }
+    let hidden = rows.len() - DISPLAY_MAX_LINES;
+    rows.truncate(DISPLAY_MAX_LINES);
+    let noun = if hidden == 1 { "line" } else { "lines" };
+    rows.push(TranscriptRow::indented(
+        format!("… {hidden} more {noun} (full result retained)"),
+        truncation_footer_style(),
+    ));
+    rows
+}
+
+fn truncation_footer_style() -> Style {
+    Style::default()
+        .fg(Color::Rgb(120, 122, 132))
+        .add_modifier(Modifier::DIM | Modifier::ITALIC)
 }
 
 fn tool_style(status: ToolTimelineStatus) -> Style {
@@ -301,7 +344,7 @@ fn tool_status_label(status: ToolTimelineStatus) -> &'static str {
 #[derive(Debug, Clone)]
 pub(crate) struct TranscriptState {
     canonical_items: Vec<TimelineItem>,
-    logical_rows_cache: Vec<Line<'static>>,
+    logical_rows_cache: Vec<TranscriptRow>,
     rendered_rows_cache: Option<TranscriptRenderCache>,
     commit_boundary: TranscriptCommitBoundary,
     formatter: TuiFormatter,
@@ -422,6 +465,7 @@ impl TranscriptState {
             text,
             details,
             is_error,
+            collapsed: true,
         });
         self.rebuild_logical_rows_cache();
     }
@@ -578,7 +622,7 @@ pub(crate) struct TranscriptRenderCache {
 impl TranscriptRenderCache {
     fn from_logical_rows(
         width: u16,
-        logical_rows: &[Line<'static>],
+        logical_rows: &[TranscriptRow],
         commit_boundary: TranscriptCommitBoundary,
     ) -> Self {
         let wrapped = wrap_transcript_rows(width, logical_rows, commit_boundary);
@@ -597,12 +641,13 @@ fn styled_lines_preserving_newlines(text: &str, style: Style) -> Vec<Line<'stati
         .collect()
 }
 
-fn drop_trailing_empty_row(rows: &mut Vec<Line<'static>>) {
+fn drop_trailing_empty_row(rows: &mut Vec<TranscriptRow>) {
     let Some(last) = rows.last() else {
         return;
     };
 
     let is_empty = last
+        .line
         .spans
         .iter()
         .all(|span| span.content.as_ref().is_empty());
@@ -655,7 +700,10 @@ mod tests {
         };
 
         let lines = formatter.format(&item);
-        let text_rows = lines.iter().map(line_text).collect::<Vec<_>>();
+        let text_rows = lines
+            .iter()
+            .map(|row| line_text(&row.line))
+            .collect::<Vec<_>>();
 
         assert_eq!(text_rows, vec!["", "line1", "line2", "", ""]);
     }
@@ -704,7 +752,7 @@ mod tests {
             false,
         );
         // rows[0] is the leading blank line; rows[1] is the thinking body line.
-        let body = &rows[1];
+        let body = &rows[1].line;
         assert_eq!(body.spans.len(), 1);
         assert!(body.spans[0].style.add_modifier.contains(Modifier::ITALIC));
         assert_ne!(
@@ -718,7 +766,7 @@ mod tests {
         let formatter = TuiFormatter::default();
         let rows = formatter.format_assistant_body(&text_segments("answer"));
         assert_eq!(rows.len(), 1);
-        assert!(!rows[0].spans[0].style.add_modifier.contains(Modifier::ITALIC));
+        assert!(!rows[0].line.spans[0].style.add_modifier.contains(Modifier::ITALIC));
     }
 
     #[test]
@@ -730,10 +778,10 @@ mod tests {
         ]);
 
         assert_eq!(rows.len(), 1);
-        assert_eq!(line_text(&rows[0]), "hmmanswer");
-        assert_eq!(rows[0].spans.len(), 2);
-        assert!(rows[0].spans[0].style.add_modifier.contains(Modifier::ITALIC));
-        assert!(!rows[0].spans[1].style.add_modifier.contains(Modifier::ITALIC));
+        assert_eq!(line_text(&rows[0].line), "hmmanswer");
+        assert_eq!(rows[0].line.spans.len(), 2);
+        assert!(rows[0].line.spans[0].style.add_modifier.contains(Modifier::ITALIC));
+        assert!(!rows[0].line.spans[1].style.add_modifier.contains(Modifier::ITALIC));
     }
 
     #[test]
@@ -747,12 +795,12 @@ mod tests {
         ]);
 
         assert_eq!(rows.len(), 3);
-        assert_eq!(line_text(&rows[0]), "a");
-        assert_eq!(line_text(&rows[1]), "b");
-        assert_eq!(line_text(&rows[2]), "c");
-        assert!(rows[0].spans[0].style.add_modifier.contains(Modifier::ITALIC));
-        assert!(rows[1].spans[0].style.add_modifier.contains(Modifier::ITALIC));
-        assert!(!rows[2].spans[0].style.add_modifier.contains(Modifier::ITALIC));
+        assert_eq!(line_text(&rows[0].line), "a");
+        assert_eq!(line_text(&rows[1].line), "b");
+        assert_eq!(line_text(&rows[2].line), "c");
+        assert!(rows[0].line.spans[0].style.add_modifier.contains(Modifier::ITALIC));
+        assert!(rows[1].line.spans[0].style.add_modifier.contains(Modifier::ITALIC));
+        assert!(!rows[2].line.spans[0].style.add_modifier.contains(Modifier::ITALIC));
     }
 
     #[test]
@@ -893,7 +941,7 @@ mod tests {
         let texts: Vec<String> = transcript
             .logical_rows_cache
             .iter()
-            .map(|line| line.to_string())
+            .map(|row| row.line.to_string())
             .collect();
         assert_eq!(texts, vec!["", "a", "b", "c", ""]);
     }
@@ -916,10 +964,79 @@ mod tests {
         let texts: Vec<String> = transcript
             .logical_rows_cache
             .iter()
-            .map(|line| line.to_string())
+            .map(|row| row.line.to_string())
             .collect();
         // [\n, a, \n, \n, hi, \n, \n, b, \n] — a and b are separated by the assistant
         // message, so each user keeps its own padding.
         assert_eq!(texts, vec!["", "a", "", "", "hi", "", "", "b", ""]);
+    }
+
+    #[test]
+    fn tool_result_collapses_to_display_max_lines_with_footer() {
+        let mut transcript = TranscriptState::default();
+        let text = (0..50).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n");
+        transcript.push_item(TimelineItem::ToolResult {
+            tool_call_id: "1".to_string(),
+            tool_name: "read".to_string(),
+            text,
+            details: serde_json::Value::Null,
+            is_error: false,
+            collapsed: true,
+        });
+
+        // Renderer emits 1 title row + 50 body rows = 51; collapsed keeps
+        // DISPLAY_MAX_LINES + a footer hint, then a trailing blank is appended.
+        let rows = &transcript.logical_rows_cache;
+        assert_eq!(rows.len(), 25 + 1 + 1, "25 kept + footer + trailing blank");
+
+        let footer_text: String = rows[25]
+            .line
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(footer_text.contains("26 more lines"), "got {footer_text:?}");
+    }
+
+    #[test]
+    fn short_tool_result_is_not_truncated() {
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::ToolResult {
+            tool_call_id: "1".to_string(),
+            tool_name: "read".to_string(),
+            text: "one\ntwo".to_string(),
+            details: serde_json::Value::Null,
+            is_error: false,
+            collapsed: true,
+        });
+
+        // 1 title + 2 body = 3 rows (under the cap) + trailing blank.
+        let rows = &transcript.logical_rows_cache;
+        assert_eq!(rows.len(), 3 + 1);
+        let texts: Vec<String> = rows.iter().map(|r| r.line.to_string()).collect();
+        assert_eq!(texts, vec!["read result", "one", "two", ""]);
+    }
+
+    #[test]
+    fn tool_result_wrapped_continuations_keep_indent() {
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::ToolResult {
+            tool_call_id: "1".to_string(),
+            tool_name: "read".to_string(),
+            text: "short line here\naxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx".to_string(),
+            details: serde_json::Value::Null,
+            is_error: false,
+            collapsed: true,
+        });
+        // Narrow terminal forces wrapping on the assistant/body lines.
+        transcript.ensure_render_cache(8);
+
+        let rows = transcript.uncommitted_rows();
+        // Every rendered body line (and the title) keeps the 2-column hanging indent,
+        // including wrapped continuation lines.
+        for row in rows.iter().filter(|l| l.spans.iter().any(|s| !s.content.is_empty())) {
+            let text: String = row.spans.iter().map(|s| s.content.as_ref()).collect();
+            assert!(text.starts_with("  "), "row lost indent: {text:?}");
+        }
     }
 }
