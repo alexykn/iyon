@@ -51,20 +51,37 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
         .await
         .context("failed to start model stream")?;
 
-    event_tx
-        .send(CoreEvent::MessageStarted {
-            turn_id: turn_id.0,
-            message_id: assistant_message_id.0,
-            role: MessageRole::Assistant,
-        })
-        .await
-        .context("failed to emit assistant message start")?;
-
     let mut content = Vec::new();
     let mut text = String::new();
     let mut thinking = String::new();
     let mut usage: Option<Usage> = None;
     let mut tool_calls = ToolCallAssembler::default();
+
+    if !send_event(
+        &event_tx,
+        &cancellation,
+        CoreEvent::MessageStarted {
+            turn_id: turn_id.0,
+            message_id: assistant_message_id.0,
+            role: MessageRole::Assistant,
+        },
+    )
+    .await?
+    {
+        return finish_interrupted(FinishModelTurnInput {
+            event_tx: &event_tx,
+            turn_id,
+            assistant_message_id,
+            content,
+            text,
+            thinking,
+            usage,
+            tool_calls,
+            stop_reason: StopReason::Aborted,
+            cancellation: cancellation.clone(),
+        })
+        .await;
+    }
 
     loop {
         let event = tokio::select! {
@@ -79,6 +96,7 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
                     usage,
                     tool_calls,
                     stop_reason: StopReason::Aborted,
+            cancellation: cancellation.clone(),
                 }).await;
             }
             event = stream.next() => event,
@@ -89,8 +107,30 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
         match event.context("model stream error")? {
             ModelStreamEvent::Started | ModelStreamEvent::TextStart { .. } => {}
             ModelStreamEvent::TextDelta { delta, .. } => {
-                handle_text_delta(&event_tx, turn_id, assistant_message_id, &mut text, delta)
-                    .await?;
+                if !handle_text_delta(
+                    &event_tx,
+                    &cancellation,
+                    turn_id,
+                    assistant_message_id,
+                    &mut text,
+                    delta,
+                )
+                .await?
+                {
+                    return finish_interrupted(FinishModelTurnInput {
+                        event_tx: &event_tx,
+                        turn_id,
+                        assistant_message_id,
+                        content,
+                        text,
+                        thinking,
+                        usage,
+                        tool_calls,
+                        stop_reason: StopReason::Aborted,
+            cancellation: cancellation.clone(),
+                    })
+                    .await;
+                }
             }
             ModelStreamEvent::TextEnd {
                 text: final_text, ..
@@ -100,14 +140,31 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
             ModelStreamEvent::ThinkingStart { .. } => {}
             ModelStreamEvent::ThinkingDelta { delta, .. } => {
                 thinking.push_str(&delta);
-                event_tx
-                    .send(CoreEvent::MessageDelta {
+                if !send_event(
+                    &event_tx,
+                    &cancellation,
+                    CoreEvent::MessageDelta {
                         turn_id: turn_id.0,
                         message_id: assistant_message_id.0,
                         delta: MessageDelta::Thinking(delta),
+                    },
+                )
+                .await?
+                {
+                    return finish_interrupted(FinishModelTurnInput {
+                        event_tx: &event_tx,
+                        turn_id,
+                        assistant_message_id,
+                        content,
+                        text,
+                        thinking,
+                        usage,
+                        tool_calls,
+                        stop_reason: StopReason::Aborted,
+            cancellation: cancellation.clone(),
                     })
-                    .await
-                    .context("failed to emit assistant thinking delta")?;
+                    .await;
+                }
             }
             ModelStreamEvent::ThinkingEnd {
                 text: final_thinking,
@@ -163,6 +220,7 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
                     usage,
                     tool_calls,
                     stop_reason,
+                    cancellation: cancellation.clone(),
                 })
                 .await;
             }
@@ -177,21 +235,49 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
 
 async fn handle_text_delta(
     event_tx: &mpsc::Sender<CoreEvent>,
+    cancellation: &CancellationToken,
     turn_id: TurnId,
     assistant_message_id: MessageId,
     text: &mut String,
     delta: String,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     text.push_str(&delta);
-    event_tx
-        .send(CoreEvent::MessageDelta {
+    send_event(
+        event_tx,
+        cancellation,
+        CoreEvent::MessageDelta {
             turn_id: turn_id.0,
             message_id: assistant_message_id.0,
             delta: MessageDelta::Text(delta),
-        })
-        .await
-        .context("failed to emit assistant text delta")
+        },
+    )
+    .await
 }
+
+/// Sends a core event to the frontend, honoring the turn's cancellation token.
+///
+/// The frontend event channel is bounded, so under a heavy token burst the TUI can
+/// temporarily fall behind and a plain `send` would block. Because such a block sits
+/// outside the loop's cancellation `select!`, it could delay an Esc-interrupt until the
+/// backlog drains. Racing the send against the token keeps cancellation observable even
+/// when the channel is full, so an interrupt is honored promptly during thinking/text.
+///
+/// Returns `Ok(true)` if the event was sent, `Ok(false)` if the turn was cancelled while
+/// trying to send (the caller should finalize its partial reply and stop).
+async fn send_event(
+    event_tx: &mpsc::Sender<CoreEvent>,
+    cancellation: &CancellationToken,
+    event: CoreEvent,
+) -> anyhow::Result<bool> {
+    tokio::select! {
+        () = cancellation.cancelled() => Ok(false),
+        result = event_tx.send(event) => {
+            result.context("failed to emit assistant message event")?;
+            Ok(true)
+        }
+    }
+}
+
 
 fn handle_tool_call_start(
     content: &mut Vec<ContentBlock>,
@@ -255,6 +341,7 @@ struct FinishModelTurnInput<'a> {
     usage: Option<Usage>,
     tool_calls: ToolCallAssembler,
     stop_reason: StopReason,
+    cancellation: CancellationToken,
 }
 
 async fn finish_model_turn(input: FinishModelTurnInput<'_>) -> anyhow::Result<ModelTurnOutcome> {
@@ -268,11 +355,19 @@ async fn finish_model_turn(input: FinishModelTurnInput<'_>) -> anyhow::Result<Mo
         usage,
         tool_calls,
         stop_reason,
+        cancellation,
     } = input;
 
-    let content =
-        flush_content_and_emit_finished(event_tx, turn_id, assistant_message_id, content, text, thinking)
-            .await?;
+    let content = flush_content_and_emit_finished(
+        event_tx,
+        &cancellation,
+        turn_id,
+        assistant_message_id,
+        content,
+        text,
+        thinking,
+    )
+    .await?;
 
     Ok(ModelTurnOutcome::Completed {
         assistant_message: AgentMessage::Assistant {
@@ -296,12 +391,20 @@ async fn finish_interrupted(input: FinishModelTurnInput<'_>) -> anyhow::Result<M
         text,
         thinking,
         usage,
+        cancellation,
         ..
     } = input;
 
-    let content =
-        flush_content_and_emit_finished(event_tx, turn_id, assistant_message_id, content, text, thinking)
-            .await?;
+    let content = flush_content_and_emit_finished(
+        event_tx,
+        &cancellation,
+        turn_id,
+        assistant_message_id,
+        content,
+        text,
+        thinking,
+    )
+    .await?;
 
     Ok(ModelTurnOutcome::Interrupted {
         assistant_message: AgentMessage::Assistant {
@@ -319,6 +422,7 @@ async fn finish_interrupted(input: FinishModelTurnInput<'_>) -> anyhow::Result<M
 /// interruption finalizers so a partial reply is sealed identically in both cases.
 async fn flush_content_and_emit_finished(
     event_tx: &mpsc::Sender<CoreEvent>,
+    cancellation: &CancellationToken,
     turn_id: TurnId,
     assistant_message_id: MessageId,
     mut content: Vec<ContentBlock>,
@@ -326,13 +430,18 @@ async fn flush_content_and_emit_finished(
     mut thinking: String,
 ) -> anyhow::Result<Vec<ContentBlock>> {
     flush_text_and_thinking(&mut content, &mut text, &mut thinking);
-    event_tx
-        .send(CoreEvent::MessageFinished {
+    // Best-effort, cancellation-aware: the assistant's `MessageFinished` is not what
+    // finalizes the message in the UI (TurnFinished/TurnCancelled are), so if the turn
+    // is being interrupted we can skip it rather than stall on a full channel.
+    send_event(
+        event_tx,
+        cancellation,
+        CoreEvent::MessageFinished {
             turn_id: turn_id.0,
             message_id: assistant_message_id.0,
-        })
-        .await
-        .context("failed to emit assistant message finish")?;
+        },
+    )
+    .await?;
     Ok(content)
 }
 
@@ -556,5 +665,60 @@ mod tests {
             .collect();
         assert!(text.iter().any(|t| t.contains("partial")), "text: {text:?}");
         assert!(text.iter().any(|t| t.contains("a thought")), "text: {text:?}");
+    }
+
+    /// Esc-interrupt must be honored promptly even when the (bounded) frontend event
+    /// channel is full. Previously a plain `event_tx.send().await` inside the stream
+    /// handler would block there (outside the cancellation `select!`), so an interrupt
+    /// under heavy thinking/text backpressure stalled instead of cancelling. This test
+    /// fills a tiny event channel and verifies cancellation still resolves the turn.
+    #[tokio::test]
+    async fn cancellation_honored_under_event_backpressure() {
+        // Tiny, never-drained channel → the event sender blocks after a couple of sends.
+        let (event_tx, _event_rx) = tokio::sync::mpsc::channel(2);
+        let (model, tx) = driven_model_events();
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        let cancel_token = cancellation.clone();
+
+        let driver_tx = tx.clone();
+        let driver = tokio::spawn(async move {
+            driver_tx.send(ModelStreamEvent::Started).await.unwrap();
+            driver_tx
+                .send(ModelStreamEvent::TextDelta {
+                    content_index: 0,
+                    delta: "x".to_string(),
+                })
+                .await
+                .unwrap();
+            driver_tx
+                .send(ModelStreamEvent::TextDelta {
+                    content_index: 0,
+                    delta: "y".to_string(),
+                })
+                .await
+                .unwrap();
+            // Let the turn process deltas until its event send blocks on the full
+            // channel, then interrupt.
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            cancel_token.cancel();
+            drop(driver_tx);
+        });
+
+        let outcome = run_model_turn(ModelTurnInput {
+            turn_id: TurnId(21),
+            assistant_message_id: MessageId(22),
+            request: ModelRequest::default(),
+            model,
+            event_tx: event_tx.clone(),
+            cancellation,
+        })
+        .await
+        .expect("interrupt under backpressure should resolve the turn cleanly");
+        driver.await.unwrap();
+
+        assert!(
+            matches!(outcome, ModelTurnOutcome::Interrupted { .. }),
+            "expected interrupted under backpressure, got {outcome:?}"
+        );
     }
 }
