@@ -51,16 +51,19 @@ impl Insets {
 /// A hanging marker that occupies the gutter to the left of content. Every marker
 /// renders as a fixed-width prefix (marker + trailing space), so the content edge
 /// stays stable across wrapped continuation lines and across marker variants.
+///
+/// Ordered markers are **marker-local**: each item's gutter is sized to its own
+/// digits, so a later item (`10.`) never changes an earlier item's (`9.`) layout.
+/// This is what keeps history append-only — previously committed rows never need
+/// to move because a future value arrived.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Marker {
     /// `• ` — markdown bullet.
     Bullet,
     /// `● ` — tool call.
     ToolCall,
-    /// Right-aligned `9. ` / `10. ` ordered item. `index` is this row's item
-    /// number; `digit_width` is the shared width of the widest item in the list
-    /// (set by the list renderer), so single- and multi-digit numbers align.
-    Ordered { index: usize, digit_width: usize },
+    /// `9. ` — ordered list item, gutter sized to this item's own digits.
+    Ordered { index: usize },
 }
 
 impl Marker {
@@ -69,9 +72,7 @@ impl Marker {
         match self {
             Marker::Bullet => "• ".to_string(),
             Marker::ToolCall => "● ".to_string(),
-            Marker::Ordered { index, digit_width } => {
-                format!("{index:>width$}. ", width = *digit_width.min(&16))
-            }
+            Marker::Ordered { index } => format!("{index}. "),
         }
     }
 
@@ -222,15 +223,16 @@ impl TranscriptRow {
         }
     }
 
-    /// A markdown ordered list item at `depth`, right-aligned within `digit_width`.
+    /// A markdown ordered list item at `depth`, gutter sized to its own index.
+    /// Continuation lines align under this item's text, and a later list item's
+    /// digits never move it (marker-local geometry keeps history append-only).
     pub(crate) fn markdown_ordered(
         line: Line<'static>,
         style: Style,
         index: usize,
-        digit_width: usize,
         depth: usize,
     ) -> Self {
-        let marker = Marker::Ordered { index, digit_width };
+        let marker = Marker::Ordered { index };
         Self {
             line,
             style,
