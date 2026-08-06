@@ -32,12 +32,12 @@ impl ToolRenderer for BashRenderer {
         } else {
             "bash result"
         };
-        let mut rows = vec![TranscriptRow::indented(title, input.style)];
+        let mut rows = vec![TranscriptRow::tool_result(title, input.style)];
         rows.extend(
             input
                 .text
                 .split('\n')
-                .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
+                .map(|line| TranscriptRow::tool_result(line.to_string(), input.style)),
         );
         if let Some(path) = input
             .details
@@ -45,7 +45,7 @@ impl ToolRenderer for BashRenderer {
             .and_then(serde_json::Value::as_str)
         {
             let style = Style::default().fg(Color::Yellow);
-            rows.push(TranscriptRow::indented(
+            rows.push(TranscriptRow::tool_result(
                 format!("[Full output: {path}]"),
                 style,
             ));

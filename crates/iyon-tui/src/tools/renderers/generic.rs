@@ -29,7 +29,7 @@ impl ToolRenderer for GenericRenderer {
                 rows.extend(
                     preview
                         .lines()
-                        .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
+                        .map(|line| TranscriptRow::tool_result(line.to_string(), input.style)),
                 );
             }
         }
@@ -38,7 +38,7 @@ impl ToolRenderer for GenericRenderer {
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
         let title = if input.is_error { "failed" } else { "result" };
-        let mut rows = vec![TranscriptRow::indented(
+        let mut rows = vec![TranscriptRow::tool_result(
             format!("{} {title}", input.tool_name),
             input.style,
         )];
@@ -46,7 +46,7 @@ impl ToolRenderer for GenericRenderer {
             input
                 .text
                 .split('\n')
-                .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
+                .map(|line| TranscriptRow::tool_result(line.to_string(), input.style)),
         );
         rows
     }

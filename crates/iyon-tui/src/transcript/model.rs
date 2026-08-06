@@ -308,7 +308,7 @@ fn apply_result_truncation(mut rows: Vec<TranscriptRow>) -> Vec<TranscriptRow> {
     let hidden = rows.len() - DISPLAY_MAX_LINES;
     rows.truncate(DISPLAY_MAX_LINES);
     let noun = if hidden == 1 { "line" } else { "lines" };
-    rows.push(TranscriptRow::indented(
+    rows.push(TranscriptRow::tool_result(
         format!("… {hidden} more {noun} (full result retained)"),
         truncation_footer_style(),
     ));
@@ -333,7 +333,7 @@ fn apply_call_truncation(rows: Vec<TranscriptRow>) -> Vec<TranscriptRow> {
     let hidden = rows.len() - keep - DISPLAY_CALL_MAX_LINES;
     let mut out = Vec::with_capacity(keep + DISPLAY_CALL_MAX_LINES + 1);
     out.extend(rows.into_iter().take(keep + DISPLAY_CALL_MAX_LINES));
-    out.push(TranscriptRow::indented(
+    out.push(TranscriptRow::tool_result(
         format!(
             "… {hidden} more argument line{}",
             if hidden == 1 { "" } else { "s" }
@@ -743,14 +743,15 @@ mod tests {
             segments: text_segments("abcdef"),
         });
 
-        transcript.ensure_render_cache(3);
+        // width 6 minus outer margins (2+2) = content width 2.
+        transcript.ensure_render_cache(6);
 
         let rows = transcript
             .uncommitted_rows()
             .iter()
             .map(line_text)
             .collect::<Vec<_>>();
-        assert_eq!(rows, ["", "abc", "def", ""]);
+        assert_eq!(rows, ["", "  ab", "  cd", "  ef", ""]);
     }
 
     #[test]
@@ -760,16 +761,19 @@ mod tests {
             segments: text_segments("abcdef"),
         });
 
-        transcript.ensure_render_cache(3);
+        transcript.ensure_render_cache(6);
         transcript.mark_rows_committed(2);
-        transcript.ensure_render_cache(2);
+        transcript.ensure_render_cache(6);
 
         let rows = transcript
             .uncommitted_rows()
             .iter()
             .map(line_text)
             .collect::<Vec<_>>();
-        assert_eq!(rows, ["de", "f", ""]);
+        // After committing the first two physical rows (blank + "  ab"), the
+        // boundary lands after "ab"; the remaining content re-wraps at width 6
+        // (content width 2) as "cd" / "ef" plus the trailing blank.
+        assert_eq!(rows, ["  cd", "  ef", ""]);
     }
 
     #[test]

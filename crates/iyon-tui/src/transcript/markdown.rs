@@ -12,19 +12,21 @@
 //! pane simply re-renders the already-shown text (no content hold / no new queue).
 //!
 //! # Freeze/spill safety
-//! A row that *hides* or *replaces* source bytes (bold/italic/code markers, list
-//! bullets) reports `restricted = true`. The active pane freezes such rows
-//! whole-line, so a partial freeze can never render differently in the committed
-//! transcript than in the live pane (e.g. a half-frozen `**bo` would otherwise
-//! show literally in one place and styled in the other). Unrestricted rows render
-//! 1:1 with their source bytes, preserving the active pane's partial-line spill.
+//! A row whose `line` spans do not 1:1 cover its source bytes — because it hides
+//! markers (bold/italic/code) or because a structural marker hangs in the gutter
+//! (list bullets, ordered numbers) — reports `restricted = true`. The active pane
+//! freezes such rows whole-line, so a partial freeze never renders differently
+//! live vs. committed, and the spill boundary always lands on a char-safe row
+//! end. Unrestricted rows (plain paragraphs, thinking, headings) render 1:1 with
+//! their source bytes, preserving the active pane's partial-line spill.
 
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
+use unicode_width::UnicodeWidthStr;
 
 use crate::theme;
 use crate::transcript::model::{AssistantSegment, SegmentKind, thinking_style};
-use crate::transcript::row::{LeftMargin, TranscriptRow};
+use crate::transcript::row::TranscriptRow;
 
 /// A `TranscriptRow` plus freeze metadata for the active (streaming) pane.
 #[derive(Debug, Clone)]
@@ -35,8 +37,7 @@ pub(crate) struct RenderedRow {
     /// replaces some of those bytes (e.g. `**bold**` hides the `**`).
     pub(crate) content_len: usize,
     /// True when this row hides/replaces source bytes (bold/italic/code, list
-    /// bullets). The active pane must freeze such rows whole-line so a partial
-    /// freeze never renders differently live vs. committed.
+    /// bullets). The active pane must freeze such rows whole-line.
     pub(crate) restricted: bool,
 }
 
@@ -51,12 +52,28 @@ pub(crate) fn render_assistant(segments: &[AssistantSegment]) -> RenderedAssista
     let raw_lines = flatten_lines(segments);
     let mut out = Vec::with_capacity(raw_lines.len());
 
-    for line in raw_lines {
-        out.push(render_line(&line));
+    let mut i = 0usize;
+    while i < raw_lines.len() {
+        if let Some(group) = ordered_group(&raw_lines[i..]) {
+            // A contiguous ordered list shares one digit width so `9.` aligns with
+            // `10.`. Render each item with the resolved gutter.
+            for _ in 0..group.len {
+                let item = &raw_lines[i];
+                out.push(render_line(item, Some(group)));
+                i += 1;
+            }
+        } else {
+            out.push(render_line(&raw_lines[i], None));
+            i += 1;
+        }
     }
 
     RenderedAssistant { rows: out }
 }
+
+// ---------------------------------------------------------------------------
+// Logical-line flattening
+// ---------------------------------------------------------------------------
 
 /// One logical line of the stream: (kind, text, absolute source byte offset).
 #[derive(Debug)]
@@ -96,8 +113,53 @@ fn flatten_lines(segments: &[AssistantSegment]) -> Vec<RawLine> {
     lines
 }
 
-/// Renders a single logical line, returning its row and freeze-restriction flag.
-fn render_line(line: &RawLine) -> RenderedRow {
+// ---------------------------------------------------------------------------
+// List grouping (shared ordered gutter)
+// ---------------------------------------------------------------------------
+
+/// A contiguous ordered-list group that shares a digit width for its markers.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct OrderedGroup {
+    pub digit_width: usize,
+    pub len: usize,
+}
+
+/// Resolves how many leading `lines` form one contiguous ordered list at the
+/// same depth, and the widest digit width among them. Returns `None` when the
+/// first line is not an ordered item.
+fn ordered_group(lines: &[RawLine]) -> Option<OrderedGroup> {
+    let first = lines.first()?;
+    let first_full = concat_pieces(first);
+    let (depth, trimmed) = list_depth(&first_full);
+    if ordered_separator_len(&trimmed).is_none() {
+        return None;
+    }
+
+    let mut max_index = 0usize;
+    let mut count = 0usize;
+    for line in lines {
+        let full = concat_pieces(line);
+        let (d, trimmed) = list_depth(&full);
+        if d != depth || ordered_separator_len(&trimmed).is_none() {
+            break;
+        }
+        let idx = ordered_index(&trimmed);
+        max_index = max_index.max(idx);
+        count += 1;
+    }
+    if count == 0 {
+        return None;
+    }
+    Some(OrderedGroup {
+        digit_width: max_index.to_string().width(),
+        len: count,
+    })
+}
+
+/// Renders a single logical line. `ordered` is `Some` only when this line is an
+/// ordered-list item in a resolved group (for right-aligned markers); otherwise
+/// `None` (plain, heading, unordered item, or a lone unmatched ordered line).
+fn render_line(line: &RawLine, ordered: Option<OrderedGroup>) -> RenderedRow {
     let full = concat_pieces(line);
     let base = Style::default();
 
@@ -113,25 +175,27 @@ fn render_line(line: &RawLine) -> RenderedRow {
         return RenderedRow {
             row: render_header(line, count),
             content_len: piece_source_len(line),
-            restricted: false, // `#`s stay visible -> 1:1 with source
+            restricted: false,
         };
     }
 
-    if let Some(marker_len) = unordered_marker(&full) {
-        return render_list(line, marker_len);
+    if let Some(group) = ordered {
+        return render_ordered(line, group);
     }
 
-    if let Some(marker_len) = ordered_marker(&full) {
-        return render_ordered(line, marker_len);
+    if let Some(depth) = unordered_depth(&full) {
+        return render_unordered(line, depth);
     }
 
     render_paragraph(line, base)
 }
 
-// --- headings ---
+// ---------------------------------------------------------------------------
+// Headings
+// ---------------------------------------------------------------------------
 
 /// `## Heading` — the `#`s stay visible and are accent-tinted (not enlarged).
-fn render_header(line: &RawLine, count: usize) -> TranscriptRow {
+fn render_header(line: &RawLine, _count: usize) -> TranscriptRow {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut seen_heading = false;
 
@@ -141,41 +205,28 @@ fn render_header(line: &RawLine, count: usize) -> TranscriptRow {
             continue;
         }
         if !seen_heading {
-            // The leading `#` run and its trailing text are both accent-tinted but
-            // kept fully visible (compact headings, not enlarged).
-            let trimmed_len = text.trim_start().len();
-            let idx = text.len() - trimmed_len;
-            // Everything from the first `#` onward is part of the heading line.
             spans.push(Span::styled(text.clone(), theme::markdown_header()));
-            let _ = (idx, count);
             seen_heading = true;
         } else {
             spans.push(Span::styled(text.clone(), theme::markdown_header()));
         }
     }
 
-    TranscriptRow::new(Line::from(spans))
+    TranscriptRow::content(Line::from(spans), theme::markdown_header())
 }
 
-// --- lists ---
+// ---------------------------------------------------------------------------
+// Lists
+// ---------------------------------------------------------------------------
 
-/// Bullet list (`- `, `* `, `+ `): hides the source marker, renders a `•` bullet
-/// in the margin. Restricted because `- ` != `• `.
-fn render_list(line: &RawLine, marker_len: usize) -> RenderedRow {
+fn render_unordered(line: &RawLine, depth: usize) -> RenderedRow {
     let trimmed = concat_pieces(line);
+    let marker_len = unordered_marker_len(&trimmed).unwrap_or(0);
     let rest = trimmed[marker_len..].to_string();
     let style = theme::markdown_list();
 
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    for sp in parse_inline(&rest, Style::default()) {
-        spans.push(Span::styled(sp.text, sp.style));
-    }
-
-    let row = TranscriptRow {
-        line: Line::from(spans),
-        margin: LeftMargin::new(LeftMargin::INDENT, 0, style),
-        first_prefix: "\u{25cf} ".to_string(),
-    };
+    let spans = inline_spans(&rest, Style::default());
+    let row = TranscriptRow::markdown_unordered(Line::from(spans), style, depth);
     RenderedRow {
         row,
         content_len: piece_source_len(line),
@@ -183,33 +234,36 @@ fn render_list(line: &RawLine, marker_len: usize) -> RenderedRow {
     }
 }
 
-/// Ordered list (`1. `, `42. `): keeps the number visible in the margin; 1:1.
-fn render_ordered(line: &RawLine, marker_len: usize) -> RenderedRow {
-    let trimmed = concat_pieces(line);
-    let (marker_text, rest) = trimmed.split_at(marker_len);
+fn render_ordered(line: &RawLine, group: OrderedGroup) -> RenderedRow {
+    let full = concat_pieces(line);
+    let (depth, trimmed) = list_depth(&full);
+    let sep_len = ordered_separator_len(&trimmed).unwrap_or(0);
+    let index = ordered_index(&trimmed);
+    let rest = trimmed[sep_len..].to_string();
     let style = theme::markdown_list();
 
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    for sp in parse_inline(rest, Style::default()) {
-        spans.push(Span::styled(sp.text, sp.style));
-    }
-
-    // `marker_text` includes the trailing space (or is just the digits), so the
-    // number renders before the item text.
-    let marker = marker_text.to_string();
-    let row = TranscriptRow {
-        line: Line::from(spans),
-        margin: LeftMargin::new(LeftMargin::INDENT, 0, style),
-        first_prefix: marker,
-    };
+    let spans = inline_spans(&rest, Style::default());
+    let row =
+        TranscriptRow::markdown_ordered(Line::from(spans), style, index, group.digit_width, depth);
     RenderedRow {
         row,
         content_len: piece_source_len(line),
-        restricted: false, // number text is preserved -> 1:1
+        restricted: true, // marker hangs in gutter, not in line.spans -> whole-line freeze
     }
 }
 
-// --- paragraphs ---
+/// Marks up a plain (non-list) line into styled spans; groups consecutive
+/// `**`/`*`/`` ` `` runs. Unclosed markers render literally (tolerant).
+fn inline_spans(text: &str, base: Style) -> Vec<Span<'static>> {
+    parse_inline(text, base)
+        .into_iter()
+        .map(|sp| Span::styled(sp.text, sp.style))
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Paragraphs
+// ---------------------------------------------------------------------------
 
 /// Plain paragraph with inline emphasis. Restricted iff any inline element hid
 /// markers (bold/italic/code).
@@ -230,13 +284,15 @@ fn render_paragraph(line: &RawLine, base: Style) -> RenderedRow {
     }
 
     RenderedRow {
-        row: TranscriptRow::new(Line::from(spans)),
+        row: TranscriptRow::content(Line::from(spans), base),
         content_len: piece_source_len(line),
         restricted,
     }
 }
 
-// --- header / list detection ---
+// ---------------------------------------------------------------------------
+// Detection helpers
+// ---------------------------------------------------------------------------
 
 fn header_run(line: &str) -> Option<usize> {
     let trimmed = line.trim_start();
@@ -245,18 +301,24 @@ fn header_run(line: &str) -> Option<usize> {
         return None;
     }
     let after = &trimmed[count..];
-    if after.is_empty() || after.starts_with(' ') {
-        Some(count)
-    } else {
-        None
-    }
+    (after.is_empty() || after.starts_with(' ')).then_some(count)
 }
 
-fn unordered_marker(line: &str) -> Option<usize> {
-    let trimmed = line.trim_start();
-    let first = trimmed.chars().next()?;
+/// Counts leading list indentation, normalizing tabs (a tab is treated as 4
+/// spaces). One logical tab = [`LIST_INDENT`] columns. Returns depth and the
+/// indentation-stripped text.
+fn list_depth(line: &str) -> (usize, String) {
+    let expanded = line.replace('\t', "    ");
+    let indent_cols = expanded.chars().take_while(|c| *c == ' ').count();
+    let depth = indent_cols / crate::transcript::row::LIST_INDENT;
+    (depth, expanded.trim_start().to_string())
+}
+
+/// The length of an unordered marker `- ` / `* ` / `+ ` (symbol + space).
+fn unordered_marker_len(trimmed_of_full_line: &str) -> Option<usize> {
+    let first = trimmed_of_full_line.chars().next()?;
     if matches!(first, '-' | '*' | '+') {
-        let mut chars = trimmed.chars();
+        let mut chars = trimmed_of_full_line.chars();
         chars.next();
         if chars.next() == Some(' ') {
             return Some(first.len_utf8() + 1);
@@ -265,8 +327,19 @@ fn unordered_marker(line: &str) -> Option<usize> {
     None
 }
 
-fn ordered_marker(line: &str) -> Option<usize> {
-    let trimmed = line.trim_start();
+/// Returns the nesting depth if `full` is an unordered list item and its marker
+/// length, else `None`.
+fn unordered_depth(full: &str) -> Option<usize> {
+    let (depth, trimmed) = list_depth(full);
+    if unordered_marker_len(&trimmed).is_some() {
+        Some(depth)
+    } else {
+        None
+    }
+}
+
+/// Separator length of an ordered item (`1. ` / `1) `) including trailing space.
+fn ordered_separator_len(trimmed: &str) -> Option<usize> {
     let mut digit_end = 0usize;
     for (i, c) in trimmed.char_indices() {
         if c.is_ascii_digit() {
@@ -290,16 +363,23 @@ fn ordered_marker(line: &str) -> Option<usize> {
     };
     let after = &rest[sep_len..];
     if after.is_empty() {
-        Some(digit_end + sep_len) // e.g. "1." alone
+        Some(digit_end + sep_len)
     } else if after.starts_with(' ') {
-        // Include the trailing space so the item content starts at the first word.
         Some(digit_end + sep_len + 1)
     } else {
         None
     }
 }
 
-// --- inline emphasis ---
+/// Parses the numeric index of an ordered item.
+fn ordered_index(trimmed: &str) -> usize {
+    let digits: String = trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// Inline emphasis
+// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum InlineKind {
@@ -354,8 +434,6 @@ fn find_closer(text: &str, from: usize, kind: InlineKind) -> Option<usize> {
     }
 }
 
-/// Parse inline emphasis in a single line fragment. Returns rendered spans plus
-/// whether any marker was hidden (a restricted row).
 fn parse_inline_with_flag(text: &str, base: Style) -> (Vec<StyledSpan>, bool) {
     let mut spans: Vec<StyledSpan> = Vec::new();
     let mut restricted = false;
@@ -384,7 +462,6 @@ fn parse_inline_with_flag(text: &str, base: Style) -> (Vec<StyledSpan>, bool) {
                     pos = closer + marker_len;
                     plain_start = pos;
                 } else {
-                    // Unclosed: treat as literal, advance past the opener.
                     pos += marker_len;
                 }
             }
@@ -405,13 +482,13 @@ fn parse_inline_with_flag(text: &str, base: Style) -> (Vec<StyledSpan>, bool) {
     (spans, restricted)
 }
 
-/// Parse inline emphasis, discarding the restricted flag (for callers that only
-/// need the spans).
 fn parse_inline(text: &str, base: Style) -> Vec<StyledSpan> {
     parse_inline_with_flag(text, base).0
 }
 
-// --- helpers ---
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 fn concat_pieces(line: &RawLine) -> String {
     let mut s = String::new();
@@ -446,10 +523,11 @@ mod tests {
         assert_eq!(out.rows[0].content_len, "## Hello".len());
         let text = row_text(&out.rows[0].row);
         assert!(text.starts_with("## Hello"));
-        // every span of the heading uses the header accent fg
         for span in &out.rows[0].row.line.spans {
             assert_eq!(span.style.fg, theme::markdown_header().fg);
         }
+        // Headings sit under the content margin (marker-free), not col 0.
+        assert_eq!(out.rows[0].row.layout.content_column(), 2);
     }
 
     #[test]
@@ -458,9 +536,7 @@ mod tests {
         assert_eq!(out.rows.len(), 1);
         assert!(out.rows[0].restricted);
         assert_eq!(out.rows[0].content_len, "a **bold** c".len());
-        let text = row_text(&out.rows[0].row);
-        assert_eq!(text, "a bold c");
-        // the bold span is styled
+        assert_eq!(row_text(&out.rows[0].row), "a bold c");
         assert!(out.rows[0].row.line.spans.iter().any(|s| {
             s.content.as_ref() == "bold" && s.style.add_modifier.contains(Modifier::BOLD)
         }));
@@ -470,7 +546,6 @@ mod tests {
     fn unclosed_bold_renders_literally() {
         let out = render_assistant(&text_segs("a **bold"));
         assert_eq!(out.rows.len(), 1);
-        // restricted is false because nothing was hidden — the marker stays visible
         assert!(!out.rows[0].restricted);
         assert_eq!(row_text(&out.rows[0].row), "a **bold");
     }
@@ -482,18 +557,37 @@ mod tests {
         for r in &out.rows {
             assert!(r.restricted);
         }
-        // content excludes the marker; content_len retains the full source length
         assert_eq!(row_text(&out.rows[0].row), "item one");
         assert_eq!(out.rows[0].content_len, "- item one".len());
+        // bullet at depth 0: content column = 2 (outer) + 2 (marker) = 4.
+        assert_eq!(out.rows[0].row.layout.content_column(), 4);
     }
 
     #[test]
-    fn ordered_list_keeps_number() {
-        let out = render_assistant(&text_segs("1. first\n2. second"));
+    fn ordered_list_right_aligns_widest_marker() {
+        // 10. -> digit_width 2. "9." renders right-aligned as " 9. ", "10." as "10. ".
+        let out = render_assistant(&text_segs("9. nine\n10. ten"));
         assert_eq!(out.rows.len(), 2);
-        assert!(!out.rows[0].restricted);
-        assert_eq!(row_text(&out.rows[0].row), "first");
-        assert_eq!(out.rows[0].row.first_prefix, "1. ");
+        // Ordered markers hang in the gutter (not in line.spans), so the rows are
+        // restricted (whole-line freeze) for spill safety.
+        assert!(out.rows[0].restricted);
+        assert_eq!(row_text(&out.rows[0].row), "nine");
+        assert_eq!(row_text(&out.rows[1].row), "ten");
+        let marker9 = out.rows[0].row.layout.marker.as_ref().unwrap();
+        let marker10 = out.rows[1].row.layout.marker.as_ref().unwrap();
+        assert_eq!(marker9.text(), " 9. ");
+        assert_eq!(marker10.text(), "10. ");
+        assert_eq!(marker9.width(), marker10.width());
+    }
+
+    #[test]
+    fn nested_unordered_list_sets_depth() {
+        let out = render_assistant(&text_segs("- top\n  - nested"));
+        assert_eq!(out.rows.len(), 2);
+        assert_eq!(out.rows[0].row.layout.nesting_depth, 0);
+        assert_eq!(out.rows[1].row.layout.nesting_depth, 1);
+        // nested content column = 2 + marker(2) + 1*LIST_INDENT(2) = 6.
+        assert_eq!(out.rows[1].row.layout.content_column(), 6);
     }
 
     #[test]
@@ -502,8 +596,6 @@ mod tests {
             AssistantSegment::Thinking("## think\n".to_string()),
             AssistantSegment::Text("answer".to_string()),
         ]);
-        // thinking "## think" is a plain muted line (not a header) — markdown only
-        // applies to Text segments.
         assert_eq!(out.rows.len(), 2);
         assert!(!out.rows[0].restricted);
         assert_eq!(row_text(&out.rows[0].row), "## think");
