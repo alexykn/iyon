@@ -90,7 +90,10 @@ impl OpenRouterModelApi {
                 Err(error) => {
                     let mapped = ModelError::new(
                         ModelErrorKind::Transport,
-                        format!("openrouter transport error (attempt {}): {error}", attempt + 1),
+                        format!(
+                            "openrouter transport error (attempt {}): {error}",
+                            attempt + 1
+                        ),
                     );
                     if attempt < MAX_RETRIES {
                         tokio::time::sleep(backoff_duration(attempt)).await;
@@ -490,5 +493,3 @@ fn convert_assistant(content: Vec<ContentBlock>) -> Value {
     }
     message
 }
-
-

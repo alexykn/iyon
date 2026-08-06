@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     renderers::{
         BashRenderer, EditRenderer, FindRenderer, GenericRenderer, GrepRenderer, LsRenderer,
@@ -8,6 +7,7 @@ use crate::tools::{
     },
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use crate::transcript::row::TranscriptRow;
 
 /// A tool renderer turns a call (or its result) into transcript rows. Rows carry
 /// their intended hanging indent as a first-class `TranscriptRow`; renderers must

@@ -58,7 +58,11 @@ pub(crate) fn slice_segments(
         }
 
         let start = if from > cursor { from - cursor } else { 0 };
-        let end = if to < segment_end { to - cursor } else { text.len() };
+        let end = if to < segment_end {
+            to - cursor
+        } else {
+            text.len()
+        };
         let start = clamp_to_char_boundary(text, start);
         let end = char_boundary_after(text, end).max(start);
 
@@ -147,6 +151,9 @@ pub(crate) enum ToolTimelineStatus {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TuiFormatter {
     tool_renderers: ToolRendererRegistry,
+    /// Debug aid: render tool-call argument previews under the call header.
+    /// Defaults off via `Default`; the normal UI keeps calls compact.
+    show_arg_preview: bool,
 }
 
 impl TuiFormatter {
@@ -155,7 +162,9 @@ impl TuiFormatter {
             TimelineItem::UserMessage { text } => {
                 self.format_text_message(text, Style::default().bg(Color::Rgb(45, 55, 72)), true)
             }
-            TimelineItem::AssistantMessage { segments } => self.format_assistant_message(segments, true),
+            TimelineItem::AssistantMessage { segments } => {
+                self.format_assistant_message(segments, true)
+            }
             TimelineItem::ErrorMessage { text } => {
                 self.format_text_message(text, Style::default().fg(Color::Red), true)
             }
@@ -189,7 +198,10 @@ impl TuiFormatter {
         rows
     }
 
-    pub(crate) fn format_assistant_body(&self, segments: &[AssistantSegment]) -> Vec<TranscriptRow> {
+    pub(crate) fn format_assistant_body(
+        &self,
+        segments: &[AssistantSegment],
+    ) -> Vec<TranscriptRow> {
         Self::format_segments_body(segments)
     }
 
@@ -234,6 +246,7 @@ impl TuiFormatter {
             arguments,
             status: status_label,
             style,
+            show_arg_preview: self.show_arg_preview,
         });
         apply_call_truncation(rows)
     }
@@ -291,7 +304,7 @@ impl TuiFormatter {
 /// Maximum number of tool-result rows shown in the collapsed (default) display
 /// state. Longer results are sliced at render time with a footer hint; the full
 /// text stays on the timeline item for a future expand/collapse interaction.
-const DISPLAY_MAX_LINES: usize = 25;
+const DISPLAY_MAX_LINES: usize = 15;
 
 /// Cuts a rendered tool-result block down to [`DISPLAY_MAX_LINES`] logical rows,
 /// appending a styled footer noting how many lines were hidden. This is a pure,
@@ -331,7 +344,10 @@ fn apply_call_truncation(rows: Vec<TranscriptRow>) -> Vec<TranscriptRow> {
     let mut out = Vec::with_capacity(keep + DISPLAY_CALL_MAX_LINES + 1);
     out.extend(rows.into_iter().take(keep + DISPLAY_CALL_MAX_LINES));
     out.push(TranscriptRow::indented(
-        format!("… {hidden} more argument line{}", if hidden == 1 { "" } else { "s" }),
+        format!(
+            "… {hidden} more argument line{}",
+            if hidden == 1 { "" } else { "s" }
+        ),
         truncation_footer_style(),
     ));
     out
@@ -542,7 +558,10 @@ impl TranscriptState {
             .canonical_items
             .iter()
             .rposition(|item| matches!(item, TimelineItem::AssistantMessage { .. }));
-        let open_assistant_idx = self.assistant_stream_open.then_some(last_assistant_idx).flatten();
+        let open_assistant_idx = self
+            .assistant_stream_open
+            .then_some(last_assistant_idx)
+            .flatten();
         debug_assert!(
             open_assistant_idx.is_none() || open_assistant_idx == last_assistant_idx,
             "open streaming assistant must be the last assistant message"
@@ -553,9 +572,7 @@ impl TranscriptState {
         let mut prev_item: Option<&TimelineItem> = None;
         for (idx, item) in self.canonical_items.iter().enumerate() {
             match item {
-                TimelineItem::AssistantMessage { segments }
-                    if open_assistant_idx == Some(idx) =>
-                {
+                TimelineItem::AssistantMessage { segments } if open_assistant_idx == Some(idx) => {
                     // While an assistant stream is open, the transcript owns only the
                     // frozen/spilled portion of that assistant message. Keep the normal
                     // message top padding so the gap from the preceding user message is
@@ -573,8 +590,8 @@ impl TranscriptState {
                 }
                 _ => {
                     let is_user = matches!(item, TimelineItem::UserMessage { .. });
-                    let is_second_user_in_run = is_user
-                        && matches!(prev_item, Some(TimelineItem::UserMessage { .. }));
+                    let is_second_user_in_run =
+                        is_user && matches!(prev_item, Some(TimelineItem::UserMessage { .. }));
                     if is_second_user_in_run {
                         // Fuse consecutive user bubbles into one: remove the inter-bubble
                         // padding pair (prev trailing + next leading). Exactly one row
@@ -773,18 +790,13 @@ mod tests {
     #[test]
     fn thinking_segment_is_muted_and_italic() {
         let formatter = TuiFormatter::default();
-        let rows = formatter.format_assistant_message(
-            &[AssistantSegment::Thinking("rethink".to_string())],
-            false,
-        );
+        let rows = formatter
+            .format_assistant_message(&[AssistantSegment::Thinking("rethink".to_string())], false);
         // rows[0] is the leading blank line; rows[1] is the thinking body line.
         let body = &rows[1].line;
         assert_eq!(body.spans.len(), 1);
         assert!(body.spans[0].style.add_modifier.contains(Modifier::ITALIC));
-        assert_ne!(
-            body.spans[0].style.fg,
-            Some(ratatui::style::Color::Reset)
-        );
+        assert_ne!(body.spans[0].style.fg, Some(ratatui::style::Color::Reset));
     }
 
     #[test]
@@ -792,7 +804,12 @@ mod tests {
         let formatter = TuiFormatter::default();
         let rows = formatter.format_assistant_body(&text_segments("answer"));
         assert_eq!(rows.len(), 1);
-        assert!(!rows[0].line.spans[0].style.add_modifier.contains(Modifier::ITALIC));
+        assert!(
+            !rows[0].line.spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::ITALIC)
+        );
     }
 
     #[test]
@@ -806,8 +823,18 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(line_text(&rows[0].line), "hmmanswer");
         assert_eq!(rows[0].line.spans.len(), 2);
-        assert!(rows[0].line.spans[0].style.add_modifier.contains(Modifier::ITALIC));
-        assert!(!rows[0].line.spans[1].style.add_modifier.contains(Modifier::ITALIC));
+        assert!(
+            rows[0].line.spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::ITALIC)
+        );
+        assert!(
+            !rows[0].line.spans[1]
+                .style
+                .add_modifier
+                .contains(Modifier::ITALIC)
+        );
     }
 
     #[test]
@@ -824,9 +851,24 @@ mod tests {
         assert_eq!(line_text(&rows[0].line), "a");
         assert_eq!(line_text(&rows[1].line), "b");
         assert_eq!(line_text(&rows[2].line), "c");
-        assert!(rows[0].line.spans[0].style.add_modifier.contains(Modifier::ITALIC));
-        assert!(rows[1].line.spans[0].style.add_modifier.contains(Modifier::ITALIC));
-        assert!(!rows[2].line.spans[0].style.add_modifier.contains(Modifier::ITALIC));
+        assert!(
+            rows[0].line.spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::ITALIC)
+        );
+        assert!(
+            rows[1].line.spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::ITALIC)
+        );
+        assert!(
+            !rows[2].line.spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::ITALIC)
+        );
     }
 
     #[test]
@@ -895,10 +937,7 @@ mod tests {
         // 'é' is two bytes: bytes 1..=2.
         let segs = vec![AssistantSegment::Text("héllo".to_string())];
         let got = slice_segments(&segs, 1, 6);
-        assert_eq!(
-            got,
-            vec![AssistantSegment::Text("éllo".to_string())]
-        );
+        assert_eq!(got, vec![AssistantSegment::Text("éllo".to_string())]);
     }
 
     #[test]
@@ -1000,7 +1039,10 @@ mod tests {
     #[test]
     fn tool_result_collapses_to_display_max_lines_with_footer() {
         let mut transcript = TranscriptState::default();
-        let text = (0..50).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..50)
+            .map(|i| format!("line{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         transcript.push_item(TimelineItem::ToolResult {
             tool_call_id: "1".to_string(),
             tool_name: "read".to_string(),
@@ -1013,15 +1055,15 @@ mod tests {
         // Renderer emits 1 title row + 50 body rows = 51; collapsed keeps
         // DISPLAY_MAX_LINES + a footer hint, then a trailing blank is appended.
         let rows = &transcript.logical_rows_cache;
-        assert_eq!(rows.len(), 25 + 1 + 1, "25 kept + footer + trailing blank");
+        assert_eq!(rows.len(), 15 + 1 + 1, "15 kept + footer + trailing blank");
 
-        let footer_text: String = rows[25]
+        let footer_text: String = rows[15]
             .line
             .spans
             .iter()
             .map(|s| s.content.as_ref())
             .collect();
-        assert!(footer_text.contains("26 more lines"), "got {footer_text:?}");
+        assert!(footer_text.contains("36 more lines"), "got {footer_text:?}");
     }
 
     #[test]
@@ -1044,33 +1086,27 @@ mod tests {
     }
 
     #[test]
-    fn tool_call_argument_preview_is_capped_at_15_lines() {
+    fn tool_call_renders_compact_without_arg_payload() {
         let mut transcript = TranscriptState::default();
-        // A JSON object with many keys renders as a multi-line argument preview.
+        // A JSON object with many keys: even so, the call renders as just the
+        // header (blank spacer + bullet) — the argument payload is not shown in
+        // the default view.
         let mut obj = serde_json::Map::new();
         for i in 0..30 {
             obj.insert(format!("key{i}"), serde_json::Value::String("v".into()));
         }
         transcript.push_item(TimelineItem::ToolCall {
             tool_call_id: "1".to_string(),
-            tool_name: "*".to_string(), // generic renderer -> pretty-printed args preview
+            tool_name: "*".to_string(), // generic renderer
             arguments: serde_json::Value::Object(obj),
             status: ToolTimelineStatus::Finished,
         });
 
-        // blank spacer + bullet header + 15 preview rows + footer.
+        // blank spacer + bullet header only — no argument dump.
         let rows = &transcript.logical_rows_cache;
-        assert_eq!(rows.len(), 1 + 1 + 15 + 1);
-
-        let footer: String = rows
-            .last()
-            .unwrap()
-            .line
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(footer.contains("more argument lines"), "got {footer:?}");
+        assert_eq!(rows.len(), 1 + 1);
+        let texts: Vec<String> = rows.iter().map(|r| r.line.to_string()).collect();
+        assert_eq!(texts[1], "tool * — finished");
     }
 
     #[test]
@@ -1090,7 +1126,10 @@ mod tests {
         let rows = transcript.uncommitted_rows();
         // Every rendered body line (and the title) keeps the 2-column hanging indent,
         // including wrapped continuation lines.
-        for row in rows.iter().filter(|l| l.spans.iter().any(|s| !s.content.is_empty())) {
+        for row in rows
+            .iter()
+            .filter(|l| l.spans.iter().any(|s| !s.content.is_empty()))
+        {
             let text: String = row.spans.iter().map(|s| s.content.as_ref()).collect();
             assert!(text.starts_with("  "), "row lost indent: {text:?}");
         }

@@ -1,8 +1,8 @@
-use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     registry::ToolRenderer,
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use crate::transcript::row::TranscriptRow;
 
 #[derive(Debug)]
 pub(crate) struct ReadRenderer;
@@ -27,21 +27,28 @@ impl ToolRenderer for ReadRenderer {
             .get("limit")
             .and_then(serde_json::Value::as_u64);
         let suffix = match (offset, limit) {
-            (Some(offset), Some(limit)) => format!(":{offset}-{}", offset + limit.saturating_sub(1)),
+            (Some(offset), Some(limit)) => {
+                format!(":{offset}-{}", offset + limit.saturating_sub(1))
+            }
             (Some(offset), None) => format!(":{offset}"),
             _ => String::new(),
         };
 
         vec![
             TranscriptRow::blank(),
-            TranscriptRow::bullet(format!("read {path}{suffix} — {}", input.status),
+            TranscriptRow::bullet(
+                format!("read {path}{suffix} — {}", input.status),
                 input.style,
             ),
         ]
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
-        let title = if input.is_error { "read failed" } else { "read result" };
+        let title = if input.is_error {
+            "read failed"
+        } else {
+            "read result"
+        };
         let mut rows = vec![TranscriptRow::indented(title, input.style)];
         rows.extend(
             input

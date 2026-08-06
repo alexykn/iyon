@@ -1,5 +1,5 @@
-use std::{path::PathBuf, sync::Arc, time::SystemTime};
 use std::collections::VecDeque;
+use std::{path::PathBuf, sync::Arc, time::SystemTime};
 use tokio::sync::Mutex;
 
 use anyhow::{Context, Result, bail};
@@ -271,9 +271,7 @@ async fn inject_steered_messages(
         emit_user_message(event_tx, turn_id, message_id, &text).await?;
         let user_message = AgentMessage::User {
             id: message_id,
-            content: vec![ContentBlock::Text {
-                text: text.clone(),
-            }],
+            content: vec![ContentBlock::Text { text: text.clone() }],
             timestamp: SystemTime::now(),
         };
         session.messages.push(user_message.clone());
@@ -473,8 +471,8 @@ mod tests {
                     .unwrap()
                     .pop_front()
                     .expect("a scripted stream should be queued for each model turn");
-                let stream: ModelStream = Box::pin(unfold(rx, |mut rx| {
-                    async move { rx.recv().await.map(|event| (Ok(event), rx)) }
+                let stream: ModelStream = Box::pin(unfold(rx, |mut rx| async move {
+                    rx.recv().await.map(|event| (Ok(event), rx))
                 }));
                 Ok(stream)
             })
@@ -535,7 +533,6 @@ mod tests {
     fn steering() -> Arc<Mutex<VecDeque<String>>> {
         Arc::new(Mutex::new(VecDeque::new()))
     }
-
 
     /// Drains `event_rx` until an assistant text delta containing `needle` is seen.
     async fn wait_for_assistant_text(
@@ -600,7 +597,10 @@ mod tests {
         let TurnOutcome::Cancelled { messages, .. } = outcome else {
             panic!("expected Cancelled, got {outcome:?}");
         };
-        assert!(assistant_text(&messages[0], "partial"), "messages: {messages:?}");
+        assert!(
+            assistant_text(&messages[0], "partial"),
+            "messages: {messages:?}"
+        );
     }
 
     #[tokio::test]
@@ -662,7 +662,10 @@ mod tests {
 
         // [full assistant (not interrupted), steered user, answer assistant]
         assert_eq!(messages.len(), 3, "messages: {messages:?}");
-        assert!(assistant_text(&messages[0], "first full reply"), "messages: {messages:?}");
+        assert!(
+            assistant_text(&messages[0], "first full reply"),
+            "messages: {messages:?}"
+        );
         let AgentMessage::User { content, .. } = &messages[1] else {
             panic!("expected user message at index 1: {messages:?}")
         };
@@ -672,7 +675,10 @@ mod tests {
                 .any(|b| matches!(b, iyon_api::ContentBlock::Text { text } if text == "steer!")),
             "messages: {messages:?}"
         );
-        assert!(assistant_text(&messages[2], "the answer"), "messages: {messages:?}");
+        assert!(
+            assistant_text(&messages[2], "the answer"),
+            "messages: {messages:?}"
+        );
     }
 
     #[tokio::test]
@@ -736,13 +742,19 @@ mod tests {
         // [assistant1, User(a), User(b), User(c), assistant2] — all steers are injected
         // together, feeding a single follow-up response.
         assert_eq!(messages.len(), 5, "messages: {messages:?}");
-        assert!(assistant_text(&messages[0], "first reply"), "messages: {messages:?}");
+        assert!(
+            assistant_text(&messages[0], "first reply"),
+            "messages: {messages:?}"
+        );
         for idx in 1..=3 {
             assert!(
                 matches!(&messages[idx], AgentMessage::User { .. }),
                 "message {idx} should be an injected steer: {messages:?}"
             );
         }
-        assert!(assistant_text(&messages[4], "batch answer"), "messages: {messages:?}");
+        assert!(
+            assistant_text(&messages[4], "batch answer"),
+            "messages: {messages:?}"
+        );
     }
 }

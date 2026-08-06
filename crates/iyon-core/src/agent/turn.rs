@@ -127,7 +127,7 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
                         usage,
                         tool_calls,
                         stop_reason: StopReason::Aborted,
-            cancellation: cancellation.clone(),
+                        cancellation: cancellation.clone(),
                     })
                     .await;
                 }
@@ -161,7 +161,7 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
                         usage,
                         tool_calls,
                         stop_reason: StopReason::Aborted,
-            cancellation: cancellation.clone(),
+                        cancellation: cancellation.clone(),
                     })
                     .await;
                 }
@@ -277,7 +277,6 @@ async fn send_event(
         }
     }
 }
-
 
 fn handle_tool_call_start(
     content: &mut Vec<ContentBlock>,
@@ -516,15 +515,19 @@ mod tests {
                     .unwrap()
                     .take()
                     .expect("DrivenModel supports a single stream");
-                let stream: ModelStream = Box::pin(futures_util::stream::unfold(rx, |mut rx| {
-                    async move { rx.recv().await.map(|event| (Ok(event), rx)) }
-                }));
+                let stream: ModelStream =
+                    Box::pin(futures_util::stream::unfold(rx, |mut rx| async move {
+                        rx.recv().await.map(|event| (Ok(event), rx))
+                    }));
                 Ok(stream)
             })
         }
     }
 
-    fn driven_model_events() -> (Arc<DrivenModel>, tokio::sync::mpsc::Sender<ModelStreamEvent>) {
+    fn driven_model_events() -> (
+        Arc<DrivenModel>,
+        tokio::sync::mpsc::Sender<ModelStreamEvent>,
+    ) {
         let (tx, rx) = tokio::sync::mpsc::channel(16);
         let model = Arc::new(DrivenModel {
             rx: Arc::new(std::sync::Mutex::new(Some(rx))),
@@ -590,10 +593,7 @@ mod tests {
             }
         }
 
-        assert_eq!(
-            deltas,
-            vec!["T:think1", "X:hi ", "T:think2", "X:there"]
-        );
+        assert_eq!(deltas, vec!["T:think1", "X:hi ", "T:think2", "X:there"]);
     }
 
     #[tokio::test]
@@ -664,7 +664,10 @@ mod tests {
             })
             .collect();
         assert!(text.iter().any(|t| t.contains("partial")), "text: {text:?}");
-        assert!(text.iter().any(|t| t.contains("a thought")), "text: {text:?}");
+        assert!(
+            text.iter().any(|t| t.contains("a thought")),
+            "text: {text:?}"
+        );
     }
 
     /// Esc-interrupt must be honored promptly even when the (bounded) frontend event

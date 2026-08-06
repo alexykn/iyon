@@ -422,7 +422,7 @@ impl BackendEventHandler {
                     model_id,
                     reasoning_effort,
                 })
-            },
+            }
         }
     }
 }

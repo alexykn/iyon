@@ -1,8 +1,8 @@
-use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     registry::ToolRenderer,
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use crate::transcript::row::TranscriptRow;
 
 #[derive(Debug)]
 pub(crate) struct FindRenderer;
@@ -25,14 +25,19 @@ impl ToolRenderer for FindRenderer {
             .unwrap_or(".");
         vec![
             TranscriptRow::blank(),
-            TranscriptRow::bullet(format!("find {pattern} in {path} — {}", input.status),
+            TranscriptRow::bullet(
+                format!("find {pattern} in {path} — {}", input.status),
                 input.style,
             ),
         ]
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
-        let title = if input.is_error { "find failed" } else { "find result" };
+        let title = if input.is_error {
+            "find failed"
+        } else {
+            "find result"
+        };
         let mut rows = vec![TranscriptRow::indented(title, input.style)];
         rows.extend(
             input

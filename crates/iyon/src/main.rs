@@ -69,49 +69,46 @@ async fn run() -> Result<()> {
 /// provider or credentials are available it falls back to the mock provider so the app
 /// can still start (useful for testing and for in-app `/login` flows later).
 async fn run_interactive() -> Result<()> {
-    let (model, selection): (Arc<dyn iyon_api::ModelApi>, ModelSelection) =
-        match detect_provider() {
-            ProviderKind::OpenRouter => {
-                let Some(key) = auth::openrouter_api_key() else {
-                    eprintln!(
-                        "warning: no OpenRouter API key (set OPENROUTER_API_KEY); starting unconfigured"
-                    );
-                    return run_with_model(
-                        Arc::new(iyon_api::MockModelApi),
-                        mock_selection(),
-                    );
-                };
-                let model_id = std::env::var("IYON_MODEL")
-                    .unwrap_or_else(|_| DEFAULT_OPENROUTER_MODEL.to_string());
-                (
-                    Arc::new(iyon_api::OpenRouterModelApi::new(key, model_id.clone())?),
-                    ModelSelection {
-                        provider: "openrouter".to_string(),
-                        model_id,
-                    },
-                )
+    let (model, selection): (Arc<dyn iyon_api::ModelApi>, ModelSelection) = match detect_provider()
+    {
+        ProviderKind::OpenRouter => {
+            let Some(key) = auth::openrouter_api_key() else {
+                eprintln!(
+                    "warning: no OpenRouter API key (set OPENROUTER_API_KEY); starting unconfigured"
+                );
+                return run_with_model(Arc::new(iyon_api::MockModelApi), mock_selection());
+            };
+            let model_id = std::env::var("IYON_MODEL")
+                .unwrap_or_else(|_| DEFAULT_OPENROUTER_MODEL.to_string());
+            (
+                Arc::new(iyon_api::OpenRouterModelApi::new(key, model_id.clone())?),
+                ModelSelection {
+                    provider: "openrouter".to_string(),
+                    model_id,
+                },
+            )
+        }
+        ProviderKind::Codex => match auth::get_valid_credentials().await {
+            Ok(Some(creds)) => (
+                Arc::new(OpenAICodexModelApi::new(creds.access, creds.account_id)?),
+                ModelSelection {
+                    provider: "openai-codex".to_string(),
+                    model_id: "gpt-5.3-codex".to_string(),
+                },
+            ),
+            Ok(None) => {
+                eprintln!("warning: not logged in to OpenAI Codex; starting unconfigured");
+                (Arc::new(iyon_api::MockModelApi), mock_selection())
             }
-            ProviderKind::Codex => match auth::get_valid_credentials().await {
-                Ok(Some(creds)) => (
-                    Arc::new(OpenAICodexModelApi::new(creds.access, creds.account_id)?),
-                    ModelSelection {
-                        provider: "openai-codex".to_string(),
-                        model_id: "gpt-5.3-codex".to_string(),
-                    },
-                ),
-                Ok(None) => {
-                    eprintln!("warning: not logged in to OpenAI Codex; starting unconfigured");
-                    (Arc::new(iyon_api::MockModelApi), mock_selection())
-                }
-                Err(error) => {
-                    eprintln!(
-                        "warning: OpenAI Codex login unavailable ({error:#}); starting unconfigured"
-                    );
-                    (Arc::new(iyon_api::MockModelApi), mock_selection())
-                }
-            },
-            ProviderKind::Mock => (Arc::new(iyon_api::MockModelApi), mock_selection()),
-        };
+            Err(error) => {
+                eprintln!(
+                    "warning: OpenAI Codex login unavailable ({error:#}); starting unconfigured"
+                );
+                (Arc::new(iyon_api::MockModelApi), mock_selection())
+            }
+        },
+        ProviderKind::Mock => (Arc::new(iyon_api::MockModelApi), mock_selection()),
+    };
     run_with_model(model, selection)
 }
 

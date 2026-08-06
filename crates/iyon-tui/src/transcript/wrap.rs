@@ -109,7 +109,11 @@ fn wrap_transcript_logical_row(
 /// means plain margin spaces. When the content's first span shares the margin's
 /// style (the common case), the prefix is merged into it so emission stays a single
 /// styled span; otherwise it is inserted as its own leading span.
-fn prepend_prefix(mut line: Line<'static>, margin: LeftMargin, first_prefix: &str) -> Line<'static> {
+fn prepend_prefix(
+    mut line: Line<'static>,
+    margin: LeftMargin,
+    first_prefix: &str,
+) -> Line<'static> {
     if margin.left == 0 || line.spans.is_empty() {
         return line;
     }
@@ -362,5 +366,3 @@ mod tests {
         assert_eq!(text_rows, ["  ab", "  cd", "  ef", "  gh"]);
     }
 }
-
-

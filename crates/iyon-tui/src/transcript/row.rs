@@ -53,19 +53,26 @@ pub(crate) struct TranscriptRow {
 impl TranscriptRow {
     /// A row at column 0 (no indent).
     pub(crate) fn new(line: Line<'static>) -> Self {
-        Self { line, margin: LeftMargin::ZERO, first_prefix: String::new() }
+        Self {
+            line,
+            margin: LeftMargin::ZERO,
+            first_prefix: String::new(),
+        }
     }
 
     /// A row with an explicit hanging indent.
     pub(crate) fn with_margin(line: Line<'static>, margin: LeftMargin) -> Self {
-        Self { line, margin, first_prefix: String::new() }
+        Self {
+            line,
+            margin,
+            first_prefix: String::new(),
+        }
     }
 
     /// An empty row (used for inter-block pacing).
     pub(crate) fn blank() -> Self {
         Self::new(Line::from(""))
     }
-
 
     /// A row indented by [`LeftMargin::INDENT`] columns whose margin and content share `style`.
     pub(crate) fn indented(text: impl Into<String>, style: Style) -> Self {

@@ -1,10 +1,10 @@
 use ratatui::style::{Color, Style};
 
-use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     registry::ToolRenderer,
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use crate::transcript::row::TranscriptRow;
 
 #[derive(Debug)]
 pub(crate) struct EditRenderer;
@@ -24,14 +24,18 @@ impl ToolRenderer for EditRenderer {
             TranscriptRow::blank(),
             TranscriptRow::bullet(format!("edit {path} — {}", input.status), input.style),
         ];
-        if let Some(edits) = input.arguments.get("edits") {
-            let preview =
-                serde_json::to_string_pretty(edits).unwrap_or_else(|_| edits.to_string());
-            rows.extend(
-                preview
-                    .lines()
-                    .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
-            );
+        // Debug-only: surface the raw edits payload; the normal view keeps the
+        // call compact and lets the result's diff carry the detail.
+        if input.show_arg_preview {
+            if let Some(edits) = input.arguments.get("edits") {
+                let preview =
+                    serde_json::to_string_pretty(edits).unwrap_or_else(|_| edits.to_string());
+                rows.extend(
+                    preview
+                        .lines()
+                        .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
+                );
+            }
         }
         rows
     }
@@ -49,7 +53,11 @@ impl ToolRenderer for EditRenderer {
         }
 
         let mut rows = vec![TranscriptRow::indented(input.text, input.style)];
-        if let Some(diff) = input.details.get("diff").and_then(serde_json::Value::as_str) {
+        if let Some(diff) = input
+            .details
+            .get("diff")
+            .and_then(serde_json::Value::as_str)
+        {
             rows.extend(diff.lines().map(format_diff_line));
         }
         rows

@@ -5,9 +5,9 @@ use ratatui::text::Line;
 use crate::transcript::{
     AssistantSegment, SegmentKind,
     model::TuiFormatter,
+    row::TranscriptRow,
     slice_segments,
     wrap::{TranscriptCommitBoundary, wrap_transcript_rows},
-    row::TranscriptRow,
 };
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -94,7 +94,10 @@ impl ActivePaneState {
         }
     }
 
-    pub(crate) fn spill_overflow_rows(&mut self, visible_rows: usize) -> Option<Vec<AssistantSegment>> {
+    pub(crate) fn spill_overflow_rows(
+        &mut self,
+        visible_rows: usize,
+    ) -> Option<Vec<AssistantSegment>> {
         let stream = self.stream_mut()?;
         stream.spill_overflow_rows(visible_rows)
     }
@@ -144,7 +147,11 @@ impl ActivePaneState {
         };
 
         let segments = stream.into_unfrozen_segments();
-        if segments.is_empty() { None } else { Some(segments) }
+        if segments.is_empty() {
+            None
+        } else {
+            Some(segments)
+        }
     }
 }
 
@@ -232,7 +239,8 @@ impl ActiveStreamState {
                 if let Some(AssistantSegment::Text(text)) = self.segments.last_mut() {
                     text.push_str(chunk);
                 } else {
-                    self.segments.push(AssistantSegment::Text(chunk.to_string()));
+                    self.segments
+                        .push(AssistantSegment::Text(chunk.to_string()));
                 }
             }
             SegmentKind::Thinking => {
@@ -628,7 +636,10 @@ mod tests {
         let remaining = stream.into_unfrozen_segments();
         let all = format!("{}{}", concat_text(&spilled), concat_text(&remaining));
         let full = format!("{thinking}{text}");
-        assert_eq!(all, full, "segment-aware spill must round-trip the full stream");
+        assert_eq!(
+            all, full,
+            "segment-aware spill must round-trip the full stream"
+        );
     }
 
     #[test]

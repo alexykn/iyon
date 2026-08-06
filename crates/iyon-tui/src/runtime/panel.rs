@@ -61,7 +61,9 @@ pub(crate) struct SteeringQueuePanel {
 
 impl SteeringQueuePanel {
     pub(crate) fn new() -> Self {
-        Self { pending: Vec::new() }
+        Self {
+            pending: Vec::new(),
+        }
     }
 }
 
@@ -279,8 +281,12 @@ mod tests {
         // The visible steering queue is passive: it never consumes keys, so the bar
         // routes them on to the composer untouched.
         let mut bar = BottomPanelBar::default();
-        assert!(bar
-            .handle_key(KeyEvent::new(crossterm::event::KeyCode::Char('x'), crossterm::event::KeyModifiers::NONE))
-            .is_none());
+        assert!(
+            bar.handle_key(KeyEvent::new(
+                crossterm::event::KeyCode::Char('x'),
+                crossterm::event::KeyModifiers::NONE
+            ))
+            .is_none()
+        );
     }
 }

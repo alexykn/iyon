@@ -1,8 +1,8 @@
-use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     registry::ToolRenderer,
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use crate::transcript::row::TranscriptRow;
 
 #[derive(Debug)]
 pub(crate) struct WriteRenderer;
@@ -22,25 +22,33 @@ impl ToolRenderer for WriteRenderer {
             TranscriptRow::blank(),
             TranscriptRow::bullet(format!("write {path} — {}", input.status), input.style),
         ];
-        if let Some(content) = input
-            .arguments
-            .get("content")
-            .and_then(serde_json::Value::as_str)
-        {
-            let preview = truncate_preview_text(content);
-            if !preview.is_empty() {
-                rows.extend(
-                    preview
-                        .lines()
-                        .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
-                );
+        // Debug-only: surface the content preview; the normal view keeps the call
+        // compact and lets the result carry the write output/confirmation.
+        if input.show_arg_preview {
+            if let Some(content) = input
+                .arguments
+                .get("content")
+                .and_then(serde_json::Value::as_str)
+            {
+                let preview = truncate_preview_text(content);
+                if !preview.is_empty() {
+                    rows.extend(
+                        preview
+                            .lines()
+                            .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
+                    );
+                }
             }
         }
         rows
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
-        let title = if input.is_error { "write failed" } else { "write result" };
+        let title = if input.is_error {
+            "write failed"
+        } else {
+            "write result"
+        };
         let mut rows = vec![TranscriptRow::indented(title, input.style)];
         rows.extend(
             input
