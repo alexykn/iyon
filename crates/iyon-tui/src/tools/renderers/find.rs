@@ -25,8 +25,7 @@ impl ToolRenderer for FindRenderer {
             .unwrap_or(".");
         vec![
             TranscriptRow::blank(),
-            TranscriptRow::styled(
-                format!("● find {pattern} in {path} — {}", input.status),
+            TranscriptRow::bullet(format!("find {pattern} in {path} — {}", input.status),
                 input.style,
             ),
         ]

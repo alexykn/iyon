@@ -22,7 +22,7 @@ impl ToolRenderer for EditRenderer {
             .unwrap_or("...");
         let mut rows = vec![
             TranscriptRow::blank(),
-            TranscriptRow::styled(format!("● edit {path} — {}", input.status), input.style),
+            TranscriptRow::bullet(format!("edit {path} — {}", input.status), input.style),
         ];
         if let Some(edits) = input.arguments.get("edits") {
             let preview =

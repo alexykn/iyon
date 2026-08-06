@@ -229,12 +229,13 @@ impl TuiFormatter {
     ) -> Vec<TranscriptRow> {
         let style = tool_style(status);
         let status_label = tool_status_label(status);
-        self.tool_renderers.render_call(ToolCallRenderInput {
+        let rows = self.tool_renderers.render_call(ToolCallRenderInput {
             tool_name,
             arguments,
             status: status_label,
             style,
-        })
+        });
+        apply_call_truncation(rows)
     }
 
     fn format_tool_result(
@@ -258,7 +259,7 @@ impl TuiFormatter {
             style,
         });
         if collapsed {
-            rows = apply_display_truncation(rows);
+            rows = apply_result_truncation(rows);
         }
         rows.push(TranscriptRow::blank());
         rows
@@ -297,7 +298,7 @@ const DISPLAY_MAX_LINES: usize = 25;
 /// tool-agnostic choke point: every renderer maps result text 1:1 to rows, so the
 /// slice applies uniformly regardless of tool. Applies `Style::reset()` margins
 /// guard via the footer's own indented row.
-fn apply_display_truncation(mut rows: Vec<TranscriptRow>) -> Vec<TranscriptRow> {
+fn apply_result_truncation(mut rows: Vec<TranscriptRow>) -> Vec<TranscriptRow> {
     if rows.len() <= DISPLAY_MAX_LINES {
         return rows;
     }
@@ -309,6 +310,31 @@ fn apply_display_truncation(mut rows: Vec<TranscriptRow>) -> Vec<TranscriptRow> 
         truncation_footer_style(),
     ));
     rows
+}
+
+/// Maximum number of argument-preview lines shown for a tool call (always keeps
+/// the leading spacer + bullet header). Argument dumps (edit specs, write content,
+/// generic JSON) can be large; the full call is not retained post-hoc, so the
+/// footer notes the hidden count without a retention claim.
+const DISPLAY_CALL_MAX_LINES: usize = 15;
+
+/// Caps a rendered tool-call block: keeps the spacer + bullet header and at most
+/// [`DISPLAY_CALL_MAX_LINES`] argument-preview lines, appending a footer hint.
+fn apply_call_truncation(rows: Vec<TranscriptRow>) -> Vec<TranscriptRow> {
+    // rows[0] is the blank spacer, rows[1] the bullet header; the rest is preview.
+    const HEADER_ROWS: usize = 2;
+    let keep = HEADER_ROWS.min(rows.len());
+    if rows.len() <= keep + DISPLAY_CALL_MAX_LINES {
+        return rows;
+    }
+    let hidden = rows.len() - keep - DISPLAY_CALL_MAX_LINES;
+    let mut out = Vec::with_capacity(keep + DISPLAY_CALL_MAX_LINES + 1);
+    out.extend(rows.into_iter().take(keep + DISPLAY_CALL_MAX_LINES));
+    out.push(TranscriptRow::indented(
+        format!("… {hidden} more argument line{}", if hidden == 1 { "" } else { "s" }),
+        truncation_footer_style(),
+    ));
+    out
 }
 
 fn truncation_footer_style() -> Style {
@@ -1015,6 +1041,36 @@ mod tests {
         assert_eq!(rows.len(), 3 + 1);
         let texts: Vec<String> = rows.iter().map(|r| r.line.to_string()).collect();
         assert_eq!(texts, vec!["read result", "one", "two", ""]);
+    }
+
+    #[test]
+    fn tool_call_argument_preview_is_capped_at_15_lines() {
+        let mut transcript = TranscriptState::default();
+        // A JSON object with many keys renders as a multi-line argument preview.
+        let mut obj = serde_json::Map::new();
+        for i in 0..30 {
+            obj.insert(format!("key{i}"), serde_json::Value::String("v".into()));
+        }
+        transcript.push_item(TimelineItem::ToolCall {
+            tool_call_id: "1".to_string(),
+            tool_name: "*".to_string(), // generic renderer -> pretty-printed args preview
+            arguments: serde_json::Value::Object(obj),
+            status: ToolTimelineStatus::Finished,
+        });
+
+        // blank spacer + bullet header + 15 preview rows + footer.
+        let rows = &transcript.logical_rows_cache;
+        assert_eq!(rows.len(), 1 + 1 + 15 + 1);
+
+        let footer: String = rows
+            .last()
+            .unwrap()
+            .line
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(footer.contains("more argument lines"), "got {footer:?}");
     }
 
     #[test]

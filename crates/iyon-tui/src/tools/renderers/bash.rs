@@ -22,7 +22,7 @@ impl ToolRenderer for BashRenderer {
             .unwrap_or_default();
         vec![
             TranscriptRow::blank(),
-            TranscriptRow::styled(format!("● $ {command} — {}", input.status), input.style),
+            TranscriptRow::bullet(format!("$ {command} — {}", input.status), input.style),
         ]
     }
 
