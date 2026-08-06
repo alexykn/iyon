@@ -20,7 +20,7 @@ impl ToolRenderer for WriteRenderer {
             .unwrap_or("...");
         let mut rows = vec![
             TranscriptRow::blank(),
-            TranscriptRow::styled(format!("● write {path} — {}", input.status), input.style),
+            TranscriptRow::bullet(format!("write {path} — {}", input.status), input.style),
         ];
         if let Some(content) = input
             .arguments

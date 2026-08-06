@@ -15,8 +15,7 @@ impl ToolRenderer for GenericRenderer {
     fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<TranscriptRow> {
         let mut rows = vec![
             TranscriptRow::blank(),
-            TranscriptRow::styled(
-                format!("● tool {} — {}", input.tool_name, input.status),
+            TranscriptRow::bullet(format!("tool {} — {}", input.tool_name, input.status),
                 input.style,
             ),
         ];

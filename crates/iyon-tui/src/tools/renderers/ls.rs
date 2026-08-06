@@ -20,7 +20,7 @@ impl ToolRenderer for LsRenderer {
             .unwrap_or(".");
         vec![
             TranscriptRow::blank(),
-            TranscriptRow::styled(format!("● ls {path} — {}", input.status), input.style),
+            TranscriptRow::bullet(format!("ls {path} — {}", input.status), input.style),
         ]
     }
 

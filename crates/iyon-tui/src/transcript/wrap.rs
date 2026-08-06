@@ -71,17 +71,28 @@ fn wrap_transcript_logical_row(
     rows: &mut Vec<Line<'static>>,
     row_end_boundaries: &mut Vec<TranscriptCommitBoundary>,
 ) {
-    // Wrap within the content width (terminal width minus the hanging indent) so
-    // the indent no longer steals columns, then re-apply the styled margin to
-    // every physical row so wrapped continuation lines keep the same left margin.
-    let content_width = width.saturating_sub(row.margin.width).max(1);
+    // Wrap within the content width (terminal width minus the left and right
+    // margins) so the margins no longer steal columns and content keeps a
+    // symmetric inset on both sides. Then re-apply a styled left margin to every
+    // physical row so wrapped continuations keep the same hanging indent. For
+    // bulleted header rows, the FIRST physical row carries the bullet prefix in
+    // those margin columns so continuations align under the text after the
+    // bullet rather than under the bullet dot.
+    let inset = row.margin.left.saturating_add(row.margin.right);
+    let content_width = width.saturating_sub(inset).max(1);
     let flattened = flatten_line_from_boundary(&row.line, start);
     let wrapped_ranges = wrap_ranges(&flattened.text, WrapConfig::transcript(content_width));
+    let is_first_physical = start.span_index == 0 && start.byte_offset == 0;
 
-    for range in wrapped_ranges {
+    for (index, range) in wrapped_ranges.into_iter().enumerate() {
         let mut physical = line_from_flat_range(&row.line, &flattened.segments, range.clone());
         if !physical.spans.is_empty() {
-            physical = prepend_margin(physical, row.margin);
+            let prefix = if index == 0 && is_first_physical {
+                row.first_prefix.as_str()
+            } else {
+                ""
+            };
+            physical = prepend_prefix(physical, row.margin, prefix);
         }
         let boundary = flat_offset_to_boundary(
             logical_row,
@@ -93,24 +104,29 @@ fn wrap_transcript_logical_row(
     }
 }
 
-/// Prepends a styled hanging indent to the first span of a physical row. When the
-/// existing first span shares the margin's style (the common case for uniformly
-/// styled tool-result rows), the indent is merged into it so emission stays a
-/// single styled span; otherwise it is inserted as its own leading span.
-fn prepend_margin(mut line: Line<'static>, margin: LeftMargin) -> Line<'static> {
-    if margin.width == 0 || line.spans.is_empty() {
+/// Prepends a styled left margin to the first span of a physical row. `first_prefix`
+/// (e.g. a bullet) occupies the margin columns on the first line; an empty prefix
+/// means plain margin spaces. When the content's first span shares the margin's
+/// style (the common case), the prefix is merged into it so emission stays a single
+/// styled span; otherwise it is inserted as its own leading span.
+fn prepend_prefix(mut line: Line<'static>, margin: LeftMargin, first_prefix: &str) -> Line<'static> {
+    if margin.left == 0 || line.spans.is_empty() {
         return line;
     }
-    let indent = " ".repeat(margin.width as usize);
+    let prefix = if first_prefix.is_empty() {
+        " ".repeat(margin.left as usize)
+    } else {
+        first_prefix.to_string()
+    };
     if let Some(first) = line.spans.first_mut()
         && first.style == margin.style
     {
-        let mut text = indent;
+        let mut text = prefix;
         text.push_str(first.content.as_ref());
         first.content = text.into();
         return line;
     }
-    line.spans.insert(0, Span::styled(indent, margin.style));
+    line.spans.insert(0, Span::styled(prefix, margin.style));
     line
 }
 
@@ -290,7 +306,7 @@ mod tests {
         // A 2-column margin wraps within width-2 and re-prefixes every physical
         // row, so both the indent is preserved AND content uses the full (reduced)
         // width instead of wrapping 2 columns early.
-        let margin = LeftMargin::new(2, Line::from("").style);
+        let margin = LeftMargin::new(2, 0, Line::from("").style);
         let rows = wrap_transcript_rows(
             6,
             &[TranscriptRow::with_margin(Line::from("abcdefgh"), margin)],
@@ -303,7 +319,7 @@ mod tests {
 
     #[test]
     fn empty_content_row_stays_blank_despite_margin() {
-        let margin = LeftMargin::new(2, Line::from("").style);
+        let margin = LeftMargin::new(2, 0, Line::from("").style);
         let rows = wrap_transcript_rows(
             6,
             &[TranscriptRow::with_margin(Line::from(""), margin)],
@@ -311,8 +327,40 @@ mod tests {
         );
 
         let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
-        assert_eq!(text_rows, [""]);
+        assert_eq!(text_rows, [""],);
     }
 
+    #[test]
+    fn bulleted_row_alignment_follows_text_not_bullet_dot() {
+        // A bulleted header row: the bullet + space occupy the 2 left-margin
+        // columns on the first line, and continuation lines align under the text
+        // (also 2 columns), not under the bullet dot.
+        let style = Line::from("").style;
+        // width 8 - (left 2 + right 2) = content width 4.
+        let rows = wrap_transcript_rows(
+            8,
+            &[TranscriptRow::bullet("abcdefgh", style)],
+            TranscriptCommitBoundary::default(),
+        );
+
+        let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
+        assert_eq!(text_rows, ["\u{25cf} abcd", "  efgh"]);
+    }
+
+    #[test]
+    fn symmetric_right_margin_shrinks_content_width() {
+        // With a right margin the content wraps earlier, leaving a blank right
+        // gutter: left=2, right=2, width=6 => content width 2.
+        let margin = LeftMargin::new(2, 2, Line::from("").style);
+        let rows = wrap_transcript_rows(
+            6,
+            &[TranscriptRow::with_margin(Line::from("abcdefgh"), margin)],
+            TranscriptCommitBoundary::default(),
+        );
+
+        let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
+        assert_eq!(text_rows, ["  ab", "  cd", "  ef", "  gh"]);
+    }
 }
+
 

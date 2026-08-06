@@ -34,8 +34,7 @@ impl ToolRenderer for ReadRenderer {
 
         vec![
             TranscriptRow::blank(),
-            TranscriptRow::styled(
-                format!("● read {path}{suffix} — {}", input.status),
+            TranscriptRow::bullet(format!("read {path}{suffix} — {}", input.status),
                 input.style,
             ),
         ]

@@ -25,8 +25,7 @@ impl ToolRenderer for GrepRenderer {
             .unwrap_or(".");
         vec![
             TranscriptRow::blank(),
-            TranscriptRow::styled(
-                format!("● grep /{pattern}/ in {path} — {}", input.status),
+            TranscriptRow::bullet(format!("grep /{pattern}/ in {path} — {}", input.status),
                 input.style,
             ),
         ]
