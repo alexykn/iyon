@@ -4,6 +4,7 @@ use ratatui::text::Line;
 
 use crate::transcript::{
     AssistantSegment, SegmentKind,
+    markdown::RenderedRow,
     model::TuiFormatter,
     row::TranscriptRow,
     slice_segments,
@@ -332,12 +333,13 @@ impl ActiveStreamState {
         }
 
         let tail_segments = slice_segments(&self.segments, self.frozen_until, usize::MAX);
-        let logical_rows = TuiFormatter::default().format_assistant_body(&tail_segments);
+        let rendered = TuiFormatter::default().format_assistant_body_meta(&tail_segments);
+        let logical_rows: Vec<TranscriptRow> = rendered.iter().map(|rr| rr.row.clone()).collect();
         let wrapped =
             wrap_transcript_rows(width, &logical_rows, TranscriptCommitBoundary::default());
         self.render_cache = Some(ActiveStreamRenderCache {
             key,
-            logical_rows,
+            rows: rendered,
             body_rows: wrapped.rows,
             row_end_boundaries: wrapped.row_end_boundaries,
         });
@@ -362,30 +364,34 @@ impl ActiveStreamState {
     }
 
     /// Maps a wrap-produced boundary back to a byte offset within the active tail
-    /// (0-based from `frozen_until`). It sums logical-row byte lengths and per-span
-    /// offsets, so it stays byte-exact even when a single line mixes thinking and
-    /// answer spans.
+    /// (0-based from `frozen_until`). Unrestricted (1:1) rows are summed via their
+    /// rendered span lengths; restricted rows — which hide/replace markdown markers
+    /// so their rendered bytes differ from source — are always snapped to the end
+    /// of the whole row (`content_len`), guaranteeing a partially-frozen markdown
+    /// element never renders differently live vs. committed.
     fn boundary_to_tail_byte(&self, boundary: TranscriptCommitBoundary) -> usize {
         let Some(cache) = self.render_cache.as_ref() else {
             return 0;
         };
-        let rows = &cache.logical_rows;
+        let rows = &cache.rows;
         let mut byte = 0usize;
 
-        for (index, row) in rows.iter().enumerate() {
+        for (index, rendered) in rows.iter().enumerate() {
             if index == boundary.logical_row {
+                if rendered.restricted {
+                    return byte + rendered.content_len;
+                }
                 let mut within_row = 0usize;
-                for (span_index, span) in row.line.spans.iter().enumerate() {
+                for (span_index, span) in rendered.row.line.spans.iter().enumerate() {
                     if span_index == boundary.span_index {
                         within_row += boundary.byte_offset.min(span.content.len());
                         return byte + within_row;
                     }
                     within_row += span.content.len();
                 }
-                // Boundary refers past this row's spans: end of the row.
                 return byte + within_row;
             }
-            byte += row_byte_len(&row.line) + 1; // + the '\n' between logical rows
+            byte += rendered.content_len + 1; // + the '\n' between logical rows
         }
 
         byte
@@ -396,14 +402,10 @@ impl ActiveStreamState {
     }
 }
 
-fn row_byte_len(row: &Line<'static>) -> usize {
-    row.spans.iter().map(|span| span.content.len()).sum()
-}
-
 #[derive(Debug, Clone)]
 struct ActiveStreamRenderCache {
     key: (u64, u16),
-    logical_rows: Vec<TranscriptRow>,
+    rows: Vec<RenderedRow>,
     body_rows: Vec<Line<'static>>,
     row_end_boundaries: Vec<TranscriptCommitBoundary>,
 }
@@ -588,8 +590,8 @@ mod tests {
         stream.ensure_render_cache(10); // wide enough to keep one visual row
 
         let cache = stream.render_cache.as_ref().expect("render cache");
-        assert_eq!(cache.logical_rows.len(), 1);
-        assert_eq!(cache.logical_rows[0].line.spans.len(), 2);
+        assert_eq!(cache.rows.len(), 1);
+        assert_eq!(cache.rows[0].row.line.spans.len(), 2);
         // Spans: ["A"(text), "B"(thinking)] -> flat bytes A=0, B=1.
         let end_of_a = TranscriptCommitBoundary {
             logical_row: 0,
@@ -639,6 +641,36 @@ mod tests {
         assert_eq!(
             all, full,
             "segment-aware spill must round-trip the full stream"
+        );
+    }
+
+    #[test]
+    fn spill_round_trips_markdown_with_restricted_rows() {
+        // Markdown with hidden markers (bold), a list bullet, a header, and plain
+        // text. Restricted rows (bold/list) must be frozen whole-line so the
+        // committed transcript never shows half-rendered markup; the flat source
+        // must still round-trip with zero loss/duplication.
+        let mut stream = ActiveStreamState::new();
+        let markdown = "# Head\n- item\n**bold** text\nplain line here\n";
+        stream.push_delta(SegmentKind::Text, markdown);
+
+        let width = 8u16;
+        let visible_rows = 1usize; // force aggressive spilling
+
+        let mut spilled: Vec<AssistantSegment> = Vec::new();
+        for _ in 0..200 {
+            stream.ensure_render_cache(width);
+            match stream.spill_overflow_rows(visible_rows) {
+                Some(fragment) => spilled.extend(fragment),
+                None => break,
+            }
+        }
+
+        let remaining = stream.into_unfrozen_segments();
+        let all = format!("{}{}", concat_text(&spilled), concat_text(&remaining));
+        assert_eq!(
+            all, markdown,
+            "markdown spill must round-trip the flat source exactly"
         );
     }
 

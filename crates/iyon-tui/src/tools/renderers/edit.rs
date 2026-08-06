@@ -1,10 +1,13 @@
 use ratatui::style::{Color, Style};
 
-use crate::tools::{
-    registry::ToolRenderer,
-    types::{ToolCallRenderInput, ToolResultRenderInput},
+use crate::{
+    theme,
+    tools::{
+        registry::ToolRenderer,
+        types::{ToolCallRenderInput, ToolResultRenderInput},
+    },
+    transcript::row::TranscriptRow,
 };
-use crate::transcript::row::TranscriptRow;
 
 #[derive(Debug)]
 pub(crate) struct EditRenderer;
@@ -75,7 +78,7 @@ fn format_diff_line(line: &str) -> TranscriptRow {
     } else if line.starts_with("@@") {
         Style::default().fg(Color::Yellow)
     } else {
-        Style::default().fg(Color::Rgb(113, 128, 150))
+        theme::muted()
     };
     TranscriptRow::indented(line.to_string(), style)
 }
