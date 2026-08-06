@@ -30,6 +30,11 @@ toml = "1.1.2"
 unicode-segmentation = "1.13.2"
 unicode-width = "0.2.2"
 
+# Test-only tooling, pulled in by crates via [dev-dependencies].
+vt100 = "0.16.2"
+proptest = "1.11.0"
+insta = "1.48.0"
+
 iyon-api = {path = "crates/iyon-api"}
 iyon-core = {path = "crates/iyon-core"}
 iyon-tui = {path = "crates/iyon-tui"}

@@ -13,3 +13,8 @@ unicode-width.workspace = true
 tokio.workspace = true
 iyon-core.workspace = true
 textwrap = "0.16.2"
+
+[dev-dependencies]
+vt100.workspace = true
+proptest.workspace = true
+insta.workspace = true

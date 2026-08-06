@@ -368,25 +368,26 @@ mod tests {
     }
 
     #[test]
-    fn ordered_marker_right_aligns_single_against_double_digit() {
-        // Shared digit_width = 2 (widest is 10). "10. " is 4 wide; "9." is
-        // right-aligned within the same 2-digit gutter -> " 9. " (also 4 wide).
+    fn ordered_marker_is_marker_local() {
+        // Each ordered item's gutter is sized to its own digits, so `9.` and `10.`
+        // have different widths but their continuations always align under their own
+        // text. A later item never moves an already-committed earlier one.
         let single = TranscriptRow::markdown_ordered(
             Line::styled("x", Line::from("").style),
             Line::from("").style,
             9,
-            2,
             0,
         );
         let double = TranscriptRow::markdown_ordered(
             Line::styled("y", Line::from("").style),
             Line::from("").style,
             10,
-            2,
             0,
         );
-        assert_eq!(single.layout.marker.as_ref().unwrap().text(), " 9. ");
+        assert_eq!(single.layout.marker.as_ref().unwrap().text(), "9. ");
         assert_eq!(double.layout.marker.as_ref().unwrap().text(), "10. ");
+        // Marker-local: widths differ, matching each item's own digits.
+        assert_ne!(single.layout.marker.as_ref().unwrap().width(), double.layout.marker.as_ref().unwrap().width());
     }
 
     #[test]
@@ -420,10 +421,7 @@ mod tests {
             crate::transcript::row::RowLayout {
                 outer: crate::transcript::row::Insets::symmetric(2),
                 nesting_depth: 0,
-                marker: Some(Marker::Ordered {
-                    index: 10,
-                    digit_width: 2,
-                }),
+                marker: Some(Marker::Ordered { index: 10 }),
                 marker_gutter_width: 4,
             },
         ] {
@@ -454,7 +452,6 @@ mod tests {
                 Line::styled("ordered text", Line::from("").style),
                 Line::from("").style,
                 9,
-                2,
                 1,
             ),
             TranscriptRow::new(Line::from("plain col-0")),
@@ -485,3 +482,4 @@ mod tests {
         }
     }
 }
+

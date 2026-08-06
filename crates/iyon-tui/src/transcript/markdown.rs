@@ -22,7 +22,6 @@
 
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use unicode_width::UnicodeWidthStr;
 
 use crate::theme;
 use crate::transcript::model::{AssistantSegment, SegmentKind, thinking_style};
@@ -52,20 +51,8 @@ pub(crate) fn render_assistant(segments: &[AssistantSegment]) -> RenderedAssista
     let raw_lines = flatten_lines(segments);
     let mut out = Vec::with_capacity(raw_lines.len());
 
-    let mut i = 0usize;
-    while i < raw_lines.len() {
-        if let Some(group) = ordered_group(&raw_lines[i..]) {
-            // A contiguous ordered list shares one digit width so `9.` aligns with
-            // `10.`. Render each item with the resolved gutter.
-            for _ in 0..group.len {
-                let item = &raw_lines[i];
-                out.push(render_line(item, Some(group)));
-                i += 1;
-            }
-        } else {
-            out.push(render_line(&raw_lines[i], None));
-            i += 1;
-        }
+    for line in raw_lines {
+        out.push(render_line(&line));
     }
 
     RenderedAssistant { rows: out }
@@ -114,52 +101,8 @@ fn flatten_lines(segments: &[AssistantSegment]) -> Vec<RawLine> {
 }
 
 // ---------------------------------------------------------------------------
-// List grouping (shared ordered gutter)
-// ---------------------------------------------------------------------------
-
-/// A contiguous ordered-list group that shares a digit width for its markers.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct OrderedGroup {
-    pub digit_width: usize,
-    pub len: usize,
-}
-
-/// Resolves how many leading `lines` form one contiguous ordered list at the
-/// same depth, and the widest digit width among them. Returns `None` when the
-/// first line is not an ordered item.
-fn ordered_group(lines: &[RawLine]) -> Option<OrderedGroup> {
-    let first = lines.first()?;
-    let first_full = concat_pieces(first);
-    let (depth, trimmed) = list_depth(&first_full);
-    if ordered_separator_len(&trimmed).is_none() {
-        return None;
-    }
-
-    let mut max_index = 0usize;
-    let mut count = 0usize;
-    for line in lines {
-        let full = concat_pieces(line);
-        let (d, trimmed) = list_depth(&full);
-        if d != depth || ordered_separator_len(&trimmed).is_none() {
-            break;
-        }
-        let idx = ordered_index(&trimmed);
-        max_index = max_index.max(idx);
-        count += 1;
-    }
-    if count == 0 {
-        return None;
-    }
-    Some(OrderedGroup {
-        digit_width: max_index.to_string().width(),
-        len: count,
-    })
-}
-
-/// Renders a single logical line. `ordered` is `Some` only when this line is an
-/// ordered-list item in a resolved group (for right-aligned markers); otherwise
-/// `None` (plain, heading, unordered item, or a lone unmatched ordered line).
-fn render_line(line: &RawLine, ordered: Option<OrderedGroup>) -> RenderedRow {
+/// Renders a single logical line.
+fn render_line(line: &RawLine) -> RenderedRow {
     let full = concat_pieces(line);
     let base = Style::default();
 
@@ -179,8 +122,8 @@ fn render_line(line: &RawLine, ordered: Option<OrderedGroup>) -> RenderedRow {
         };
     }
 
-    if let Some(group) = ordered {
-        return render_ordered(line, group);
+    if let Some(depth) = ordered_depth(&full) {
+        return render_ordered(line, depth);
     }
 
     if let Some(depth) = unordered_depth(&full) {
@@ -234,17 +177,15 @@ fn render_unordered(line: &RawLine, depth: usize) -> RenderedRow {
     }
 }
 
-fn render_ordered(line: &RawLine, group: OrderedGroup) -> RenderedRow {
+fn render_ordered(line: &RawLine, depth: usize) -> RenderedRow {
     let full = concat_pieces(line);
-    let (depth, trimmed) = list_depth(&full);
-    let sep_len = ordered_separator_len(&trimmed).unwrap_or(0);
-    let index = ordered_index(&trimmed);
-    let rest = trimmed[sep_len..].to_string();
+    let sep_len = ordered_separator_len(&full).unwrap_or(0);
+    let index = ordered_index(&full);
+    let rest = full[sep_len..].to_string();
     let style = theme::markdown_list();
 
     let spans = inline_spans(&rest, Style::default());
-    let row =
-        TranscriptRow::markdown_ordered(Line::from(spans), style, index, group.digit_width, depth);
+    let row = TranscriptRow::markdown_ordered(Line::from(spans), style, index, depth);
     RenderedRow {
         row,
         content_len: piece_source_len(line),
@@ -369,6 +310,12 @@ fn ordered_separator_len(trimmed: &str) -> Option<usize> {
     } else {
         None
     }
+}
+
+/// Returns the nesting depth if `full` is an ordered list item (`1. ` / `1) `).
+fn ordered_depth(full: &str) -> Option<usize> {
+    let (depth, trimmed) = list_depth(full);
+    ordered_separator_len(&trimmed).is_some().then_some(depth)
 }
 
 /// Parses the numeric index of an ordered item.
@@ -564,20 +511,23 @@ mod tests {
     }
 
     #[test]
-    fn ordered_list_right_aligns_widest_marker() {
-        // 10. -> digit_width 2. "9." renders right-aligned as " 9. ", "10." as "10. ".
+    fn ordered_list_is_marker_local() {
+        // Each ordered item's marker is sized to its own digits: `9.` is narrower
+        // than `10.`. A later item never changes an earlier item's layout, which
+        // is what keeps committed history append-only.
         let out = render_assistant(&text_segs("9. nine\n10. ten"));
         assert_eq!(out.rows.len(), 2);
         // Ordered markers hang in the gutter (not in line.spans), so the rows are
-        // restricted (whole-line freeze) for spill safety.
+        // restricted, matching the tail-stability rule used by the new presenter.
         assert!(out.rows[0].restricted);
         assert_eq!(row_text(&out.rows[0].row), "nine");
         assert_eq!(row_text(&out.rows[1].row), "ten");
         let marker9 = out.rows[0].row.layout.marker.as_ref().unwrap();
         let marker10 = out.rows[1].row.layout.marker.as_ref().unwrap();
-        assert_eq!(marker9.text(), " 9. ");
+        assert_eq!(marker9.text(), "9. ");
         assert_eq!(marker10.text(), "10. ");
-        assert_eq!(marker9.width(), marker10.width());
+        // Marker-local: each item sizes to its own digits.
+        assert_ne!(marker9.width(), marker10.width());
     }
 
     #[test]

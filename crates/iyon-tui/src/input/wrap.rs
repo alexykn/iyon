@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use textwrap::Options;
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 #[derive(Debug, Default)]
 pub(crate) struct WrapCache {
@@ -140,13 +140,25 @@ pub(crate) fn wrap_ranges(text: &str, cfg: WrapConfig) -> Vec<Range<usize>> {
                 }
             };
 
-            let trailing_whitespace_bytes: usize = text[range.end..logical.end]
-                .chars()
-                .take_while(|c| *c == ' ' || *c == '\t')
-                .map(char::len_utf8)
-                .sum();
-
-            let final_end = range.end + trailing_whitespace_bytes;
+            // textwrap already folds the inter-word space into its own wrapped
+            // piece (or into the next line). Appending *all* following whitespace
+            // here can double-count a space and push a physical row past the
+            // viewport width. Append only as much trailing whitespace as fits the
+            // remaining wrap width; anything left over flows to the next piece.
+            let piece_width = text[range.clone()].width();
+            let mut remaining = wrap_width.saturating_sub(piece_width);
+            let mut final_end = range.end;
+            for c in text[range.end..logical.end].chars() {
+                if c != ' ' && c != '\t' {
+                    break;
+                }
+                let w = c.width().unwrap_or(0);
+                if w > remaining {
+                    break;
+                }
+                final_end += c.len_utf8();
+                remaining -= w;
+            }
             visual.push(range.start..final_end);
             consumed_abs = final_end;
         }
