@@ -1,12 +1,17 @@
 use ratatui::{
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
+    style::{Color, Style},
+    text::Line,
 };
 
 use crate::{
+    theme,
     tools::{ToolCallRenderInput, ToolRendererRegistry, ToolResultRenderInput},
-    transcript::row::TranscriptRow,
-    transcript::wrap::{TranscriptCommitBoundary, wrap_transcript_rows},
+    transcript::{
+        markdown,
+        markdown::RenderedRow,
+        row::TranscriptRow,
+        wrap::{TranscriptCommitBoundary, wrap_transcript_rows},
+    },
 };
 
 /// The kind of an assistant-message segment. `Thinking` is streamed reasoning,
@@ -103,9 +108,7 @@ fn char_boundary_after(text: &str, pos: usize) -> usize {
 /// Muted + italic styling for thinking segments, matching the muted feel of a
 /// background reasoning trace.
 pub(crate) fn thinking_style() -> Style {
-    Style::default()
-        .fg(Color::Rgb(113, 128, 150))
-        .add_modifier(Modifier::ITALIC)
+    theme::thinking()
 }
 
 #[derive(Debug, Clone)]
@@ -160,7 +163,7 @@ impl TuiFormatter {
     pub(crate) fn format(&self, item: &TimelineItem) -> Vec<TranscriptRow> {
         match item {
             TimelineItem::UserMessage { text } => {
-                self.format_text_message(text, Style::default().bg(Color::Rgb(45, 55, 72)), true)
+                self.format_text_message(text, Style::default().bg(theme::user_bubble_bg()), true)
             }
             TimelineItem::AssistantMessage { segments } => {
                 self.format_assistant_message(segments, true)
@@ -198,39 +201,26 @@ impl TuiFormatter {
         rows
     }
 
-    pub(crate) fn format_assistant_body(
+    /// Formats `segments` into logical rows, **including** per-row freeze metadata
+    /// for the active (streaming) pane. Rows that hide markdown markers report
+    /// `restricted = true` so the active pane freezes them whole-line; otherwise
+    /// a partial freeze would render differently live vs. committed.
+    pub(crate) fn format_assistant_body_meta(
         &self,
         segments: &[AssistantSegment],
-    ) -> Vec<TranscriptRow> {
-        Self::format_segments_body(segments)
+    ) -> Vec<RenderedRow> {
+        markdown::render_assistant(segments).rows
     }
 
-    /// Formats `segments` into logical rows, one per `'\n'` boundary. A single row
-    /// may contain multiple spans when a line mixes thinking and answer text; each
-    /// run is styled by its segment kind so thinking renders muted + italic.
+    /// Formats `segments` into styled logical rows (one per `'\n'` boundary). Text
+    /// segments are rendered as markdown (headings, lists, bold/italic/code);
+    /// thinking segments pass through as muted + italic and are never markdown.
     fn format_segments_body(segments: &[AssistantSegment]) -> Vec<TranscriptRow> {
-        let mut rows = Vec::new();
-        let mut current: Vec<Span<'static>> = Vec::new();
-
-        for segment in segments {
-            let style = match segment {
-                AssistantSegment::Text(_) => Style::default(),
-                AssistantSegment::Thinking(_) => thinking_style(),
-            };
-            for (index, piece) in segment.text().split('\n').enumerate() {
-                if index > 0 {
-                    rows.push(TranscriptRow::new(Line::from(std::mem::take(&mut current))));
-                }
-                if !piece.is_empty() {
-                    current.push(Span::styled(piece.to_string(), style));
-                }
-            }
-        }
-
-        if !current.is_empty() {
-            rows.push(TranscriptRow::new(Line::from(current)));
-        }
-        rows
+        markdown::render_assistant(segments)
+            .rows
+            .into_iter()
+            .map(|rr| rr.row)
+            .collect()
     }
 
     fn format_tool_call(
@@ -260,9 +250,9 @@ impl TuiFormatter {
         collapsed: bool,
     ) -> Vec<TranscriptRow> {
         let style = if is_error {
-            Style::default().fg(Color::Red)
+            theme::tool_error()
         } else {
-            Style::default().fg(Color::Rgb(113, 128, 150))
+            theme::muted()
         };
         let mut rows = self.tool_renderers.render_result(ToolResultRenderInput {
             tool_name,
@@ -354,21 +344,15 @@ fn apply_call_truncation(rows: Vec<TranscriptRow>) -> Vec<TranscriptRow> {
 }
 
 fn truncation_footer_style() -> Style {
-    Style::default()
-        .fg(Color::Rgb(120, 122, 132))
-        .add_modifier(Modifier::DIM | Modifier::ITALIC)
+    theme::truncation_footer()
 }
 
 fn tool_style(status: ToolTimelineStatus) -> Style {
     match status {
-        ToolTimelineStatus::Failed | ToolTimelineStatus::Rejected => {
-            Style::default().fg(Color::Red)
-        }
-        ToolTimelineStatus::Finished | ToolTimelineStatus::Approved => {
-            Style::default().fg(Color::Rgb(104, 211, 145))
-        }
+        ToolTimelineStatus::Failed | ToolTimelineStatus::Rejected => theme::tool_error(),
+        ToolTimelineStatus::Finished | ToolTimelineStatus::Approved => theme::tool_finished(),
         ToolTimelineStatus::PendingApproval => Style::default().fg(Color::Yellow),
-        ToolTimelineStatus::Running => Style::default().fg(Color::Rgb(160, 174, 192)),
+        ToolTimelineStatus::Running => theme::tool_running(),
     }
 }
 
@@ -723,6 +707,7 @@ fn push_segment(target: &mut Vec<AssistantSegment>, segment: AssistantSegment) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::style::Modifier;
 
     fn line_text(line: &Line<'static>) -> String {
         line.spans
@@ -802,7 +787,11 @@ mod tests {
     #[test]
     fn plain_text_segment_is_not_italic() {
         let formatter = TuiFormatter::default();
-        let rows = formatter.format_assistant_body(&text_segments("answer"));
+        let rows = formatter
+            .format_assistant_body_meta(&text_segments("answer"))
+            .into_iter()
+            .map(|rr| rr.row)
+            .collect::<Vec<_>>();
         assert_eq!(rows.len(), 1);
         assert!(
             !rows[0].line.spans[0]
@@ -815,10 +804,14 @@ mod tests {
     #[test]
     fn mixed_segments_produce_one_line_with_distinct_span_styles() {
         let formatter = TuiFormatter::default();
-        let rows = formatter.format_assistant_body(&[
-            AssistantSegment::Thinking("hmm".to_string()),
-            AssistantSegment::Text("answer".to_string()),
-        ]);
+        let rows = formatter
+            .format_assistant_body_meta(&[
+                AssistantSegment::Thinking("hmm".to_string()),
+                AssistantSegment::Text("answer".to_string()),
+            ])
+            .into_iter()
+            .map(|rr| rr.row)
+            .collect::<Vec<_>>();
 
         assert_eq!(rows.len(), 1);
         assert_eq!(line_text(&rows[0].line), "hmmanswer");
@@ -842,10 +835,14 @@ mod tests {
         let formatter = TuiFormatter::default();
         // The text segment carries a leading newline, as the stream inserts between
         // reasoning and the answer (see ActiveStreamState::push_delta).
-        let rows = formatter.format_assistant_body(&[
-            AssistantSegment::Thinking("a\nb".to_string()),
-            AssistantSegment::Text("\nc".to_string()),
-        ]);
+        let rows = formatter
+            .format_assistant_body_meta(&[
+                AssistantSegment::Thinking("a\nb".to_string()),
+                AssistantSegment::Text("\nc".to_string()),
+            ])
+            .into_iter()
+            .map(|rr| rr.row)
+            .collect::<Vec<_>>();
 
         assert_eq!(rows.len(), 3);
         assert_eq!(line_text(&rows[0].line), "a");

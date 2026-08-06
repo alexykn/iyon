@@ -11,6 +11,7 @@ use ratatui::{
 use crate::{
     input::{cursor_xy, wrapped_line_index_by_start},
     runtime::active::{ActivePaneKind, ActivePaneState, ToolActiveStatus},
+    theme,
     view::RunningView,
 };
 use iyon_core::ReasoningLevel;
@@ -229,7 +230,7 @@ impl Renderable<InputView<'_>> for Renderer {
     fn render(&self, view: &InputView, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
         let mut block = Block::new()
             .borders(Borders::TOP | Borders::BOTTOM)
-            .border_style(Style::default().fg(Color::Rgb(173, 216, 230)));
+            .border_style(theme::input_border());
 
         let inner = block.inner(area);
         let content_width = inner.width.max(1);
