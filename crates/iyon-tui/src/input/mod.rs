@@ -241,12 +241,7 @@ impl InputEventHandler {
         let mut actions = self.handle_event(event::read()?, editor, approval_pending, panel);
 
         while event::poll(Duration::from_millis(0))? {
-            actions.extend(self.handle_event(
-                event::read()?,
-                editor,
-                approval_pending,
-                panel,
-            ));
+            actions.extend(self.handle_event(event::read()?, editor, approval_pending, panel));
         }
         Ok(actions)
     }
@@ -269,7 +264,10 @@ impl InputEventHandler {
                 // An interactive bottom panel (when present) consumes keys it owns
                 // before the composer sees them.
                 if let Some(panel_actions) = panel.handle_key(key_event) {
-                    return panel_actions.into_iter().map(translate_panel_action).collect();
+                    return panel_actions
+                        .into_iter()
+                        .map(translate_panel_action)
+                        .collect();
                 }
                 let custom_key_event = map_key_event(key_event);
                 self.handle_key_event(custom_key_event, editor)

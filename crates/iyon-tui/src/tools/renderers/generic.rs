@@ -1,8 +1,8 @@
-use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     registry::ToolRenderer,
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use crate::transcript::row::TranscriptRow;
 
 #[derive(Debug)]
 pub(crate) struct GenericRenderer;
@@ -15,18 +15,23 @@ impl ToolRenderer for GenericRenderer {
     fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<TranscriptRow> {
         let mut rows = vec![
             TranscriptRow::blank(),
-            TranscriptRow::bullet(format!("tool {} — {}", input.tool_name, input.status),
+            TranscriptRow::bullet(
+                format!("tool {} — {}", input.tool_name, input.status),
                 input.style,
             ),
         ];
-        let preview = serde_json::to_string_pretty(input.arguments)
-            .unwrap_or_else(|_| input.arguments.to_string());
-        if !preview.is_empty() {
-            rows.extend(
-                preview
-                    .lines()
-                    .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
-            );
+        // Debug-only: surface the raw argument payload for unknown tools; the
+        // default view keeps the call compact.
+        if input.show_arg_preview {
+            let preview = serde_json::to_string_pretty(input.arguments)
+                .unwrap_or_else(|_| input.arguments.to_string());
+            if !preview.is_empty() {
+                rows.extend(
+                    preview
+                        .lines()
+                        .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
+                );
+            }
         }
         rows
     }

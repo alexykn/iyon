@@ -502,8 +502,8 @@ mod tests {
                     .pop_front()
                     .expect("a scripted stream should be queued for each model turn");
                 started.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                let stream: ModelStream = Box::pin(unfold(rx, |mut rx| {
-                    async move { rx.recv().await.map(|event| (Ok(event), rx)) }
+                let stream: ModelStream = Box::pin(unfold(rx, |mut rx| async move {
+                    rx.recv().await.map(|event| (Ok(event), rx))
                 }));
                 Ok(stream)
             })
@@ -544,7 +544,9 @@ mod tests {
                 panic!("event stream closed before {needle:?} observed");
             };
             match event {
-                CoreEvent::MessageStarted { message_id, role, .. } => {
+                CoreEvent::MessageStarted {
+                    message_id, role, ..
+                } => {
                     roles.insert(message_id, role);
                 }
                 CoreEvent::MessageDelta {
@@ -606,7 +608,10 @@ mod tests {
         // Interrupt mid-thinking. Turn 1 is now cancelling (its token is cancelled) but
         // its loop has not necessarily settled yet — exactly the race that used to leave
         // "queued-stuff" stuck in the queue.
-        command_tx.send(CoreCommand::CancelActiveTurn).await.unwrap();
+        command_tx
+            .send(CoreCommand::CancelActiveTurn)
+            .await
+            .unwrap();
 
         // The user continues by sending a message straight away — this must restart the
         // agent (not steer into the dying turn), settling turn 1 and draining the queue.
@@ -642,7 +647,11 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        assert_eq!(model.started.load(started), 2, "expected a restart turn to start");
+        assert_eq!(
+            model.started.load(started),
+            2,
+            "expected a restart turn to start"
+        );
 
         // Close the command channel to bring run() to a clean stop, then drain all events
         // (tagging each message's role) to collect the user messages actually delivered.
@@ -652,7 +661,9 @@ mod tests {
         let mut user_texts = Vec::new();
         while let Ok(event) = event_rx.try_recv() {
             match event {
-                CoreEvent::MessageStarted { message_id, role, .. } => {
+                CoreEvent::MessageStarted {
+                    message_id, role, ..
+                } => {
                     roles.insert(message_id, role);
                 }
                 CoreEvent::MessageDelta {
@@ -680,4 +691,3 @@ mod tests {
         );
     }
 }
-

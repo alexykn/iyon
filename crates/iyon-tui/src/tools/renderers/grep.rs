@@ -1,8 +1,8 @@
-use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     registry::ToolRenderer,
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use crate::transcript::row::TranscriptRow;
 
 #[derive(Debug)]
 pub(crate) struct GrepRenderer;
@@ -25,14 +25,19 @@ impl ToolRenderer for GrepRenderer {
             .unwrap_or(".");
         vec![
             TranscriptRow::blank(),
-            TranscriptRow::bullet(format!("grep /{pattern}/ in {path} — {}", input.status),
+            TranscriptRow::bullet(
+                format!("grep /{pattern}/ in {path} — {}", input.status),
                 input.style,
             ),
         ]
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
-        let title = if input.is_error { "grep failed" } else { "grep result" };
+        let title = if input.is_error {
+            "grep failed"
+        } else {
+            "grep result"
+        };
         let mut rows = vec![TranscriptRow::indented(title, input.style)];
         rows.extend(
             input

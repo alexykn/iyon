@@ -1,10 +1,10 @@
 use ratatui::style::{Color, Style};
 
-use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     registry::ToolRenderer,
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use crate::transcript::row::TranscriptRow;
 
 #[derive(Debug)]
 pub(crate) struct BashRenderer;
@@ -45,7 +45,10 @@ impl ToolRenderer for BashRenderer {
             .and_then(serde_json::Value::as_str)
         {
             let style = Style::default().fg(Color::Yellow);
-            rows.push(TranscriptRow::indented(format!("[Full output: {path}]"), style));
+            rows.push(TranscriptRow::indented(
+                format!("[Full output: {path}]"),
+                style,
+            ));
         }
         rows
     }

@@ -5,7 +5,9 @@ use crate::{
         backend::ToolUpdatePresentation,
         panel::BottomPanelBar,
     },
-    transcript::{AssistantSegment, SegmentKind, TimelineItem, ToolTimelineStatus, TranscriptState},
+    transcript::{
+        AssistantSegment, SegmentKind, TimelineItem, ToolTimelineStatus, TranscriptState,
+    },
 };
 use iyon_core::ReasoningLevel;
 

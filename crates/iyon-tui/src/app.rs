@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use ratatui::{Frame, layout::Rect, text::Line};
 
+use crate::transcript::SegmentKind;
 use crate::{
     input::{InputEditor, InputEventHandler, WrapCache},
     runtime::{
@@ -13,7 +14,6 @@ use crate::{
     terminal::InlineTerminal,
     view::{LayoutConfig, Renderer, RunningFrameComposer},
 };
-use crate::transcript::SegmentKind;
 
 const EXIT_DRAIN_CHUNK: usize = 256;
 const EXIT_GOODBYE: &str = "Goodbye.";

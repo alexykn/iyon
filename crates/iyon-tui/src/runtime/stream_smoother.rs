@@ -1,4 +1,7 @@
-use std::{collections::VecDeque, time::{Duration, Instant}};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use crate::transcript::SegmentKind;
 
@@ -190,7 +193,12 @@ mod tests {
         assert_eq!(concat(&out), "t1a1a2t2");
         assert_eq!(
             kinds_of(&out),
-            vec![SegmentKind::Thinking, SegmentKind::Text, SegmentKind::Text, SegmentKind::Thinking]
+            vec![
+                SegmentKind::Thinking,
+                SegmentKind::Text,
+                SegmentKind::Text,
+                SegmentKind::Thinking
+            ]
         );
     }
 
@@ -215,11 +223,14 @@ mod tests {
         // every emitted chunk is non-empty (a budget may split a chunk at a kind
         // boundary but never produce empty fragments).
         assert_eq!(concat(&all), "aaabbbccc");
-        assert_eq!(runs_of(&all), vec![
-            SegmentKind::Thinking,
-            SegmentKind::Text,
-            SegmentKind::Thinking,
-        ]);
+        assert_eq!(
+            runs_of(&all),
+            vec![
+                SegmentKind::Thinking,
+                SegmentKind::Text,
+                SegmentKind::Thinking,
+            ]
+        );
         assert!(all.iter().all(|(_, text)| !text.is_empty()));
     }
 

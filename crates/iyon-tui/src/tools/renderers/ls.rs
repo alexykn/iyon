@@ -1,8 +1,8 @@
-use crate::transcript::row::TranscriptRow;
 use crate::tools::{
     registry::ToolRenderer,
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use crate::transcript::row::TranscriptRow;
 
 #[derive(Debug)]
 pub(crate) struct LsRenderer;
@@ -25,7 +25,11 @@ impl ToolRenderer for LsRenderer {
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
-        let title = if input.is_error { "ls failed" } else { "ls result" };
+        let title = if input.is_error {
+            "ls failed"
+        } else {
+            "ls result"
+        };
         let mut rows = vec![TranscriptRow::indented(title, input.style)];
         rows.extend(
             input
