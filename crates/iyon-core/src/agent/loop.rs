@@ -1,4 +1,6 @@
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
+use std::collections::VecDeque;
+use tokio::sync::Mutex;
 
 use anyhow::{Context, Result, bail};
 use iyon_api::{ContentBlock, ModelApi, StopReason};
@@ -41,6 +43,9 @@ pub(crate) struct AgentLoopInput {
     pub tool_hooks: ToolHookSnapshot,
     pub event_tx: mpsc::Sender<CoreEvent>,
     pub control_rx: mpsc::Receiver<AgentLoopControl>,
+    /// Shared, persistent steering queue (owned by the runtime so it survives turn
+    /// lifecycle). The loop drains it at turn boundaries; it is never lost on interrupt.
+    pub steering: Arc<Mutex<VecDeque<String>>>,
     pub cancellation: CancellationToken,
 }
 
@@ -97,6 +102,7 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
         tool_hooks,
         event_tx,
         mut control_rx,
+        steering,
         cancellation,
     } = input;
 
@@ -118,7 +124,7 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
         // mid-stream, so a steered message never aborts the in-flight reply. Like pi,
         // the whole pending queue is drained at once so the model sees every queued
         // message in a single request (one response to them all).
-        let steers = drain_steers(&mut control_rx);
+        let steers = drain_steers(&steering).await;
         inject_steered_messages(
             &event_tx,
             turn_id,
@@ -170,7 +176,7 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
                         // Steers may have arrived while this response was streaming. If
                         // any did, deliver them all and keep the agent running (one
                         // response to the whole batch) instead of stopping.
-                        let steers = drain_steers(&mut control_rx);
+                        let steers = drain_steers(&steering).await;
                         if !steers.is_empty() {
                             inject_steered_messages(
                                 &event_tx,
@@ -240,21 +246,14 @@ async fn run_agent_loop_inner(input: AgentLoopInput) -> anyhow::Result<TurnOutco
     }
 }
 
-/// Drains ALL queued `Steer` messages, preserving their arrival order, and returns
-/// them. Runs only at turn boundaries; approval/reject controls should never be present
-/// there (they are consumed during tool execution) and are skipped defensively.
-fn drain_steers(control_rx: &mut mpsc::Receiver<AgentLoopControl>) -> Vec<String> {
-    let mut texts = Vec::new();
-    loop {
-        match control_rx.try_recv() {
-            Ok(AgentLoopControl::Steer { text }) => texts.push(text),
-            Ok(_) => continue,
-            Err(mpsc::error::TryRecvError::Empty | mpsc::error::TryRecvError::Disconnected) => {
-                break
-            }
-        }
-    }
-    texts
+/// Drains ALL queued steered messages from the shared persistent queue, preserving
+/// arrival order. Runs only at turn boundaries; delivery never aborts the in-flight
+/// reply. The queue is owned by the runtime, so anything undelivered here survives
+/// into a future turn instead of being dropped.
+async fn drain_steers(steering: &Arc<Mutex<VecDeque<String>>>) -> Vec<String> {
+    // Only held for the VecDeque drain — never across an await — so the critical
+    // section is bounded to a few pointer swaps.
+    steering.lock().await.drain(..).collect()
 }
 
 /// Emits and appends each steered user message to the session/produced messages so the
@@ -442,6 +441,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::path::PathBuf;
     use std::sync::Arc;
+    use tokio::sync::Mutex;
 
     use futures_util::stream::unfold;
     use iyon_api::{
@@ -504,6 +504,7 @@ mod tests {
         model: Arc<QueueModel>,
         event_tx: tokio::sync::mpsc::Sender<CoreEvent>,
         control_rx: tokio::sync::mpsc::Receiver<AgentLoopControl>,
+        steering: Arc<Mutex<VecDeque<String>>>,
         cancellation: CancellationToken,
     ) -> AgentLoopInput {
         let mut session = SessionState::new(SessionId(1), PathBuf::from("/"));
@@ -525,9 +526,16 @@ mod tests {
             tool_hooks: ToolHookSet::default().snapshot(),
             event_tx,
             control_rx,
+            steering,
             cancellation,
         }
     }
+
+    /// A fresh shared steering queue (test holds a clone to push into).
+    fn steering() -> Arc<Mutex<VecDeque<String>>> {
+        Arc::new(Mutex::new(VecDeque::new()))
+    }
+
 
     /// Drains `event_rx` until an assistant text delta containing `needle` is seen.
     async fn wait_for_assistant_text(
@@ -571,6 +579,7 @@ mod tests {
             model,
             event_tx.clone(),
             control_rx,
+            steering(),
             cancel.clone(),
         )));
 
@@ -599,12 +608,14 @@ mod tests {
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(64);
         // Two model turns: a full first response, then the answer to the steer.
         let (model, senders) = queued(2);
-        let (control_tx, control_rx) = tokio::sync::mpsc::channel(8);
+        let steering = steering();
+        let (_control_tx, control_rx) = tokio::sync::mpsc::channel(8);
 
         let handle = tokio::spawn(run_agent_loop(loop_input(
             model,
             event_tx.clone(),
             control_rx,
+            steering.clone(),
             CancellationToken::new(),
         )));
 
@@ -620,12 +631,7 @@ mod tests {
             .unwrap();
         wait_for_assistant_text(&mut event_rx, "first full reply").await;
 
-        control_tx
-            .send(AgentLoopControl::Steer {
-                text: "steer!".to_string(),
-            })
-            .await
-            .unwrap();
+        steering.lock().await.push_back("steer!".to_string());
         senders[0]
             .send(ModelStreamEvent::Done {
                 stop_reason: StopReason::Stop,
@@ -674,12 +680,14 @@ mod tests {
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(64);
         // Two model turns: the full first response, then ONE answer to the whole batch.
         let (model, senders) = queued(2);
-        let (control_tx, control_rx) = tokio::sync::mpsc::channel(8);
+        let steering = steering();
+        let (_control_tx, control_rx) = tokio::sync::mpsc::channel(8);
 
         let handle = tokio::spawn(run_agent_loop(loop_input(
             model,
             event_tx.clone(),
             control_rx,
+            steering.clone(),
             CancellationToken::new(),
         )));
 
@@ -695,12 +703,7 @@ mod tests {
         wait_for_assistant_text(&mut event_rx, "first reply").await;
 
         for text in ["a", "b", "c"] {
-            control_tx
-                .send(AgentLoopControl::Steer {
-                    text: text.to_string(),
-                })
-                .await
-                .unwrap();
+            steering.lock().await.push_back(text.to_string());
         }
         senders[0]
             .send(ModelStreamEvent::Done {
