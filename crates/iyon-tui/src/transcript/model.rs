@@ -468,15 +468,23 @@ impl TranscriptState {
 
     fn rebuild_logical_rows_cache(&mut self) {
         self.logical_rows_cache.clear();
-        let open_assistant_idx = self.assistant_stream_open.then(|| {
-            self.canonical_items
-                .iter()
-                .rposition(|item| matches!(item, TimelineItem::AssistantMessage { .. }))
-        });
+        let last_assistant_idx = self
+            .canonical_items
+            .iter()
+            .rposition(|item| matches!(item, TimelineItem::AssistantMessage { .. }));
+        let open_assistant_idx = self.assistant_stream_open.then_some(last_assistant_idx).flatten();
+        debug_assert!(
+            open_assistant_idx.is_none() || open_assistant_idx == last_assistant_idx,
+            "open streaming assistant must be the last assistant message"
+        );
+        // Consecutive user messages (e.g. a steered batch delivered together) share one
+        // bubble: they render as a single contiguous block with no blank pacing between
+        // them. Any non-user item breaks the run.
+        let mut prev_item: Option<&TimelineItem> = None;
         for (idx, item) in self.canonical_items.iter().enumerate() {
             match item {
                 TimelineItem::AssistantMessage { segments }
-                    if open_assistant_idx == Some(Some(idx)) =>
+                    if open_assistant_idx == Some(idx) =>
                 {
                     // While an assistant stream is open, the transcript owns only the
                     // frozen/spilled portion of that assistant message. Keep the normal
@@ -493,7 +501,22 @@ impl TranscriptState {
                     drop_trailing_empty_row(&mut rows);
                     self.logical_rows_cache.extend(rows);
                 }
-                _ => self.logical_rows_cache.extend(self.formatter.format(item)),
+                _ => {
+                    let is_user = matches!(item, TimelineItem::UserMessage { .. });
+                    let is_second_user_in_run = is_user
+                        && matches!(prev_item, Some(TimelineItem::UserMessage { .. }));
+                    if is_second_user_in_run {
+                        // Fuse consecutive user bubbles into one: remove the inter-bubble
+                        // padding pair (prev trailing + next leading). Exactly one row
+                        // each — interior empty rows are content newlines and must stay.
+                        self.logical_rows_cache.pop();
+                        self.logical_rows_cache
+                            .extend(self.formatter.format(item).into_iter().skip(1));
+                    } else {
+                        self.logical_rows_cache.extend(self.formatter.format(item));
+                    }
+                    prev_item = Some(item);
+                }
             }
         }
         self.rendered_rows_cache = None;
@@ -849,5 +872,54 @@ mod tests {
                 AssistantSegment::Text("ab".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn consecutive_user_messages_merge_into_one_bubble() {
+        let mut transcript = TranscriptState::default();
+        // A steered batch delivered together arrives as consecutive user messages.
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "a".to_string(),
+        });
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "b".to_string(),
+        });
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "c".to_string(),
+        });
+
+        // Rendered as one contiguous block: [leading blank, a, b, c, trailing blank],
+        // with no blank pacing between the messages (they share one bubble).
+        let texts: Vec<String> = transcript
+            .logical_rows_cache
+            .iter()
+            .map(|line| line.to_string())
+            .collect();
+        assert_eq!(texts, vec!["", "a", "b", "c", ""]);
+    }
+
+    #[test]
+    fn user_message_after_tool_keeps_padding() {
+        // A non-consecutive user message (here after an assistant) keeps its normal
+        // bubble padding; the merge only applies to consecutive user messages.
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "a".to_string(),
+        });
+        transcript.push_item(TimelineItem::AssistantMessage {
+            segments: vec![AssistantSegment::Text("hi".to_string())],
+        });
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "b".to_string(),
+        });
+
+        let texts: Vec<String> = transcript
+            .logical_rows_cache
+            .iter()
+            .map(|line| line.to_string())
+            .collect();
+        // [\n, a, \n, \n, hi, \n, \n, b, \n] — a and b are separated by the assistant
+        // message, so each user keeps its own padding.
+        assert_eq!(texts, vec!["", "a", "", "", "hi", "", "", "b", ""]);
     }
 }
