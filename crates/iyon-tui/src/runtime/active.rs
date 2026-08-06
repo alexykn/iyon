@@ -365,10 +365,11 @@ impl ActiveStreamState {
 
     /// Maps a wrap-produced boundary back to a byte offset within the active tail
     /// (0-based from `frozen_until`). Unrestricted (1:1) rows are summed via their
-    /// rendered span lengths; restricted rows — which hide/replace markdown markers
-    /// so their rendered bytes differ from source — are always snapped to the end
-    /// of the whole row (`content_len`), guaranteeing a partially-frozen markdown
-    /// element never renders differently live vs. committed.
+    /// rendered span lengths; restricted rows — those whose `line` spans don't
+    /// cover the full source (hidden markdown markers, or structural markers that
+    /// hang in the gutter) — are always snapped to the end of the whole row
+    /// (`content_len`), guaranteeing a partially-frozen markdown element never
+    /// renders differently live vs. committed.
     fn boundary_to_tail_byte(&self, boundary: TranscriptCommitBoundary) -> usize {
         let Some(cache) = self.render_cache.as_ref() else {
             return 0;
@@ -672,6 +673,36 @@ mod tests {
             all, markdown,
             "markdown spill must round-trip the flat source exactly"
         );
+    }
+
+    #[test]
+    fn spill_round_trips_markdown_with_multi_byte_chars() {
+        // Regression: a multi-byte glyph (e.g. an em dash) inside / after hidden
+        // markdown markers must never let a spill boundary land mid-char (a
+        // `full_text[next_frozen..]` panic). The flat source must round-trip
+        // byte-for-byte.
+        let mut stream = ActiveStreamState::new();
+        let text = "1. a long item — with an em dash — that wraps\n2. second — line\n";
+        for width in [4u16, 6, 8, 10, 12] {
+            for visible in [1usize, 2] {
+                let mut stream = ActiveStreamState::new();
+                stream.push_delta(SegmentKind::Text, text);
+                let mut spilled: Vec<AssistantSegment> = Vec::new();
+                for _ in 0..1000 {
+                    stream.ensure_render_cache(width);
+                    match stream.spill_overflow_rows(visible) {
+                        Some(frag) => spilled.extend(frag),
+                        None => break,
+                    }
+                }
+                let remaining = stream.into_unfrozen_segments();
+                let all = format!("{}{}", concat_text(&spilled), concat_text(&remaining));
+                assert_eq!(
+                    all, text,
+                    "width {width} visible {visible}: ordered multi-byte spill round-trip"
+                );
+            }
+        }
     }
 
     #[test]

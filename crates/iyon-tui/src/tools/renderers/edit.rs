@@ -36,7 +36,7 @@ impl ToolRenderer for EditRenderer {
                 rows.extend(
                     preview
                         .lines()
-                        .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
+                        .map(|line| TranscriptRow::tool_result(line.to_string(), input.style)),
                 );
             }
         }
@@ -45,17 +45,17 @@ impl ToolRenderer for EditRenderer {
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
         if input.is_error {
-            let mut rows = vec![TranscriptRow::indented("edit failed", input.style)];
+            let mut rows = vec![TranscriptRow::tool_result("edit failed", input.style)];
             rows.extend(
                 input
                     .text
                     .split('\n')
-                    .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
+                    .map(|line| TranscriptRow::tool_result(line.to_string(), input.style)),
             );
             return rows;
         }
 
-        let mut rows = vec![TranscriptRow::indented(input.text, input.style)];
+        let mut rows = vec![TranscriptRow::tool_result(input.text, input.style)];
         if let Some(diff) = input
             .details
             .get("diff")
@@ -80,5 +80,5 @@ fn format_diff_line(line: &str) -> TranscriptRow {
     } else {
         theme::muted()
     };
-    TranscriptRow::indented(line.to_string(), style)
+    TranscriptRow::tool_result(line.to_string(), style)
 }

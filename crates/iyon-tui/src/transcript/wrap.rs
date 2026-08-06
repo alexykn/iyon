@@ -3,7 +3,7 @@ use std::ops::Range;
 use ratatui::text::{Line, Span};
 
 use crate::input::wrap::{WrapConfig, wrap_ranges};
-use crate::transcript::row::{LeftMargin, TranscriptRow};
+use crate::transcript::row::{TranscriptRow, compute_indent};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct TranscriptCommitBoundary {
@@ -71,28 +71,30 @@ fn wrap_transcript_logical_row(
     rows: &mut Vec<Line<'static>>,
     row_end_boundaries: &mut Vec<TranscriptCommitBoundary>,
 ) {
-    // Wrap within the content width (terminal width minus the left and right
-    // margins) so the margins no longer steal columns and content keeps a
-    // symmetric inset on both sides. Then re-apply a styled left margin to every
-    // physical row so wrapped continuations keep the same hanging indent. For
-    // bulleted header rows, the FIRST physical row carries the bullet prefix in
-    // those margin columns so continuations align under the text after the
-    // bullet rather than under the bullet dot.
-    let inset = row.margin.left.saturating_add(row.margin.right);
-    let content_width = width.saturating_sub(inset).max(1);
+    // Derive the hanging-indent geometry once. `content_width` already accounts
+    // for the full left prefix (outer + nesting + marker gutter) and the right
+    // margin, so every physical row fits within `width` after prefixes are
+    // applied. First line carries the marker prefix; continuations align to the
+    // content edge (equal-width prefix of spaces).
+    let indent = compute_indent(&row.layout, usize::from(width));
+    let content_width = indent.content_width.max(1);
+
     let flattened = flatten_line_from_boundary(&row.line, start);
-    let wrapped_ranges = wrap_ranges(&flattened.text, WrapConfig::transcript(content_width));
+    let wrapped_ranges = wrap_ranges(
+        &flattened.text,
+        WrapConfig::transcript(content_width as u16),
+    );
     let is_first_physical = start.span_index == 0 && start.byte_offset == 0;
 
     for (index, range) in wrapped_ranges.into_iter().enumerate() {
         let mut physical = line_from_flat_range(&row.line, &flattened.segments, range.clone());
+        let prefix = if index == 0 && is_first_physical {
+            &indent.first_prefix
+        } else {
+            &indent.continuation_prefix
+        };
         if !physical.spans.is_empty() {
-            let prefix = if index == 0 && is_first_physical {
-                row.first_prefix.as_str()
-            } else {
-                ""
-            };
-            physical = prepend_prefix(physical, row.margin, prefix);
+            physical = prepend_prefix(physical, row.style, prefix);
         }
         let boundary = flat_offset_to_boundary(
             logical_row,
@@ -104,33 +106,27 @@ fn wrap_transcript_logical_row(
     }
 }
 
-/// Prepends a styled left margin to the first span of a physical row. `first_prefix`
-/// (e.g. a bullet) occupies the margin columns on the first line; an empty prefix
-/// means plain margin spaces. When the content's first span shares the margin's
-/// style (the common case), the prefix is merged into it so emission stays a single
-/// styled span; otherwise it is inserted as its own leading span.
+/// Prepends the gutter/prefix to a physical row's first span. When the content's
+/// first span shares the gutter style, the prefix is merged into it to emit a
+/// single styled span; otherwise it is inserted as its own leading span.
 fn prepend_prefix(
     mut line: Line<'static>,
-    margin: LeftMargin,
-    first_prefix: &str,
+    style: ratatui::style::Style,
+    prefix: &str,
 ) -> Line<'static> {
-    if margin.left == 0 || line.spans.is_empty() {
+    if prefix.is_empty() || line.spans.is_empty() {
         return line;
     }
-    let prefix = if first_prefix.is_empty() {
-        " ".repeat(margin.left as usize)
-    } else {
-        first_prefix.to_string()
-    };
     if let Some(first) = line.spans.first_mut()
-        && first.style == margin.style
+        && first.style == style
     {
-        let mut text = prefix;
+        let mut text = prefix.to_string();
         text.push_str(first.content.as_ref());
         first.content = text.into();
         return line;
     }
-    line.spans.insert(0, Span::styled(prefix, margin.style));
+    line.spans
+        .insert(0, Span::styled(prefix.to_string(), style));
     line
 }
 
@@ -270,9 +266,10 @@ fn push_span_text(line: &mut Line<'static>, source: &Span<'static>, text: &str) 
 #[cfg(test)]
 mod tests {
     use ratatui::text::Line;
+    use unicode_width::UnicodeWidthStr;
 
     use super::{TranscriptCommitBoundary, wrap_transcript_rows};
-    use crate::transcript::row::{LeftMargin, TranscriptRow};
+    use crate::transcript::row::{Marker, TranscriptRow, compute_indent};
 
     fn line_text(line: &Line<'static>) -> String {
         line.spans
@@ -307,62 +304,184 @@ mod tests {
 
     #[test]
     fn wrapped_continuation_lines_keep_the_hanging_indent() {
-        // A 2-column margin wraps within width-2 and re-prefixes every physical
-        // row, so both the indent is preserved AND content uses the full (reduced)
-        // width instead of wrapping 2 columns early.
-        let margin = LeftMargin::new(2, 0, Line::from("").style);
-        let rows = wrap_transcript_rows(
-            6,
-            &[TranscriptRow::with_margin(Line::from("abcdefgh"), margin)],
-            TranscriptCommitBoundary::default(),
-        );
+        let margin = crate::transcript::row::RowLayout::content();
+        let row = TranscriptRow {
+            line: Line::from("abcdefgh"),
+            style: Line::from("").style,
+            layout: margin,
+        };
+        // width 6 minus outer left(2) - right(2) = content width 2.
+        let rows = wrap_transcript_rows(6, &[row], TranscriptCommitBoundary::default());
 
         let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
-        assert_eq!(text_rows, ["  abcd", "  efgh"]);
+        assert_eq!(text_rows, ["  ab", "  cd", "  ef", "  gh"]);
     }
 
     #[test]
     fn empty_content_row_stays_blank_despite_margin() {
-        let margin = LeftMargin::new(2, 0, Line::from("").style);
-        let rows = wrap_transcript_rows(
-            6,
-            &[TranscriptRow::with_margin(Line::from(""), margin)],
-            TranscriptCommitBoundary::default(),
-        );
+        let row = TranscriptRow {
+            line: Line::from(""),
+            style: Line::from("").style,
+            layout: crate::transcript::row::RowLayout::content(),
+        };
+        let rows = wrap_transcript_rows(6, &[row], TranscriptCommitBoundary::default());
 
         let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
-        assert_eq!(text_rows, [""],);
+        assert_eq!(text_rows, [""]);
     }
 
     #[test]
     fn bulleted_row_alignment_follows_text_not_bullet_dot() {
-        // A bulleted header row: the bullet + space occupy the 2 left-margin
-        // columns on the first line, and continuation lines align under the text
-        // (also 2 columns), not under the bullet dot.
-        let style = Line::from("").style;
-        // width 8 - (left 2 + right 2) = content width 4.
-        let rows = wrap_transcript_rows(
-            8,
-            &[TranscriptRow::bullet("abcdefgh", style)],
-            TranscriptCommitBoundary::default(),
-        );
+        // Tool bullet: `● ` (2 cols) + outer left (2) = first prefix 4 wide;
+        // content width = 8 - 4 - right(2) = 2.
+        let row = TranscriptRow::bullet("abcdefgh", Line::from("").style);
+        let rows = wrap_transcript_rows(8, &[row], TranscriptCommitBoundary::default());
 
         let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
-        assert_eq!(text_rows, ["\u{25cf} abcd", "  efgh"]);
+        assert_eq!(text_rows, ["  ● ab", "    cd", "    ef", "    gh"]);
     }
 
     #[test]
-    fn symmetric_right_margin_shrinks_content_width() {
-        // With a right margin the content wraps earlier, leaving a blank right
-        // gutter: left=2, right=2, width=6 => content width 2.
-        let margin = LeftMargin::new(2, 2, Line::from("").style);
-        let rows = wrap_transcript_rows(
-            6,
-            &[TranscriptRow::with_margin(Line::from("abcdefgh"), margin)],
-            TranscriptCommitBoundary::default(),
-        );
+    fn symmetric_margin_shrinks_content_width() {
+        let row = TranscriptRow::body("abcdefgh", Line::from("").style);
+        // width 6 - left 2 - right 2 = 2.
+        let rows = wrap_transcript_rows(6, &[row], TranscriptCommitBoundary::default());
 
         let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
         assert_eq!(text_rows, ["  ab", "  cd", "  ef", "  gh"]);
+    }
+
+    #[test]
+    fn nested_bullet_continuation_aligns_to_item_content() {
+        // Nested (depth 1) bullet: outer 2 + nesting 2 + marker 2 = first prefix
+        // 6 wide; continuation is the content edge (6 columns of spaces).
+        let row = TranscriptRow::markdown_unordered(
+            Line::styled("abcdefgh", Line::from("").style),
+            Line::from("").style,
+            1,
+        );
+        let rows = wrap_transcript_rows(12, &[row], TranscriptCommitBoundary::default());
+
+        let text_rows = rows.rows.iter().map(line_text).collect::<Vec<_>>();
+        // width 12 - first(6) - right(2) = 4 content cols.
+        assert_eq!(text_rows, ["    • abcd", "      efgh"]);
+    }
+
+    #[test]
+    fn ordered_marker_right_aligns_single_against_double_digit() {
+        // Shared digit_width = 2 (widest is 10). "10. " is 4 wide; "9." is
+        // right-aligned within the same 2-digit gutter -> " 9. " (also 4 wide).
+        let single = TranscriptRow::markdown_ordered(
+            Line::styled("x", Line::from("").style),
+            Line::from("").style,
+            9,
+            2,
+            0,
+        );
+        let double = TranscriptRow::markdown_ordered(
+            Line::styled("y", Line::from("").style),
+            Line::from("").style,
+            10,
+            2,
+            0,
+        );
+        assert_eq!(single.layout.marker.as_ref().unwrap().text(), " 9. ");
+        assert_eq!(double.layout.marker.as_ref().unwrap().text(), "10. ");
+    }
+
+    #[test]
+    fn tool_result_aligns_with_tool_call_text() {
+        // Tool-call text and tool-result text must share the same content column
+        // (outer 2 + tool gutter 2 = col 4), so results read as a continuation of
+        // the call rather than drifting back to the agent-text column.
+        let call = TranscriptRow::bullet("bash run", Line::from("").style);
+        let result = TranscriptRow::tool_result("output line", Line::from("").style);
+        assert_eq!(call.layout.content_column(), 4);
+        assert_eq!(result.layout.content_column(), 4);
+
+        // Wrapped, both first lines start with the same 4-column prefix and the
+        // full text fits on the first line (content width 20-4-2=14).
+        let call_rows = wrap_transcript_rows(20, &[call], TranscriptCommitBoundary::default());
+        let result_rows = wrap_transcript_rows(20, &[result], TranscriptCommitBoundary::default());
+        assert_eq!(line_text(&call_rows.rows[0]), "  ● bash run");
+        assert_eq!(line_text(&result_rows.rows[0]), "    output line");
+    }
+
+    #[test]
+    fn compute_indent_prefixes_share_display_width() {
+        for layout in [
+            crate::transcript::row::RowLayout::content(),
+            crate::transcript::row::RowLayout {
+                outer: crate::transcript::row::Insets::symmetric(2),
+                nesting_depth: 1,
+                marker: Some(Marker::Bullet),
+                marker_gutter_width: 2,
+            },
+            crate::transcript::row::RowLayout {
+                outer: crate::transcript::row::Insets::symmetric(2),
+                nesting_depth: 0,
+                marker: Some(Marker::Ordered {
+                    index: 10,
+                    digit_width: 2,
+                }),
+                marker_gutter_width: 4,
+            },
+        ] {
+            let indent = compute_indent(&layout, 80);
+            assert_eq!(
+                indent.first_prefix.width(),
+                indent.continuation_prefix.width(),
+                "prefixes must share display width"
+            );
+        }
+    }
+
+    #[test]
+    fn physical_rows_never_exceed_viewport_width() {
+        // Property-style: for a variety of layouts and widths, every produced
+        // physical row must be no wider than the viewport (prefix + content fits).
+        // Rows whose prefix alone is wider than the viewport are degenerate
+        // (impossible to honour), so we skip those and assert the feasible domain.
+        let rows = [
+            TranscriptRow::body("a fairly long line of text", Line::from("").style),
+            TranscriptRow::bullet("another long tool line", Line::from("").style),
+            TranscriptRow::markdown_unordered(
+                Line::styled("nested item text", Line::from("").style),
+                Line::from("").style,
+                2,
+            ),
+            TranscriptRow::markdown_ordered(
+                Line::styled("ordered text", Line::from("").style),
+                Line::from("").style,
+                9,
+                2,
+                1,
+            ),
+            TranscriptRow::new(Line::from("plain col-0")),
+        ];
+
+        for width in [6u16, 8, 12, 20] {
+            for row in &rows {
+                let indent = compute_indent(&row.layout, usize::from(width));
+                if indent.first_prefix.width() + 1 > usize::from(width) {
+                    // Prefix alone consumes the whole viewport (no room for even a
+                    // single content column): degenerate, skip.
+                    continue;
+                }
+                let wrapped = wrap_transcript_rows(
+                    width,
+                    std::slice::from_ref(row),
+                    TranscriptCommitBoundary::default(),
+                );
+                for physical in &wrapped.rows {
+                    let w = physical.width();
+                    assert!(
+                        w <= usize::from(width),
+                        "row {w} exceeds width {width}: {:?}",
+                        line_text(physical)
+                    );
+                }
+            }
+        }
     }
 }

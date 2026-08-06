@@ -49,12 +49,12 @@ impl ToolRenderer for ReadRenderer {
         } else {
             "read result"
         };
-        let mut rows = vec![TranscriptRow::indented(title, input.style)];
+        let mut rows = vec![TranscriptRow::tool_result(title, input.style)];
         rows.extend(
             input
                 .text
                 .split('\n')
-                .map(|line| TranscriptRow::indented(line.to_string(), input.style)),
+                .map(|line| TranscriptRow::tool_result(line.to_string(), input.style)),
         );
         rows
     }
