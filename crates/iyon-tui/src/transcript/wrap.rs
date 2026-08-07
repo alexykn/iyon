@@ -2,8 +2,8 @@ use std::ops::Range;
 
 /// INTERNAL PRESENTATION MECHANICS.
 use ratatui::text::{Line, Span};
+use unicode_segmentation::UnicodeSegmentation;
 
-use crate::input::wrap::{WrapConfig, wrap_ranges};
 use crate::transcript::row::{TranscriptRow, compute_indent};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -26,10 +26,13 @@ impl TranscriptCommitBoundary {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WrappedTranscriptRows {
     pub(crate) rows: Vec<Line<'static>>,
     pub(crate) row_end_boundaries: Vec<TranscriptCommitBoundary>,
+    /// Number of leading physical rows that fit within their content track and are eligible
+    /// to enter native terminal scrollback history.
+    pub(crate) committable_prefix_rows: usize,
 }
 
 pub(crate) fn wrap_transcript_rows(
@@ -39,6 +42,8 @@ pub(crate) fn wrap_transcript_rows(
 ) -> WrappedTranscriptRows {
     let mut rows = Vec::new();
     let mut row_end_boundaries = Vec::new();
+    let mut committable_prefix_rows = 0;
+    let mut blocked = false;
     let start_row = commit_boundary.logical_row.min(logical_rows.len());
 
     for (logical_row, row) in logical_rows.iter().enumerate().skip(start_row) {
@@ -58,12 +63,15 @@ pub(crate) fn wrap_transcript_rows(
             start,
             &mut rows,
             &mut row_end_boundaries,
+            &mut committable_prefix_rows,
+            &mut blocked,
         );
     }
 
     WrappedTranscriptRows {
         rows,
         row_end_boundaries,
+        committable_prefix_rows,
     }
 }
 
@@ -74,6 +82,8 @@ fn wrap_transcript_logical_row(
     start: TranscriptCommitBoundary,
     rows: &mut Vec<Line<'static>>,
     row_end_boundaries: &mut Vec<TranscriptCommitBoundary>,
+    committable_prefix_rows: &mut usize,
+    blocked: &mut bool,
 ) {
     // Derive the hanging-indent geometry once. `content_width` already accounts
     // for the full left prefix (outer + nesting + marker gutter) and the right
@@ -84,14 +94,35 @@ fn wrap_transcript_logical_row(
     let content_width = indent.content_width.max(1);
 
     let flattened = flatten_line_from_boundary(&row.line, start);
-    let wrapped_ranges = wrap_ranges(
-        &flattened.text,
-        WrapConfig::transcript(content_width as u16),
+    let span_inputs = flattened.segments.iter().map(|seg| {
+        let slice = &flattened.text[seg.flat_start..seg.flat_end];
+        let style = row.line.spans[seg.span_index].style;
+        (slice, style, Some(seg.flat_start))
+    });
+    let hard_lines = crate::presentation::wrap::styled_hard_lines(span_inputs);
+    let wrapped = crate::presentation::wrap::wrap_styled_lines(
+        &hard_lines,
+        content_width as u16,
+        crate::presentation::WrapMode::WordThenGrapheme,
     );
+
     let is_first_physical = start.span_index == 0 && start.byte_offset == 0;
 
-    for (index, range) in wrapped_ranges.into_iter().enumerate() {
-        let mut physical = line_from_flat_range(&row.line, &flattened.segments, range.clone());
+    for (index, line) in wrapped.into_iter().enumerate() {
+        let range_start = line
+            .graphemes
+            .first()
+            .and_then(|g| g.source.as_ref())
+            .map_or(0, |r| r.start);
+        let range_end = line
+            .graphemes
+            .last()
+            .and_then(|g| g.source.as_ref())
+            .map_or(0, |r| r.end);
+
+        let mut physical =
+            line_from_flat_range(&row.line, &flattened.segments, range_start..range_end);
+
         let prefix = if index == 0 && is_first_physical {
             &indent.first_prefix
         } else {
@@ -100,13 +131,20 @@ fn wrap_transcript_logical_row(
         if !physical.spans.is_empty() {
             physical = prepend_prefix(physical, row.style, prefix);
         }
+
         let boundary = flat_offset_to_boundary(
             logical_row,
             &flattened.segments,
             flattened.text.len(),
-            range.end,
+            range_end,
         );
         push_row(rows, row_end_boundaries, physical, boundary);
+
+        if !*blocked && line.fits {
+            *committable_prefix_rows += 1;
+        } else {
+            *blocked = true;
+        }
     }
 }
 
@@ -238,16 +276,8 @@ fn flat_offset_to_boundary(
 }
 
 fn empty_like(line: &Line<'static>) -> Line<'static> {
-    // Empty physical rows still carry the style of a deliberately painted
-    // blank (for example legacy user-bubble padding). Preserve the first span's
-    // style when the line-level style is default.
-    let style = if line.style == ratatui::style::Style::default() {
-        line.spans.first().map_or(line.style, |span| span.style)
-    } else {
-        line.style
-    };
     Line {
-        style,
+        style: line.style,
         alignment: line.alignment,
         spans: Vec::new(),
     }

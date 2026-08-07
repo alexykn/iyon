@@ -6,10 +6,10 @@
 
 pub(crate) mod api;
 pub(super) mod internal;
+pub(crate) mod wrap;
 
 pub(crate) use api::{
-    ActiveContent, BoxView, ColorSpec, ColumnView, Decoration, DockPanel, DockSizePolicy,
-    FlowBoundary, HorizontalAlign, HostAction, Insets, InteractionResult, Modal, OverflowIndicator,
-    RowChild, RowView, StyleSpec, TextAttributes, TextSpan, TextView, ThemeKey, TrackSize, UiKey,
-    View, ViewKind, WidthRule, WrapMode,
+    ActiveContent, ColorSpec, Decoration, DockPanel, DockSizePolicy, FlowBoundary, Insets,
+    InteractionResult, OverflowIndicator, RowChild, StyleSpec, TextAttributes, TextSpan, ThemeKey,
+    UiKey, View, ViewKind, WidthRule, WrapMode,
 };

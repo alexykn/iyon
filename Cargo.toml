@@ -29,6 +29,7 @@ tempfile = "3.23.0"
 toml = "1.1.2"
 unicode-segmentation = "1.13.2"
 unicode-width = "0.2.2"
+unicode-linebreak = "0.1.5"
 
 # Test-only tooling, pulled in by crates via [dev-dependencies].
 vt100 = "0.16.2"
