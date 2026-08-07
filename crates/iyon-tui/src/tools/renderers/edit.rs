@@ -1,12 +1,10 @@
-use ratatui::style::{Color, Style};
-
 use crate::{
-    theme,
+    presentation::{ColorSpec, StyleSpec, ThemeKey, View},
     tools::{
         registry::ToolRenderer,
+        renderers::{column, result_lines, result_style, text, tool_call, tool_result_line},
         types::{ToolCallRenderInput, ToolResultRenderInput},
     },
-    transcript::row::TranscriptRow,
 };
 
 #[derive(Debug)]
@@ -17,15 +15,15 @@ impl ToolRenderer for EditRenderer {
         "edit"
     }
 
-    fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<TranscriptRow> {
+    fn render_call(&self, input: ToolCallRenderInput<'_>) -> View {
         let path = input
             .arguments
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("...");
-        let mut rows = vec![TranscriptRow::bullet(
-            format!("edit {path} — {}", input.status),
-            input.style,
+        let mut children = vec![tool_call(
+            format!("edit {path} — {}", status_label(input.status)),
+            super::tool_style(input.status),
         )];
         // Debug-only: surface the raw edits payload; the normal view keeps the
         // call compact and lets the result's diff carry the detail.
@@ -33,52 +31,57 @@ impl ToolRenderer for EditRenderer {
             if let Some(edits) = input.arguments.get("edits") {
                 let preview =
                     serde_json::to_string_pretty(edits).unwrap_or_else(|_| edits.to_string());
-                rows.extend(
-                    preview
-                        .lines()
-                        .map(|line| TranscriptRow::tool_result(line.to_string(), input.style)),
-                );
+                children.extend(result_lines(&preview, super::tool_style(input.status)));
             }
         }
-        rows
+        column(children)
     }
 
-    fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
-        if input.is_error {
-            let mut rows = vec![TranscriptRow::tool_result("edit failed", input.style)];
-            rows.extend(
-                input
-                    .text
-                    .split('\n')
-                    .map(|line| TranscriptRow::tool_result(line.to_string(), input.style)),
-            );
-            return rows;
+    fn render_result(&self, input: ToolResultRenderInput<'_>) -> View {
+        if input.is_error() {
+            let mut children = vec![tool_result_line("edit failed", result_style(true))];
+            children.extend(result_lines(input.text, result_style(true)));
+            return column(children);
         }
 
-        let mut rows = vec![TranscriptRow::tool_result(input.text, input.style)];
+        let mut children = vec![tool_result_line(input.text, result_style(false))];
         if let Some(diff) = input
             .details
             .get("diff")
             .and_then(serde_json::Value::as_str)
         {
-            rows.extend(diff.lines().map(format_diff_line));
+            children.extend(diff.lines().map(format_diff_line));
         }
-        rows
+        column(children)
     }
 }
 
-/// Formats a single diff line with +/-/hunk coloring. The line carries its own
-/// style both for its content and its indent, matching the previous behavior
-/// where the leading spaces were part of the same styled line.
-fn format_diff_line(line: &str) -> TranscriptRow {
-    let style = if line.starts_with('+') && !line.starts_with("+++") {
-        Style::default().fg(Color::Green)
+fn format_diff_line(line: &str) -> View {
+    let color = if line.starts_with('+') && !line.starts_with("+++") {
+        ColorSpec::Ansi(2)
     } else if line.starts_with('-') && !line.starts_with("---") {
-        Style::default().fg(Color::Red)
+        ColorSpec::Ansi(1)
     } else if line.starts_with("@@") {
-        Style::default().fg(Color::Yellow)
+        ColorSpec::Ansi(3)
     } else {
-        theme::muted()
+        ColorSpec::Theme(ThemeKey::from("text.muted"))
     };
-    TranscriptRow::tool_result(line.to_string(), style)
+    text(
+        line,
+        StyleSpec {
+            foreground: Some(color),
+            ..StyleSpec::default()
+        },
+    )
+}
+
+fn status_label(status: crate::transcript::ToolTimelineStatus) -> &'static str {
+    match status {
+        crate::transcript::ToolTimelineStatus::PendingApproval => "waiting for approval",
+        crate::transcript::ToolTimelineStatus::Running => "running",
+        crate::transcript::ToolTimelineStatus::Approved => "approved",
+        crate::transcript::ToolTimelineStatus::Rejected => "rejected",
+        crate::transcript::ToolTimelineStatus::Finished => "finished",
+        crate::transcript::ToolTimelineStatus::Failed => "failed",
+    }
 }

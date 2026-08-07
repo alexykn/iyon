@@ -1,5 +1,6 @@
 mod app;
 mod input;
+mod presentation;
 mod runtime;
 mod scrollback;
 mod terminal;

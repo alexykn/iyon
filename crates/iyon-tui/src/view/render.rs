@@ -98,7 +98,13 @@ impl Renderer {
         self.render(&spacer_view, frame, view.layout.spacer_area);
         self.render(&view.chat, frame, view.layout.chat_area);
         self.render(&view.active, frame, view.layout.active_area);
-        view.panel.render(frame, view.layout.panel_area);
+        if let Some(panel_view) = view.panel.view() {
+            crate::presentation::internal::render_view(
+                &panel_view,
+                frame.buffer_mut(),
+                view.layout.panel_area,
+            );
+        }
         self.render(&view.input, frame, view.layout.input_area);
         self.render(&view.info, frame, view.layout.info_area);
     }

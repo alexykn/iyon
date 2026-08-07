@@ -1,8 +1,9 @@
+use crate::presentation::View;
 use crate::tools::{
     registry::ToolRenderer,
+    renderers::{column, result_lines, result_style, tool_call},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
-use crate::transcript::row::TranscriptRow;
 
 #[derive(Debug)]
 pub(crate) struct WriteRenderer;
@@ -12,51 +13,42 @@ impl ToolRenderer for WriteRenderer {
         "write"
     }
 
-    fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<TranscriptRow> {
+    fn render_call(&self, input: ToolCallRenderInput<'_>) -> View {
         let path = input
             .arguments
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("...");
-        let mut rows = vec![TranscriptRow::bullet(
-            format!("write {path} — {}", input.status),
-            input.style,
+        let mut children = vec![tool_call(
+            format!("write {path} — {}", status_label(input.status)),
+            super::tool_style(input.status),
         )];
-        // Debug-only: surface the content preview; the normal view keeps the call
-        // compact and lets the result carry the write output/confirmation.
-        if input.show_arg_preview {
-            if let Some(content) = input
+        if input.show_arg_preview
+            && let Some(content) = input
                 .arguments
                 .get("content")
                 .and_then(serde_json::Value::as_str)
-            {
-                let preview = truncate_preview_text(content);
-                if !preview.is_empty() {
-                    rows.extend(
-                        preview
-                            .lines()
-                            .map(|line| TranscriptRow::tool_result(line.to_string(), input.style)),
-                    );
-                }
+        {
+            let preview = truncate_preview_text(content);
+            if !preview.is_empty() {
+                children.extend(result_lines(&preview, super::tool_style(input.status)));
             }
         }
-        rows
+        column(children)
     }
 
-    fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
-        let title = if input.is_error {
+    fn render_result(&self, input: ToolResultRenderInput<'_>) -> View {
+        let title = if input.is_error() {
             "write failed"
         } else {
             "write result"
         };
-        let mut rows = vec![TranscriptRow::tool_result(title, input.style)];
-        rows.extend(
-            input
-                .text
-                .split('\n')
-                .map(|line| TranscriptRow::tool_result(line.to_string(), input.style)),
-        );
-        rows
+        let mut children = vec![super::tool_result_line(
+            title,
+            result_style(input.is_error()),
+        )];
+        children.extend(result_lines(input.text, result_style(input.is_error())));
+        column(children)
     }
 }
 
@@ -68,4 +60,15 @@ fn truncate_preview_text(text: &str) -> String {
     let mut output: String = text.chars().take(MAX_CHARS).collect();
     output.push('…');
     output
+}
+
+fn status_label(status: crate::transcript::ToolTimelineStatus) -> &'static str {
+    match status {
+        crate::transcript::ToolTimelineStatus::PendingApproval => "waiting for approval",
+        crate::transcript::ToolTimelineStatus::Running => "running",
+        crate::transcript::ToolTimelineStatus::Approved => "approved",
+        crate::transcript::ToolTimelineStatus::Rejected => "rejected",
+        crate::transcript::ToolTimelineStatus::Finished => "finished",
+        crate::transcript::ToolTimelineStatus::Failed => "failed",
+    }
 }

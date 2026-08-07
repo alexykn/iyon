@@ -2,6 +2,8 @@ use std::time::{Duration, Instant};
 
 use ratatui::text::Line;
 
+use crate::presentation::{ActiveContent, View};
+
 use crate::transcript::{
     AssistantSegment, SegmentKind,
     markdown::RenderedRow,
@@ -15,6 +17,11 @@ const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦
 const ACTIVE_STREAM_UNSTABLE_TAIL_ROWS: usize = 1;
 
 #[derive(Debug, Clone)]
+/// INTERNAL PRESENTATION MECHANICS.
+///
+/// Compatibility host for the current active renderer. Ordinary feature
+/// content should implement `ActiveContent` and return a semantic `View`;
+/// assistant streaming remains on its private spillable path.
 pub(crate) enum ActivePaneState {
     WorkingSpinner {
         stream: ActiveStreamState,
@@ -162,6 +169,10 @@ pub(crate) enum ToolActiveStatus {
     Running,
 }
 
+/// INTERNAL PRESENTATION MECHANICS.
+///
+/// Source-backed streaming implementation retained separately from ordinary
+/// `ActiveContent`; only this specialized path may expose stable spill state.
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveStreamState {
     segments: Vec<AssistantSegment>,
@@ -351,7 +362,9 @@ impl ActiveStreamState {
     fn has_spilled_content(&self) -> bool {
         self.frozen_until > 0
     }
+}
 
+impl ActiveStreamState {
     /// Maps a wrap-produced boundary back to a byte offset within the active tail
     /// (0-based from `frozen_until`). Unrestricted (1:1) rows are summed via their
     /// rendered span lengths; restricted rows — those whose `line` spans don't
@@ -389,6 +402,44 @@ impl ActiveStreamState {
 
     fn into_unfrozen_segments(&self) -> Vec<AssistantSegment> {
         slice_segments(&self.segments, self.frozen_until, usize::MAX)
+    }
+}
+
+impl ActiveContent for ActivePaneState {
+    fn view(&self) -> View {
+        match self {
+            Self::WorkingSpinner { spinner_frame, .. } => View::column(
+                vec![
+                    View::spacer(1),
+                    View::text(format!(
+                        "{} Working",
+                        SPINNER_FRAMES[*spinner_frame % SPINNER_FRAMES.len()]
+                    )),
+                    View::spacer(1),
+                ],
+                0,
+            ),
+            Self::AssistantStreaming { stream } => View::text(stream.active_tail()),
+            Self::Tool {
+                tool_name,
+                status,
+                detail,
+            } => {
+                let status = match status {
+                    ToolActiveStatus::WaitingForApproval { .. } => "approval required",
+                    ToolActiveStatus::Running => "running",
+                };
+                View::column(
+                    vec![
+                        View::spacer(1),
+                        View::text(format!("tool {tool_name}: {status}")),
+                        View::text(detail.as_deref().unwrap_or("")),
+                    ],
+                    0,
+                )
+            }
+            Self::SlashMenu | Self::FilePicker => View::spacer(1),
+        }
     }
 }
 

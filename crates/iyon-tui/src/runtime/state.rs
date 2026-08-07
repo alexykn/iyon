@@ -3,7 +3,7 @@ use crate::{
     runtime::{
         active::{ActivePaneState, ToolActiveStatus},
         backend::ToolUpdatePresentation,
-        panel::BottomPanelBar,
+        panel::{BottomPanelBar, PanelHandle, SteeringQueuePanel},
     },
     transcript::{
         AssistantSegment, SegmentKind, TimelineItem, ToolTimelineStatus, TranscriptState,
@@ -11,7 +11,7 @@ use crate::{
 };
 use iyon_core::ReasoningLevel;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct AppState {
     pub(crate) input: InputBuffer,
     pub(crate) transcript: TranscriptState,
@@ -19,11 +19,31 @@ pub(crate) struct AppState {
     pub(crate) pending_tool_approval: Option<PendingToolApproval>,
 
     pub(crate) bottom_panel: BottomPanelBar,
+    pub(crate) steering_panel: PanelHandle<SteeringQueuePanel>,
 
     pub(crate) input_view: InputViewState,
     pub(crate) info: InfoState,
 
     pub(crate) exit_state: ExitState,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        let mut bottom_panel = BottomPanelBar::new();
+        let steering_panel = bottom_panel.register(SteeringQueuePanel::new());
+        bottom_panel.show(steering_panel);
+        Self {
+            input: InputBuffer::default(),
+            transcript: TranscriptState::default(),
+            active: None,
+            pending_tool_approval: None,
+            bottom_panel,
+            steering_panel,
+            input_view: InputViewState::default(),
+            info: InfoState::default(),
+            exit_state: ExitState::default(),
+        }
+    }
 }
 
 impl AppState {
@@ -163,13 +183,19 @@ impl AppState {
         self.finish_active_turn();
         // If this user message is a delivered steer, remove it from the pending queue
         // (it has now actually been sent to the agent).
-        self.bottom_panel.steer_delivered(&text);
+        let steering = self.steering_panel;
+        let _ = self
+            .bottom_panel
+            .with_mut(steering, |panel| panel.delivered(&text));
         self.append_timeline_item(TimelineItem::UserMessage { text });
         self.start_working_pane();
     }
 
     pub(crate) fn enqueue_steer(&mut self, text: String) {
-        self.bottom_panel.steer_queued(text);
+        let steering = self.steering_panel;
+        let _ = self
+            .bottom_panel
+            .with_mut(steering, |panel| panel.queued(text));
     }
 
     pub(crate) fn request_exit(&mut self) {

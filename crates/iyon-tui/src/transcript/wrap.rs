@@ -1,11 +1,15 @@
 use std::ops::Range;
 
+/// INTERNAL PRESENTATION MECHANICS.
 use ratatui::text::{Line, Span};
 
 use crate::input::wrap::{WrapConfig, wrap_ranges};
 use crate::transcript::row::{TranscriptRow, compute_indent};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// INTERNAL PRESENTATION MECHANICS.
+///
+/// Source/physical-row commit mapping; not a feature extension point.
 pub(crate) struct TranscriptCommitBoundary {
     pub(crate) logical_row: usize,
     pub(crate) span_index: usize,
@@ -234,8 +238,16 @@ fn flat_offset_to_boundary(
 }
 
 fn empty_like(line: &Line<'static>) -> Line<'static> {
+    // Empty physical rows still carry the style of a deliberately painted
+    // blank (for example legacy user-bubble padding). Preserve the first span's
+    // style when the line-level style is default.
+    let style = if line.style == ratatui::style::Style::default() {
+        line.spans.first().map_or(line.style, |span| span.style)
+    } else {
+        line.style
+    };
     Line {
-        style: line.style,
+        style,
         alignment: line.alignment,
         spans: Vec::new(),
     }
@@ -387,7 +399,10 @@ mod tests {
         assert_eq!(single.layout.marker.as_ref().unwrap().text(), "9. ");
         assert_eq!(double.layout.marker.as_ref().unwrap().text(), "10. ");
         // Marker-local: widths differ, matching each item's own digits.
-        assert_ne!(single.layout.marker.as_ref().unwrap().width(), double.layout.marker.as_ref().unwrap().width());
+        assert_ne!(
+            single.layout.marker.as_ref().unwrap().width(),
+            double.layout.marker.as_ref().unwrap().width()
+        );
     }
 
     #[test]
@@ -416,12 +431,14 @@ mod tests {
                 outer: crate::transcript::row::Insets::symmetric(2),
                 nesting_depth: 1,
                 marker: Some(Marker::Bullet),
+                prefix: None,
                 marker_gutter_width: 2,
             },
             crate::transcript::row::RowLayout {
                 outer: crate::transcript::row::Insets::symmetric(2),
                 nesting_depth: 0,
                 marker: Some(Marker::Ordered { index: 10 }),
+                prefix: None,
                 marker_gutter_width: 4,
             },
         ] {
@@ -482,4 +499,3 @@ mod tests {
         }
     }
 }
-

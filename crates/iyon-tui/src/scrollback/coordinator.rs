@@ -1,3 +1,8 @@
+//! INTERNAL PRESENTATION MECHANICS.
+//!
+//! Owns loss-aware physical commit into native terminal history. Feature code
+//! must not depend on this coordinator.
+
 use anyhow::Result;
 use ratatui::text::Line;
 

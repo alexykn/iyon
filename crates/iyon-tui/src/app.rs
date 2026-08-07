@@ -12,7 +12,7 @@ use crate::{
     },
     scrollback::{FlushResult, ScrollbackCoordinator},
     terminal::InlineTerminal,
-    view::{LayoutConfig, Renderer, RunningFrameComposer},
+    view::{FrameCoordinator, LayoutConfig, Renderer},
 };
 
 const EXIT_DRAIN_CHUNK: usize = 256;
@@ -27,6 +27,7 @@ pub(super) struct App {
     pub(super) layout: LayoutConfig,
     pub(super) renderer: Renderer,
     pub(super) scrollback: ScrollbackCoordinator,
+    pub(super) frame_coordinator: FrameCoordinator,
     backend_handler: BackendEventHandler,
     controller: AppController,
     active_ticker: ActiveTicker,
@@ -42,6 +43,7 @@ impl Default for App {
             layout: LayoutConfig::default(),
             renderer: Renderer,
             scrollback: ScrollbackCoordinator::default(),
+            frame_coordinator: FrameCoordinator,
             backend_handler: BackendEventHandler::default(),
             controller: AppController,
             active_ticker: ActiveTicker::new(SPINNER_TICK_INTERVAL),
@@ -140,51 +142,16 @@ impl App {
         self.needs_redraw = false;
 
         let root = self.current_root_rect(terminal)?;
-        state.transcript.ensure_render_cache(root.width.max(1));
-
-        let mut layout = RunningFrameComposer::prepare(
-            &self.renderer,
-            &self.layout,
-            state,
-            &mut self.wrap_cache,
-            root,
-        );
-
-        if self
-            .controller
-            .spill_active_into_transcript_if_needed(state, usize::from(layout.active_area.height))
-        {
-            state.transcript.ensure_render_cache(root.width.max(1));
-            layout = RunningFrameComposer::prepare(
-                &self.renderer,
-                &self.layout,
-                state,
-                &mut self.wrap_cache,
-                root,
-            );
-        }
-
-        self.scrollback.commit_running_overflow(
+        self.frame_coordinator.render_running(
             terminal,
-            &mut state.transcript,
-            layout.commit_chat_capacity_rows,
-        )?;
-
-        let root = self.current_root_rect(terminal)?;
-        state.transcript.ensure_render_cache(root.width.max(1));
-        layout = RunningFrameComposer::prepare(
+            state,
             &self.renderer,
             &self.layout,
-            state,
             &mut self.wrap_cache,
+            &mut self.scrollback,
+            &mut self.controller,
             root,
-        );
-
-        terminal.draw(|frame| {
-            let view =
-                RunningFrameComposer::view(layout, state, &mut self.wrap_cache, frame.area());
-            self.renderer.draw_running(frame, &view);
-        })?;
+        )?;
         Ok(())
     }
 
