@@ -1447,6 +1447,109 @@ mod tests {
         );
     }
 
+    /// Display column of the first non-whitespace grapheme in a physical row.
+    /// This measures the actual horizontal inset, ignoring nothing: leading spaces
+    /// in the emitted spans count as columns the text was pushed right by.
+    fn first_content_column(line: &Line<'static>) -> usize {
+        use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        text.chars()
+            .take_while(|c| c.is_whitespace())
+            .map(|c| c.width().unwrap_or(0))
+            .sum()
+    }
+
+    /// Reconstructs the legacy user bubble exactly as the old formatter and wrap
+    /// step produced it (`TranscriptRow::new`, which is `RowLayout::zero()`, then
+    /// `wrap_transcript_rows`), and returns its content row so callers can measure
+    /// the oracle geometry independent of the new semantic path.
+    fn legacy_user_content_row(text: &str, width: u16) -> Line<'static> {
+        let style = Line::from("").style.bg(ratatui::style::Color::White);
+        let owned = text.to_string();
+        let rows = [
+            TranscriptRow::new(Line::styled("", style)),
+            TranscriptRow::new(Line::styled(owned, style)),
+            TranscriptRow::new(Line::styled("", style)),
+        ];
+        let wrapped = wrap_transcript_rows(width, &rows, TranscriptCommitBoundary::default());
+        wrapped.rows[1].clone()
+    }
+
+    #[test]
+    fn user_bubble_horizontal_geometry_matches_legacy() {
+        const WIDTH: u16 = 12;
+
+        // Oracle: old legacy pixel geometry for a short message.
+        let legacy = legacy_user_content_row("hello", WIDTH);
+        let legacy_x = first_content_column(&legacy);
+
+        let mut t = TranscriptState::default();
+        t.push_item(TimelineItem::UserMessage {
+            text: "hello".to_string(),
+        });
+        t.ensure_render_cache(WIDTH);
+        let rows = t.uncommitted_rows();
+        let content = &rows[1];
+        let semantic_x = first_content_column(content);
+
+        // Text starts at the same column, and (verified against the oracle) that
+        // column is 0 — the user bubble had NO horizontal inset, unlike the
+        // assistant/tool OUTER_MARGIN of 2.
+        assert_eq!(legacy_x, 0, "legacy user text should sit at column 0");
+        assert_eq!(
+            semantic_x, 0,
+            "semantic user bubble must match legacy at x=0"
+        );
+        assert_eq!(semantic_x, legacy_x);
+
+        // Background covers the full width in both (col 0 and the last col).
+        let bg = |line: &Line<'static>| {
+            line.style.bg.is_some() || line.spans.iter().any(|sp| sp.style.bg.is_some())
+        };
+        assert!(bg(&legacy));
+        assert!(bg(content));
+
+        // Usable wrap width: a 12-wide message fits one row only if the usable
+        // width is 12 (not 8). Verify legacy and semantic behave identically.
+        let fit_legacy = legacy_user_content_row("0123456789AB", WIDTH);
+        let fit_semantic_rows = {
+            let mut t2 = TranscriptState::default();
+            t2.push_item(TimelineItem::UserMessage {
+                text: "0123456789AB".to_string(),
+            });
+            t2.ensure_render_cache(WIDTH);
+            t2.uncommitted_rows()
+                .iter()
+                .filter(|r| {
+                    let txt: String = r.spans.iter().map(|s| s.content.as_ref()).collect();
+                    !txt.trim().is_empty()
+                })
+                .count()
+        };
+        assert_eq!(
+            first_content_column(&fit_legacy),
+            0,
+            "a 12-wide message must not be pushed right"
+        );
+        let legacy_fit_rows = {
+            let style = Line::from("").style.bg(ratatui::style::Color::White);
+            let rows = [TranscriptRow::new(Line::styled("0123456789AB", style))];
+            wrap_transcript_rows(WIDTH, &rows, TranscriptCommitBoundary::default())
+                .rows
+                .iter()
+                .filter(|r| {
+                    let txt: String = r.spans.iter().map(|s| s.content.as_ref()).collect();
+                    !txt.trim().is_empty()
+                })
+                .count()
+        };
+        assert_eq!(
+            legacy_fit_rows, 1,
+            "legacy usable width should hold 12 chars"
+        );
+        assert_eq!(fit_semantic_rows, legacy_fit_rows);
+    }
+
     #[test]
     fn error_spacing_is_owned_by_flow_except_first_entry_padding() {
         let mut user_error = TranscriptState::default();
