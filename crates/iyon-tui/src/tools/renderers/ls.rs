@@ -18,10 +18,10 @@ impl ToolRenderer for LsRenderer {
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or(".");
-        vec![
-            TranscriptRow::blank(),
-            TranscriptRow::bullet(format!("ls {path} — {}", input.status), input.style),
-        ]
+        vec![TranscriptRow::bullet(
+            format!("ls {path} — {}", input.status),
+            input.style,
+        )]
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {

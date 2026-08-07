@@ -18,10 +18,10 @@ impl ToolRenderer for WriteRenderer {
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("...");
-        let mut rows = vec![
-            TranscriptRow::blank(),
-            TranscriptRow::bullet(format!("write {path} — {}", input.status), input.style),
-        ];
+        let mut rows = vec![TranscriptRow::bullet(
+            format!("write {path} — {}", input.status),
+            input.style,
+        )];
         // Debug-only: surface the content preview; the normal view keeps the call
         // compact and lets the result carry the write output/confirmation.
         if input.show_arg_preview {

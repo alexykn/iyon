@@ -20,10 +20,10 @@ impl ToolRenderer for BashRenderer {
             .get("command")
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
-        vec![
-            TranscriptRow::blank(),
-            TranscriptRow::bullet(format!("$ {command} — {}", input.status), input.style),
-        ]
+        vec![TranscriptRow::bullet(
+            format!("$ {command} — {}", input.status),
+            input.style,
+        )]
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {

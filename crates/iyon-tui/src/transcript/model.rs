@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use ratatui::{
     style::{Color, Style},
     text::Line,
@@ -264,7 +266,6 @@ impl TuiFormatter {
         if collapsed {
             rows = apply_result_truncation(rows);
         }
-        rows.push(TranscriptRow::blank());
         rows
     }
 
@@ -321,11 +322,11 @@ fn apply_result_truncation(mut rows: Vec<TranscriptRow>) -> Vec<TranscriptRow> {
 /// footer notes the hidden count without a retention claim.
 const DISPLAY_CALL_MAX_LINES: usize = 15;
 
-/// Caps a rendered tool-call block: keeps the spacer + bullet header and at most
+/// Caps a rendered tool-call block: keeps the bullet header and at most
 /// [`DISPLAY_CALL_MAX_LINES`] argument-preview lines, appending a footer hint.
 fn apply_call_truncation(rows: Vec<TranscriptRow>) -> Vec<TranscriptRow> {
-    // rows[0] is the blank spacer, rows[1] the bullet header; the rest is preview.
-    const HEADER_ROWS: usize = 2;
+    // rows[0] is the bullet header; the rest is preview.
+    const HEADER_ROWS: usize = 1;
     let keep = HEADER_ROWS.min(rows.len());
     if rows.len() <= keep + DISPLAY_CALL_MAX_LINES {
         return rows;
@@ -528,9 +529,17 @@ impl TranscriptState {
                     push_segment(segments, segment);
                 }
             }
-            _ => self
-                .canonical_items
-                .push(TimelineItem::AssistantMessage { segments: incoming }),
+            _ => {
+                // Newest assistant message. Route every segment through the central
+                // `push_segment` too, so the thinking-to-text newline rule applies
+                // uniformly whether this is a fresh message or a continuation.
+                let mut segments = Vec::new();
+                for segment in incoming {
+                    push_segment(&mut segments, segment);
+                }
+                self.canonical_items
+                    .push(TimelineItem::AssistantMessage { segments });
+            }
         }
         self.assistant_stream_open = stream_open;
         self.rebuild_logical_rows_cache();
@@ -550,47 +559,156 @@ impl TranscriptState {
             open_assistant_idx.is_none() || open_assistant_idx == last_assistant_idx,
             "open streaming assistant must be the last assistant message"
         );
-        // Consecutive user messages (e.g. a steered batch delivered together) share one
-        // bubble: they render as a single contiguous block with no blank pacing between
-        // them. Any non-user item breaks the run.
-        let mut prev_item: Option<&TimelineItem> = None;
-        for (idx, item) in self.canonical_items.iter().enumerate() {
-            match item {
-                TimelineItem::AssistantMessage { segments } if open_assistant_idx == Some(idx) => {
-                    // While an assistant stream is open, the transcript owns only the
-                    // frozen/spilled portion of that assistant message. Keep the normal
-                    // message top padding so the gap from the preceding user message is
-                    // stable, but omit the official bottom padding: the live active pane
-                    // owns the active/input margin until the stream is finalized.
-                    let mut rows = self.formatter.format_assistant_message(segments, false);
+        // Spacing between parts is owned centrally here. Adjacent items render with
+        // exactly one blank separator row between them, EXCEPT when they form a single
+        // logical unit: a `ToolResult` that immediately follows its matching `ToolCall`
+        // (same `tool_call_id`) is a continuation of that call, so they touch with no
+        // blank between. Consecutive user messages (a steered batch) fuse into one
+        // bubble with no blank as well.
+        let mut prev_is_user = false;
+        for idx in 0..self.canonical_items.len() {
+            let (rows, is_user, is_tool_result_of_prev_call) = {
+                let item = &self.canonical_items[idx];
+                let is_user = matches!(item, TimelineItem::UserMessage { .. });
+                let is_open = matches!(
+                    item,
+                    TimelineItem::AssistantMessage { .. } if open_assistant_idx == Some(idx)
+                );
+                // A ToolResult is a continuation of the preceding item when that item
+                // is a ToolCall with the same id — they are one logical tool unit.
+                let is_tool_result_of_prev_call = matches!(
+                    item,
+                    TimelineItem::ToolResult { tool_call_id, .. }
+                        if matches!(
+                            idx.checked_sub(1).map(|i| &self.canonical_items[i]),
+                            Some(TimelineItem::ToolCall { tool_call_id: prev, .. })
+                                if prev == tool_call_id
+                        )
+                );
+                let rows = match item {
+                    TimelineItem::AssistantMessage { segments } if is_open => {
+                        // While an assistant stream is open, the transcript owns only the
+                        // frozen/spilled portion of that assistant message. Keep the normal
+                        // message top padding so the gap from the preceding user message is
+                        // stable, but omit the official bottom padding: the live active pane
+                        // owns the active/input margin until the stream is finalized.
+                        let mut rows = self.formatter.format_assistant_message(segments, false);
 
-                    // The frozen transcript and live active pane touch at this boundary.
-                    // If the spilled fragment currently ends in an empty rendered row,
-                    // suppress exactly one such row so the seam does not show a moving
-                    // blank gap while streaming. Finalized messages are rebuilt through
-                    // the normal formatter path and regain their bottom padding.
-                    drop_trailing_empty_row(&mut rows);
-                    self.logical_rows_cache.extend(rows);
-                }
-                _ => {
-                    let is_user = matches!(item, TimelineItem::UserMessage { .. });
-                    let is_second_user_in_run =
-                        is_user && matches!(prev_item, Some(TimelineItem::UserMessage { .. }));
-                    if is_second_user_in_run {
-                        // Fuse consecutive user bubbles into one: remove the inter-bubble
-                        // padding pair (prev trailing + next leading). Exactly one row
-                        // each — interior empty rows are content newlines and must stay.
-                        self.logical_rows_cache.pop();
-                        self.logical_rows_cache
-                            .extend(self.formatter.format(item).into_iter().skip(1));
-                    } else {
-                        self.logical_rows_cache.extend(self.formatter.format(item));
+                        // The frozen transcript and live active pane touch at this boundary.
+                        // If the spilled fragment currently ends in an empty rendered row,
+                        // suppress exactly one such row so the seam does not show a moving
+                        // blank gap while streaming. Finalized messages are rebuilt through
+                        // the normal formatter path and regain their bottom padding.
+                        drop_trailing_empty_row(&mut rows);
+                        rows
                     }
-                    prev_item = Some(item);
-                }
+                    _ => self.formatter.format(item),
+                };
+                (rows, is_user, is_tool_result_of_prev_call)
+            };
+
+            let is_second_user_in_run = is_user && prev_is_user;
+            if is_second_user_in_run {
+                // Fuse consecutive user bubbles into one: remove the inter-bubble
+                // padding pair (prev trailing + next leading). Exactly one row
+                // each — interior empty rows are content newlines and must stay.
+                self.logical_rows_cache.pop();
+                self.logical_rows_cache.extend(rows.into_iter().skip(1));
+            } else {
+                // Continuation (tool result under its call) gets no separator; every
+                // other boundary gets exactly one blank.
+                self.append_sequenced(rows, !is_tool_result_of_prev_call);
+            }
+            prev_is_user = is_user;
+        }
+
+        // The finalized transcript must always end above the input pane with a single
+        // plain blank row (the gap to its top separator), regardless of which item is
+        // last. A trailing blank that carries a background (the user bubble's colored
+        // bottom padding) is part of its item and stays; plain trailing blanks are
+        // collapsed into the one gap. While a stream is open the live active pane owns
+        // that bottom margin instead, so it is not added then.
+        if open_assistant_idx.is_none() {
+            // Pop plain trailing separators, but keep any backgrounded (bubble) blank
+            // — it is part of the item's rendered padding.
+            while let Some(last) = self.logical_rows_cache.last()
+                && is_blank_row(last)
+                && !has_background(last)
+            {
+                self.logical_rows_cache.pop();
+            }
+            // Always finish with a plain gap above the input separator; a colored
+            // bubble padding row, if present, stays as its own padding and this gap
+            // is added after it.
+            if !self.logical_rows_cache.is_empty() {
+                self.logical_rows_cache.push(TranscriptRow::blank());
             }
         }
+
         self.rendered_rows_cache = None;
+    }
+
+    /// Appends the rows of one timeline item to `logical_rows_cache`. When
+    /// `separated` is true the junction is clamped so adjacent items are separated
+    /// by exactly one blank row; when false the item is a continuation (e.g. a tool
+    /// result directly under its call) and touches the previous content with no
+    /// blank. A blank row that carries a background (the user bubble's colored
+    /// padding) is treated as *part of its item*, not a separator, so an item's
+    /// rendered padding stays with it and a fresh plain blank separates items. The
+    /// first item keeps its natural leading/trailing padding.
+    fn append_sequenced(&mut self, rows: Vec<TranscriptRow>, separated: bool) {
+        if rows.is_empty() {
+            return;
+        }
+        if self.logical_rows_cache.is_empty() {
+            // First item: keep its own leading/trailing padding unchanged.
+            self.logical_rows_cache.extend(rows);
+            return;
+        }
+
+        if separated {
+            // Drop the previous item's trailing blanks that are plain separators.
+            // Blanks that carry a background (e.g. the user bubble's colored padding)
+            // are *part of that item*, so they stay — the real inter-item gap is
+            // added below, never touching the bubble.
+            while let Some(last) = self.logical_rows_cache.last()
+                && is_blank_row(last)
+                && !has_background(last)
+            {
+                self.logical_rows_cache.pop();
+            }
+
+            // Drop the new item's leading blanks that are plain separators; any
+            // backgrounded leading blank is that item's own bubble padding and stays.
+            let mut rest = rows.as_slice();
+            while let Some(first) = rest.first()
+                && is_blank_row(first)
+                && !has_background(first)
+            {
+                rest = &rest[1..];
+            }
+            if rest.is_empty() {
+                // The new item contributed only separators; keep a single gap.
+                if self.logical_rows_cache.is_empty()
+                    || !is_blank_row(self.logical_rows_cache.last().unwrap())
+                {
+                    self.logical_rows_cache.push(TranscriptRow::blank());
+                }
+                return;
+            }
+
+            // Exactly one plain separator between the previous content (after its
+            // own padding) and this item.
+            self.logical_rows_cache.push(TranscriptRow::blank());
+            self.logical_rows_cache.extend_from_slice(rest);
+        } else {
+            // Continuation: no separator; drop plain leading separators but keep any
+            // backgrounded (bubble) padding of the continuing item.
+            self.logical_rows_cache.extend(
+                rows.into_iter()
+                    .skip_while(|r| is_blank_row(r) && !has_background(r)),
+            );
+        }
     }
 
     pub(crate) fn ensure_render_cache(&mut self, width: u16) {
@@ -668,37 +786,88 @@ fn styled_lines_preserving_newlines(text: &str, style: Style) -> Vec<Line<'stati
         .collect()
 }
 
+fn is_blank_row(row: &TranscriptRow) -> bool {
+    row.line
+        .spans
+        .iter()
+        .all(|span| span.content.as_ref().is_empty())
+}
+
+/// True when a row carries a background style (e.g. the user bubble's colored
+/// padding rows). Such a blank belongs to its item as rendered padding, never a
+/// separator, so it is preserved by the assembly pass.
+fn has_background(row: &TranscriptRow) -> bool {
+    row.line.style.bg.is_some() || row.line.spans.iter().any(|span| span.style.bg.is_some())
+}
+
 fn drop_trailing_empty_row(rows: &mut Vec<TranscriptRow>) {
     let Some(last) = rows.last() else {
         return;
     };
 
-    let is_empty = last
-        .line
-        .spans
-        .iter()
-        .all(|span| span.content.as_ref().is_empty());
-    if is_empty {
+    if is_blank_row(last) {
         rows.pop();
     }
 }
 
+/// The single, central spacing rule that an assistant's answer text starts on
+/// its own blank line after a reasoning segment: returns `chunk` with two
+/// leading `\n`s prepended when it is the first `Text` arriving after a
+/// `Thinking` segment that does not already end with a blank line. Idempotent
+/// (it skips chunks that already lead with a newline), so it is safe to apply at
+/// both the live stream (`push_delta`) and the transcript assembly
+/// (`push_segment`) without ever double-inserting.
+///
+/// Two `\n`s (an empty line) are needed so the rendered transcript gets a real
+/// blank row between thinking and answer — a single `\n` is just a line break
+/// with no visible gap, and a blank row must be backed by actual source bytes
+/// to keep the freeze/spill byte math exact.
+pub(crate) fn think_to_text_newline<'a>(
+    segments: &[AssistantSegment],
+    kind: SegmentKind,
+    chunk: &'a str,
+) -> Cow<'a, str> {
+    if kind == SegmentKind::Text
+        && !chunk.starts_with('\n')
+        && matches!(
+            segments.last(),
+            Some(AssistantSegment::Thinking(text)) if !text.ends_with('\n')
+        )
+    {
+        let mut s = String::with_capacity(chunk.len() + 2);
+        s.push('\n');
+        s.push('\n');
+        s.push_str(chunk);
+        Cow::Owned(s)
+    } else {
+        Cow::Borrowed(chunk)
+    }
+}
+
 /// Appends `segment` to `target`, merging into the trailing segment when it is
-/// the same kind so contiguous runs stay a single logical segment.
+/// the same kind so contiguous runs stay a single logical segment. The
+/// thinking-to-text newline rule is applied centrally here so every assembly
+/// path (streaming spills, finalize, historical batches) gets identical spacing.
 fn push_segment(target: &mut Vec<AssistantSegment>, segment: AssistantSegment) {
-    match segment {
-        AssistantSegment::Text(text) => {
+    let kind = match segment {
+        AssistantSegment::Text(_) => SegmentKind::Text,
+        AssistantSegment::Thinking(_) => SegmentKind::Thinking,
+    };
+    let chunk = think_to_text_newline(target, kind, segment.text());
+
+    match kind {
+        SegmentKind::Text => {
             if let Some(AssistantSegment::Text(existing)) = target.last_mut() {
-                existing.push_str(&text);
+                existing.push_str(&chunk);
             } else {
-                target.push(AssistantSegment::Text(text));
+                target.push(AssistantSegment::Text(chunk.into_owned()));
             }
         }
-        AssistantSegment::Thinking(text) => {
+        SegmentKind::Thinking => {
             if let Some(AssistantSegment::Thinking(existing)) = target.last_mut() {
-                existing.push_str(&text);
+                existing.push_str(&chunk);
             } else {
-                target.push(AssistantSegment::Thinking(text));
+                target.push(AssistantSegment::Thinking(chunk.into_owned()));
             }
         }
     }
@@ -837,21 +1006,22 @@ mod tests {
     #[test]
     fn newline_splits_rows_but_keeps_segment_styles() {
         let formatter = TuiFormatter::default();
-        // The text segment carries a leading newline, as the stream inserts between
-        // reasoning and the answer (see ActiveStreamState::push_delta).
+        // The text segment carries a leading blank line (two \n) as the stream
+        // inserts between reasoning and the answer (see think_to_text_newline).
         let rows = formatter
             .format_assistant_body_meta(&[
                 AssistantSegment::Thinking("a\nb".to_string()),
-                AssistantSegment::Text("\nc".to_string()),
+                AssistantSegment::Text("\n\nc".to_string()),
             ])
             .into_iter()
             .map(|rr| rr.row)
             .collect::<Vec<_>>();
 
-        assert_eq!(rows.len(), 3);
+        assert_eq!(rows.len(), 4);
         assert_eq!(line_text(&rows[0].line), "a");
         assert_eq!(line_text(&rows[1].line), "b");
-        assert_eq!(line_text(&rows[2].line), "c");
+        assert_eq!(line_text(&rows[2].line), "");
+        assert_eq!(line_text(&rows[3].line), "c");
         assert!(
             rows[0].line.spans[0]
                 .style
@@ -865,7 +1035,7 @@ mod tests {
                 .contains(Modifier::ITALIC)
         );
         assert!(
-            !rows[2].line.spans[0]
+            !rows[3].line.spans[0]
                 .style
                 .add_modifier
                 .contains(Modifier::ITALIC)
@@ -979,11 +1149,14 @@ mod tests {
         else {
             panic!("expected an assistant message item");
         };
+        // Thinking and text stay separate, and the central think-to-text rule inserts
+        // a blank line (two \n) when the answer begins after reasoning (matching the
+        // live-stream path).
         assert_eq!(
             segments,
             &vec![
                 AssistantSegment::Thinking("t".to_string()),
-                AssistantSegment::Text("ab".to_string())
+                AssistantSegment::Text("\n\nab".to_string())
             ]
         );
     }
@@ -1002,14 +1175,15 @@ mod tests {
             text: "c".to_string(),
         });
 
-        // Rendered as one contiguous block: [leading blank, a, b, c, trailing blank],
-        // with no blank pacing between the messages (they share one bubble).
+        // Rendered as one contiguous block with the shared bubble's bottom padding
+        // kept as its own colored row, followed by a plain gap above the input:
+        // [leading blank, a, b, c, bubble-bottom-blank, plain-gap].
         let texts: Vec<String> = transcript
             .logical_rows_cache
             .iter()
             .map(|row| row.line.to_string())
             .collect();
-        assert_eq!(texts, vec!["", "a", "b", "c", ""]);
+        assert_eq!(texts, vec!["", "a", "b", "c", "", ""]);
     }
 
     #[test]
@@ -1032,9 +1206,11 @@ mod tests {
             .iter()
             .map(|row| row.line.to_string())
             .collect();
-        // [\n, a, \n, \n, hi, \n, \n, b, \n] — a and b are separated by the assistant
-        // message, so each user keeps its own padding.
-        assert_eq!(texts, vec!["", "a", "", "", "hi", "", "", "b", ""]);
+        // [\n, a, \n, \n, hi, \n, \n, b, \n, \n] — a and b are separated by the
+        // assistant message. Each item keeps its own bubble padding (backgrounded
+        // blank) and a plain separator is added between items; the trailing user
+        // bubble adds one more plain gap above the input separator.
+        assert_eq!(texts, vec!["", "a", "", "", "hi", "", "", "b", "", ""]);
     }
 
     #[test]
@@ -1054,7 +1230,8 @@ mod tests {
         });
 
         // Renderer emits 1 title row + 50 body rows = 51; collapsed keeps
-        // DISPLAY_MAX_LINES + a footer hint, then a trailing blank is appended.
+        // DISPLAY_MAX_LINES + a footer hint, and the assembler adds a trailing
+        // blank so the result clears the input separator.
         let rows = &transcript.logical_rows_cache;
         assert_eq!(rows.len(), 15 + 1 + 1, "15 kept + footer + trailing blank");
 
@@ -1079,7 +1256,8 @@ mod tests {
             collapsed: true,
         });
 
-        // 1 title + 2 body = 3 rows (under the cap) + trailing blank.
+        // 1 title + 2 body = 3 rows (under the cap), plus the assembler's trailing
+        // blank so the result clears the input separator.
         let rows = &transcript.logical_rows_cache;
         assert_eq!(rows.len(), 3 + 1);
         let texts: Vec<String> = rows.iter().map(|r| r.line.to_string()).collect();
@@ -1103,11 +1281,142 @@ mod tests {
             status: ToolTimelineStatus::Finished,
         });
 
-        // blank spacer + bullet header only — no argument dump.
+        // Bullet header only — no argument dump, and no self-injected leading blank
+        // (the assembler owns separators). A trailing blank clears the input separator.
         let rows = &transcript.logical_rows_cache;
-        assert_eq!(rows.len(), 1 + 1);
+        assert_eq!(rows.len(), 2);
         let texts: Vec<String> = rows.iter().map(|r| r.line.to_string()).collect();
-        assert_eq!(texts[1], "tool * — finished");
+        assert_eq!(texts, vec!["tool * — finished", ""]);
+    }
+
+    #[test]
+    fn user_bubble_keeps_bottom_background_when_assistant_follows() {
+        // The user bubble's bottom padding is a colored blank row; when the assistant
+        // arrives it must persist (as the separator) rather than being swapped for a
+        // plain blank — otherwise the bubble loses its lower background extension.
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "hello".to_string(),
+        });
+        transcript.push_item(TimelineItem::AssistantMessage {
+            segments: vec![AssistantSegment::Thinking("t".to_string())],
+        });
+
+        let rows = &transcript.logical_rows_cache;
+        // structure: [colored-blank, hello, colored-blank(bubble bottom), plain
+        // separator, t, trailing-blank] — the bubble's padded bottom row stays part of
+        // the bubble, and a fresh plain gap separates it from the agent message.
+        let texts: Vec<String> = rows.iter().map(|r| r.line.to_string()).collect();
+        assert_eq!(texts, vec!["", "hello", "", "", "t", ""]);
+
+        // The bubble's bottom padding (rows[2]) must keep the background; the gap
+        // (rows[3]) is a plain separator.
+        assert!(
+            has_background(&rows[2]),
+            "bubble bottom must keep its background"
+        );
+        assert!(
+            !has_background(&rows[3]),
+            "inter-item separator must be plain"
+        );
+    }
+
+    #[test]
+    fn user_bubble_keeps_bottom_background_as_last_item() {
+        // A just-sent user message is the last item. Its colored bottom padding must
+        // stay part of the bubble (not stripped), and a plain gap clears the input
+        // separator above it.
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "hello".to_string(),
+        });
+
+        let rows = &transcript.logical_rows_cache;
+        let texts: Vec<String> = rows.iter().map(|r| r.line.to_string()).collect();
+        // [colored-blank, hello, colored-blank(bubble bottom), plain gap]
+        assert_eq!(texts, vec!["", "hello", "", ""]);
+        assert!(
+            has_background(&rows[2]),
+            "bubble bottom must keep its background"
+        );
+        assert!(!has_background(&rows[3]), "gap above input must be plain");
+    }
+
+    #[test]
+    fn thinking_to_text_produces_a_real_blank_row() {
+        // The primary bug: thinking and answer text must be separated by a visible
+        // blank row, not just a line break. The central rule emits an empty line
+        // (two \n) so the rendered assistant body has a blank row in between.
+        let formatter = TuiFormatter::default();
+        let rows = formatter
+            .format_assistant_body_meta(&[
+                AssistantSegment::Thinking("t".to_string()),
+                AssistantSegment::Text("\n\nabc".to_string()),
+            ])
+            .into_iter()
+            .collect::<Vec<_>>();
+
+        let texts: Vec<String> = rows
+            .iter()
+            .map(|r| {
+                r.row
+                    .line
+                    .spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(texts, vec!["t", "", "abc"]);
+    }
+
+    #[test]
+    fn tool_call_and_result_render_as_one_unit_no_blank_between() {
+        // A ToolResult that immediately follows its matching ToolCall (same id) is a
+        // logical unit: no blank row between the call bullet and the result. But a
+        // separator appears before the *next* tool call.
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::ToolCall {
+            tool_call_id: "1".to_string(),
+            tool_name: "read".to_string(),
+            arguments: serde_json::Value::Null,
+            status: ToolTimelineStatus::Finished,
+        });
+        transcript.push_item(TimelineItem::ToolResult {
+            tool_call_id: "1".to_string(),
+            tool_name: "read".to_string(),
+            text: "one\ntwo".to_string(),
+            details: serde_json::Value::Null,
+            is_error: false,
+            collapsed: true,
+        });
+        transcript.push_item(TimelineItem::ToolCall {
+            tool_call_id: "2".to_string(),
+            tool_name: "read".to_string(),
+            arguments: serde_json::Value::Null,
+            status: ToolTimelineStatus::Finished,
+        });
+
+        let texts: Vec<String> = transcript
+            .logical_rows_cache
+            .iter()
+            .map(|r| r.line.to_string())
+            .collect();
+        // [call1, result-title, one, two, SEPARATOR, call2, trailing-blank] — the call
+        // and its own result touch with no blank, a single blank precedes the next call,
+        // and the assembler's trailing blank clears the input separator.
+        assert_eq!(
+            texts,
+            vec![
+                "read ... — finished", // call1
+                "read result",
+                "one",
+                "two",
+                "",                    // separator
+                "read ... — finished", // call2
+                "",                    // trailing blank above input
+            ]
+        );
     }
 
     #[test]
