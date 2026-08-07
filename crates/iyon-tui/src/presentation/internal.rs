@@ -795,6 +795,11 @@ impl ThemeResolver {
                 "tool.finished" => theme::tool_finished().fg.unwrap_or(Color::Reset),
                 "tool.error" | "text.error" => theme::tool_error().fg.unwrap_or(Color::Red),
                 "text.warning" => Color::Yellow,
+                "markdown.header" => theme::markdown_header().fg.unwrap_or(Color::Reset),
+                "markdown.bold" => theme::markdown_bold().fg.unwrap_or(Color::Reset),
+                "markdown.italic" => theme::markdown_italic().fg.unwrap_or(Color::Reset),
+                "markdown.code" => theme::markdown_code().fg.unwrap_or(Color::Reset),
+                "markdown.list" => theme::markdown_list().fg.unwrap_or(Color::Reset),
                 _ => Color::Reset,
             },
         }
