@@ -561,10 +561,15 @@ fn combine_style(base: &StyleSpec, kind: Emphasis) -> StyleSpec {
 /// True when a delimiter run at byte offset `i` is flanked by whitespace / string
 /// edges on both sides. Such detached delimiters never open or close emphasis
 /// (`2 * 3`).
-fn is_detached(text: &str, i: usize, run: usize) -> bool {
+/// True when a delimiter run at byte offset `i` is flanked by whitespace / string
+/// edges on both sides. Such detached delimiters never open or close emphasis
+/// (`2 * 3`).
+fn is_detached(text: &str, i: usize, run_bytes: usize) -> bool {
+    debug_assert!(text.is_char_boundary(i));
     let before = text[..i].chars().next_back();
-    let after = if i + run <= text.len() {
-        text[i + run..].chars().next()
+    let after = if i + run_bytes <= text.len() {
+        debug_assert!(text.is_char_boundary(i + run_bytes));
+        text[i + run_bytes..].chars().next()
     } else {
         None
     };
@@ -573,25 +578,27 @@ fn is_detached(text: &str, i: usize, run: usize) -> bool {
     left_ws && right_ws
 }
 
-/// Finds the closing delimiter for an opener: the first run of exactly `need`
+/// Finds the closing delimiter for an opener: the first run of exactly `need_count`
 /// delimiters at or after byte `from`. Runs of a different length are nested
 /// emphasis and are skipped (consumed into the inner content). Returns the
-/// closer's start byte offset and its run length.
-fn find_closer(text: &str, from: usize, ch: char, need: usize) -> Option<(usize, usize)> {
+/// closer's start byte offset and its run byte length.
+fn find_closer(text: &str, from: usize, ch: char, need_count: usize) -> Option<(usize, usize)> {
     debug_assert!(text.is_char_boundary(from));
     let mut j = from;
     while j < text.len() {
+        debug_assert!(text.is_char_boundary(j));
         let c = text[j..].chars().next()?;
         if c != ch {
             j += c.len_utf8();
             continue;
         }
-        let run = text[j..].chars().take_while(|c0| *c0 == ch).count();
-        if run == need {
-            return Some((j, run));
+        let run_count = text[j..].chars().take_while(|c0| *c0 == ch).count();
+        let run_bytes = run_count * ch.len_utf8();
+        if run_count == need_count {
+            return Some((j, run_bytes));
         }
-        // ch is a 1-byte ASCII delimiter, so `run` delimiters occupy `run` bytes.
-        j += run;
+        // ch is a 1-byte ASCII delimiter, so `run` delimiters occupy `run_bytes` bytes.
+        j += run_bytes;
     }
     None
 }
@@ -622,12 +629,13 @@ fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool) {
                 flush!();
                 let mut code_style = base.clone();
                 code_style.foreground = Some(ColorSpec::Theme(ThemeKey::from("markdown.code")));
+                debug_assert!(rest.is_char_boundary(rel));
                 out.push(EmphSpan {
                     text: rest[..rel].to_string(),
                     style: code_style,
                 });
                 restricted = true;
-                // backtick opener (1) + content (rel) + closer (1) = `rel + 2`.
+                // backtick opener (1) + content (rel) + closer (1) = `rel + 2` bytes.
                 i = i + 1 + rel + 1;
             } else {
                 plain.push(ch);
@@ -637,35 +645,39 @@ fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool) {
         }
 
         if ch == '*' || ch == '_' {
-            let run = text[i..].chars().take_while(|c0| *c0 == ch).count();
-            if is_detached(text, i, run) {
-                for _ in 0..run {
+            let run_count = text[i..].chars().take_while(|c0| *c0 == ch).count();
+            let run_bytes = run_count * ch.len_utf8();
+            if is_detached(text, i, run_bytes) {
+                for _ in 0..run_count {
                     plain.push(ch);
                 }
-                i += run;
+                i += run_bytes;
                 continue;
             }
-            let (kind, open_len) = if run >= 3 {
+            let (kind, open_count) = if run_count >= 3 {
                 (Emphasis::BoldItalic, 3)
-            } else if run == 2 {
+            } else if run_count == 2 {
                 (Emphasis::Bold, 2)
             } else {
                 (Emphasis::Italic, 1)
             };
-            if let Some((close_start, close_run)) =
-                find_closer(text, i + open_len, ch, open_len)
+            let open_bytes = open_count * ch.len_utf8();
+            if let Some((close_start, close_bytes)) =
+                find_closer(text, i + open_bytes, ch, open_count)
             {
                 flush!();
-                let inner = &text[i + open_len..close_start];
+                debug_assert!(text.is_char_boundary(i + open_bytes));
+                debug_assert!(text.is_char_boundary(close_start));
+                let inner = &text[i + open_bytes..close_start];
                 let inner_base = combine_style(&base, kind);
                 let (inner_spans, inner_restricted) = parse_inline_rec(inner, inner_base);
                 out.extend(inner_spans);
                 restricted = true;
-                i = close_start + close_run;
+                i = close_start + close_bytes;
                 let _ = inner_restricted;
             } else {
                 plain.push(ch);
-                i += 1;
+                i += ch.len_utf8();
             }
             continue;
         }
@@ -734,9 +746,7 @@ fn assistant_row_view(row: &AssistantLogicalRow) -> View {
     let body = View::styled_text(row.spans.clone()).width(WidthRule::Fill);
     match &row.layout {
         AssistantRowLayout::Plain => body,
-        AssistantRowLayout::ListItem { depth, marker } => {
-            list_item_row_view(*depth, *marker, body)
-        }
+        AssistantRowLayout::ListItem { depth, marker } => list_item_row_view(*depth, *marker, body),
     }
 }
 
@@ -745,8 +755,8 @@ fn list_item_row_view(depth: usize, marker: AssistantMarker, body: View) -> View
         AssistantMarker::Bullet => "• ".to_string(),
         AssistantMarker::Ordered { index } => format!("{index}. "),
     };
-    let marker_view = View::styled_text(vec![TextSpan::styled(marker_text, list_style())])
-        .no_wrap();
+    let marker_view =
+        View::styled_text(vec![TextSpan::styled(marker_text, list_style())]).no_wrap();
 
     let mut children: Vec<RowChild> = Vec::new();
     if depth > 0 {
@@ -784,8 +794,8 @@ fn piece_source_len(line: &RawLine) -> usize {
 mod tests {
     //! Streaming-compatibility tests for the source-backed row adapter.
     use super::*;
-    use ratatui::style::Modifier;
     use crate::transcript::model::thinking_style;
+    use ratatui::style::Modifier;
 
     fn text_segs(s: &str) -> Vec<AssistantSegment> {
         vec![AssistantSegment::Text(s.to_string())]
@@ -927,7 +937,12 @@ mod correctness {
     fn row_tokens(doc: &AssistantDocument) -> Vec<Vec<(String, String)>> {
         doc.rows
             .iter()
-            .map(|r| r.spans.iter().map(|sp| (sp.text.clone(), tag(&sp.style))).collect())
+            .map(|r| {
+                r.spans
+                    .iter()
+                    .map(|sp| (sp.text.clone(), tag(&sp.style)))
+                    .collect()
+            })
             .collect()
     }
 
@@ -939,7 +954,10 @@ mod correctness {
 
     #[test]
     fn plain_text_is_plain() {
-        assert_eq!(single("hello world"), vec![("hello world".into(), "·".into())]);
+        assert_eq!(
+            single("hello world"),
+            vec![("hello world".into(), "·".into())]
+        );
     }
 
     #[test]
@@ -1114,24 +1132,32 @@ mod differential {
 
     fn assert_same(oracle: &Buffer, candidate: &Buffer, case: &str, width: u16) {
         assert_eq!(
-            oracle.area.height,
-            candidate.area.height,
+            oracle.area.height, candidate.area.height,
             "{case} @ width {width}: row count mismatch (oracle {} vs candidate {})",
-            oracle.area.height,
-            candidate.area.height
+            oracle.area.height, candidate.area.height
         );
         for y in 0..oracle.area.height {
             for x in 0..oracle.area.width {
                 let o = oracle.get(x, y);
                 let c = candidate.get(x, y);
-                assert_eq!(o.symbol(), c.symbol(), "{case} @ width {width} cell({x},{y}) symbol");
+                assert_eq!(
+                    o.symbol(),
+                    c.symbol(),
+                    "{case} @ width {width} cell({x},{y}) symbol"
+                );
                 if is_whitespace(o) {
-                    assert_eq!(o.bg, c.bg, "{case} @ width {width} cell({x},{y}) background");
+                    assert_eq!(
+                        o.bg, c.bg,
+                        "{case} @ width {width} cell({x},{y}) background"
+                    );
                     continue;
                 }
                 assert_eq!(o.fg, c.fg, "{case} @ width {width} cell({x},{y}) fg");
                 assert_eq!(o.bg, c.bg, "{case} @ width {width} cell({x},{y}) bg");
-                assert_eq!(o.modifier, c.modifier, "{case} @ width {width} cell({x},{y}) modifiers");
+                assert_eq!(
+                    o.modifier, c.modifier,
+                    "{case} @ width {width} cell({x},{y}) modifiers"
+                );
             }
         }
     }
@@ -1215,40 +1241,69 @@ mod differential {
 
     #[test]
     fn bullet_list_agrees() {
-        differential("bullets", "- first item\n- second item\n- third item");
+        for width in [80u16, 40, 20, 12, 8] {
+            let doc = parse_assistant(&text_segs("- first item\n- second item\n- third item"));
+            let (oracle, candidate) = render_pairs(&doc, width);
+            assert_same(&oracle, &candidate, "bullets", width);
+        }
     }
 
     #[test]
     fn ordered_list_agrees() {
-        differential("ordered", "8. eight\n9. nine\n10. ten\n11. eleven");
+        for width in [80u16, 40, 20, 12] {
+            let doc = parse_assistant(&text_segs("8. eight\n9. nine\n10. ten\n11. eleven"));
+            let (oracle, candidate) = render_pairs(&doc, width);
+            assert_same(&oracle, &candidate, "ordered", width);
+        }
     }
 
     #[test]
     fn nested_bullet_agrees() {
-        differential("nested-bullet", "- top level\n  - nested one\n  - nested two\n- back to top");
+        for width in [80u16, 40, 20, 12] {
+            let doc = parse_assistant(&text_segs(
+                "- top level\n  - nested one\n  - nested two\n- back to top",
+            ));
+            let (oracle, candidate) = render_pairs(&doc, width);
+            assert_same(&oracle, &candidate, "nested-bullet", width);
+        }
     }
 
     #[test]
     fn nested_ordered_agrees() {
-        differential("nested-ordered", "1. one\n2. two\n  - sub bullet\n  * another");
+        for width in [80u16, 40, 20, 12] {
+            let doc = parse_assistant(&text_segs("1. one\n2. two\n  - sub bullet\n  * another"));
+            let (oracle, candidate) = render_pairs(&doc, width);
+            assert_same(&oracle, &candidate, "nested-ordered", width);
+        }
     }
 
     #[test]
     fn list_wrapping_agrees() {
-        differential(
-            "list-wrap",
-            "- this is a very long list item body that wraps across several physical rows at narrow widths and keeps continuation alignment",
-        );
+        for width in [80u16, 40, 20, 12, 8] {
+            let doc = parse_assistant(&text_segs(
+                "- this is a very long list item body that wraps across several physical rows at narrow widths and keeps continuation alignment",
+            ));
+            let (oracle, candidate) = render_pairs(&doc, width);
+            assert_same(&oracle, &candidate, "list-wrap", width);
+        }
     }
 
     #[test]
     fn paragraph_to_list_agrees() {
-        differential("p-to-list", "intro paragraph\n- item one\n- item two");
+        for width in [80u16, 40, 20, 12, 8] {
+            let doc = parse_assistant(&text_segs("intro paragraph\n- item one\n- item two"));
+            let (oracle, candidate) = render_pairs(&doc, width);
+            assert_same(&oracle, &candidate, "p-to-list", width);
+        }
     }
 
     #[test]
     fn list_to_paragraph_agrees() {
-        differential("list-to-p", "- item one\n- item two\nconcluding paragraph");
+        for width in [80u16, 40, 20, 12, 8] {
+            let doc = parse_assistant(&text_segs("- item one\n- item two\nconcluding paragraph"));
+            let (oracle, candidate) = render_pairs(&doc, width);
+            assert_same(&oracle, &candidate, "list-to-p", width);
+        }
     }
 
     #[test]
@@ -1300,16 +1355,157 @@ mod no_panic {
 
     #[test]
     fn combining_and_zyg_prefixes_safe() {
-        assert_prefix_safe("e\u{301} + e\u{301} + family \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466} + flag \u{1F3F3}\u{FE0F}\u{200D}\u{1F308} + \u{1F44D}\u{1F3FD}");
+        assert_prefix_safe(
+            "e\u{301} + e\u{301} + family \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466} + flag \u{1F3F3}\u{FE0F}\u{200D}\u{1F308} + \u{1F44D}\u{1F3FD}",
+        );
     }
 
     #[test]
     fn plain_cjk_prefixes_safe() {
-        assert_prefix_safe("\u{6F22}\u{5B57} \u{6D4B}\u{8BD5} \u{65E5}\u{672C}\u{8A9E} \u{3053}\u{3093}\u{306B}\u{3061}\u{306F} \u{2014} dash \u{2014} more");
+        assert_prefix_safe(
+            "\u{6F22}\u{5B57} \u{6D4B}\u{8BD5} \u{65E5}\u{672C}\u{8A9E} \u{3053}\u{3093}\u{306B}\u{3061}\u{306F} \u{2014} dash \u{2014} more",
+        );
     }
 
     #[test]
     fn nested_marker_prefixes_safe() {
         assert_prefix_safe("**b _i_ b** and *b **i** b* and ***x***");
+    }
+
+    #[test]
+    fn exhaustive_complex_prefixes_safe() {
+        let cases = [
+            "—",
+            "é",
+            "e\u{301}",
+            "漢字",
+            "😀",
+            "👨👩👧👦",
+            "🏳️🌈",
+            "text **bold — 漢字 😀** tail",
+            "text *italic 👨👩👧👦* tail",
+            "`code — 😀`",
+            "unclosed **emoji 😀",
+            "## Section 1: Emoji 😀\n### Section 2: CJK 漢字\nBody with `code` and **bold**",
+            "- bullet item 1\n  - nested 2\n    - nested 3",
+            "1. ordered item — with em-dash\n  - sub-bullet *italic*\n2. second item `code`",
+        ];
+        for case in cases {
+            assert_prefix_safe(case);
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod correctness_invariants {
+    use super::*;
+    use crate::presentation::internal::compile_view;
+    use crate::presentation::{RowChild, View, WidthRule};
+    use crate::transcript::wrap::{TranscriptCommitBoundary, wrap_transcript_rows};
+
+    #[test]
+    fn tiny_widths_never_overflow_allocated_row_geometry() {
+        for width in [12u16, 8, 6, 3, 2, 1] {
+            let row = View::row(
+                vec![
+                    RowChild::fixed(2, View::text("•")),
+                    RowChild::flex(View::text("body text wrapping here").width(WidthRule::Fill)),
+                    RowChild::content(View::text("status")),
+                ],
+                1,
+            );
+            let block = compile_view(&row, width);
+            assert!(
+                block.width <= width,
+                "row surface width ({}) exceeded available width ({width})",
+                block.width
+            );
+            for r in &block.rows {
+                assert!(r.width() <= usize::from(width));
+            }
+        }
+    }
+
+    #[test]
+    fn fill_never_exceeds_available_width_at_tiny_widths() {
+        for width in [12u16, 8, 6, 3, 2, 1] {
+            let view = View::styled_text(vec![TextSpan::plain(
+                "A long paragraph of text that should wrap cleanly.",
+            )])
+            .width(WidthRule::Fill);
+            let block = compile_view(&view, width);
+            assert!(
+                block.width <= width,
+                "Fill view width ({}) exceeded available width ({width})",
+                block.width
+            );
+            for r in &block.rows {
+                assert!(r.width() <= usize::from(width));
+            }
+        }
+    }
+
+    #[test]
+    fn egcs_never_split_across_lines_at_all_widths() {
+        let text = "e\u{301} 😀 漢字 👩‍⚕️ 👨‍👩‍👧‍👦 🏳️‍🌈";
+        for width in [80u16, 40, 20, 12, 8, 6, 3, 2, 1] {
+            let doc = parse_assistant(&[AssistantSegment::Text(text.to_string())]);
+            let rows: Vec<TranscriptRow> =
+                stream_rows(&doc).iter().map(|r| r.row.clone()).collect();
+            let wrapped = wrap_transcript_rows(width, &rows, TranscriptCommitBoundary::default());
+            for row in &wrapped.rows {
+                for span in &row.spans {
+                    assert!(span.content.is_char_boundary(0));
+                    assert!(span.content.is_char_boundary(span.content.len()));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn wide_egc_impossible_fit_preserves_uncommitted_suffix() {
+        let doc = parse_assistant(&[AssistantSegment::Text("漢字".to_string())]);
+        let rows: Vec<TranscriptRow> = stream_rows(&doc).iter().map(|r| r.row.clone()).collect();
+        let wrapped = wrap_transcript_rows(1, &rows, TranscriptCommitBoundary::default());
+        assert_eq!(wrapped.rows.len(), 2);
+        // Source boundaries accurately record where in source each row ends:
+        assert_eq!(wrapped.row_end_boundaries[0].byte_offset, 3);
+        assert_eq!(
+            wrapped.row_end_boundaries[1],
+            TranscriptCommitBoundary::next_logical_row(0)
+        );
+        // But commit eligibility correctly reports that 0 oversized rows may enter native history:
+        assert_eq!(
+            wrapped.committable_prefix_rows, 0,
+            "zero oversized physical rows are committable at width 1"
+        );
+    }
+
+    #[test]
+    fn source_ranges_round_trip_across_styled_span_boundaries() {
+        use ratatui::style::Color;
+
+        let style_a = Style::default().fg(Color::Red);
+        let style_b = Style::default().fg(Color::Blue);
+        let hard = crate::presentation::wrap::styled_hard_lines(vec![
+            ("prefix e", style_a, Some(0)),
+            ("\u{301} suffix", style_b, Some(8)),
+        ]);
+        assert_eq!(hard.len(), 1);
+        let graphemes = &hard[0];
+        let combined = &graphemes[7];
+        assert_eq!(combined.text.as_ref(), "e\u{301}");
+        assert_eq!(combined.source, Some(7..10));
+
+        let style_c = Style::default().fg(Color::Green);
+        let style_d = Style::default().fg(Color::Yellow);
+        let hard_zwj = crate::presentation::wrap::styled_hard_lines(vec![
+            ("family: 👩", style_c, Some(0)),
+            ("\u{200D}⚕\u{FE0F} done", style_d, Some(12)),
+        ]);
+        assert_eq!(hard_zwj.len(), 1);
+        let zwj_g = &hard_zwj[0][8];
+        assert_eq!(zwj_g.text.as_ref(), "👩\u{200D}⚕\u{FE0F}");
+        assert_eq!(zwj_g.source, Some(8..21));
     }
 }

@@ -274,16 +274,17 @@ pub(crate) fn compute_indent(layout: &RowLayout, viewport_width: usize) -> Compu
     // First line: outer margin + nesting + marker, padded so content lands at the
     // reserved gutter column when there is no visible marker.
     let marker_padding = reserved_gutter.saturating_sub(marker_text.width());
+    let left_pad = layout.outer.left.min(viewport_width.saturating_sub(1));
     let first_prefix = format!(
         "{}{nesting}{marker_text}{}",
-        " ".repeat(layout.outer.left),
+        " ".repeat(left_pad),
         " ".repeat(marker_padding)
     );
 
     // Continuation lines: outer margin + nesting + a full reserved-gutter pad.
     let continuation_prefix = format!(
         "{}{}",
-        " ".repeat(layout.outer.left),
+        " ".repeat(left_pad),
         " ".repeat(nesting.width() + reserved_gutter)
     );
 

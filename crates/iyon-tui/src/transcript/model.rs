@@ -1,9 +1,6 @@
 use std::{borrow::Cow, ops::Range};
 
-use ratatui::{
-    style::{Color, Style},
-    text::Line,
-};
+use ratatui::{style::Style, text::Line};
 
 use crate::{
     presentation::{
@@ -350,7 +347,7 @@ impl TuiFormatter {
         text: &str,
         details: &serde_json::Value,
         is_error: bool,
-        collapsed: bool,
+        _collapsed: bool,
     ) -> View {
         self.tool_renderers.render_result(ToolResultRenderInput {
             tool_name,
@@ -913,6 +910,7 @@ impl TranscriptState {
             }
             let leading_flow_rows = rows.len().saturating_sub(start);
             let content_start = rows.len();
+            let mut entry_committable_prefix = 0;
             match &unit.presentation {
                 TranscriptPresentation::LegacyRows(logical_rows) => {
                     let mut logical_rows = logical_rows.clone();
@@ -927,6 +925,7 @@ impl TranscriptState {
                         _ => TranscriptCommitBoundary::default(),
                     };
                     let wrapped = wrap_transcript_rows(width, &logical_rows, boundary);
+                    entry_committable_prefix = wrapped.committable_prefix_rows;
                     rows.extend(wrapped.rows);
                     row_end_boundaries.extend(wrapped.row_end_boundaries.into_iter().map(Some));
                     previous_legacy_range = Some(ranges.len());
@@ -958,6 +957,7 @@ impl TranscriptState {
                             rows.len().saturating_sub(content_start),
                         ));
                     }
+                    entry_committable_prefix = rows.len().saturating_sub(content_start);
                     previous_legacy_range = None;
                 }
             }
@@ -970,6 +970,7 @@ impl TranscriptState {
                 semantic: matches!(unit.presentation, TranscriptPresentation::View(_)),
                 rows: start..rows.len(),
                 leading_flow_rows,
+                committable_prefix_rows: entry_committable_prefix,
             });
         }
 
@@ -980,10 +981,18 @@ impl TranscriptState {
         let mut committable_rows = 0;
         for range in &ranges {
             match range.commit_mode {
-                EntryCommitMode::Sealed | EntryCommitMode::SourceBackedAppendOnly => {
-                    committable_rows = range.rows.end;
-                }
                 EntryCommitMode::Blocked => break,
+                EntryCommitMode::Sealed | EntryCommitMode::SourceBackedAppendOnly => {
+                    let content_start = range.rows.start + range.leading_flow_rows;
+                    let physical_content_len =
+                        range.rows.len().saturating_sub(range.leading_flow_rows);
+                    let eligible = content_start + range.committable_prefix_rows;
+                    committable_rows = eligible;
+                    if range.committable_prefix_rows < physical_content_len {
+                        // Impossible-fit row encountered in this unit; subsequent entries cannot leapfrog it.
+                        break;
+                    }
+                }
             }
         }
         if !rows.is_empty() {
@@ -1209,6 +1218,7 @@ struct RenderedEntryRange {
     semantic: bool,
     rows: Range<usize>,
     leading_flow_rows: usize,
+    committable_prefix_rows: usize,
 }
 
 fn trim_plain_leading_legacy(rows: &mut Vec<TranscriptRow>) {
@@ -1615,6 +1625,98 @@ mod tests {
             .map(line_text)
             .collect::<Vec<_>>();
         assert_eq!(rows, ["", "  ab", "  cd", "  ef", ""]);
+    }
+
+    #[test]
+    fn impossible_fit_grapheme_does_not_commit_and_commits_once_after_resize() {
+        let mut transcript = TranscriptState::default();
+        transcript
+            .append_assistant_stream_fragment(vec![AssistantSegment::Text("漢字".to_string())]);
+
+        // At width 1, the 2-cell CJK graphemes cannot physically fit in the content track.
+        // Only the leading blank flow gap is committable; zero oversized text rows are committable.
+        transcript.ensure_render_cache(1);
+        let initial_committable = transcript.committable_len();
+        assert_eq!(
+            initial_committable, 1,
+            "only the leading flow gap is committable; zero oversized text rows are committable at width 1"
+        );
+
+        // Committing the leading gap leaves 0 committable rows; commit cursor does not advance into the text.
+        transcript.mark_rows_committed(initial_committable);
+        transcript.ensure_render_cache(1);
+        assert_eq!(
+            transcript.committable_len(),
+            0,
+            "no further rows are committable while width is too small"
+        );
+
+        // Now resize to width 20 where "漢字" fits normally.
+        transcript.ensure_render_cache(20);
+        assert_eq!(
+            transcript.committable_len(),
+            1,
+            "assistant row becomes committable once width accommodates it"
+        );
+
+        // Commit the row.
+        transcript.mark_rows_committed(1);
+
+        // Re-render: the committed content has entered history and does not duplicate in uncommitted rows.
+        transcript.ensure_render_cache(20);
+        let uncommitted = rendered_texts(&transcript).join("|");
+        assert!(
+            !uncommitted.contains("漢字"),
+            "committed content must not duplicate in uncommitted suffix"
+        );
+        assert_eq!(transcript.committable_len(), 0);
+    }
+
+    #[test]
+    fn impossible_fit_grapheme_remains_uncommittable_after_assistant_stream_finish() {
+        let mut transcript = TranscriptState::default();
+        transcript
+            .append_assistant_stream_fragment(vec![AssistantSegment::Text("漢字".to_string())]);
+
+        // At width 1, only the leading flow gap is committable.
+        transcript.ensure_render_cache(1);
+        let initial_committable = transcript.committable_len();
+        assert_eq!(
+            initial_committable, 1,
+            "only the leading flow gap is committable at width 1"
+        );
+        transcript.mark_rows_committed(initial_committable);
+        transcript.ensure_render_cache(1);
+        assert_eq!(transcript.committable_len(), 0);
+
+        // Seal the assistant stream while STILL at width 1.
+        transcript.finish_assistant_stream();
+        transcript.ensure_render_cache(1);
+
+        // The oversized assistant rows must STILL not be committable despite lifecycle being Sealed.
+        assert_eq!(
+            transcript.committable_len(),
+            0,
+            "oversized rows remain uncommittable after stream sealing at width 1"
+        );
+
+        // Now resize to width 20 where "漢字" fits normally.
+        transcript.ensure_render_cache(20);
+        let committable = transcript.committable_len();
+        assert!(
+            committable > 0,
+            "assistant becomes committable once width accommodates it"
+        );
+
+        // Commit.
+        transcript.mark_rows_committed(committable);
+        transcript.ensure_render_cache(20);
+        let uncommitted = rendered_texts(&transcript).join("|");
+        assert!(
+            !uncommitted.contains("漢字"),
+            "漢字 must appear exactly once in native history and not duplicate"
+        );
+        assert_eq!(transcript.committable_len(), 0);
     }
 
     #[test]

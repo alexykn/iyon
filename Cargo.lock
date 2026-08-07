@@ -1124,6 +1124,7 @@ dependencies = [
  "serde_json",
  "textwrap",
  "tokio",
+ "unicode-linebreak",
  "unicode-segmentation",
  "unicode-width",
  "vt100",

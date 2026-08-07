@@ -8,8 +8,6 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
-use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 use crate::{
     presentation::api::{
@@ -153,15 +151,14 @@ impl ViewCompiler {
         max_width: u16,
         inherited: Style,
     ) -> Surface {
-        let spans = text
-            .spans
-            .iter()
-            .map(|span| StyledSpan {
-                text: &span.text,
-                style: self.theme.resolve(&span.style, inherited),
-            })
-            .collect::<Vec<_>>();
-        let hard_lines = styled_hard_lines(&spans);
+        let spans = text.spans.iter().map(|span| {
+            (
+                span.text.as_str(),
+                self.theme.resolve(&span.style, inherited),
+                None,
+            )
+        });
+        let hard_lines = styled_hard_lines(spans);
         let intrinsic_width = hard_lines
             .iter()
             .map(|line| line.iter().map(|grapheme| grapheme.width).sum::<usize>())
@@ -174,14 +171,14 @@ impl ViewCompiler {
         let wrapped = wrap_styled_lines(&hard_lines, width, text.wrap);
         let mut surface = Surface::new(width, wrapped.len().max(1) as u16);
         for (y, line) in wrapped.iter().enumerate() {
-            let line_width = line.iter().map(|grapheme| grapheme.width).sum::<usize>();
+            let line_width = line.width;
             let offset = match text.align {
                 HorizontalAlign::Start => 0,
                 HorizontalAlign::Center => usize::from(width).saturating_sub(line_width) / 2,
                 HorizontalAlign::End => usize::from(width).saturating_sub(line_width),
             };
             let mut x = offset;
-            for grapheme in line {
+            for grapheme in &line.graphemes {
                 if grapheme.width == 0 {
                     continue;
                 }
@@ -287,17 +284,17 @@ impl ViewCompiler {
             .map(|(_, child)| child.height)
             .max()
             .unwrap_or(0);
+        let content_width = allocation
+            .tracks
+            .iter()
+            .map(|track| usize::from(*track))
+            .sum::<usize>()
+            .saturating_add(
+                usize::from(allocation.gap).saturating_mul(row.children.len().saturating_sub(1)),
+            )
+            .min(usize::from(u16::MAX)) as u16;
         let width = match width_rule {
-            WidthRule::Fit => allocation
-                .tracks
-                .iter()
-                .map(|track| usize::from(*track))
-                .sum::<usize>()
-                .saturating_add(
-                    usize::from(allocation.gap)
-                        .saturating_mul(row.children.len().saturating_sub(1)),
-                )
-                .min(usize::from(u16::MAX)) as u16,
+            WidthRule::Fit => content_width.min(max_width),
             WidthRule::Fill => max_width,
         };
         let mut output = Surface::new(width, content_height);
@@ -324,11 +321,18 @@ impl ViewCompiler {
         let decoration = &box_view.decoration;
         let resolved = self.theme.resolve_decoration(decoration, inherited);
         let border = u16::from(decoration.border.is_some());
-        let horizontal = decoration
+        let border_pad = border.saturating_mul(2);
+        let max_content = max_width.saturating_sub(border_pad);
+
+        let left_pad = decoration.padding.left.min(max_content.saturating_sub(1));
+        let right_pad = decoration
             .padding
-            .left
-            .saturating_add(decoration.padding.right)
-            .saturating_add(border.saturating_mul(2));
+            .right
+            .min(max_content.saturating_sub(left_pad.saturating_add(1)));
+
+        let horizontal = left_pad
+            .saturating_add(right_pad)
+            .saturating_add(border_pad);
         let inner_width = max_width.saturating_sub(horizontal);
         let child = self.layout(&box_view.child, inner_width, resolved);
         let requested_width = child.width.saturating_add(horizontal).min(u16::MAX);
@@ -343,7 +347,7 @@ impl ViewCompiler {
             .saturating_add(border.saturating_mul(2));
         let mut output = Surface::new(width, height);
         output.paint_background(resolved);
-        let child_x = border.saturating_add(decoration.padding.left);
+        let child_x = border.saturating_add(left_pad);
         let child_y = border.saturating_add(decoration.padding.top);
         output.composite(&child, child_x, child_y);
         if let Some(border_spec) = &decoration.border {
@@ -453,8 +457,6 @@ fn allocate_tracks(
 
     if let Some((index, minimum)) = flex {
         let remaining = available.saturating_sub(used);
-        // `min` is a preference when the terminal cannot satisfy it. Never
-        // allocate beyond the remaining physical cells.
         tracks[index] = remaining.min(usize::from(u16::MAX)) as u16;
         let _minimum_is_satisfied = remaining >= minimum;
     }
@@ -462,142 +464,7 @@ fn allocate_tracks(
     RowAllocation { tracks, gap }
 }
 
-#[derive(Clone, Copy)]
-struct StyledGrapheme<'a> {
-    text: &'a str,
-    style: Style,
-    width: usize,
-}
-
-struct StyledSpan<'a> {
-    text: &'a str,
-    style: Style,
-}
-
-fn styled_hard_lines<'a>(spans: &'a [StyledSpan<'a>]) -> Vec<Vec<StyledGrapheme<'a>>> {
-    let mut lines = vec![Vec::new()];
-    for span in spans {
-        for grapheme in span.text.graphemes(true) {
-            if grapheme == "\n" {
-                lines.push(Vec::new());
-                continue;
-            }
-            lines.last_mut().unwrap().push(StyledGrapheme {
-                text: grapheme,
-                style: span.style,
-                width: grapheme.width(),
-            });
-        }
-    }
-    lines
-}
-
-fn wrap_styled_lines<'a>(
-    lines: &[Vec<StyledGrapheme<'a>>],
-    width: u16,
-    mode: WrapMode,
-) -> Vec<Vec<StyledGrapheme<'a>>> {
-    let width = usize::from(width);
-    let mut output = Vec::new();
-    for line in lines {
-        if mode == WrapMode::NoWrap || width == 0 {
-            output.push(line.clone());
-            continue;
-        }
-        if line.is_empty() {
-            output.push(Vec::new());
-            continue;
-        }
-        if mode == WrapMode::Grapheme {
-            output.extend(split_graphemes(line, width));
-            continue;
-        }
-
-        // WordThenGrapheme keeps a complete word when it fits. A word longer
-        // than the track fills the remaining cells before continuing on the
-        // next physical row; it must not discard usable cells after a prefix.
-        let mut current = Vec::new();
-        let mut current_width = 0usize;
-        let mut token_start = 0usize;
-        while token_start < line.len() {
-            let mut token_end = token_start;
-            while token_end < line.len() && !line[token_end].text.chars().all(char::is_whitespace) {
-                token_end += 1;
-            }
-            while token_end < line.len() && line[token_end].text.chars().all(char::is_whitespace) {
-                token_end += 1;
-            }
-            let token = &line[token_start..token_end];
-            let token_width = token.iter().map(|grapheme| grapheme.width).sum::<usize>();
-            if current_width > 0 && token_width <= width.saturating_sub(current_width) {
-                current.extend_from_slice(token);
-                current_width += token_width;
-            } else if token_width <= width {
-                if !current.is_empty() {
-                    output.push(std::mem::take(&mut current));
-                    current_width = 0;
-                }
-                current.extend_from_slice(token);
-                current_width = token_width;
-            } else {
-                let mut rest = token;
-                while !rest.is_empty() {
-                    let available = width.saturating_sub(current_width);
-                    let take = take_graphemes(rest, available.max(1));
-                    current.extend_from_slice(&rest[..take]);
-                    current_width += rest[..take]
-                        .iter()
-                        .map(|grapheme| grapheme.width)
-                        .sum::<usize>();
-                    rest = &rest[take..];
-                    if current_width >= width {
-                        output.push(std::mem::take(&mut current));
-                        current_width = 0;
-                    }
-                }
-            }
-            token_start = token_end;
-        }
-        if !current.is_empty() {
-            output.push(current);
-        }
-    }
-    output
-}
-
-fn split_graphemes<'a>(line: &[StyledGrapheme<'a>], width: usize) -> Vec<Vec<StyledGrapheme<'a>>> {
-    let mut output = Vec::new();
-    let mut current = Vec::new();
-    let mut used = 0usize;
-    for grapheme in line {
-        if used > 0 && used.saturating_add(grapheme.width) > width {
-            output.push(std::mem::take(&mut current));
-            used = 0;
-        }
-        current.push(*grapheme);
-        used = used.saturating_add(grapheme.width);
-    }
-    if !current.is_empty() {
-        output.push(current);
-    }
-    output
-}
-
-fn take_graphemes(line: &[StyledGrapheme<'_>], width: usize) -> usize {
-    let mut used = 0usize;
-    let mut count = 0usize;
-    for grapheme in line {
-        if count > 0 && used.saturating_add(grapheme.width) > width {
-            break;
-        }
-        used = used.saturating_add(grapheme.width);
-        count += 1;
-        if used >= width {
-            break;
-        }
-    }
-    count.max(1).min(line.len())
-}
+use crate::presentation::wrap::{styled_hard_lines, wrap_styled_lines};
 
 fn paint_border(
     surface: &mut Surface,
@@ -858,9 +725,9 @@ mod tests {
 
     #[test]
     fn row_uses_track_width_for_continuations() {
-        let rows = compile_view(&tool_view("$ abcdefghijklmnop"), 10).rows;
-        assert_eq!(text(&rows[0]), "● $ abcdef");
-        assert_eq!(text(&rows[1]), "  ghijklmn");
+        let rows = compile_view(&tool_view("abcdefghijklmnop"), 10).rows;
+        assert_eq!(text(&rows[0]), "● abcdefgh");
+        assert_eq!(text(&rows[1]), "  ijklmnop");
     }
 
     #[test]
