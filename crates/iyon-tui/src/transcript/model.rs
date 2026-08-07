@@ -6,7 +6,10 @@ use ratatui::{
 };
 
 use crate::{
-    presentation::{View, internal::compile_view},
+    presentation::{
+        ColorSpec, Decoration, FlowBoundary, Insets, ThemeKey, View, WidthRule,
+        internal::compile_view,
+    },
     theme,
     tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput},
     transcript::{
@@ -176,17 +179,22 @@ enum EntryCommitMode {
     Blocked,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EntryRelation {
-    Separate,
-    AttachPrevious,
-}
+/// The identity of a presentation unit. Unit IDs are derived from (and share
+/// the namespace of) the first canonical source item's stable [`TranscriptId`],
+/// so unit identity survives presentation rebuilds.
+pub(crate) type TranscriptUnitId = TranscriptId;
 
+/// A presentation unit: the owned, structural object the transcript is assembled
+/// from and that native history consumes. One or more canonical items may fold
+/// into a single unit (e.g. a maximal run of consecutive user messages becomes
+/// one bubble). The unit owns its inside; transcript flow owns the gap between
+/// units.
 #[derive(Debug, Clone)]
-pub(crate) struct TranscriptEntry {
-    pub(crate) id: TranscriptId,
+pub(crate) struct TranscriptUnit {
+    pub(crate) id: TranscriptUnitId,
+    pub(crate) source_ids: Vec<TranscriptId>,
     pub(crate) presentation: TranscriptPresentation,
-    pub(crate) relation: EntryRelation,
+    pub(crate) boundary: FlowBoundary,
     pub(crate) truncation: Truncation,
     pub(crate) lifecycle: EntryLifecycle,
     commit_mode: EntryCommitMode,
@@ -210,9 +218,12 @@ pub(crate) struct TuiFormatter {
 impl TuiFormatter {
     pub(crate) fn format(&self, item: &TimelineItem) -> TranscriptPresentation {
         match item {
-            TimelineItem::UserMessage { text } => TranscriptPresentation::LegacyRows(
-                self.format_text_message(text, Style::default().bg(theme::user_bubble_bg()), true),
-            ),
+            // User messages are semantic bubbles; a single message is a one-
+            // message batch. (The assembler builds maximal runs itself; this arm
+            // only serves the formatter's direct contract.)
+            TimelineItem::UserMessage { text } => {
+                TranscriptPresentation::View(Self::user_batch_view(std::slice::from_ref(text)))
+            }
             TimelineItem::AssistantMessage { segments } => {
                 TranscriptPresentation::LegacyRows(self.format_assistant_message(segments, true))
             }
@@ -273,6 +284,36 @@ impl TuiFormatter {
             .collect()
     }
 
+    /// Semantic user bubble: one structural Box owning the full-width background
+    /// and the intrinsic vertical padding. A run of consecutive user messages
+    /// feeds the inner `Column`, so the whole group is one visual object.
+    ///
+    /// The legacy user renderer's oracle geometry is: full-width background,
+    /// content at column 0 (no horizontal inset), one row of vertical padding on
+    /// top and bottom. That is what this Box reproduces exactly — padding is
+    /// structural (inside the bubble); cross-unit spacing stays with flow.
+    fn user_batch_view(messages: &[String]) -> View {
+        View::box_(
+            View::column(
+                messages
+                    .iter()
+                    .map(|text| View::text(text.clone()).width(WidthRule::Fill))
+                    .collect(),
+                0,
+            )
+            .width(WidthRule::Fill),
+            Decoration::background(ColorSpec::Theme(ThemeKey::from("surface.user"))).padding(
+                Insets {
+                    top: 1,
+                    right: 0,
+                    bottom: 1,
+                    left: 0,
+                },
+            ),
+        )
+        .width(WidthRule::Fill)
+    }
+
     fn format_error_message(&self, text: &str, leading_spacer: bool) -> View {
         let body = View::text(text)
             .width(crate::presentation::WidthRule::Fill)
@@ -321,28 +362,6 @@ impl TuiFormatter {
                 ToolOutcome::Success
             },
         })
-    }
-
-    fn format_text_message(
-        &self,
-        text: &str,
-        style: Style,
-        include_trailing_blank: bool,
-    ) -> Vec<TranscriptRow> {
-        let mut rows = Vec::new();
-        rows.push(TranscriptRow::new(Line::styled("", style)));
-        rows.extend(Self::format_text_body(text, style));
-        if include_trailing_blank {
-            rows.push(TranscriptRow::new(Line::styled("", style)));
-        }
-        rows
-    }
-
-    fn format_text_body(text: &str, style: Style) -> Vec<TranscriptRow> {
-        styled_lines_preserving_newlines(text, style)
-            .into_iter()
-            .map(TranscriptRow::new)
-            .collect()
     }
 }
 
@@ -407,7 +426,7 @@ pub(crate) struct TranscriptState {
     canonical_items: Vec<TimelineItem>,
     entry_ids: Vec<TranscriptId>,
     next_id: u64,
-    presentation_cache: Vec<TranscriptEntry>,
+    presentation_cache: Vec<TranscriptUnit>,
     rendered_rows_cache: Option<TranscriptRenderCache>,
     commit_state: TranscriptCommitState,
     formatter: TuiFormatter,
@@ -432,10 +451,43 @@ impl Default for TranscriptState {
 impl TranscriptState {
     pub(crate) fn push_item(&mut self, item: TimelineItem) {
         self.assistant_stream_open = false;
+        // If a user message extends a trailing user run, the merged batch must not
+        // have begun entering native history. In normal flow consecutive user
+        // messages are assembled before a frame commits the first part; this guard
+        // catches an illegal late extension.
+        if let TimelineItem::UserMessage { .. } = &item
+            && self
+                .canonical_items
+                .last()
+                .is_some_and(|last| matches!(last, TimelineItem::UserMessage { .. }))
+        {
+            if let Some(&last_id) = self.entry_ids.last() {
+                self.assert_unit_extendable(last_id);
+            }
+        }
         self.canonical_items.push(item);
         let id = self.allocate_id();
         self.entry_ids.push(id);
         self.rebuild_presentation_cache();
+    }
+
+    /// A grouped unit (user batch) may only grow while its presentation has not
+    /// begun entering native history. Arbitrary late extension would mutate a
+    /// frozen/committed bubble.
+    fn assert_unit_extendable(&self, source_id: TranscriptId) {
+        let Some(unit_index) = self.unit_index_for_source(source_id) else {
+            return;
+        };
+        let id = self.presentation_cache[unit_index].id;
+        debug_assert!(
+            unit_index >= self.commit_state.completed_prefix
+                && !self
+                    .commit_state
+                    .partial
+                    .as_ref()
+                    .is_some_and(|partial| partial.entry_id() == id),
+            "attempted to extend user batch {id:?} after native history commitment"
+        );
     }
 
     fn allocate_id(&mut self) -> TranscriptId {
@@ -444,25 +496,45 @@ impl TranscriptState {
         id
     }
 
-    fn assert_mutable(&self, index: usize) {
-        let id = self.entry_ids[index];
+    /// Maps a stable canonical source id to the presentation unit that owns it.
+    /// A grouped unit (e.g. a user batch) owns several source ids, so this is
+    /// many-to-one. Performance is irrelevant here; no lookup table is needed.
+    fn unit_index_for_source(&self, source_id: TranscriptId) -> Option<usize> {
+        self.presentation_cache
+            .iter()
+            .position(|unit| unit.source_ids.contains(&source_id))
+    }
+
+    /// Rejects mutation after a unit has begun entering native history.
+    fn assert_source_mutable(&self, source_id: TranscriptId) {
+        let Some(unit_index) = self.unit_index_for_source(source_id) else {
+            return;
+        };
+        let id = self.presentation_cache[unit_index].id;
         debug_assert!(
-            index >= self.commit_state.completed_prefix,
-            "attempted to mutate fully committed transcript entry {id:?}"
+            unit_index >= self.commit_state.completed_prefix,
+            "attempted to mutate fully committed transcript unit {id:?}"
         );
         if let Some(partial) = &self.commit_state.partial {
             debug_assert_ne!(
                 partial.entry_id(),
                 id,
-                "attempted to mutate partially committed transcript entry {id:?}"
+                "attempted to mutate partially committed transcript unit {id:?}"
             );
         }
     }
 
-    fn assert_stream_appendable(&self, index: usize) {
-        let id = self.entry_ids[index];
+    /// The dedicated append check for the source-backed assistant stream: appending
+    /// more source after a committed prefix is legal, but only if that entry retains
+    /// its source-backed cursor. Arbitrary mutation is still rejected by
+    /// [`Self::assert_source_mutable`].
+    fn assert_source_stream_appendable(&self, source_id: TranscriptId) {
+        let Some(unit_index) = self.unit_index_for_source(source_id) else {
+            return;
+        };
+        let id = self.presentation_cache[unit_index].id;
         debug_assert!(
-            index >= self.commit_state.completed_prefix,
+            unit_index >= self.commit_state.completed_prefix,
             "attempted to append after a completed transcript prefix"
         );
         if let Some(partial) = &self.commit_state.partial {
@@ -488,7 +560,7 @@ impl TranscriptState {
             )
         });
         if let Some(index) = existing_index {
-            self.assert_mutable(index);
+            self.assert_source_mutable(self.entry_ids[index]);
         }
         if let Some(TimelineItem::ToolCall {
             tool_name: existing_name,
@@ -532,7 +604,7 @@ impl TranscriptState {
             )
         });
         if let Some(index) = existing_index {
-            self.assert_mutable(index);
+            self.assert_source_mutable(self.entry_ids[index]);
         }
         if let Some(TimelineItem::ToolCall {
             tool_name: existing_name,
@@ -565,7 +637,7 @@ impl TranscriptState {
             )
         });
         if let Some(index) = existing_index {
-            self.assert_mutable(index);
+            self.assert_source_mutable(self.entry_ids[index]);
         }
         if let Some(TimelineItem::ToolCall {
             status: existing_status,
@@ -636,10 +708,11 @@ impl TranscriptState {
                 TimelineItem::AssistantMessage { .. }
             )
         {
+            let source_id = self.entry_ids[index];
             if self.assistant_stream_open || self.commit_state.partial.is_some() {
-                self.assert_stream_appendable(index);
+                self.assert_source_stream_appendable(source_id);
             } else {
-                self.assert_mutable(index);
+                self.assert_source_mutable(source_id);
             }
         }
         match self.canonical_items.last_mut() {
@@ -681,9 +754,46 @@ impl TranscriptState {
             "open streaming assistant must be the last assistant message"
         );
 
-        for (idx, item) in self.canonical_items.iter().enumerate() {
+        let mut index = 0usize;
+        while index < self.canonical_items.len() {
+            // Build a maximal consecutive user run as ONE structural unit. Its id
+            // is the first source id; it owns every message in the run.
+            if matches!(
+                self.canonical_items[index],
+                TimelineItem::UserMessage { .. }
+            ) {
+                let start = index;
+                let mut messages = Vec::new();
+                while index < self.canonical_items.len()
+                    && matches!(
+                        self.canonical_items[index],
+                        TimelineItem::UserMessage { .. }
+                    )
+                {
+                    if let TimelineItem::UserMessage { text } = &self.canonical_items[index] {
+                        messages.push(text.clone());
+                    }
+                    index += 1;
+                }
+                self.presentation_cache.push(TranscriptUnit {
+                    id: self.entry_ids[start],
+                    source_ids: self.entry_ids[start..index].to_vec(),
+                    presentation: TranscriptPresentation::View(TuiFormatter::user_batch_view(
+                        &messages,
+                    )),
+                    boundary: FlowBoundary::Default,
+                    truncation: Truncation::None,
+                    lifecycle: EntryLifecycle::Sealed,
+                    commit_mode: EntryCommitMode::Sealed,
+                });
+                continue;
+            }
+
+            let item = &self.canonical_items[index];
             let presentation = match item {
-                TimelineItem::AssistantMessage { segments } if open_assistant_idx == Some(idx) => {
+                TimelineItem::AssistantMessage { segments }
+                    if open_assistant_idx == Some(index) =>
+                {
                     let mut rows = self.formatter.format_assistant_message(segments, false);
                     // INTERNAL ASSISTANT STREAM SEMANTICS.
                     // The live pane owns the moving bottom margin while this
@@ -692,35 +802,28 @@ impl TranscriptState {
                     TranscriptPresentation::LegacyRows(rows)
                 }
                 TimelineItem::ErrorMessage { text } => TranscriptPresentation::View(
-                    self.formatter.format_error_message(text, idx == 0),
+                    self.formatter.format_error_message(text, index == 0),
                 ),
                 _ => self.formatter.format(item),
             };
 
-            let relation = if idx == 0 {
-                EntryRelation::Separate
-            } else if matches!(
-                (&self.canonical_items[idx - 1], item),
-                (
-                    TimelineItem::UserMessage { .. },
-                    TimelineItem::UserMessage { .. }
-                )
-            ) || matches!(
-                (&self.canonical_items[idx - 1], item),
-                (
-                    TimelineItem::ToolCall {
-                        tool_call_id: previous,
-                        ..
-                    },
-                    TimelineItem::ToolResult {
-                        tool_call_id: current,
-                        ..
-                    }
-                ) if previous == current
-            ) {
-                EntryRelation::AttachPrevious
+            let boundary = if index > 0
+                && matches!(
+                    (&self.canonical_items[index - 1], item),
+                    (
+                        TimelineItem::ToolCall {
+                            tool_call_id: previous,
+                            ..
+                        },
+                        TimelineItem::ToolResult {
+                            tool_call_id: current,
+                            ..
+                        }
+                    ) if previous == current
+                ) {
+                FlowBoundary::AttachToPrevious
             } else {
-                EntryRelation::Separate
+                FlowBoundary::Default
             };
 
             let truncation = match item {
@@ -730,14 +833,16 @@ impl TranscriptState {
                 } => Truncation::Result,
                 _ => Truncation::None,
             };
-            self.presentation_cache.push(TranscriptEntry {
-                id: self.entry_ids[idx],
+            self.presentation_cache.push(TranscriptUnit {
+                id: self.entry_ids[index],
+                source_ids: vec![self.entry_ids[index]],
                 presentation,
-                relation,
+                boundary,
                 truncation,
-                lifecycle: entry_lifecycle(item, open_assistant_idx == Some(idx)),
-                commit_mode: entry_commit_mode(item, open_assistant_idx == Some(idx)),
+                lifecycle: entry_lifecycle(item, open_assistant_idx == Some(index)),
+                commit_mode: entry_commit_mode(item, open_assistant_idx == Some(index)),
             });
+            index += 1;
         }
         self.invalidate_render_cache();
     }
@@ -760,43 +865,35 @@ impl TranscriptState {
         let mut row_end_boundaries = Vec::new();
         let mut ranges = Vec::new();
         let mut previous_legacy_range: Option<usize> = None;
-        let start_entry = self.commit_state.completed_prefix;
+        let start_unit = self.commit_state.completed_prefix;
         let partial = self.commit_state.partial.as_ref();
 
-        for (entry_index, entry) in self.presentation_cache.iter().enumerate().skip(start_entry) {
-            let partial_for_entry = (entry_index == start_entry).then(|| partial);
+        for (unit_index, unit) in self.presentation_cache.iter().enumerate().skip(start_unit) {
+            let partial_for_unit = (unit_index == start_unit).then(|| partial);
             let semantic_frozen = matches!(
-                partial_for_entry.flatten(),
-                Some(PartialCommit::Semantic { entry_id, .. }) if *entry_id == entry.id
+                partial_for_unit.flatten(),
+                Some(PartialCommit::Semantic { entry_id, .. }) if *entry_id == unit.id
             );
             let legacy_gap_committed = matches!(
-                partial_for_entry.flatten(),
+                partial_for_unit.flatten(),
                 Some(PartialCommit::Legacy {
                     entry_id,
                     leading_gap_committed: true,
                     ..
-                }) if *entry_id == entry.id
+                }) if *entry_id == unit.id
             );
 
-            // `Separate` owns its leading flow gap. A frozen semantic unit already
-            // contains that gap, so it must not be emitted twice. Relationship
-            // assembly happens before the range starts so the range owns exactly
-            // the rows that follow the preceding unit.
-            if entry.relation == EntryRelation::Separate {
+            // `Default` owns its leading flow gap; `AttachToPrevious` means only
+            // "parent gap = 0" (no fusion, no row surgery). A frozen semantic unit
+            // already contains its gap, so it must not be emitted twice. Assembly
+            // happens before the range starts so the range owns exactly the rows that
+            // follow the preceding unit.
+            if unit.boundary == FlowBoundary::Default {
                 if let Some(previous_range) = previous_legacy_range {
+                    // The only remaining legacy family is the assistant. Remove its
+                    // formatter-owned trailing plain row before the parent emits its
+                    // canonical flow gap.
                     trim_plain_trailing_physical(
-                        &mut rows,
-                        &mut row_end_boundaries,
-                        &mut ranges,
-                        previous_range,
-                    );
-                }
-            } else if entry.relation == EntryRelation::AttachPrevious {
-                if let Some(previous_range) = previous_legacy_range {
-                    // Consecutive legacy user bubbles fuse: remove the previous
-                    // bubble's bottom padding and the current entry's leading
-                    // padding, while preserving the final bubble padding.
-                    truncate_last_entry_row(
                         &mut rows,
                         &mut row_end_boundaries,
                         &mut ranges,
@@ -806,8 +903,8 @@ impl TranscriptState {
             }
 
             let start = rows.len();
-            if entry.relation == EntryRelation::Separate
-                && entry_index > 0
+            if unit.boundary == FlowBoundary::Default
+                && unit_index > 0
                 && !semantic_frozen
                 && !legacy_gap_committed
             {
@@ -816,19 +913,17 @@ impl TranscriptState {
             }
             let leading_flow_rows = rows.len().saturating_sub(start);
             let content_start = rows.len();
-            match &entry.presentation {
+            match &unit.presentation {
                 TranscriptPresentation::LegacyRows(logical_rows) => {
                     let mut logical_rows = logical_rows.clone();
-                    if entry.relation == EntryRelation::AttachPrevious {
-                        trim_first_legacy_row(&mut logical_rows);
-                    } else if entry_index > 0 {
+                    if unit_index > 0 {
                         trim_plain_leading_legacy(&mut logical_rows);
                     }
 
-                    let boundary = match partial_for_entry.flatten() {
+                    let boundary = match partial_for_unit.flatten() {
                         Some(PartialCommit::Legacy {
                             entry_id, boundary, ..
-                        }) if *entry_id == entry.id => *boundary,
+                        }) if *entry_id == unit.id => *boundary,
                         _ => TranscriptCommitBoundary::default(),
                     };
                     let wrapped = wrap_transcript_rows(width, &logical_rows, boundary);
@@ -841,9 +936,9 @@ impl TranscriptState {
                         entry_id,
                         rows: frozen_rows,
                         committed_rows,
-                    }) = partial_for_entry.flatten()
+                    }) = partial_for_unit.flatten()
                     {
-                        debug_assert_eq!(*entry_id, entry.id);
+                        debug_assert_eq!(*entry_id, unit.id);
                         rows.extend(frozen_rows.iter().skip(*committed_rows).cloned());
                         row_end_boundaries.extend(std::iter::repeat_n(
                             None,
@@ -851,10 +946,10 @@ impl TranscriptState {
                         ));
                     } else {
                         let mut block = compile_view(view, width);
-                        if entry.truncation == Truncation::Call {
+                        if unit.truncation == Truncation::Call {
                             block.rows =
                                 truncate_view_rows(block.rows, DISPLAY_CALL_MAX_LINES + 1, true);
-                        } else if entry.truncation == Truncation::Result {
+                        } else if unit.truncation == Truncation::Result {
                             block.rows = truncate_view_rows(block.rows, DISPLAY_MAX_LINES, false);
                         }
                         rows.extend(block.rows);
@@ -868,11 +963,11 @@ impl TranscriptState {
             }
 
             ranges.push(RenderedEntryRange {
-                entry_index,
-                id: entry.id,
-                lifecycle: entry.lifecycle,
-                commit_mode: entry.commit_mode,
-                semantic: matches!(entry.presentation, TranscriptPresentation::View(_)),
+                unit_index,
+                id: unit.id,
+                lifecycle: unit.lifecycle,
+                commit_mode: unit.commit_mode,
+                semantic: matches!(unit.presentation, TranscriptPresentation::View(_)),
                 rows: start..rows.len(),
                 leading_flow_rows,
             });
@@ -1004,7 +1099,7 @@ impl TranscriptState {
                     remaining -= take;
                     continue;
                 }
-                self.commit_state.completed_prefix = range.entry_index.saturating_add(1);
+                self.commit_state.completed_prefix = range.unit_index.saturating_add(1);
                 self.commit_state.partial = None;
                 cache.ranges.remove(0);
             } else {
@@ -1107,8 +1202,8 @@ pub(crate) struct TranscriptRenderCache {
 
 #[derive(Debug, Clone)]
 struct RenderedEntryRange {
-    entry_index: usize,
-    id: TranscriptId,
+    unit_index: usize,
+    id: TranscriptUnitId,
     lifecycle: EntryLifecycle,
     commit_mode: EntryCommitMode,
     semantic: bool,
@@ -1116,43 +1211,9 @@ struct RenderedEntryRange {
     leading_flow_rows: usize,
 }
 
-fn trim_plain_trailing_legacy(rows: &mut Vec<TranscriptRow>) {
-    while rows
-        .last()
-        .is_some_and(|row| is_blank_row(row) && !has_background(row))
-    {
-        rows.pop();
-    }
-}
-
 fn trim_plain_leading_legacy(rows: &mut Vec<TranscriptRow>) {
-    while rows
-        .first()
-        .is_some_and(|row| is_blank_row(row) && !has_background(row))
-    {
+    while rows.first().is_some_and(is_blank_row) {
         rows.remove(0);
-    }
-}
-
-fn trim_first_legacy_row(rows: &mut Vec<TranscriptRow>) {
-    if !rows.is_empty() {
-        rows.remove(0);
-    }
-}
-
-fn truncate_last_entry_row(
-    rows: &mut Vec<Line<'static>>,
-    boundaries: &mut Vec<Option<TranscriptCommitBoundary>>,
-    ranges: &mut [RenderedEntryRange],
-    range_index: usize,
-) {
-    let Some(range) = ranges.get_mut(range_index) else {
-        return;
-    };
-    if range.rows.end > range.rows.start {
-        rows.truncate(range.rows.end.saturating_sub(1));
-        boundaries.truncate(range.rows.end.saturating_sub(1));
-        range.rows.end = range.rows.end.saturating_sub(1);
     }
 }
 
@@ -1165,13 +1226,14 @@ fn trim_plain_trailing_physical(
     let Some(range) = ranges.get_mut(range_index) else {
         return;
     };
+    // The assistant is the only remaining legacy family, and its rows never
+    // carry a background, so a trailing empty row here is purely formatter
+    // padding that flow owns and may drop.
     while !range.semantic
         && range.rows.end > range.rows.start
-        && rows.get(range.rows.end - 1).is_some_and(|row| {
-            row.spans.iter().all(|span| span.content.is_empty())
-                && row.style.bg.is_none()
-                && !row.spans.iter().any(|span| span.style.bg.is_some())
-        })
+        && rows
+            .get(range.rows.end - 1)
+            .is_some_and(|row| row.spans.iter().all(|span| span.content.is_empty()))
     {
         rows.remove(range.rows.end - 1);
         boundaries.remove(range.rows.end - 1);
@@ -1212,29 +1274,11 @@ fn truncate_view_rows(
     rows
 }
 
-fn styled_lines_preserving_newlines(text: &str, style: Style) -> Vec<Line<'static>> {
-    text.split('\n')
-        .map(|line| Line::styled(line.to_string(), style))
-        .collect()
-}
-
 fn is_blank_row(row: &TranscriptRow) -> bool {
     row.line
         .spans
         .iter()
         .all(|span| span.content.as_ref().is_empty())
-}
-
-/// True when a row carries a background style (e.g. the user bubble's colored
-/// padding rows). Such a blank belongs to its item as rendered padding, never a
-/// separator, so it is preserved by the assembly pass.
-/// INTERNAL PRESENTATION MECHANICS.
-///
-/// Transitional compatibility only: the old row IR does not yet retain box
-/// ownership, so backgrounded blank rows remain distinguishable from flow gaps.
-/// Remove this inference after all bubble padding is structurally lowered.
-fn has_background(row: &TranscriptRow) -> bool {
-    row.line.style.bg.is_some() || row.line.spans.iter().any(|span| span.style.bg.is_some())
 }
 
 fn drop_trailing_empty_row(rows: &mut Vec<TranscriptRow>) {
@@ -1363,6 +1407,21 @@ mod tests {
             .collect::<String>()
     }
 
+    /// Content text with trailing whitespace trimmed. A semantic full-width Box
+    /// paints its background into trailing space spans; this lets tests compare
+    /// content and background footprint without counting those decorative cells.
+    fn trimmed_text(line: &Line<'static>) -> String {
+        line_text(line).trim_end().to_string()
+    }
+
+    fn rendered_texts_trimmed(transcript: &TranscriptState) -> Vec<String> {
+        transcript
+            .uncommitted_rows()
+            .iter()
+            .map(trimmed_text)
+            .collect()
+    }
+
     fn text_segments(text: &str) -> Vec<AssistantSegment> {
         vec![AssistantSegment::Text(text.to_string())]
     }
@@ -1376,21 +1435,16 @@ mod tests {
     }
 
     #[test]
-    fn formatter_preserves_multiline_message_shape() {
+    fn user_message_formats_to_a_semantic_bubble() {
         let formatter = TuiFormatter::default();
         let item = TimelineItem::UserMessage {
             text: "line1\nline2\n".to_string(),
         };
 
-        let TranscriptPresentation::LegacyRows(lines) = formatter.format(&item) else {
-            panic!("user messages stay on the legacy presentation path")
-        };
-        let text_rows = lines
-            .iter()
-            .map(|row| line_text(&row.line))
-            .collect::<Vec<_>>();
-
-        assert_eq!(text_rows, vec!["", "line1", "line2", "", ""]);
+        assert!(
+            matches!(formatter.format(&item), TranscriptPresentation::View(_)),
+            "user messages are semantic views"
+        );
     }
 
     #[test]
@@ -1404,7 +1458,7 @@ mod tests {
         });
         user_error.ensure_render_cache(80);
         assert_eq!(
-            rendered_texts(&user_error),
+            rendered_texts_trimmed(&user_error),
             vec!["", "user", "", "", "error", ""]
         );
 
@@ -1417,7 +1471,7 @@ mod tests {
         });
         assistant_error.ensure_render_cache(80);
         assert_eq!(
-            rendered_texts(&assistant_error),
+            rendered_texts_trimmed(&assistant_error),
             vec!["", "  answer", "", "error", ""]
         );
 
@@ -1430,7 +1484,7 @@ mod tests {
         });
         error_user.ensure_render_cache(80);
         assert_eq!(
-            rendered_texts(&error_user),
+            rendered_texts_trimmed(&error_user),
             vec!["", "error", "", "", "user", "", ""]
         );
 
@@ -1439,7 +1493,7 @@ mod tests {
             text: "error".to_string(),
         });
         first_error.ensure_render_cache(80);
-        assert_eq!(rendered_texts(&first_error), vec!["", "error", ""]);
+        assert_eq!(rendered_texts_trimmed(&first_error), vec!["", "error", ""]);
     }
 
     #[test]
@@ -1638,7 +1692,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "fully committed transcript entry")]
+    #[should_panic(expected = "fully committed transcript unit")]
     fn committed_entry_mutation_panics_in_debug() {
         let mut transcript = TranscriptState::default();
         transcript.upsert_tool_call(
@@ -1891,13 +1945,20 @@ mod tests {
         // Rendered as one contiguous block with the shared bubble's bottom padding
         // kept as its own colored row, followed by a plain gap above the input:
         // [leading blank, a, b, c, bubble-bottom-blank, plain-gap].
+        // One structural semantic bubble owned by a Box: one top padding row of
+        // full-width background, then `a`/`b`/`c` with no blank between (column
+        // gap 0), one bottom padding row, then one plain composer gap. No state
+        // blank sits between messages.
         transcript.ensure_render_cache(80);
-        let texts: Vec<String> = transcript
+        let texts = rendered_texts_trimmed(&transcript);
+        assert_eq!(texts, vec!["", "a", "b", "c", "", ""]);
+        let bg_rows: Vec<bool> = transcript
             .uncommitted_rows()
             .iter()
-            .map(line_text)
+            .map(|r| r.style.bg.is_some() || r.spans.iter().any(|s| s.style.bg.is_some()))
             .collect();
-        assert_eq!(texts, vec!["", "a", "b", "c", "", ""]);
+        // Background fills rows 0..4 (bubble); the final plain gap is not.
+        assert_eq!(bg_rows, vec![true, true, true, true, true, false]);
     }
 
     #[test]
@@ -1916,11 +1977,7 @@ mod tests {
         });
 
         transcript.ensure_render_cache(80);
-        let texts: Vec<String> = transcript
-            .uncommitted_rows()
-            .iter()
-            .map(line_text)
-            .collect();
+        let texts = rendered_texts_trimmed(&transcript);
         // [\n, a, \n, \n, hi, \n, \n, b, \n, \n] — a and b are separated by the
         // assistant message. Each item keeps its own bubble padding (backgrounded
         // blank) and a plain separator is added between items; the trailing user
@@ -2026,7 +2083,7 @@ mod tests {
         // structure: [colored-blank, hello, colored-blank(bubble bottom), plain
         // separator, t, trailing-blank] — the bubble's padded bottom row stays part of
         // the bubble, and a fresh plain gap separates it from the agent message.
-        let texts: Vec<String> = rows.iter().map(line_text).collect();
+        let texts = rendered_texts_trimmed(&transcript);
         assert_eq!(texts, vec!["", "hello", "", "", "  t", ""]);
 
         // The bubble's bottom padding (rows[2]) must keep the background; the gap
@@ -2051,7 +2108,7 @@ mod tests {
 
         transcript.ensure_render_cache(80);
         let rows = transcript.uncommitted_rows();
-        let texts: Vec<String> = rows.iter().map(line_text).collect();
+        let texts = rendered_texts_trimmed(&transcript);
         // [colored-blank, hello, colored-blank(bubble bottom), plain gap]
         assert_eq!(texts, vec!["", "hello", "", ""]);
         assert!(
@@ -2169,5 +2226,205 @@ mod tests {
             let text: String = row.spans.iter().map(|s| s.content.as_ref()).collect();
             assert!(text.starts_with("  "), "row lost indent: {text:?}");
         }
+    }
+
+    fn has_bg(line: &Line<'static>) -> bool {
+        line.style.bg.is_some() || line.spans.iter().any(|s| s.style.bg.is_some())
+    }
+
+    fn user(messages: &[&str]) -> Vec<TimelineItem> {
+        messages
+            .iter()
+            .map(|text| TimelineItem::UserMessage {
+                text: text.to_string(),
+            })
+            .collect()
+    }
+
+    fn push_all(t: &mut TranscriptState, items: Vec<TimelineItem>) {
+        for item in items {
+            t.push_item(item);
+        }
+    }
+
+    #[test]
+    fn single_user_bubble_is_one_semantic_unit() {
+        let mut t = TranscriptState::default();
+        push_all(&mut t, user(&["hello"]));
+        t.ensure_render_cache(80);
+        assert_eq!(rendered_texts_trimmed(&t), vec!["", "hello", "", ""]);
+        // Full-width background on every bubble row; the final plain composer gap
+        // is not. Content stays at column 0 (no horizontal inset).
+        let bg: Vec<bool> = t.uncommitted_rows().iter().map(has_bg).collect();
+        assert_eq!(bg, vec![true, true, true, false]);
+        assert_eq!(
+            t.uncommitted_rows()[1]
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+                .trim_end(),
+            "hello"
+        );
+    }
+
+    #[test]
+    fn user_batch_then_assistant_has_one_flow_separator() {
+        let mut t = TranscriptState::default();
+        push_all(&mut t, user(&["a", "b"]));
+        t.push_item(TimelineItem::AssistantMessage {
+            segments: text_segments("hi"),
+        });
+        t.ensure_render_cache(80);
+        // bubble(top, a, b, bottom) + one plain flow gap + assistant(indent hi) +
+        // final composer gap.
+        assert_eq!(
+            rendered_texts_trimmed(&t),
+            vec!["", "a", "b", "", "", "  hi", ""]
+        );
+    }
+
+    #[test]
+    fn assistant_then_user_batch_has_one_flow_separator() {
+        let mut t = TranscriptState::default();
+        t.push_item(TimelineItem::AssistantMessage {
+            segments: text_segments("hi"),
+        });
+        push_all(&mut t, user(&["a", "b"]));
+        t.ensure_render_cache(80);
+        assert_eq!(
+            rendered_texts_trimmed(&t),
+            vec!["", "  hi", "", "", "a", "b", "", ""]
+        );
+    }
+
+    #[test]
+    fn user_batch_and_tool_have_one_flow_gap_each_way() {
+        // user batch -> finished tool call.
+        let mut t = TranscriptState::default();
+        push_all(&mut t, user(&["a", "b"]));
+        t.push_item(TimelineItem::ToolCall {
+            tool_call_id: "1".to_string(),
+            tool_name: "read".to_string(),
+            arguments: serde_json::Value::Null,
+            status: ToolTimelineStatus::Finished,
+        });
+        t.ensure_render_cache(80);
+        let texts = rendered_texts_trimmed(&t);
+        // bubble(top,a,b,bottom) + one gap + tool header + final gap.
+        assert_eq!(
+            texts,
+            vec!["", "a", "b", "", "", "● read ... — finished", ""]
+        );
+
+        // tool call -> user batch.
+        let mut t2 = TranscriptState::default();
+        t2.push_item(TimelineItem::ToolCall {
+            tool_call_id: "1".to_string(),
+            tool_name: "read".to_string(),
+            arguments: serde_json::Value::Null,
+            status: ToolTimelineStatus::Finished,
+        });
+        push_all(&mut t2, user(&["a", "b"]));
+        t2.ensure_render_cache(80);
+        let texts2 = rendered_texts_trimmed(&t2);
+        assert_eq!(
+            texts2,
+            vec!["● read ... — finished", "", "", "a", "b", "", ""]
+        );
+    }
+
+    #[test]
+    fn user_batch_and_error_have_one_flow_gap_each_way() {
+        let mut t = TranscriptState::default();
+        push_all(&mut t, user(&["a", "b"]));
+        t.push_item(TimelineItem::ErrorMessage {
+            text: "oops".to_string(),
+        });
+        t.ensure_render_cache(80);
+        assert_eq!(
+            rendered_texts_trimmed(&t),
+            vec!["", "a", "b", "", "", "oops", ""]
+        );
+
+        let mut t2 = TranscriptState::default();
+        t2.push_item(TimelineItem::ErrorMessage {
+            text: "oops".to_string(),
+        });
+        push_all(&mut t2, user(&["a", "b"]));
+        t2.ensure_render_cache(80);
+        assert_eq!(
+            rendered_texts_trimmed(&t2),
+            vec!["", "oops", "", "", "a", "b", "", ""]
+        );
+    }
+
+    #[test]
+    fn user_bubble_keeps_background_and_padding_at_all_widths() {
+        let message = "a fairly long user message that wraps at narrow widths";
+        for width in [80u16, 20, 8, 3, 1] {
+            let mut t = TranscriptState::default();
+            push_all(&mut t, user(&["a", message]));
+            t.ensure_render_cache(width);
+            let rows = t.uncommitted_rows();
+            assert!(rows.len() >= 4, "width {width}: got {}", rows.len());
+            // Top and bottom padding rows always carry the full background.
+            assert!(has_bg(&rows[0]), "width {width} top padding lost bg");
+            assert!(
+                has_bg(&rows[rows.len() - 2]),
+                "width {width} bottom lost bg"
+            );
+            // The final row is the plain composer gap, never backgrounded.
+            assert!(!has_bg(rows.last().unwrap()), "width {width} gap had bg");
+            // a and message occupy distinct rows (gap 0 inside the bubble). Wrapping
+            // may split the long message across rows, so assert the concatenated
+            // content preserves it rather than any single row.
+            let texts: Vec<String> = rows.iter().map(line_text).collect();
+            assert!(texts.iter().any(|t| t.trim_end() == "a"));
+            let joined: String = texts.concat();
+            assert!(
+                joined.replace(' ', "").contains("afairlylong"),
+                "width {width}: message lost during wrap: {joined:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn user_batch_partial_commit_freezes_tail_on_resize() {
+        let mut t = TranscriptState::default();
+        push_all(&mut t, user(&["line0", "line1", "line2", "line3"]));
+        t.ensure_render_cache(20);
+        let original = t.uncommitted_rows().to_vec();
+
+        // Partially commit the first two rows (top padding + line0).
+        let committed = 2;
+        t.mark_rows_committed(committed);
+        let frozen_tail = &original[committed..original.len() - 1];
+
+        t.ensure_render_cache(80);
+        let now = t.uncommitted_rows();
+        // Committed rows do not return; the remaining bubble rows stay frozen; only
+        // the final provisional composer gap is rebuilt.
+        assert!(now.len() >= frozen_tail.len());
+        assert_eq!(
+            &now[..frozen_tail.len()],
+            frozen_tail,
+            "frozen user-batch tail must survive resize"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "attempted to extend user batch")]
+    fn extending_user_batch_after_commit_is_rejected() {
+        let mut t = TranscriptState::default();
+        push_all(&mut t, user(&["a"]));
+        t.ensure_render_cache(80);
+        let count = t.committable_len();
+        t.mark_rows_committed(count);
+        // Appending a consecutive user message tries to grow an already-committed
+        // batch; in a debug build this must be rejected.
+        t.push_item(TimelineItem::UserMessage {
+            text: "b".to_string(),
+        });
     }
 }
