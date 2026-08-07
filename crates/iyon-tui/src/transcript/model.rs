@@ -11,7 +11,7 @@ use crate::{
     tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput},
     transcript::{
         markdown,
-        markdown::RenderedRow,
+        markdown::{RenderedRow, assistant_document_view, parse_assistant},
         row::TranscriptRow,
         wrap::{TranscriptCommitBoundary, wrap_transcript_rows},
     },
@@ -156,8 +156,13 @@ pub(crate) enum ToolTimelineStatus {
 
 #[derive(Debug, Clone)]
 pub(crate) enum TranscriptPresentation {
-    LegacyRows(Vec<TranscriptRow>),
     View(View),
+
+    /// INTERNAL ASSISTANT STREAM SEMANTICS.
+    ///
+    /// Source-backed compatibility representation used only while an assistant unit
+    /// requires the legacy source/commit mapping.
+    SourceBackedAssistantRows(Vec<TranscriptRow>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -222,7 +227,8 @@ impl TuiFormatter {
                 TranscriptPresentation::View(Self::user_batch_view(std::slice::from_ref(text)))
             }
             TimelineItem::AssistantMessage { segments } => {
-                TranscriptPresentation::LegacyRows(self.format_assistant_message(segments, true))
+                let doc = parse_assistant(segments);
+                TranscriptPresentation::View(assistant_document_view(&doc, false))
             }
             TimelineItem::ErrorMessage { text } => {
                 TranscriptPresentation::View(self.format_error_message(text, false))
@@ -787,16 +793,25 @@ impl TranscriptState {
             }
 
             let item = &self.canonical_items[index];
+            let is_open = open_assistant_idx == Some(index);
+            let source_backed_started = self.has_source_backed_partial(self.entry_ids[index]);
             let presentation = match item {
-                TimelineItem::AssistantMessage { segments }
-                    if open_assistant_idx == Some(index) =>
-                {
-                    let mut rows = self.formatter.format_assistant_message(segments, false);
-                    // INTERNAL ASSISTANT STREAM SEMANTICS.
-                    // The live pane owns the moving bottom margin while this
-                    // presentation is open.
-                    drop_trailing_empty_row(&mut rows);
-                    TranscriptPresentation::LegacyRows(rows)
+                TimelineItem::AssistantMessage { segments } => {
+                    if is_open {
+                        let mut rows = self.formatter.format_assistant_message(segments, false);
+                        // INTERNAL ASSISTANT STREAM SEMANTICS.
+                        // The live pane owns the moving bottom margin while this
+                        // presentation is open.
+                        drop_trailing_empty_row(&mut rows);
+                        TranscriptPresentation::SourceBackedAssistantRows(rows)
+                    } else if source_backed_started {
+                        let rows = self.formatter.format_assistant_message(segments, true);
+                        TranscriptPresentation::SourceBackedAssistantRows(rows)
+                    } else {
+                        let doc = parse_assistant(segments);
+                        let view = assistant_document_view(&doc, index == 0);
+                        TranscriptPresentation::View(view)
+                    }
                 }
                 TimelineItem::ErrorMessage { text } => TranscriptPresentation::View(
                     self.formatter.format_error_message(text, index == 0),
@@ -842,6 +857,13 @@ impl TranscriptState {
             index += 1;
         }
         self.invalidate_render_cache();
+    }
+
+    fn has_source_backed_partial(&self, unit_id: TranscriptUnitId) -> bool {
+        matches!(
+            self.commit_state.partial.as_ref(),
+            Some(PartialCommit::Legacy { entry_id, .. }) if *entry_id == unit_id
+        )
     }
 
     fn invalidate_render_cache(&mut self) {
@@ -912,7 +934,7 @@ impl TranscriptState {
             let content_start = rows.len();
             let mut entry_committable_prefix = 0;
             match &unit.presentation {
-                TranscriptPresentation::LegacyRows(logical_rows) => {
+                TranscriptPresentation::SourceBackedAssistantRows(logical_rows) => {
                     let mut logical_rows = logical_rows.clone();
                     if unit_index > 0 {
                         trim_plain_leading_legacy(&mut logical_rows);
@@ -1619,12 +1641,10 @@ mod tests {
         // width 6 minus outer margins (2+2) = content width 2.
         transcript.ensure_render_cache(6);
 
-        let rows = transcript
-            .uncommitted_rows()
-            .iter()
-            .map(line_text)
-            .collect::<Vec<_>>();
-        assert_eq!(rows, ["", "  ab", "  cd", "  ef", ""]);
+        assert_eq!(
+            rendered_texts_trimmed(&transcript),
+            ["", "  ab", "  cd", "  ef", ""]
+        );
     }
 
     #[test]
@@ -1745,6 +1765,102 @@ mod tests {
     }
 
     #[test]
+    fn open_assistant_zero_committed_prefix_finalizes_to_view_without_jump() {
+        let mut transcript = TranscriptState::default();
+        transcript.append_assistant_stream_fragment(vec![AssistantSegment::Text(
+            "Hello world".to_string(),
+        )]);
+        transcript.ensure_render_cache(80);
+
+        // Before finalization: open stream on SourceBackedAssistantRows.
+        assert!(matches!(
+            transcript.presentation_cache[0].presentation,
+            TranscriptPresentation::SourceBackedAssistantRows(_)
+        ));
+
+        // Finish the stream without committing anything.
+        transcript.finish_assistant_stream();
+        transcript.ensure_render_cache(80);
+
+        // After finalization: switches cleanly to View.
+        assert!(matches!(
+            transcript.presentation_cache[0].presentation,
+            TranscriptPresentation::View(_)
+        ));
+
+        let uncommitted = rendered_texts_trimmed(&transcript);
+        assert_eq!(uncommitted, vec!["", "  Hello world", ""]);
+    }
+
+    #[test]
+    fn open_assistant_with_committed_prefix_stays_pinned_to_source_backed_and_emits_once() {
+        let mut transcript = TranscriptState::default();
+        transcript.append_assistant_stream_fragment(vec![AssistantSegment::Text(
+            "Row 1\nRow 2\nRow 3".to_string(),
+        )]);
+        transcript.ensure_render_cache(80);
+
+        // Commit part of the stream (e.g. leading flow gap + Row 1).
+        transcript.mark_rows_committed(2);
+        transcript.ensure_render_cache(80);
+
+        // Seal the stream.
+        transcript.finish_assistant_stream();
+        transcript.ensure_render_cache(80);
+
+        // Unit stays pinned to SourceBackedAssistantRows.
+        assert!(matches!(
+            transcript.presentation_cache[0].presentation,
+            TranscriptPresentation::SourceBackedAssistantRows(_)
+        ));
+        assert!(matches!(
+            transcript.commit_state.partial,
+            Some(PartialCommit::Legacy { .. })
+        ));
+
+        let uncommitted = rendered_texts_trimmed(&transcript);
+        assert!(!uncommitted.iter().any(|s| s.contains("Row 1")));
+        assert!(uncommitted.iter().any(|s| s.contains("Row 2")));
+        assert!(uncommitted.iter().any(|s| s.contains("Row 3")));
+
+        // Commit remaining rows.
+        let remaining_committable = transcript.committable_len();
+        transcript.mark_rows_committed(remaining_committable);
+        transcript.ensure_render_cache(80);
+
+        assert_eq!(transcript.commit_state.completed_prefix, 1);
+        assert!(transcript.commit_state.partial.is_none());
+    }
+
+    #[test]
+    fn finalized_pinned_legacy_assistant_followed_by_user_message_has_one_flow_gap() {
+        let mut transcript = TranscriptState::default();
+        transcript.append_assistant_stream_fragment(vec![AssistantSegment::Text(
+            "Long assistant line 1\nLong assistant line 2".to_string(),
+        )]);
+        transcript.ensure_render_cache(80);
+
+        // Commit prefix.
+        transcript.mark_rows_committed(2);
+        transcript.ensure_render_cache(80);
+
+        // Finalize stream and append a User message.
+        transcript.finish_assistant_stream();
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "Next prompt".to_string(),
+        });
+        transcript.ensure_render_cache(80);
+
+        let texts = rendered_texts_trimmed(&transcript);
+        // Ensure there is no duplicated legacy trailing blank, exactly one flow gap before user message:
+        // [assistant last row, single flow gap, user bubble top padding, user message, user bubble bottom padding, display blank]
+        assert_eq!(
+            texts,
+            vec!["  Long assistant line 2", "", "", "Next prompt", "", ""]
+        );
+    }
+
+    #[test]
     fn commit_boundary_survives_resize_after_partial_line_commit() {
         let mut transcript = TranscriptState::default();
         transcript.push_item(TimelineItem::AssistantMessage {
@@ -1753,17 +1869,10 @@ mod tests {
 
         transcript.ensure_render_cache(6);
         transcript.mark_rows_committed(2);
-        transcript.ensure_render_cache(6);
-
-        let rows = transcript
-            .uncommitted_rows()
-            .iter()
-            .map(line_text)
-            .collect::<Vec<_>>();
         // After committing the first two physical rows (blank + "  ab"), the
         // boundary lands after "ab"; the remaining content re-wraps at width 6
         // (content width 2) as "cd" / "ef" plus the trailing blank.
-        assert_eq!(rows, ["  cd", "  ef", ""]);
+        assert_eq!(rendered_texts_trimmed(&transcript), ["  cd", "  ef", ""]);
     }
 
     #[test]
