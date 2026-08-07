@@ -35,16 +35,6 @@ impl View {
         }
     }
 
-    pub(crate) fn markdown(source: impl Into<String>, style: StyleSpec) -> Self {
-        Self {
-            width: WidthRule::Fill,
-            kind: ViewKind::Markdown(MarkdownView {
-                source: source.into(),
-                style,
-            }),
-        }
-    }
-
     pub(crate) fn column(children: Vec<View>, gap: u16) -> Self {
         Self {
             width: WidthRule::Fit,
@@ -125,7 +115,6 @@ impl View {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ViewKind {
     Text(TextView),
-    Markdown(MarkdownView),
     Column(ColumnView),
     Row(RowView),
     Box(BoxView),
@@ -206,13 +195,6 @@ pub(crate) enum HorizontalAlign {
     Start,
     Center,
     End,
-}
-
-/// FEATURE EXTENSION API. Markdown source accepted by the existing Markdown renderer.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct MarkdownView {
-    pub(crate) source: String,
-    pub(crate) style: StyleSpec,
 }
 
 /// FEATURE EXTENSION API. Vertical composition. The parent owns sibling gaps.

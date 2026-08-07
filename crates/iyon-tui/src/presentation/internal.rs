@@ -11,9 +11,9 @@ use ratatui::{
 
 use crate::{
     presentation::api::{
-        BorderStyle, BoxView, ColorSpec, ColumnView, Decoration, HorizontalAlign, MarkdownView,
-        RowView, StyleSpec, TextAttributes, TextSpan, TextView, TrackSize, VerticalAlign, View,
-        ViewKind, WidthRule, WrapMode,
+        BorderStyle, BoxView, ColorSpec, ColumnView, Decoration, HorizontalAlign, RowView,
+        StyleSpec, TextAttributes, TextSpan, TextView, TrackSize, VerticalAlign, View, ViewKind,
+        WidthRule,
     },
     theme,
 };
@@ -129,9 +129,6 @@ impl ViewCompiler {
     fn layout(&self, view: &View, max_width: u16, inherited: Style) -> Surface {
         match &view.kind {
             ViewKind::Text(text) => self.layout_text(view.width, text, max_width, inherited),
-            ViewKind::Markdown(markdown) => {
-                self.layout_markdown(view.width, markdown, max_width, inherited)
-            }
             ViewKind::Column(column) => {
                 self.layout_column(view.width, column, max_width, inherited)
             }
@@ -205,29 +202,6 @@ impl ViewCompiler {
             }
         }
         surface
-    }
-
-    fn layout_markdown(
-        &self,
-        width_rule: WidthRule,
-        markdown: &MarkdownView,
-        max_width: u16,
-        inherited: Style,
-    ) -> Surface {
-        // INCOMPLETE COMPATIBILITY PATH.
-        //
-        // The assistant's existing Markdown renderer remains authoritative because
-        // it carries source/freeze metadata. No migrated feature should use this
-        // generic Markdown adapter until that metadata-preserving adapter exists.
-        let text = TextView {
-            spans: vec![TextSpan {
-                text: markdown.source.clone(),
-                style: markdown.style.clone(),
-            }],
-            wrap: WrapMode::WordThenGrapheme,
-            align: HorizontalAlign::Start,
-        };
-        self.layout_text(width_rule, &text, max_width, inherited)
     }
 
     fn layout_column(
