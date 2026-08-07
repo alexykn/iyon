@@ -89,8 +89,6 @@ pub(crate) struct RowLayout {
     pub outer: Insets,
     pub nesting_depth: usize,
     pub marker: Option<Marker>,
-    /// Generic leading track lowered from a semantic horizontal row.
-    pub prefix: Option<String>,
     /// How many gutter columns are reserved for a marker, regardless of whether
     /// one is rendered. When `marker` is `Some`, this equals the marker's width
     /// (kept in sync by constructors); when `None` it reserves blank gutter so
@@ -106,7 +104,6 @@ impl RowLayout {
             outer: Insets::ZERO,
             nesting_depth: 0,
             marker: None,
-            prefix: None,
             marker_gutter_width: 0,
         }
     }
@@ -117,7 +114,6 @@ impl RowLayout {
             outer: Insets::symmetric(OUTER_MARGIN),
             nesting_depth: 0,
             marker: None,
-            prefix: None,
             marker_gutter_width: 0,
         }
     }
@@ -190,7 +186,6 @@ impl TranscriptRow {
                 outer: Insets::symmetric(OUTER_MARGIN),
                 nesting_depth: 0,
                 marker: Some(marker.clone()),
-                prefix: None,
                 marker_gutter_width: marker.width(),
             },
         }
@@ -208,7 +203,6 @@ impl TranscriptRow {
                 outer: Insets::symmetric(OUTER_MARGIN),
                 nesting_depth: 0,
                 marker: None,
-                prefix: None,
                 marker_gutter_width: gutter,
             },
         }
@@ -224,7 +218,6 @@ impl TranscriptRow {
                 outer: Insets::symmetric(OUTER_MARGIN),
                 nesting_depth: depth,
                 marker: Some(marker.clone()),
-                prefix: None,
                 marker_gutter_width: marker.width(),
             },
         }
@@ -247,7 +240,6 @@ impl TranscriptRow {
                 outer: Insets::symmetric(OUTER_MARGIN),
                 nesting_depth: depth,
                 marker: Some(marker.clone()),
-                prefix: None,
                 marker_gutter_width: marker.width(),
             },
         }
@@ -276,12 +268,7 @@ pub(crate) fn compute_indent(layout: &RowLayout, viewport_width: usize) -> Compu
 
     // The marker area: rendered marker text if a marker is present, plus any
     // reserved (blank) gutter when it is not (tool results align under tool calls).
-    let marker_text = layout
-        .marker
-        .as_ref()
-        .map(Marker::text)
-        .or_else(|| layout.prefix.clone())
-        .unwrap_or_default();
+    let marker_text = layout.marker.as_ref().map(Marker::text).unwrap_or_default();
     let reserved_gutter = layout.marker_gutter_width.max(marker_text.width());
 
     // First line: outer margin + nesting + marker, padded so content lands at the

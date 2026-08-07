@@ -89,6 +89,10 @@ impl ScrollbackCoordinator {
         }
 
         let overflow = uncommitted_len - commit_capacity_rows;
+        let overflow = overflow.min(transcript.committable_len());
+        if overflow == 0 {
+            return Ok(());
+        }
         let rows = transcript.uncommitted_rows()[..overflow].to_vec();
         let outcome = self.commit_rows_lossless(terminal, &rows)?;
         transcript.mark_rows_committed(outcome.inserted);
@@ -106,7 +110,12 @@ impl ScrollbackCoordinator {
             return Ok(FlushResult::Done);
         }
 
-        let chunk_len = uncommitted_len.min(max_rows);
+        let chunk_len = uncommitted_len
+            .min(max_rows)
+            .min(transcript.committable_len());
+        if chunk_len == 0 {
+            return Ok(FlushResult::Blocked);
+        }
         let rows = transcript.uncommitted_rows()[..chunk_len].to_vec();
         let outcome = self.commit_rows_lossless(terminal, &rows)?;
         transcript.mark_rows_committed(outcome.inserted);

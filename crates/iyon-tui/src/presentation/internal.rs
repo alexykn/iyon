@@ -793,7 +793,7 @@ impl ThemeResolver {
                 "text.muted" | "surface.default" => theme::muted().fg.unwrap_or(Color::Reset),
                 "tool.running" => theme::tool_running().fg.unwrap_or(Color::Reset),
                 "tool.finished" => theme::tool_finished().fg.unwrap_or(Color::Reset),
-                "tool.error" => theme::tool_error().fg.unwrap_or(Color::Red),
+                "tool.error" | "text.error" => theme::tool_error().fg.unwrap_or(Color::Red),
                 "text.warning" => Color::Yellow,
                 _ => Color::Reset,
             },

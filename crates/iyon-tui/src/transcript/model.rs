@@ -160,6 +160,22 @@ pub(crate) enum TranscriptPresentation {
     View(View),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct TranscriptId(u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EntryLifecycle {
+    Open,
+    Sealed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EntryCommitMode {
+    Sealed,
+    SourceBackedAppendOnly,
+    Blocked,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EntryRelation {
     Separate,
@@ -168,9 +184,12 @@ pub(crate) enum EntryRelation {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TranscriptEntry {
+    pub(crate) id: TranscriptId,
     pub(crate) presentation: TranscriptPresentation,
     pub(crate) relation: EntryRelation,
     pub(crate) truncation: Truncation,
+    pub(crate) lifecycle: EntryLifecycle,
+    commit_mode: EntryCommitMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,9 +216,9 @@ impl TuiFormatter {
             TimelineItem::AssistantMessage { segments } => {
                 TranscriptPresentation::LegacyRows(self.format_assistant_message(segments, true))
             }
-            TimelineItem::ErrorMessage { text } => TranscriptPresentation::LegacyRows(
-                self.format_text_message(text, Style::default().fg(Color::Red), true),
-            ),
+            TimelineItem::ErrorMessage { text } => {
+                TranscriptPresentation::View(self.format_error_message(text, false))
+            }
             TimelineItem::ToolCall {
                 tool_name,
                 arguments,
@@ -252,6 +271,22 @@ impl TuiFormatter {
             .into_iter()
             .map(|rr| rr.row)
             .collect()
+    }
+
+    fn format_error_message(&self, text: &str, leading_spacer: bool) -> View {
+        let body = View::text(text)
+            .width(crate::presentation::WidthRule::Fill)
+            .style(crate::presentation::StyleSpec {
+                foreground: Some(crate::presentation::ColorSpec::Theme(
+                    crate::presentation::ThemeKey::from("text.error"),
+                )),
+                ..crate::presentation::StyleSpec::default()
+            });
+        if leading_spacer {
+            View::column(vec![View::spacer(1), body], 0)
+        } else {
+            body
+        }
     }
 
     fn format_tool_call(
@@ -370,9 +405,11 @@ fn truncation_footer_style() -> Style {
 #[derive(Debug, Clone)]
 pub(crate) struct TranscriptState {
     canonical_items: Vec<TimelineItem>,
+    entry_ids: Vec<TranscriptId>,
+    next_id: u64,
     presentation_cache: Vec<TranscriptEntry>,
     rendered_rows_cache: Option<TranscriptRenderCache>,
-    commit_boundary: TranscriptCommitBoundary,
+    commit_state: TranscriptCommitState,
     formatter: TuiFormatter,
     assistant_stream_open: bool,
 }
@@ -381,9 +418,11 @@ impl Default for TranscriptState {
     fn default() -> Self {
         Self {
             canonical_items: Vec::new(),
+            entry_ids: Vec::new(),
+            next_id: 0,
             presentation_cache: Vec::new(),
             rendered_rows_cache: None,
-            commit_boundary: TranscriptCommitBoundary::default(),
+            commit_state: TranscriptCommitState::default(),
             formatter: TuiFormatter::default(),
             assistant_stream_open: false,
         }
@@ -394,7 +433,44 @@ impl TranscriptState {
     pub(crate) fn push_item(&mut self, item: TimelineItem) {
         self.assistant_stream_open = false;
         self.canonical_items.push(item);
+        let id = self.allocate_id();
+        self.entry_ids.push(id);
         self.rebuild_presentation_cache();
+    }
+
+    fn allocate_id(&mut self) -> TranscriptId {
+        let id = TranscriptId(self.next_id);
+        self.next_id = self.next_id.saturating_add(1);
+        id
+    }
+
+    fn assert_mutable(&self, index: usize) {
+        let id = self.entry_ids[index];
+        debug_assert!(
+            index >= self.commit_state.completed_prefix,
+            "attempted to mutate fully committed transcript entry {id:?}"
+        );
+        if let Some(partial) = &self.commit_state.partial {
+            debug_assert_ne!(
+                partial.entry_id(),
+                id,
+                "attempted to mutate partially committed transcript entry {id:?}"
+            );
+        }
+    }
+
+    fn assert_stream_appendable(&self, index: usize) {
+        let id = self.entry_ids[index];
+        debug_assert!(
+            index >= self.commit_state.completed_prefix,
+            "attempted to append after a completed transcript prefix"
+        );
+        if let Some(partial) = &self.commit_state.partial {
+            debug_assert!(
+                matches!(partial, PartialCommit::Legacy { entry_id, .. } if *entry_id == id),
+                "committed open stream must retain a source-backed cursor"
+            );
+        }
     }
 
     pub(crate) fn upsert_tool_call(
@@ -405,6 +481,15 @@ impl TranscriptState {
         status: ToolTimelineStatus,
     ) {
         self.assistant_stream_open = false;
+        let existing_index = self.canonical_items.iter().position(|item| {
+            matches!(
+                item,
+                TimelineItem::ToolCall { tool_call_id: existing, .. } if existing == &tool_call_id
+            )
+        });
+        if let Some(index) = existing_index {
+            self.assert_mutable(index);
+        }
         if let Some(TimelineItem::ToolCall {
             tool_name: existing_name,
             arguments: existing_arguments,
@@ -428,6 +513,8 @@ impl TranscriptState {
                 arguments,
                 status,
             });
+            let id = self.allocate_id();
+            self.entry_ids.push(id);
         }
         self.rebuild_presentation_cache();
     }
@@ -438,6 +525,15 @@ impl TranscriptState {
         tool_name: String,
         status: ToolTimelineStatus,
     ) {
+        let existing_index = self.canonical_items.iter().position(|item| {
+            matches!(
+                item,
+                TimelineItem::ToolCall { tool_call_id: existing, .. } if existing == &tool_call_id
+            )
+        });
+        if let Some(index) = existing_index {
+            self.assert_mutable(index);
+        }
         if let Some(TimelineItem::ToolCall {
             tool_name: existing_name,
             status: existing_status,
@@ -462,6 +558,15 @@ impl TranscriptState {
         } else {
             ToolTimelineStatus::Finished
         };
+        let existing_index = self.canonical_items.iter().position(|item| {
+            matches!(
+                item,
+                TimelineItem::ToolCall { tool_call_id: existing, .. } if existing == tool_call_id
+            )
+        });
+        if let Some(index) = existing_index {
+            self.assert_mutable(index);
+        }
         if let Some(TimelineItem::ToolCall {
             status: existing_status,
             ..
@@ -493,6 +598,8 @@ impl TranscriptState {
             is_error,
             collapsed: true,
         });
+        let id = self.allocate_id();
+        self.entry_ids.push(id);
         self.rebuild_presentation_cache();
     }
 
@@ -522,6 +629,19 @@ impl TranscriptState {
             return;
         }
 
+        let last_index = self.canonical_items.len().checked_sub(1);
+        if let Some(index) = last_index
+            && matches!(
+                self.canonical_items[index],
+                TimelineItem::AssistantMessage { .. }
+            )
+        {
+            if self.assistant_stream_open || self.commit_state.partial.is_some() {
+                self.assert_stream_appendable(index);
+            } else {
+                self.assert_mutable(index);
+            }
+        }
         match self.canonical_items.last_mut() {
             Some(TimelineItem::AssistantMessage { segments }) => {
                 for segment in incoming {
@@ -538,6 +658,8 @@ impl TranscriptState {
                 }
                 self.canonical_items
                     .push(TimelineItem::AssistantMessage { segments });
+                let id = self.allocate_id();
+                self.entry_ids.push(id);
             }
         }
         self.assistant_stream_open = stream_open;
@@ -569,6 +691,9 @@ impl TranscriptState {
                     drop_trailing_empty_row(&mut rows);
                     TranscriptPresentation::LegacyRows(rows)
                 }
+                TimelineItem::ErrorMessage { text } => TranscriptPresentation::View(
+                    self.formatter.format_error_message(text, idx == 0),
+                ),
                 _ => self.formatter.format(item),
             };
 
@@ -606,9 +731,12 @@ impl TranscriptState {
                 _ => Truncation::None,
             };
             self.presentation_cache.push(TranscriptEntry {
+                id: self.entry_ids[idx],
                 presentation,
                 relation,
                 truncation,
+                lifecycle: entry_lifecycle(item, open_assistant_idx == Some(idx)),
+                commit_mode: entry_commit_mode(item, open_assistant_idx == Some(idx)),
             });
         }
         self.invalidate_render_cache();
@@ -622,63 +750,38 @@ impl TranscriptState {
         }
     }
 
-    fn all_presentations_are_legacy(&self) -> bool {
-        self.presentation_cache
-            .iter()
-            .all(|entry| matches!(entry.presentation, TranscriptPresentation::LegacyRows(_)))
-    }
-
-    /// INTERNAL PRESENTATION MECHANICS.
+    /// Width-aware bridge for mixed legacy/semantic entries.
     ///
-    /// Compatibility assembly for the all-legacy path. It retains the old
-    /// background-blank ownership rule only until the final legacy entry is
-    /// migrated to semantic boxes.
-    fn legacy_rows_for_render(&self) -> Vec<TranscriptRow> {
-        let mut rows = Vec::new();
-        for entry in &self.presentation_cache {
-            let TranscriptPresentation::LegacyRows(mut entry_rows) = entry.presentation.clone()
-            else {
-                continue;
-            };
-
-            if rows.is_empty() {
-                rows.extend(entry_rows);
-                continue;
-            }
-
-            if entry.relation == EntryRelation::AttachPrevious {
-                // Consecutive legacy user bubbles fuse: remove each padding row
-                // at the junction, then retain the current body's rows.
-                rows.pop();
-                if !entry_rows.is_empty() {
-                    entry_rows.remove(0);
-                }
-                rows.extend(entry_rows);
-                continue;
-            }
-
-            trim_plain_trailing_legacy(&mut rows);
-            trim_plain_leading_legacy(&mut entry_rows);
-            rows.push(TranscriptRow::blank());
-            rows.extend(entry_rows);
-        }
-
-        trim_plain_trailing_legacy(&mut rows);
-        if !rows.is_empty() {
-            rows.push(TranscriptRow::blank());
-        }
-        rows
-    }
-
-    /// Width-aware bridge for mixed legacy/semantic entries. Legacy rows are
-    /// wrapped here; semantic views are compiled once at this actual width.
-    fn mixed_render(&self, width: u16, committed_rows: usize) -> TranscriptRenderCache {
+    /// Every range owns its parent separator. Semantic ranges can therefore be
+    /// frozen as a complete physical unit when native history starts consuming
+    /// them; no later resize needs to skip a stale global row count.
+    fn mixed_render(&self, width: u16) -> TranscriptRenderCache {
         let mut rows = Vec::new();
         let mut row_end_boundaries = Vec::new();
         let mut ranges = Vec::new();
         let mut previous_legacy_range: Option<usize> = None;
+        let start_entry = self.commit_state.completed_prefix;
+        let partial = self.commit_state.partial.as_ref();
 
-        for (entry_index, entry) in self.presentation_cache.iter().enumerate() {
+        for (entry_index, entry) in self.presentation_cache.iter().enumerate().skip(start_entry) {
+            let partial_for_entry = (entry_index == start_entry).then(|| partial);
+            let semantic_frozen = matches!(
+                partial_for_entry.flatten(),
+                Some(PartialCommit::Semantic { entry_id, .. }) if *entry_id == entry.id
+            );
+            let legacy_gap_committed = matches!(
+                partial_for_entry.flatten(),
+                Some(PartialCommit::Legacy {
+                    entry_id,
+                    leading_gap_committed: true,
+                    ..
+                }) if *entry_id == entry.id
+            );
+
+            // `Separate` owns its leading flow gap. A frozen semantic unit already
+            // contains that gap, so it must not be emitted twice. Relationship
+            // assembly happens before the range starts so the range owns exactly
+            // the rows that follow the preceding unit.
             if entry.relation == EntryRelation::Separate {
                 if let Some(previous_range) = previous_legacy_range {
                     trim_plain_trailing_physical(
@@ -688,23 +791,31 @@ impl TranscriptState {
                         previous_range,
                     );
                 }
-                if !rows.is_empty() {
-                    rows.push(Line::from(""));
-                    row_end_boundaries.push(None);
+            } else if entry.relation == EntryRelation::AttachPrevious {
+                if let Some(previous_range) = previous_legacy_range {
+                    // Consecutive legacy user bubbles fuse: remove the previous
+                    // bubble's bottom padding and the current entry's leading
+                    // padding, while preserving the final bubble padding.
+                    truncate_last_entry_row(
+                        &mut rows,
+                        &mut row_end_boundaries,
+                        &mut ranges,
+                        previous_range,
+                    );
                 }
-            } else if let Some(previous_range) = previous_legacy_range {
-                // The only legacy AttachPrevious relation during this phase is
-                // consecutive user content. Remove the previous bubble's final
-                // padding row and the current leading padding row below.
-                truncate_last_entry_row(
-                    &mut rows,
-                    &mut row_end_boundaries,
-                    &mut ranges,
-                    previous_range,
-                );
             }
 
             let start = rows.len();
+            if entry.relation == EntryRelation::Separate
+                && entry_index > 0
+                && !semantic_frozen
+                && !legacy_gap_committed
+            {
+                rows.push(Line::from(""));
+                row_end_boundaries.push(None);
+            }
+            let leading_flow_rows = rows.len().saturating_sub(start);
+            let content_start = rows.len();
             match &entry.presentation {
                 TranscriptPresentation::LegacyRows(logical_rows) => {
                     let mut logical_rows = logical_rows.clone();
@@ -713,80 +824,111 @@ impl TranscriptState {
                     } else if entry_index > 0 {
                         trim_plain_leading_legacy(&mut logical_rows);
                     }
-                    let wrapped = wrap_transcript_rows(
-                        width.max(1),
-                        &logical_rows,
-                        TranscriptCommitBoundary::default(),
-                    );
+
+                    let boundary = match partial_for_entry.flatten() {
+                        Some(PartialCommit::Legacy {
+                            entry_id, boundary, ..
+                        }) if *entry_id == entry.id => *boundary,
+                        _ => TranscriptCommitBoundary::default(),
+                    };
+                    let wrapped = wrap_transcript_rows(width, &logical_rows, boundary);
                     rows.extend(wrapped.rows);
                     row_end_boundaries.extend(wrapped.row_end_boundaries.into_iter().map(Some));
                     previous_legacy_range = Some(ranges.len());
                 }
                 TranscriptPresentation::View(view) => {
-                    let mut block = compile_view(view, width.max(1));
-                    if entry.truncation == Truncation::Call {
-                        block.rows =
-                            truncate_view_rows(block.rows, DISPLAY_CALL_MAX_LINES + 1, true);
-                    } else if entry.truncation == Truncation::Result {
-                        block.rows = truncate_view_rows(block.rows, DISPLAY_MAX_LINES, false);
+                    if let Some(PartialCommit::Semantic {
+                        entry_id,
+                        rows: frozen_rows,
+                        committed_rows,
+                    }) = partial_for_entry.flatten()
+                    {
+                        debug_assert_eq!(*entry_id, entry.id);
+                        rows.extend(frozen_rows.iter().skip(*committed_rows).cloned());
+                        row_end_boundaries.extend(std::iter::repeat_n(
+                            None,
+                            rows.len().saturating_sub(content_start),
+                        ));
+                    } else {
+                        let mut block = compile_view(view, width);
+                        if entry.truncation == Truncation::Call {
+                            block.rows =
+                                truncate_view_rows(block.rows, DISPLAY_CALL_MAX_LINES + 1, true);
+                        } else if entry.truncation == Truncation::Result {
+                            block.rows = truncate_view_rows(block.rows, DISPLAY_MAX_LINES, false);
+                        }
+                        rows.extend(block.rows);
+                        row_end_boundaries.extend(std::iter::repeat_n(
+                            None,
+                            rows.len().saturating_sub(content_start),
+                        ));
                     }
-                    rows.extend(block.rows);
-                    row_end_boundaries.extend(std::iter::repeat_n(None, rows.len() - start));
                     previous_legacy_range = None;
                 }
             }
+
             ranges.push(RenderedEntryRange {
                 entry_index,
+                id: entry.id,
+                lifecycle: entry.lifecycle,
+                commit_mode: entry.commit_mode,
+                semantic: matches!(entry.presentation, TranscriptPresentation::View(_)),
                 rows: start..rows.len(),
+                leading_flow_rows,
             });
         }
 
+        // Trimming is only applied to rows that are still provisional. The final
+        // blank below is display state and deliberately has no owning range, so it
+        // can never be committed into native history.
         trim_plain_trailing_physical_all(&mut rows, &mut row_end_boundaries, &mut ranges);
+        let mut committable_rows = 0;
+        for range in &ranges {
+            match range.commit_mode {
+                EntryCommitMode::Sealed | EntryCommitMode::SourceBackedAppendOnly => {
+                    committable_rows = range.rows.end;
+                }
+                EntryCommitMode::Blocked => break,
+            }
+        }
         if !rows.is_empty() {
             rows.push(Line::from(""));
             row_end_boundaries.push(None);
         }
 
-        let committed_rows = committed_rows.min(rows.len());
         TranscriptRenderCache {
             width,
-            rows: rows.into_iter().skip(committed_rows).collect(),
-            row_end_boundaries: row_end_boundaries
-                .into_iter()
-                .skip(committed_rows)
-                .collect(),
+            rows,
+            row_end_boundaries,
             ranges,
-            committed_rows,
+            committable_rows,
         }
     }
 
     pub(crate) fn ensure_render_cache(&mut self, width: u16) {
         let width = width.max(1);
-        let should_recompute = match self.rendered_rows_cache.as_ref() {
-            Some(cache) => cache.width != width,
-            None => true,
-        };
-
-        if !should_recompute {
-            return;
-        }
-
-        let committed_rows = self
+        if self
             .rendered_rows_cache
             .as_ref()
-            .map_or(0, |cache| cache.committed_rows);
-        let cache = if self.all_presentations_are_legacy() {
-            let rows = self.legacy_rows_for_render();
-            TranscriptRenderCache::from_legacy_rows(
-                width,
-                &rows,
-                self.commit_boundary,
-                committed_rows,
-            )
-        } else {
-            self.mixed_render(width, committed_rows)
-        };
-        self.rendered_rows_cache = Some(cache);
+            .is_some_and(|cache| cache.width == width)
+        {
+            return;
+        }
+        self.rendered_rows_cache = Some(self.mixed_render(width));
+    }
+
+    pub(crate) fn committable_len(&self) -> usize {
+        self.rendered_rows_cache
+            .as_ref()
+            .map_or(0, |cache| cache.committable_rows)
+    }
+
+    #[cfg(test)]
+    fn entry_lifecycles(&self) -> Vec<EntryLifecycle> {
+        self.presentation_cache
+            .iter()
+            .map(|entry| entry.lifecycle)
+            .collect()
     }
 
     pub(crate) fn uncommitted_rows(&self) -> &[Line<'static>] {
@@ -802,60 +944,176 @@ impl TranscriptState {
     }
 
     pub(crate) fn mark_rows_committed(&mut self, rows: usize) {
-        let Some(cache) = self.rendered_rows_cache.as_mut() else {
+        let Some(mut cache) = self.rendered_rows_cache.take() else {
             return;
         };
 
-        let committed_rows = rows.min(cache.rows.len());
+        let committed_rows = rows.min(cache.rows.len()).min(cache.committable_rows);
         if committed_rows == 0 {
+            self.rendered_rows_cache = Some(cache);
             return;
         }
 
-        if let Some(boundary) = cache.row_end_boundaries[committed_rows - 1] {
-            self.commit_boundary = boundary;
+        let mut remaining = committed_rows;
+        while remaining > 0 {
+            let Some(range) = cache.ranges.first_mut() else {
+                break;
+            };
+            let range_len = range.rows.len();
+            let take = remaining.min(range_len);
+            let consumed_leading = take.min(range.leading_flow_rows);
+            if range.semantic {
+                let partial = match self.commit_state.partial.take() {
+                    Some(PartialCommit::Semantic {
+                        entry_id,
+                        rows,
+                        committed_rows,
+                    }) if entry_id == range.id => PartialCommit::Semantic {
+                        entry_id,
+                        rows,
+                        committed_rows: committed_rows.saturating_add(take),
+                    },
+                    _ => PartialCommit::Semantic {
+                        entry_id: range.id,
+                        rows: cache.rows[range.rows.start..range.rows.end].to_vec(),
+                        committed_rows: take,
+                    },
+                };
+                self.commit_state.partial = Some(partial);
+            } else {
+                let existing_gap_committed = match self.commit_state.partial.as_ref() {
+                    Some(PartialCommit::Legacy {
+                        entry_id,
+                        leading_gap_committed,
+                        ..
+                    }) if *entry_id == range.id => *leading_gap_committed,
+                    _ => false,
+                };
+                let leading_gap_committed = existing_gap_committed || consumed_leading > 0;
+                let boundary_index = range.rows.start.saturating_add(take.saturating_sub(1));
+                let boundary = cache.row_end_boundaries[boundary_index].unwrap_or_default();
+                self.commit_state.partial = Some(PartialCommit::Legacy {
+                    entry_id: range.id,
+                    boundary,
+                    leading_gap_committed,
+                });
+            }
+            if take == range_len {
+                if range.commit_mode == EntryCommitMode::SourceBackedAppendOnly {
+                    range.leading_flow_rows = 0;
+                    remaining -= take;
+                    continue;
+                }
+                self.commit_state.completed_prefix = range.entry_index.saturating_add(1);
+                self.commit_state.partial = None;
+                cache.ranges.remove(0);
+            } else {
+                range.leading_flow_rows = range.leading_flow_rows.saturating_sub(consumed_leading);
+                remaining = 0;
+                break;
+            }
+            remaining -= take;
         }
         cache.rows.drain(..committed_rows);
         cache.row_end_boundaries.drain(..committed_rows);
-        cache.committed_rows = cache.committed_rows.saturating_add(committed_rows);
+        cache.ranges.iter_mut().for_each(|range| {
+            range.rows.start = range.rows.start.saturating_sub(committed_rows);
+            range.rows.end = range.rows.end.saturating_sub(committed_rows);
+        });
+        cache.committable_rows = cache.committable_rows.saturating_sub(committed_rows);
+        self.rendered_rows_cache = Some(cache);
     }
 }
 
 #[derive(Debug, Clone)]
+struct TranscriptCommitState {
+    completed_prefix: usize,
+    partial: Option<PartialCommit>,
+}
+
+#[derive(Debug, Clone)]
+enum PartialCommit {
+    Legacy {
+        entry_id: TranscriptId,
+        boundary: TranscriptCommitBoundary,
+        leading_gap_committed: bool,
+    },
+    Semantic {
+        entry_id: TranscriptId,
+        rows: Vec<Line<'static>>,
+        committed_rows: usize,
+    },
+}
+
+impl Default for TranscriptCommitState {
+    fn default() -> Self {
+        Self {
+            completed_prefix: 0,
+            partial: None,
+        }
+    }
+}
+
+impl PartialCommit {
+    fn entry_id(&self) -> TranscriptId {
+        match self {
+            Self::Legacy { entry_id, .. } | Self::Semantic { entry_id, .. } => *entry_id,
+        }
+    }
+}
+
+impl TranscriptCommitState {}
+
+fn entry_commit_mode(item: &TimelineItem, assistant_stream_open: bool) -> EntryCommitMode {
+    match item {
+        TimelineItem::AssistantMessage { .. } if assistant_stream_open => {
+            EntryCommitMode::SourceBackedAppendOnly
+        }
+        TimelineItem::ToolCall {
+            status:
+                ToolTimelineStatus::PendingApproval
+                | ToolTimelineStatus::Running
+                | ToolTimelineStatus::Approved,
+            ..
+        } => EntryCommitMode::Blocked,
+        _ => EntryCommitMode::Sealed,
+    }
+}
+
+fn entry_lifecycle(item: &TimelineItem, assistant_stream_open: bool) -> EntryLifecycle {
+    match item {
+        TimelineItem::ToolCall { status, .. } => match status {
+            ToolTimelineStatus::Finished
+            | ToolTimelineStatus::Failed
+            | ToolTimelineStatus::Rejected => EntryLifecycle::Sealed,
+            _ => EntryLifecycle::Open,
+        },
+        TimelineItem::AssistantMessage { .. } if assistant_stream_open => EntryLifecycle::Open,
+        _ => EntryLifecycle::Sealed,
+    }
+}
+
 /// INTERNAL PRESENTATION MECHANICS.
 ///
 /// Width-specific physical rendering cache retained below feature APIs.
+#[derive(Debug, Clone)]
 pub(crate) struct TranscriptRenderCache {
     width: u16,
     rows: Vec<Line<'static>>,
     row_end_boundaries: Vec<Option<TranscriptCommitBoundary>>,
     ranges: Vec<RenderedEntryRange>,
-    committed_rows: usize,
+    committable_rows: usize,
 }
 
 #[derive(Debug, Clone)]
 struct RenderedEntryRange {
     entry_index: usize,
+    id: TranscriptId,
+    lifecycle: EntryLifecycle,
+    commit_mode: EntryCommitMode,
+    semantic: bool,
     rows: Range<usize>,
-}
-
-impl TranscriptRenderCache {
-    fn from_legacy_rows(
-        width: u16,
-        logical_rows: &[TranscriptRow],
-        commit_boundary: TranscriptCommitBoundary,
-        committed_rows: usize,
-    ) -> Self {
-        let wrapped = wrap_transcript_rows(width, logical_rows, commit_boundary);
-        // Legacy wrapping already resumes from `commit_boundary`; unlike the
-        // semantic mixed path it must not skip `committed_rows` a second time.
-        Self {
-            width,
-            rows: wrapped.rows,
-            row_end_boundaries: wrapped.row_end_boundaries.into_iter().map(Some).collect(),
-            ranges: Vec::new(),
-            committed_rows,
-        }
-    }
+    leading_flow_rows: usize,
 }
 
 fn trim_plain_trailing_legacy(rows: &mut Vec<TranscriptRow>) {
@@ -907,10 +1165,13 @@ fn trim_plain_trailing_physical(
     let Some(range) = ranges.get_mut(range_index) else {
         return;
     };
-    while range.rows.end > range.rows.start
-        && rows
-            .get(range.rows.end - 1)
-            .is_some_and(|row| row.spans.iter().all(|span| span.content.is_empty()))
+    while !range.semantic
+        && range.rows.end > range.rows.start
+        && rows.get(range.rows.end - 1).is_some_and(|row| {
+            row.spans.iter().all(|span| span.content.is_empty())
+                && row.style.bg.is_none()
+                && !row.spans.iter().any(|span| span.style.bg.is_some())
+        })
     {
         rows.remove(range.rows.end - 1);
         boundaries.remove(range.rows.end - 1);
@@ -1049,6 +1310,47 @@ fn push_segment(target: &mut Vec<AssistantSegment>, segment: AssistantSegment) {
     }
 }
 
+#[test]
+fn semantic_partial_commit_freezes_on_resize() {
+    let mut transcript = TranscriptState::default();
+    transcript.push_item(TimelineItem::ErrorMessage {
+        text: "abcdefghijk".to_string(),
+    });
+    transcript.push_item(TimelineItem::AssistantMessage {
+        segments: vec![AssistantSegment::Text("following content".to_string())],
+    });
+
+    transcript.ensure_render_cache(8);
+    let original = transcript.uncommitted_rows().to_vec();
+    let semantic_rows = original.len();
+    assert!(semantic_rows > 2);
+    let commit = 1;
+    transcript.mark_rows_committed(commit);
+    let frozen_tail = vec![original[1].clone()];
+
+    transcript.ensure_render_cache(80);
+    assert_eq!(
+        &transcript.uncommitted_rows()[..frozen_tail.len()],
+        frozen_tail
+    );
+}
+
+#[test]
+fn open_entry_blocks_commit_until_sealed() {
+    let mut transcript = TranscriptState::default();
+    transcript.upsert_tool_call(
+        "open".to_string(),
+        "read".to_string(),
+        serde_json::Value::Null,
+        ToolTimelineStatus::Running,
+    );
+    transcript.ensure_render_cache(80);
+    assert_eq!(transcript.committable_len(), 0);
+    transcript.finish_tool_call("open", false);
+    transcript.ensure_render_cache(80);
+    assert!(transcript.committable_len() > 0);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1063,6 +1365,14 @@ mod tests {
 
     fn text_segments(text: &str) -> Vec<AssistantSegment> {
         vec![AssistantSegment::Text(text.to_string())]
+    }
+
+    fn rendered_texts(transcript: &TranscriptState) -> Vec<String> {
+        transcript
+            .uncommitted_rows()
+            .iter()
+            .map(line_text)
+            .collect()
     }
 
     #[test]
@@ -1084,6 +1394,55 @@ mod tests {
     }
 
     #[test]
+    fn error_spacing_is_owned_by_flow_except_first_entry_padding() {
+        let mut user_error = TranscriptState::default();
+        user_error.push_item(TimelineItem::UserMessage {
+            text: "user".to_string(),
+        });
+        user_error.push_item(TimelineItem::ErrorMessage {
+            text: "error".to_string(),
+        });
+        user_error.ensure_render_cache(80);
+        assert_eq!(
+            rendered_texts(&user_error),
+            vec!["", "user", "", "", "error", ""]
+        );
+
+        let mut assistant_error = TranscriptState::default();
+        assistant_error.push_item(TimelineItem::AssistantMessage {
+            segments: text_segments("answer"),
+        });
+        assistant_error.push_item(TimelineItem::ErrorMessage {
+            text: "error".to_string(),
+        });
+        assistant_error.ensure_render_cache(80);
+        assert_eq!(
+            rendered_texts(&assistant_error),
+            vec!["", "  answer", "", "error", ""]
+        );
+
+        let mut error_user = TranscriptState::default();
+        error_user.push_item(TimelineItem::ErrorMessage {
+            text: "error".to_string(),
+        });
+        error_user.push_item(TimelineItem::UserMessage {
+            text: "user".to_string(),
+        });
+        error_user.ensure_render_cache(80);
+        assert_eq!(
+            rendered_texts(&error_user),
+            vec!["", "error", "", "", "user", "", ""]
+        );
+
+        let mut first_error = TranscriptState::default();
+        first_error.push_item(TimelineItem::ErrorMessage {
+            text: "error".to_string(),
+        });
+        first_error.ensure_render_cache(80);
+        assert_eq!(rendered_texts(&first_error), vec!["", "error", ""]);
+    }
+
+    #[test]
     fn wraps_transcript_rows_to_visual_width() {
         let mut transcript = TranscriptState::default();
         transcript.push_item(TimelineItem::AssistantMessage {
@@ -1099,6 +1458,31 @@ mod tests {
             .map(line_text)
             .collect::<Vec<_>>();
         assert_eq!(rows, ["", "  ab", "  cd", "  ef", ""]);
+    }
+
+    #[test]
+    fn open_assistant_spilled_prefix_remains_committable_and_appends_after_resize() {
+        let mut transcript = TranscriptState::default();
+        transcript
+            .append_assistant_stream_fragment(vec![AssistantSegment::Text("A\nB\nC".to_string())]);
+        transcript.ensure_render_cache(20);
+        let before = rendered_texts(&transcript);
+        assert!(before.iter().any(|text| text.contains('A')));
+        assert!(transcript.committable_len() > 0);
+
+        let committed = transcript.committable_len();
+        transcript.mark_rows_committed(committed);
+        transcript.ensure_render_cache(8);
+
+        transcript
+            .append_assistant_stream_fragment(vec![AssistantSegment::Text("\nD\nE".to_string())]);
+        transcript.ensure_render_cache(20);
+        let after = rendered_texts(&transcript).join("|");
+        assert!(!after.contains('A'));
+        assert!(!after.contains('B'));
+        assert!(!after.contains('C'));
+        assert!(after.contains('D'));
+        assert!(after.contains('E'));
     }
 
     #[test]
@@ -1121,6 +1505,157 @@ mod tests {
         // boundary lands after "ab"; the remaining content re-wraps at width 6
         // (content width 2) as "cd" / "ef" plus the trailing blank.
         assert_eq!(rows, ["  cd", "  ef", ""]);
+    }
+
+    #[test]
+    fn partial_legacy_commit_can_consume_only_owned_flow_gap() {
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "user".to_string(),
+        });
+        transcript.push_item(TimelineItem::ErrorMessage {
+            text: "legacy follows".to_string(),
+        });
+        transcript.ensure_render_cache(80);
+
+        let user_rows = transcript.rendered_rows_cache.as_ref().unwrap().ranges[0]
+            .rows
+            .len();
+        transcript.mark_rows_committed(user_rows + 1);
+        transcript.ensure_render_cache(20);
+
+        assert_eq!(rendered_texts(&transcript), vec!["legacy follows", ""]);
+    }
+
+    #[test]
+    fn partial_semantic_commit_freezes_rows_and_reflows_following_content() {
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::ToolResult {
+            tool_call_id: "1".to_string(),
+            tool_name: "read".to_string(),
+            text: "one two three four five six".to_string(),
+            details: serde_json::Value::Null,
+            is_error: false,
+            collapsed: true,
+        });
+        transcript.push_item(TimelineItem::AssistantMessage {
+            segments: text_segments("following content that reflows"),
+        });
+        transcript.ensure_render_cache(12);
+
+        let cache = transcript.rendered_rows_cache.as_ref().unwrap();
+        let semantic_end = cache.ranges[0].rows.end;
+        let original = transcript.uncommitted_rows().to_vec();
+        let committed = 2;
+        let frozen_tail = original[committed..semantic_end].to_vec();
+        transcript.mark_rows_committed(committed);
+
+        transcript.ensure_render_cache(80);
+        assert_eq!(
+            &transcript.uncommitted_rows()[..frozen_tail.len()],
+            frozen_tail
+        );
+        let text = rendered_texts(&transcript).join("|");
+        assert!(text.contains("following content that reflows"));
+    }
+
+    #[test]
+    fn fully_committed_semantic_unit_does_not_reappear_after_resize() {
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::ToolResult {
+            tool_call_id: "1".to_string(),
+            tool_name: "read".to_string(),
+            text: "semantic result body".to_string(),
+            details: serde_json::Value::Null,
+            is_error: false,
+            collapsed: true,
+        });
+        transcript.push_item(TimelineItem::AssistantMessage {
+            segments: text_segments("following"),
+        });
+        transcript.ensure_render_cache(20);
+        let semantic_end = transcript.rendered_rows_cache.as_ref().unwrap().ranges[0]
+            .rows
+            .end;
+        transcript.mark_rows_committed(semantic_end);
+        transcript.ensure_render_cache(80);
+        let text = rendered_texts(&transcript).join("|");
+        assert!(!text.contains("semantic result body"));
+        assert!(text.contains("following"));
+    }
+
+    #[test]
+    fn open_entry_blocks_commit_then_sealing_allows_it() {
+        let mut transcript = TranscriptState::default();
+        transcript.upsert_tool_call(
+            "open".to_string(),
+            "read".to_string(),
+            serde_json::Value::Null,
+            ToolTimelineStatus::Running,
+        );
+        transcript.ensure_render_cache(80);
+        assert_eq!(transcript.committable_len(), 0);
+
+        transcript.finish_tool_call("open", false);
+        transcript.ensure_render_cache(80);
+        let count = transcript.committable_len();
+        assert!(count > 0);
+        transcript.mark_rows_committed(count);
+        assert_eq!(transcript.uncommitted_len(), 1);
+    }
+
+    #[test]
+    fn mixed_legacy_semantic_partial_commit_survives_resize() {
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "legacy".to_string(),
+        });
+        transcript.push_item(TimelineItem::ErrorMessage {
+            text: "semantic error with enough content to wrap".to_string(),
+        });
+        transcript.push_item(TimelineItem::AssistantMessage {
+            segments: text_segments("following mixed content"),
+        });
+        transcript.ensure_render_cache(16);
+
+        let cache = transcript.rendered_rows_cache.as_ref().unwrap();
+        let semantic_range = cache.ranges[1].rows.clone();
+        let original = transcript.uncommitted_rows().to_vec();
+        let committed = semantic_range.start + 1;
+        let frozen_tail = original[committed..semantic_range.end].to_vec();
+        transcript.mark_rows_committed(committed);
+
+        transcript.ensure_render_cache(80);
+        assert_eq!(
+            &transcript.uncommitted_rows()[..frozen_tail.len()],
+            frozen_tail
+        );
+        assert!(
+            rendered_texts(&transcript)
+                .join("|")
+                .contains("following mixed content")
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "fully committed transcript entry")]
+    fn committed_entry_mutation_panics_in_debug() {
+        let mut transcript = TranscriptState::default();
+        transcript.upsert_tool_call(
+            "1".to_string(),
+            "read".to_string(),
+            serde_json::Value::Null,
+            ToolTimelineStatus::Running,
+        );
+        transcript.finish_tool_call("1", false);
+        transcript.ensure_render_cache(80);
+        let count = transcript.committable_len();
+        transcript.mark_rows_committed(count);
+        transcript.update_tool_call_status(
+            "1".to_string(),
+            "read".to_string(),
+            ToolTimelineStatus::Finished,
+        );
     }
 
     #[test]

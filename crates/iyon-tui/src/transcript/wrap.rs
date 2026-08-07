@@ -431,14 +431,12 @@ mod tests {
                 outer: crate::transcript::row::Insets::symmetric(2),
                 nesting_depth: 1,
                 marker: Some(Marker::Bullet),
-                prefix: None,
                 marker_gutter_width: 2,
             },
             crate::transcript::row::RowLayout {
                 outer: crate::transcript::row::Insets::symmetric(2),
                 nesting_depth: 0,
                 marker: Some(Marker::Ordered { index: 10 }),
-                prefix: None,
                 marker_gutter_width: 4,
             },
         ] {
