@@ -403,28 +403,6 @@ pub(crate) enum OverflowIndicator {
     Footer { prefix: String, style: StyleSpec },
 }
 
-/// FEATURE EXTENSION API. Semantic flow and grouping for durable content.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct FlowSpec {
-    pub(crate) units: Vec<FlowUnit>,
-    pub(crate) gap: u16,
-}
-
-/// FEATURE EXTENSION API. A generic flow unit; the generic layer does not know
-/// why a group is attached or which feature produced it.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum FlowUnit {
-    Item {
-        view: View,
-        boundary: FlowBoundary,
-    },
-    Group {
-        children: Vec<FlowUnit>,
-        gap: u16,
-        decoration: Option<Decoration>,
-    },
-}
-
 /// FEATURE EXTENSION API. Generic attachment relationship decided by a feature.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum FlowBoundary {
@@ -523,23 +501,5 @@ mod tests {
             Decoration::background(ColorSpec::Theme("tool.running".into())).padding(Insets::all(1)),
         );
         assert!(matches!(view.kind, ViewKind::Box(_)));
-    }
-
-    #[test]
-    fn flow_gap_is_separate_from_view_composition() {
-        let flow = FlowSpec {
-            units: vec![
-                FlowUnit::Item {
-                    view: View::text("one"),
-                    boundary: FlowBoundary::Default,
-                },
-                FlowUnit::Item {
-                    view: View::text("two"),
-                    boundary: FlowBoundary::Default,
-                },
-            ],
-            gap: 1,
-        };
-        assert_eq!(flow.gap, 1);
     }
 }
