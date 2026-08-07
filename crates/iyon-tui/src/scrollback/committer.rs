@@ -1,3 +1,5 @@
+//! INTERNAL PRESENTATION MECHANICS.
+
 use anyhow::Result;
 use ratatui::text::Line;
 

@@ -16,9 +16,8 @@ pub(crate) mod wrap;
 pub(crate) use wrap::{WrapCache, cursor_xy, wrapped_line_index_by_start};
 
 use crate::{
-    input::wrap::cursor_for_display_col,
-    runtime::controller::FrontendAction,
-    runtime::panel::{BottomPanelBar, PanelAction},
+    input::wrap::cursor_for_display_col, presentation::UiKey, runtime::controller::FrontendAction,
+    runtime::panel::BottomPanelBar,
 };
 
 const WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
@@ -57,11 +56,21 @@ fn map_approval_key_event(key_event: KeyEvent) -> Option<FrontendAction> {
     }
 }
 
-/// Translates a panel-emitted action into a controller action. Panels stay decoupled
-/// from `FrontendAction`; the input layer (already the action producer) is the bridge.
-/// Empty for now — interactive panels will add `PanelAction` variants as they land.
-fn translate_panel_action(action: PanelAction) -> FrontendAction {
-    match action {}
+fn ui_key(key: KeyEvent) -> UiKey {
+    match key.code {
+        Char(c) => UiKey::Char(c),
+        Enter => UiKey::Enter,
+        Esc => UiKey::Escape,
+        Backspace => UiKey::Backspace,
+        Tab | BackTab => UiKey::Tab,
+        Up => UiKey::Up,
+        Down => UiKey::Down,
+        Left => UiKey::Left,
+        Right => UiKey::Right,
+        Home => UiKey::Home,
+        End => UiKey::End,
+        _ => UiKey::Unknown,
+    }
 }
 
 fn map_key_event(key_event: KeyEvent) -> CustomKeyEvent {
@@ -263,11 +272,10 @@ impl InputEventHandler {
                 }
                 // An interactive bottom panel (when present) consumes keys it owns
                 // before the composer sees them.
-                if let Some(panel_actions) = panel.handle_key(key_event) {
-                    return panel_actions
-                        .into_iter()
-                        .map(translate_panel_action)
-                        .collect();
+                if panel.handle_key(ui_key(key_event))
+                    != crate::presentation::InteractionResult::Ignored
+                {
+                    return vec![FrontendAction::RedrawOnly];
                 }
                 let custom_key_event = map_key_event(key_event);
                 self.handle_key_event(custom_key_event, editor)

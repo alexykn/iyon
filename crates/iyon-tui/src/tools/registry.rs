@@ -1,24 +1,29 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::tools::{
-    renderers::{
-        BashRenderer, EditRenderer, FindRenderer, GenericRenderer, GrepRenderer, LsRenderer,
-        ReadRenderer, WriteRenderer,
+use crate::{
+    presentation::View,
+    tools::{
+        renderers::{
+            BashRenderer, EditRenderer, FindRenderer, GenericRenderer, GrepRenderer, LsRenderer,
+            ReadRenderer, WriteRenderer,
+        },
+        types::{ToolCallRenderInput, ToolResultRenderInput},
     },
-    types::{ToolCallRenderInput, ToolResultRenderInput},
 };
-use crate::transcript::row::TranscriptRow;
 
-/// A tool renderer turns a call (or its result) into transcript rows. Rows carry
-/// their intended hanging indent as a first-class `TranscriptRow`; renderers must
-/// NOT bake leading spaces into span content (that breaks wrapped continuation
-/// lines and steals wrap width).
+/// FEATURE EXTENSION API.
+///
+/// Tool-specific visual composition belongs here. Renderers return semantic
+/// `View` values and may choose arbitrary generic composition and decoration.
+/// They must not perform wrapping, terminal writes, scrollback commits, or
+/// physical positioning.
 pub(crate) trait ToolRenderer: Send + Sync {
     fn tool_name(&self) -> &'static str;
-    fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<TranscriptRow>;
-    fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow>;
+    fn render_call(&self, input: ToolCallRenderInput<'_>) -> View;
+    fn render_result(&self, input: ToolResultRenderInput<'_>) -> View;
 }
 
+/// FEATURE EXTENSION API. Registry-backed tool renderer selection.
 #[derive(Clone)]
 pub(crate) struct ToolRendererRegistry {
     generic: Arc<dyn ToolRenderer>,
@@ -55,14 +60,14 @@ impl Default for ToolRendererRegistry {
 }
 
 impl ToolRendererRegistry {
-    pub(crate) fn render_call(&self, input: ToolCallRenderInput<'_>) -> Vec<TranscriptRow> {
+    pub(crate) fn render_call(&self, input: ToolCallRenderInput<'_>) -> View {
         self.builtins
             .get(input.tool_name)
             .unwrap_or(&self.generic)
             .render_call(input)
     }
 
-    pub(crate) fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {
+    pub(crate) fn render_result(&self, input: ToolResultRenderInput<'_>) -> View {
         self.builtins
             .get(input.tool_name)
             .unwrap_or(&self.generic)

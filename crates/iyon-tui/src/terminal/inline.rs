@@ -1,3 +1,7 @@
+//! INTERNAL PRESENTATION MECHANICS.
+//!
+//! Native terminal adapter. Feature code must not use this type directly.
+
 use anyhow::Result;
 use ratatui::{DefaultTerminal, Frame, layout::Rect, text::Line};
 

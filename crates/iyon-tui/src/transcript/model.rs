@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, ops::Range};
 
 use ratatui::{
     style::{Color, Style},
@@ -6,8 +6,9 @@ use ratatui::{
 };
 
 use crate::{
+    presentation::{View, internal::compile_view},
     theme,
-    tools::{ToolCallRenderInput, ToolRendererRegistry, ToolResultRenderInput},
+    tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput},
     transcript::{
         markdown,
         markdown::RenderedRow,
@@ -153,6 +154,32 @@ pub(crate) enum ToolTimelineStatus {
     Failed,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) enum TranscriptPresentation {
+    LegacyRows(Vec<TranscriptRow>),
+    View(View),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EntryRelation {
+    Separate,
+    AttachPrevious,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TranscriptEntry {
+    pub(crate) presentation: TranscriptPresentation,
+    pub(crate) relation: EntryRelation,
+    pub(crate) truncation: Truncation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Truncation {
+    None,
+    Call,
+    Result,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TuiFormatter {
     tool_renderers: ToolRendererRegistry,
@@ -162,23 +189,23 @@ pub(crate) struct TuiFormatter {
 }
 
 impl TuiFormatter {
-    pub(crate) fn format(&self, item: &TimelineItem) -> Vec<TranscriptRow> {
+    pub(crate) fn format(&self, item: &TimelineItem) -> TranscriptPresentation {
         match item {
-            TimelineItem::UserMessage { text } => {
-                self.format_text_message(text, Style::default().bg(theme::user_bubble_bg()), true)
-            }
+            TimelineItem::UserMessage { text } => TranscriptPresentation::LegacyRows(
+                self.format_text_message(text, Style::default().bg(theme::user_bubble_bg()), true),
+            ),
             TimelineItem::AssistantMessage { segments } => {
-                self.format_assistant_message(segments, true)
+                TranscriptPresentation::LegacyRows(self.format_assistant_message(segments, true))
             }
-            TimelineItem::ErrorMessage { text } => {
-                self.format_text_message(text, Style::default().fg(Color::Red), true)
-            }
+            TimelineItem::ErrorMessage { text } => TranscriptPresentation::LegacyRows(
+                self.format_text_message(text, Style::default().fg(Color::Red), true),
+            ),
             TimelineItem::ToolCall {
                 tool_name,
                 arguments,
                 status,
                 ..
-            } => self.format_tool_call(tool_name, arguments, *status),
+            } => TranscriptPresentation::View(self.format_tool_call(tool_name, arguments, *status)),
             TimelineItem::ToolResult {
                 tool_name,
                 text,
@@ -186,7 +213,9 @@ impl TuiFormatter {
                 is_error,
                 collapsed,
                 ..
-            } => self.format_tool_result(tool_name, text, details, *is_error, *collapsed),
+            } => TranscriptPresentation::View(
+                self.format_tool_result(tool_name, text, details, *is_error, *collapsed),
+            ),
         }
     }
 
@@ -230,17 +259,13 @@ impl TuiFormatter {
         tool_name: &str,
         arguments: &serde_json::Value,
         status: ToolTimelineStatus,
-    ) -> Vec<TranscriptRow> {
-        let style = tool_style(status);
-        let status_label = tool_status_label(status);
-        let rows = self.tool_renderers.render_call(ToolCallRenderInput {
+    ) -> View {
+        self.tool_renderers.render_call(ToolCallRenderInput {
             tool_name,
             arguments,
-            status: status_label,
-            style,
+            status,
             show_arg_preview: self.show_arg_preview,
-        });
-        apply_call_truncation(rows)
+        })
     }
 
     fn format_tool_result(
@@ -250,23 +275,17 @@ impl TuiFormatter {
         details: &serde_json::Value,
         is_error: bool,
         collapsed: bool,
-    ) -> Vec<TranscriptRow> {
-        let style = if is_error {
-            theme::tool_error()
-        } else {
-            theme::muted()
-        };
-        let mut rows = self.tool_renderers.render_result(ToolResultRenderInput {
+    ) -> View {
+        self.tool_renderers.render_result(ToolResultRenderInput {
             tool_name,
             text,
             details,
-            is_error,
-            style,
-        });
-        if collapsed {
-            rows = apply_result_truncation(rows);
-        }
-        rows
+            outcome: if is_error {
+                ToolOutcome::Error
+            } else {
+                ToolOutcome::Success
+            },
+        })
     }
 
     fn format_text_message(
@@ -348,30 +367,10 @@ fn truncation_footer_style() -> Style {
     theme::truncation_footer()
 }
 
-fn tool_style(status: ToolTimelineStatus) -> Style {
-    match status {
-        ToolTimelineStatus::Failed | ToolTimelineStatus::Rejected => theme::tool_error(),
-        ToolTimelineStatus::Finished | ToolTimelineStatus::Approved => theme::tool_finished(),
-        ToolTimelineStatus::PendingApproval => Style::default().fg(Color::Yellow),
-        ToolTimelineStatus::Running => theme::tool_running(),
-    }
-}
-
-fn tool_status_label(status: ToolTimelineStatus) -> &'static str {
-    match status {
-        ToolTimelineStatus::PendingApproval => "waiting for approval",
-        ToolTimelineStatus::Running => "running",
-        ToolTimelineStatus::Approved => "approved",
-        ToolTimelineStatus::Rejected => "rejected",
-        ToolTimelineStatus::Finished => "finished",
-        ToolTimelineStatus::Failed => "failed",
-    }
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct TranscriptState {
     canonical_items: Vec<TimelineItem>,
-    logical_rows_cache: Vec<TranscriptRow>,
+    presentation_cache: Vec<TranscriptEntry>,
     rendered_rows_cache: Option<TranscriptRenderCache>,
     commit_boundary: TranscriptCommitBoundary,
     formatter: TuiFormatter,
@@ -382,7 +381,7 @@ impl Default for TranscriptState {
     fn default() -> Self {
         Self {
             canonical_items: Vec::new(),
-            logical_rows_cache: Vec::new(),
+            presentation_cache: Vec::new(),
             rendered_rows_cache: None,
             commit_boundary: TranscriptCommitBoundary::default(),
             formatter: TuiFormatter::default(),
@@ -395,7 +394,7 @@ impl TranscriptState {
     pub(crate) fn push_item(&mut self, item: TimelineItem) {
         self.assistant_stream_open = false;
         self.canonical_items.push(item);
-        self.rebuild_logical_rows_cache();
+        self.rebuild_presentation_cache();
     }
 
     pub(crate) fn upsert_tool_call(
@@ -430,7 +429,7 @@ impl TranscriptState {
                 status,
             });
         }
-        self.rebuild_logical_rows_cache();
+        self.rebuild_presentation_cache();
     }
 
     pub(crate) fn update_tool_call_status(
@@ -453,7 +452,7 @@ impl TranscriptState {
                 *existing_name = tool_name;
             }
             *existing_status = status;
-            self.rebuild_logical_rows_cache();
+            self.rebuild_presentation_cache();
         }
     }
 
@@ -473,7 +472,7 @@ impl TranscriptState {
             )
         }) {
             *existing_status = status;
-            self.rebuild_logical_rows_cache();
+            self.rebuild_presentation_cache();
         }
     }
 
@@ -494,7 +493,7 @@ impl TranscriptState {
             is_error,
             collapsed: true,
         });
-        self.rebuild_logical_rows_cache();
+        self.rebuild_presentation_cache();
     }
 
     pub(crate) fn append_assistant_fragment(&mut self, segments: Vec<AssistantSegment>) {
@@ -510,7 +509,7 @@ impl TranscriptState {
             return;
         }
         self.assistant_stream_open = false;
-        self.rebuild_logical_rows_cache();
+        self.rebuild_presentation_cache();
     }
 
     #[cfg(test)]
@@ -542,11 +541,11 @@ impl TranscriptState {
             }
         }
         self.assistant_stream_open = stream_open;
-        self.rebuild_logical_rows_cache();
+        self.rebuild_presentation_cache();
     }
 
-    fn rebuild_logical_rows_cache(&mut self) {
-        self.logical_rows_cache.clear();
+    fn rebuild_presentation_cache(&mut self) {
+        self.presentation_cache.clear();
         let last_assistant_idx = self
             .canonical_items
             .iter()
@@ -559,159 +558,210 @@ impl TranscriptState {
             open_assistant_idx.is_none() || open_assistant_idx == last_assistant_idx,
             "open streaming assistant must be the last assistant message"
         );
-        // Spacing between parts is owned centrally here. Adjacent items render with
-        // exactly one blank separator row between them, EXCEPT when they form a single
-        // logical unit: a `ToolResult` that immediately follows its matching `ToolCall`
-        // (same `tool_call_id`) is a continuation of that call, so they touch with no
-        // blank between. Consecutive user messages (a steered batch) fuse into one
-        // bubble with no blank as well.
-        let mut prev_is_user = false;
-        for idx in 0..self.canonical_items.len() {
-            let (rows, is_user, is_tool_result_of_prev_call) = {
-                let item = &self.canonical_items[idx];
-                let is_user = matches!(item, TimelineItem::UserMessage { .. });
-                let is_open = matches!(
-                    item,
-                    TimelineItem::AssistantMessage { .. } if open_assistant_idx == Some(idx)
-                );
-                // A ToolResult is a continuation of the preceding item when that item
-                // is a ToolCall with the same id — they are one logical tool unit.
-                let is_tool_result_of_prev_call = matches!(
-                    item,
-                    TimelineItem::ToolResult { tool_call_id, .. }
-                        if matches!(
-                            idx.checked_sub(1).map(|i| &self.canonical_items[i]),
-                            Some(TimelineItem::ToolCall { tool_call_id: prev, .. })
-                                if prev == tool_call_id
-                        )
-                );
-                let rows = match item {
-                    TimelineItem::AssistantMessage { segments } if is_open => {
-                        // While an assistant stream is open, the transcript owns only the
-                        // frozen/spilled portion of that assistant message. Keep the normal
-                        // message top padding so the gap from the preceding user message is
-                        // stable, but omit the official bottom padding: the live active pane
-                        // owns the active/input margin until the stream is finalized.
-                        let mut rows = self.formatter.format_assistant_message(segments, false);
 
-                        // The frozen transcript and live active pane touch at this boundary.
-                        // If the spilled fragment currently ends in an empty rendered row,
-                        // suppress exactly one such row so the seam does not show a moving
-                        // blank gap while streaming. Finalized messages are rebuilt through
-                        // the normal formatter path and regain their bottom padding.
-                        drop_trailing_empty_row(&mut rows);
-                        rows
-                    }
-                    _ => self.formatter.format(item),
-                };
-                (rows, is_user, is_tool_result_of_prev_call)
+        for (idx, item) in self.canonical_items.iter().enumerate() {
+            let presentation = match item {
+                TimelineItem::AssistantMessage { segments } if open_assistant_idx == Some(idx) => {
+                    let mut rows = self.formatter.format_assistant_message(segments, false);
+                    // INTERNAL ASSISTANT STREAM SEMANTICS.
+                    // The live pane owns the moving bottom margin while this
+                    // presentation is open.
+                    drop_trailing_empty_row(&mut rows);
+                    TranscriptPresentation::LegacyRows(rows)
+                }
+                _ => self.formatter.format(item),
             };
 
-            let is_second_user_in_run = is_user && prev_is_user;
-            if is_second_user_in_run {
-                // Fuse consecutive user bubbles into one: remove the inter-bubble
-                // padding pair (prev trailing + next leading). Exactly one row
-                // each — interior empty rows are content newlines and must stay.
-                self.logical_rows_cache.pop();
-                self.logical_rows_cache.extend(rows.into_iter().skip(1));
+            let relation = if idx == 0 {
+                EntryRelation::Separate
+            } else if matches!(
+                (&self.canonical_items[idx - 1], item),
+                (
+                    TimelineItem::UserMessage { .. },
+                    TimelineItem::UserMessage { .. }
+                )
+            ) || matches!(
+                (&self.canonical_items[idx - 1], item),
+                (
+                    TimelineItem::ToolCall {
+                        tool_call_id: previous,
+                        ..
+                    },
+                    TimelineItem::ToolResult {
+                        tool_call_id: current,
+                        ..
+                    }
+                ) if previous == current
+            ) {
+                EntryRelation::AttachPrevious
             } else {
-                // Continuation (tool result under its call) gets no separator; every
-                // other boundary gets exactly one blank.
-                self.append_sequenced(rows, !is_tool_result_of_prev_call);
-            }
-            prev_is_user = is_user;
-        }
+                EntryRelation::Separate
+            };
 
-        // The finalized transcript must always end above the input pane with a single
-        // plain blank row (the gap to its top separator), regardless of which item is
-        // last. A trailing blank that carries a background (the user bubble's colored
-        // bottom padding) is part of its item and stays; plain trailing blanks are
-        // collapsed into the one gap. While a stream is open the live active pane owns
-        // that bottom margin instead, so it is not added then.
-        if open_assistant_idx.is_none() {
-            // Pop plain trailing separators, but keep any backgrounded (bubble) blank
-            // — it is part of the item's rendered padding.
-            while let Some(last) = self.logical_rows_cache.last()
-                && is_blank_row(last)
-                && !has_background(last)
-            {
-                self.logical_rows_cache.pop();
-            }
-            // Always finish with a plain gap above the input separator; a colored
-            // bubble padding row, if present, stays as its own padding and this gap
-            // is added after it.
-            if !self.logical_rows_cache.is_empty() {
-                self.logical_rows_cache.push(TranscriptRow::blank());
-            }
+            let truncation = match item {
+                TimelineItem::ToolCall { .. } => Truncation::Call,
+                TimelineItem::ToolResult {
+                    collapsed: true, ..
+                } => Truncation::Result,
+                _ => Truncation::None,
+            };
+            self.presentation_cache.push(TranscriptEntry {
+                presentation,
+                relation,
+                truncation,
+            });
         }
-
-        self.rendered_rows_cache = None;
+        self.invalidate_render_cache();
     }
 
-    /// Appends the rows of one timeline item to `logical_rows_cache`. When
-    /// `separated` is true the junction is clamped so adjacent items are separated
-    /// by exactly one blank row; when false the item is a continuation (e.g. a tool
-    /// result directly under its call) and touches the previous content with no
-    /// blank. A blank row that carries a background (the user bubble's colored
-    /// padding) is treated as *part of its item*, not a separator, so an item's
-    /// rendered padding stays with it and a fresh plain blank separates items. The
-    /// first item keeps its natural leading/trailing padding.
-    fn append_sequenced(&mut self, rows: Vec<TranscriptRow>, separated: bool) {
-        if rows.is_empty() {
-            return;
+    fn invalidate_render_cache(&mut self) {
+        if let Some(cache) = self.rendered_rows_cache.as_mut() {
+            // Keep committed_rows while invalidating the width-specific suffix.
+            // Native history is immutable; only this suffix is rebuilt.
+            cache.width = 0;
         }
-        if self.logical_rows_cache.is_empty() {
-            // First item: keep its own leading/trailing padding unchanged.
-            self.logical_rows_cache.extend(rows);
-            return;
-        }
+    }
 
-        if separated {
-            // Drop the previous item's trailing blanks that are plain separators.
-            // Blanks that carry a background (e.g. the user bubble's colored padding)
-            // are *part of that item*, so they stay — the real inter-item gap is
-            // added below, never touching the bubble.
-            while let Some(last) = self.logical_rows_cache.last()
-                && is_blank_row(last)
-                && !has_background(last)
-            {
-                self.logical_rows_cache.pop();
+    fn all_presentations_are_legacy(&self) -> bool {
+        self.presentation_cache
+            .iter()
+            .all(|entry| matches!(entry.presentation, TranscriptPresentation::LegacyRows(_)))
+    }
+
+    /// INTERNAL PRESENTATION MECHANICS.
+    ///
+    /// Compatibility assembly for the all-legacy path. It retains the old
+    /// background-blank ownership rule only until the final legacy entry is
+    /// migrated to semantic boxes.
+    fn legacy_rows_for_render(&self) -> Vec<TranscriptRow> {
+        let mut rows = Vec::new();
+        for entry in &self.presentation_cache {
+            let TranscriptPresentation::LegacyRows(mut entry_rows) = entry.presentation.clone()
+            else {
+                continue;
+            };
+
+            if rows.is_empty() {
+                rows.extend(entry_rows);
+                continue;
             }
 
-            // Drop the new item's leading blanks that are plain separators; any
-            // backgrounded leading blank is that item's own bubble padding and stays.
-            let mut rest = rows.as_slice();
-            while let Some(first) = rest.first()
-                && is_blank_row(first)
-                && !has_background(first)
-            {
-                rest = &rest[1..];
-            }
-            if rest.is_empty() {
-                // The new item contributed only separators; keep a single gap.
-                if self.logical_rows_cache.is_empty()
-                    || !is_blank_row(self.logical_rows_cache.last().unwrap())
-                {
-                    self.logical_rows_cache.push(TranscriptRow::blank());
+            if entry.relation == EntryRelation::AttachPrevious {
+                // Consecutive legacy user bubbles fuse: remove each padding row
+                // at the junction, then retain the current body's rows.
+                rows.pop();
+                if !entry_rows.is_empty() {
+                    entry_rows.remove(0);
                 }
-                return;
+                rows.extend(entry_rows);
+                continue;
             }
 
-            // Exactly one plain separator between the previous content (after its
-            // own padding) and this item.
-            self.logical_rows_cache.push(TranscriptRow::blank());
-            self.logical_rows_cache.extend_from_slice(rest);
-        } else {
-            // Continuation: no separator; drop plain leading separators but keep any
-            // backgrounded (bubble) padding of the continuing item.
-            self.logical_rows_cache.extend(
-                rows.into_iter()
-                    .skip_while(|r| is_blank_row(r) && !has_background(r)),
-            );
+            trim_plain_trailing_legacy(&mut rows);
+            trim_plain_leading_legacy(&mut entry_rows);
+            rows.push(TranscriptRow::blank());
+            rows.extend(entry_rows);
+        }
+
+        trim_plain_trailing_legacy(&mut rows);
+        if !rows.is_empty() {
+            rows.push(TranscriptRow::blank());
+        }
+        rows
+    }
+
+    /// Width-aware bridge for mixed legacy/semantic entries. Legacy rows are
+    /// wrapped here; semantic views are compiled once at this actual width.
+    fn mixed_render(&self, width: u16, committed_rows: usize) -> TranscriptRenderCache {
+        let mut rows = Vec::new();
+        let mut row_end_boundaries = Vec::new();
+        let mut ranges = Vec::new();
+        let mut previous_legacy_range: Option<usize> = None;
+
+        for (entry_index, entry) in self.presentation_cache.iter().enumerate() {
+            if entry.relation == EntryRelation::Separate {
+                if let Some(previous_range) = previous_legacy_range {
+                    trim_plain_trailing_physical(
+                        &mut rows,
+                        &mut row_end_boundaries,
+                        &mut ranges,
+                        previous_range,
+                    );
+                }
+                if !rows.is_empty() {
+                    rows.push(Line::from(""));
+                    row_end_boundaries.push(None);
+                }
+            } else if let Some(previous_range) = previous_legacy_range {
+                // The only legacy AttachPrevious relation during this phase is
+                // consecutive user content. Remove the previous bubble's final
+                // padding row and the current leading padding row below.
+                truncate_last_entry_row(
+                    &mut rows,
+                    &mut row_end_boundaries,
+                    &mut ranges,
+                    previous_range,
+                );
+            }
+
+            let start = rows.len();
+            match &entry.presentation {
+                TranscriptPresentation::LegacyRows(logical_rows) => {
+                    let mut logical_rows = logical_rows.clone();
+                    if entry.relation == EntryRelation::AttachPrevious {
+                        trim_first_legacy_row(&mut logical_rows);
+                    } else if entry_index > 0 {
+                        trim_plain_leading_legacy(&mut logical_rows);
+                    }
+                    let wrapped = wrap_transcript_rows(
+                        width.max(1),
+                        &logical_rows,
+                        TranscriptCommitBoundary::default(),
+                    );
+                    rows.extend(wrapped.rows);
+                    row_end_boundaries.extend(wrapped.row_end_boundaries.into_iter().map(Some));
+                    previous_legacy_range = Some(ranges.len());
+                }
+                TranscriptPresentation::View(view) => {
+                    let mut block = compile_view(view, width.max(1));
+                    if entry.truncation == Truncation::Call {
+                        block.rows =
+                            truncate_view_rows(block.rows, DISPLAY_CALL_MAX_LINES + 1, true);
+                    } else if entry.truncation == Truncation::Result {
+                        block.rows = truncate_view_rows(block.rows, DISPLAY_MAX_LINES, false);
+                    }
+                    rows.extend(block.rows);
+                    row_end_boundaries.extend(std::iter::repeat_n(None, rows.len() - start));
+                    previous_legacy_range = None;
+                }
+            }
+            ranges.push(RenderedEntryRange {
+                entry_index,
+                rows: start..rows.len(),
+            });
+        }
+
+        trim_plain_trailing_physical_all(&mut rows, &mut row_end_boundaries, &mut ranges);
+        if !rows.is_empty() {
+            rows.push(Line::from(""));
+            row_end_boundaries.push(None);
+        }
+
+        let committed_rows = committed_rows.min(rows.len());
+        TranscriptRenderCache {
+            width,
+            rows: rows.into_iter().skip(committed_rows).collect(),
+            row_end_boundaries: row_end_boundaries
+                .into_iter()
+                .skip(committed_rows)
+                .collect(),
+            ranges,
+            committed_rows,
         }
     }
 
     pub(crate) fn ensure_render_cache(&mut self, width: u16) {
+        let width = width.max(1);
         let should_recompute = match self.rendered_rows_cache.as_ref() {
             Some(cache) => cache.width != width,
             None => true,
@@ -721,11 +771,21 @@ impl TranscriptState {
             return;
         }
 
-        let cache = TranscriptRenderCache::from_logical_rows(
-            width.max(1),
-            &self.logical_rows_cache,
-            self.commit_boundary,
-        );
+        let committed_rows = self
+            .rendered_rows_cache
+            .as_ref()
+            .map_or(0, |cache| cache.committed_rows);
+        let cache = if self.all_presentations_are_legacy() {
+            let rows = self.legacy_rows_for_render();
+            TranscriptRenderCache::from_legacy_rows(
+                width,
+                &rows,
+                self.commit_boundary,
+                committed_rows,
+            )
+        } else {
+            self.mixed_render(width, committed_rows)
+        };
         self.rendered_rows_cache = Some(cache);
     }
 
@@ -751,33 +811,144 @@ impl TranscriptState {
             return;
         }
 
-        self.commit_boundary = cache.row_end_boundaries[committed_rows - 1];
+        if let Some(boundary) = cache.row_end_boundaries[committed_rows - 1] {
+            self.commit_boundary = boundary;
+        }
         cache.rows.drain(..committed_rows);
         cache.row_end_boundaries.drain(..committed_rows);
+        cache.committed_rows = cache.committed_rows.saturating_add(committed_rows);
     }
 }
 
 #[derive(Debug, Clone)]
+/// INTERNAL PRESENTATION MECHANICS.
+///
+/// Width-specific physical rendering cache retained below feature APIs.
 pub(crate) struct TranscriptRenderCache {
     width: u16,
     rows: Vec<Line<'static>>,
-    row_end_boundaries: Vec<TranscriptCommitBoundary>,
+    row_end_boundaries: Vec<Option<TranscriptCommitBoundary>>,
+    ranges: Vec<RenderedEntryRange>,
+    committed_rows: usize,
+}
+
+#[derive(Debug, Clone)]
+struct RenderedEntryRange {
+    entry_index: usize,
+    rows: Range<usize>,
 }
 
 impl TranscriptRenderCache {
-    fn from_logical_rows(
+    fn from_legacy_rows(
         width: u16,
         logical_rows: &[TranscriptRow],
         commit_boundary: TranscriptCommitBoundary,
+        committed_rows: usize,
     ) -> Self {
         let wrapped = wrap_transcript_rows(width, logical_rows, commit_boundary);
-
+        // Legacy wrapping already resumes from `commit_boundary`; unlike the
+        // semantic mixed path it must not skip `committed_rows` a second time.
         Self {
             width,
             rows: wrapped.rows,
-            row_end_boundaries: wrapped.row_end_boundaries,
+            row_end_boundaries: wrapped.row_end_boundaries.into_iter().map(Some).collect(),
+            ranges: Vec::new(),
+            committed_rows,
         }
     }
+}
+
+fn trim_plain_trailing_legacy(rows: &mut Vec<TranscriptRow>) {
+    while rows
+        .last()
+        .is_some_and(|row| is_blank_row(row) && !has_background(row))
+    {
+        rows.pop();
+    }
+}
+
+fn trim_plain_leading_legacy(rows: &mut Vec<TranscriptRow>) {
+    while rows
+        .first()
+        .is_some_and(|row| is_blank_row(row) && !has_background(row))
+    {
+        rows.remove(0);
+    }
+}
+
+fn trim_first_legacy_row(rows: &mut Vec<TranscriptRow>) {
+    if !rows.is_empty() {
+        rows.remove(0);
+    }
+}
+
+fn truncate_last_entry_row(
+    rows: &mut Vec<Line<'static>>,
+    boundaries: &mut Vec<Option<TranscriptCommitBoundary>>,
+    ranges: &mut [RenderedEntryRange],
+    range_index: usize,
+) {
+    let Some(range) = ranges.get_mut(range_index) else {
+        return;
+    };
+    if range.rows.end > range.rows.start {
+        rows.truncate(range.rows.end.saturating_sub(1));
+        boundaries.truncate(range.rows.end.saturating_sub(1));
+        range.rows.end = range.rows.end.saturating_sub(1);
+    }
+}
+
+fn trim_plain_trailing_physical(
+    rows: &mut Vec<Line<'static>>,
+    boundaries: &mut Vec<Option<TranscriptCommitBoundary>>,
+    ranges: &mut [RenderedEntryRange],
+    range_index: usize,
+) {
+    let Some(range) = ranges.get_mut(range_index) else {
+        return;
+    };
+    while range.rows.end > range.rows.start
+        && rows
+            .get(range.rows.end - 1)
+            .is_some_and(|row| row.spans.iter().all(|span| span.content.is_empty()))
+    {
+        rows.remove(range.rows.end - 1);
+        boundaries.remove(range.rows.end - 1);
+        range.rows.end -= 1;
+    }
+}
+
+fn trim_plain_trailing_physical_all(
+    rows: &mut Vec<Line<'static>>,
+    boundaries: &mut Vec<Option<TranscriptCommitBoundary>>,
+    ranges: &mut [RenderedEntryRange],
+) {
+    for index in (0..ranges.len()).rev() {
+        trim_plain_trailing_physical(rows, boundaries, ranges, index);
+        if ranges[index].rows.end > ranges[index].rows.start {
+            break;
+        }
+    }
+}
+
+fn truncate_view_rows(
+    mut rows: Vec<Line<'static>>,
+    max_rows: usize,
+    call: bool,
+) -> Vec<Line<'static>> {
+    if rows.len() <= max_rows {
+        return rows;
+    }
+    let hidden = rows.len().saturating_sub(max_rows);
+    rows.truncate(max_rows);
+    let label = if call {
+        format!("… {hidden} more argument lines")
+    } else {
+        let noun = if hidden == 1 { "line" } else { "lines" };
+        format!("… {hidden} more {noun} (full result retained)")
+    };
+    rows.push(Line::styled(label, truncation_footer_style()));
+    rows
 }
 
 fn styled_lines_preserving_newlines(text: &str, style: Style) -> Vec<Line<'static>> {
@@ -796,6 +967,11 @@ fn is_blank_row(row: &TranscriptRow) -> bool {
 /// True when a row carries a background style (e.g. the user bubble's colored
 /// padding rows). Such a blank belongs to its item as rendered padding, never a
 /// separator, so it is preserved by the assembly pass.
+/// INTERNAL PRESENTATION MECHANICS.
+///
+/// Transitional compatibility only: the old row IR does not yet retain box
+/// ownership, so backgrounded blank rows remain distinguishable from flow gaps.
+/// Remove this inference after all bubble padding is structurally lowered.
 fn has_background(row: &TranscriptRow) -> bool {
     row.line.style.bg.is_some() || row.line.spans.iter().any(|span| span.style.bg.is_some())
 }
@@ -896,7 +1072,9 @@ mod tests {
             text: "line1\nline2\n".to_string(),
         };
 
-        let lines = formatter.format(&item);
+        let TranscriptPresentation::LegacyRows(lines) = formatter.format(&item) else {
+            panic!("user messages stay on the legacy presentation path")
+        };
         let text_rows = lines
             .iter()
             .map(|row| line_text(&row.line))
@@ -1178,10 +1356,11 @@ mod tests {
         // Rendered as one contiguous block with the shared bubble's bottom padding
         // kept as its own colored row, followed by a plain gap above the input:
         // [leading blank, a, b, c, bubble-bottom-blank, plain-gap].
+        transcript.ensure_render_cache(80);
         let texts: Vec<String> = transcript
-            .logical_rows_cache
+            .uncommitted_rows()
             .iter()
-            .map(|row| row.line.to_string())
+            .map(line_text)
             .collect();
         assert_eq!(texts, vec!["", "a", "b", "c", "", ""]);
     }
@@ -1201,16 +1380,17 @@ mod tests {
             text: "b".to_string(),
         });
 
+        transcript.ensure_render_cache(80);
         let texts: Vec<String> = transcript
-            .logical_rows_cache
+            .uncommitted_rows()
             .iter()
-            .map(|row| row.line.to_string())
+            .map(line_text)
             .collect();
         // [\n, a, \n, \n, hi, \n, \n, b, \n, \n] — a and b are separated by the
         // assistant message. Each item keeps its own bubble padding (backgrounded
         // blank) and a plain separator is added between items; the trailing user
         // bubble adds one more plain gap above the input separator.
-        assert_eq!(texts, vec!["", "a", "", "", "hi", "", "", "b", "", ""]);
+        assert_eq!(texts, vec!["", "a", "", "", "  hi", "", "", "b", "", ""]);
     }
 
     #[test]
@@ -1232,15 +1412,11 @@ mod tests {
         // Renderer emits 1 title row + 50 body rows = 51; collapsed keeps
         // DISPLAY_MAX_LINES + a footer hint, and the assembler adds a trailing
         // blank so the result clears the input separator.
-        let rows = &transcript.logical_rows_cache;
+        transcript.ensure_render_cache(80);
+        let rows = transcript.uncommitted_rows();
         assert_eq!(rows.len(), 15 + 1 + 1, "15 kept + footer + trailing blank");
 
-        let footer_text: String = rows[15]
-            .line
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
+        let footer_text: String = rows[15].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(footer_text.contains("36 more lines"), "got {footer_text:?}");
     }
 
@@ -1258,9 +1434,13 @@ mod tests {
 
         // 1 title + 2 body = 3 rows (under the cap), plus the assembler's trailing
         // blank so the result clears the input separator.
-        let rows = &transcript.logical_rows_cache;
+        transcript.ensure_render_cache(80);
+        let rows = transcript.uncommitted_rows();
         assert_eq!(rows.len(), 3 + 1);
-        let texts: Vec<String> = rows.iter().map(|r| r.line.to_string()).collect();
+        let texts: Vec<String> = rows
+            .iter()
+            .map(|row| line_text(row).trim_start().to_string())
+            .collect();
         assert_eq!(texts, vec!["read result", "one", "two", ""]);
     }
 
@@ -1283,9 +1463,13 @@ mod tests {
 
         // Bullet header only — no argument dump, and no self-injected leading blank
         // (the assembler owns separators). A trailing blank clears the input separator.
-        let rows = &transcript.logical_rows_cache;
+        transcript.ensure_render_cache(80);
+        let rows = transcript.uncommitted_rows();
         assert_eq!(rows.len(), 2);
-        let texts: Vec<String> = rows.iter().map(|r| r.line.to_string()).collect();
+        let texts: Vec<String> = rows
+            .iter()
+            .map(|row| line_text(row).trim_start_matches("● ").to_string())
+            .collect();
         assert_eq!(texts, vec!["tool * — finished", ""]);
     }
 
@@ -1302,22 +1486,21 @@ mod tests {
             segments: vec![AssistantSegment::Thinking("t".to_string())],
         });
 
-        let rows = &transcript.logical_rows_cache;
+        transcript.ensure_render_cache(80);
+        let rows = transcript.uncommitted_rows();
         // structure: [colored-blank, hello, colored-blank(bubble bottom), plain
         // separator, t, trailing-blank] — the bubble's padded bottom row stays part of
         // the bubble, and a fresh plain gap separates it from the agent message.
-        let texts: Vec<String> = rows.iter().map(|r| r.line.to_string()).collect();
-        assert_eq!(texts, vec!["", "hello", "", "", "t", ""]);
+        let texts: Vec<String> = rows.iter().map(line_text).collect();
+        assert_eq!(texts, vec!["", "hello", "", "", "  t", ""]);
 
         // The bubble's bottom padding (rows[2]) must keep the background; the gap
         // (rows[3]) is a plain separator.
         assert!(
-            has_background(&rows[2]),
-            "bubble bottom must keep its background"
+            rows[2].style.bg.is_some() || rows[2].spans.iter().any(|span| span.style.bg.is_some())
         );
         assert!(
-            !has_background(&rows[3]),
-            "inter-item separator must be plain"
+            rows[3].style.bg.is_none() && !rows[3].spans.iter().any(|span| span.style.bg.is_some())
         );
     }
 
@@ -1331,15 +1514,17 @@ mod tests {
             text: "hello".to_string(),
         });
 
-        let rows = &transcript.logical_rows_cache;
-        let texts: Vec<String> = rows.iter().map(|r| r.line.to_string()).collect();
+        transcript.ensure_render_cache(80);
+        let rows = transcript.uncommitted_rows();
+        let texts: Vec<String> = rows.iter().map(line_text).collect();
         // [colored-blank, hello, colored-blank(bubble bottom), plain gap]
         assert_eq!(texts, vec!["", "hello", "", ""]);
         assert!(
-            has_background(&rows[2]),
-            "bubble bottom must keep its background"
+            rows[2].style.bg.is_some() || rows[2].spans.iter().any(|span| span.style.bg.is_some())
         );
-        assert!(!has_background(&rows[3]), "gap above input must be plain");
+        assert!(
+            rows[3].style.bg.is_none() && !rows[3].spans.iter().any(|span| span.style.bg.is_some())
+        );
     }
 
     #[test]
@@ -1397,10 +1582,16 @@ mod tests {
             status: ToolTimelineStatus::Finished,
         });
 
+        transcript.ensure_render_cache(80);
         let texts: Vec<String> = transcript
-            .logical_rows_cache
+            .uncommitted_rows()
             .iter()
-            .map(|r| r.line.to_string())
+            .map(|row| {
+                line_text(row)
+                    .trim_start_matches("● ")
+                    .trim_start()
+                    .to_string()
+            })
             .collect();
         // [call1, result-title, one, two, SEPARATOR, call2, trailing-blank] — the call
         // and its own result touch with no blank, a single blank precedes the next call,

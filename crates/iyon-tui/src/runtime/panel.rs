@@ -1,54 +1,45 @@
-//! Bottom-bar panels: a single-at-a-time, content-sized region just above the
-//! composer that hosts passive widgets (the steering queue) and, later, interactive
-//! ones (slash menu / file picker).
+//! Stateful docked presentation outside durable conversation history.
 //!
-//! Panels are the presentation layer for a strip of UI; they own their state, report a
-//! content-derived height (0 collapses the region entirely), render into whatever area
-//! the layout grants (clipping themselves when tight), and may optionally consume keys.
-//! They emit neutral `PanelAction` values — never the TUI's `FrontendAction` — keeping
-//! this module decoupled from the controller.
+//! FEATURE EXTENSION API.
+//!
+//! Panels own feature state and describe their appearance with generic semantic
+//! views. The dock host owns registration, visibility, focus, and physical
+//! sizing; it does not know what a panel's content means.
 
-use crossterm::event::KeyEvent;
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::Paragraph,
-};
+use std::{any::Any, marker::PhantomData};
 
-/// Stable identity for a panel, used to route messages and set which panel is visible.
+use crate::presentation::{DockPanel, DockSizePolicy, InteractionResult, UiKey, View};
+
+/// FEATURE EXTENSION API. Opaque registration handle for a dock panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PanelKind {
-    SteeringQueue,
+pub(crate) struct PanelId(u64);
+
+/// FEATURE EXTENSION API. Typed registration handle for owning-feature access.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PanelHandle<P> {
+    id: PanelId,
+    marker: PhantomData<fn() -> P>,
 }
 
-/// State-update messages pushed into panels. Fanning these out lets each panel consume
-/// only what it owns, so new panels don't require touching the dispatch logic.
-#[derive(Debug, Clone)]
-pub(crate) enum PanelMessage {
-    SteeringQueued(String),
-    SteeringDelivered(String),
-}
+impl<P> Copy for PanelHandle<P> {}
 
-/// Neutral actions a panel can emit. Empty for now: the steering queue is passive and
-/// never produces actions. Interactive panels (slash menu) will add variants such as
-/// `RunCommand(String)` / `Close`.
-#[derive(Debug)]
-pub(crate) enum PanelAction {}
-
-pub(crate) trait Panel: std::fmt::Debug {
-    fn kind(&self) -> PanelKind;
-    /// Content-derived height; `0` collapses the panel's region entirely.
-    fn desired_height(&self, width: u16) -> u16;
-    fn render(&self, frame: &mut Frame, area: Rect);
-    fn handle_message(&mut self, _msg: &PanelMessage) {}
-    /// Returns `Some` only when this panel is focused/interactive and consumes the key.
-    fn handle_key(&mut self, _key: KeyEvent) -> Option<Vec<PanelAction>> {
-        None
+impl<P> Clone for PanelHandle<P> {
+    fn clone(&self) -> Self {
+        *self
     }
-    fn focus(&mut self) {}
-    fn unfocus(&mut self) {}
+}
+
+impl<P> PanelHandle<P> {
+    pub(crate) fn id(self) -> PanelId {
+        self.id
+    }
+
+    fn new(id: PanelId) -> Self {
+        Self {
+            id,
+            marker: PhantomData,
+        }
+    }
 }
 
 const MAX_PENDING_ROWS: usize = 4;
@@ -65,76 +56,73 @@ impl SteeringQueuePanel {
             pending: Vec::new(),
         }
     }
+
+    pub(crate) fn queued(&mut self, text: String) {
+        self.pending.push(text);
+    }
+
+    pub(crate) fn delivered(&mut self, text: &str) {
+        if let Some(pos) = self.pending.iter().position(|item| item == text) {
+            self.pending.remove(pos);
+        }
+    }
 }
 
-impl Panel for SteeringQueuePanel {
-    fn kind(&self) -> PanelKind {
-        PanelKind::SteeringQueue
-    }
-
-    fn desired_height(&self, _width: u16) -> u16 {
+impl DockPanel for SteeringQueuePanel {
+    fn view(&self) -> View {
         if self.pending.is_empty() {
-            return 0;
+            return View::spacer(0);
         }
-        let shown = self.pending.len().min(MAX_PENDING_ROWS);
-        let overflow = usize::from(self.pending.len() > MAX_PENDING_ROWS);
-        (shown + overflow) as u16
-    }
 
-    fn render(&self, frame: &mut Frame, area: Rect) {
-        if self.pending.is_empty() || area.height == 0 {
-            return;
-        }
-        let style = Style::default()
-            .fg(Color::Rgb(128, 128, 128))
-            .add_modifier(Modifier::DIM);
-
-        let mut lines: Vec<Line<'static>> = self
+        let mut children = self
             .pending
             .iter()
             .take(MAX_PENDING_ROWS)
-            .map(|text| Line::from(Span::styled(format!("Steering: {text}"), style)))
-            .collect();
+            .map(|text| {
+                View::text(format!("Steering: {text}")).width(crate::presentation::WidthRule::Fill)
+            })
+            .collect::<Vec<_>>();
         let overflow = self.pending.len().saturating_sub(MAX_PENDING_ROWS);
         if overflow > 0 {
-            lines.push(Line::from(Span::styled(
-                format!("↑ {overflow} more queued"),
-                style,
-            )));
+            children.push(
+                View::text(format!("↑ {overflow} more queued"))
+                    .width(crate::presentation::WidthRule::Fill),
+            );
         }
-
-        // Defensive clip: only paint as many rows as were actually granted.
-        lines.truncate(usize::from(area.height));
-        frame.render_widget(Paragraph::new(lines), area);
+        View::column(children, 0).width(crate::presentation::WidthRule::Fill)
     }
 
-    fn handle_message(&mut self, msg: &PanelMessage) {
-        match msg {
-            PanelMessage::SteeringQueued(text) => self.pending.push(text.clone()),
-            PanelMessage::SteeringDelivered(text) => {
-                if let Some(pos) = self.pending.iter().position(|t| t == text) {
-                    self.pending.remove(pos);
-                }
-            }
-        }
+    fn size_policy(&self) -> DockSizePolicy {
+        DockSizePolicy::HiddenWhenEmpty
+    }
+
+    fn handle_key(&mut self, _key: UiKey) -> InteractionResult {
+        InteractionResult::Ignored
     }
 }
 
-/// Owns the registry of panels and decides which single panel is visible at a time.
-/// Hidden panels keep their state so a transient panel (e.g. slash menu) can be shown
-/// over the queue without discarding it; only the visible panel renders / gets keys.
+struct PanelSlot {
+    id: PanelId,
+    panel: Box<dyn DockPanel>,
+}
+
+impl std::fmt::Debug for PanelSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PanelSlot").field("id", &self.id).finish()
+    }
+}
+
+/// FEATURE EXTENSION API. Registry and lifecycle host for bottom-anchored UI.
 #[derive(Debug)]
 pub(crate) struct BottomPanelBar {
-    panels: Vec<Box<dyn Panel>>,
-    visible: Option<PanelKind>,
+    panels: Vec<PanelSlot>,
+    visible: Option<PanelId>,
+    next_id: u64,
 }
 
 impl Default for BottomPanelBar {
     fn default() -> Self {
-        let mut bar = Self::new();
-        bar.register(Box::new(SteeringQueuePanel::new()));
-        bar.show(PanelKind::SteeringQueue);
-        bar
+        Self::new()
     }
 }
 
@@ -143,150 +131,172 @@ impl BottomPanelBar {
         Self {
             panels: Vec::new(),
             visible: None,
+            next_id: 1,
         }
     }
 
-    pub(crate) fn register(&mut self, panel: Box<dyn Panel>) {
-        if !self.panels.iter().any(|p| p.kind() == panel.kind()) {
-            self.panels.push(panel);
-        }
+    /// FEATURE EXTENSION API. Register a stateful panel and receive its handle.
+    pub(crate) fn register<P>(&mut self, panel: P) -> PanelHandle<P>
+    where
+        P: DockPanel + 'static,
+    {
+        let id = PanelId(self.next_id);
+        self.next_id = self.next_id.saturating_add(1);
+        self.panels.push(PanelSlot {
+            id,
+            panel: Box::new(panel),
+        });
+        PanelHandle::new(id)
     }
 
-    pub(crate) fn show(&mut self, kind: PanelKind) {
-        if !self.panels.iter().any(|p| p.kind() == kind) {
+    /// FEATURE EXTENSION API. Access a panel through the owning feature's typed handle.
+    pub(crate) fn with_mut<P, R>(
+        &mut self,
+        handle: PanelHandle<P>,
+        f: impl FnOnce(&mut P) -> R,
+    ) -> Option<R>
+    where
+        P: DockPanel + 'static,
+    {
+        let slot = self.panels.iter_mut().find(|slot| slot.id == handle.id)?;
+        let panel = slot.panel.as_any_mut().downcast_mut::<P>()?;
+        Some(f(panel))
+    }
+
+    pub(crate) fn show<P>(&mut self, handle: PanelHandle<P>) {
+        let id = handle.id();
+        if !self.panels.iter().any(|slot| slot.id == id) {
             return;
         }
-        if let Some(p) = self
-            .visible
-            .filter(|prev| *prev != kind)
-            .and_then(|prev| self.panels.iter_mut().find(|p| p.kind() == prev))
-        {
-            p.as_mut().unfocus();
+        if let Some(previous) = self.visible.filter(|previous| *previous != id) {
+            if let Some(slot) = self.panels.iter_mut().find(|slot| slot.id == previous) {
+                slot.panel.blur();
+            }
         }
-        self.visible = Some(kind);
-        if let Some(p) = self.panels.iter_mut().find(|p| p.kind() == kind) {
-            p.as_mut().focus();
+        self.visible = Some(id);
+        if let Some(slot) = self.panels.iter_mut().find(|slot| slot.id == id) {
+            slot.panel.focus();
         }
     }
 
-    /// Hide the bar (returns to a collapsed region). Used by future interactive panels
-    /// (e.g. slash menu) when they close; currently referenced only by tests.
-    #[allow(dead_code)]
+    /// Hide the bar while retaining every panel's state.
     pub(crate) fn hide(&mut self) {
-        if let Some(p) = self
-            .visible
-            .and_then(|kind| self.panels.iter_mut().find(|p| p.kind() == kind))
+        if let Some(id) = self.visible.take()
+            && let Some(slot) = self.panels.iter_mut().find(|slot| slot.id == id)
         {
-            p.as_mut().unfocus();
+            slot.panel.blur();
         }
-        self.visible = None;
     }
 
-    /// Which panel is currently visible, if any.
-    #[allow(dead_code)]
-    pub(crate) fn visible(&self) -> Option<PanelKind> {
+    #[cfg(test)]
+    pub(crate) fn visible(&self) -> Option<PanelId> {
         self.visible
     }
 
-    /// Fan a state message out to every registered panel (each consumes what it owns).
-    pub(crate) fn send(&mut self, msg: &PanelMessage) {
-        for panel in self.panels.iter_mut() {
-            panel.handle_message(msg);
-        }
-    }
-
-    fn active(&self) -> Option<&(dyn Panel + '_)> {
-        let kind = self.visible?;
-        let slot = self.panels.iter().find(|p| p.kind() == kind)?;
-        Some(slot.as_ref())
-    }
-
-    fn active_mut(&mut self) -> Option<&mut (dyn Panel + '_)> {
-        let kind = self.visible?;
-        let slot = self.panels.iter_mut().find(|p| p.kind() == kind)?;
-        Some(slot.as_mut())
-    }
-
     pub(crate) fn desired_height(&self, width: u16) -> u16 {
-        self.active().map_or(0, |p| p.desired_height(width))
-    }
-
-    pub(crate) fn render(&self, frame: &mut Frame, area: Rect) {
-        if let Some(panel) = self.active() {
-            panel.render(frame, area);
+        let Some(panel) = self.active() else {
+            return 0;
+        };
+        let measured = crate::presentation::internal::view_height(&panel.view(), width);
+        match panel.size_policy() {
+            DockSizePolicy::HiddenWhenEmpty => measured,
+            DockSizePolicy::Content { max_rows } => {
+                max_rows.map_or(measured, |max| measured.min(max))
+            }
+            DockSizePolicy::Fixed(height) => height,
         }
     }
 
-    /// Route a key to the visible panel if it is interactive and consumes it.
-    pub(crate) fn handle_key(&mut self, key: KeyEvent) -> Option<Vec<PanelAction>> {
-        self.active_mut()?.handle_key(key)
+    pub(crate) fn view(&self) -> Option<View> {
+        self.active().map(DockPanel::view)
     }
 
-    pub(crate) fn steer_queued(&mut self, text: String) {
-        self.send(&PanelMessage::SteeringQueued(text));
+    pub(crate) fn handle_key(&mut self, key: UiKey) -> InteractionResult {
+        self.active_mut()
+            .map_or(InteractionResult::Ignored, |panel| panel.handle_key(key))
     }
 
-    pub(crate) fn steer_delivered(&mut self, text: &str) {
-        self.send(&PanelMessage::SteeringDelivered(text.to_string()));
+    fn active(&self) -> Option<&dyn DockPanel> {
+        let id = self.visible?;
+        self.panels
+            .iter()
+            .find(|slot| slot.id == id)
+            .map(|slot| slot.panel.as_ref())
+    }
+
+    fn active_mut(&mut self) -> Option<&mut dyn DockPanel> {
+        let id = self.visible?;
+        self.panels
+            .iter_mut()
+            .find(|slot| slot.id == id)
+            .map(|slot| slot.panel.as_mut())
+    }
+}
+
+impl dyn DockPanel {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::{KeyCode, KeyModifiers};
 
     #[test]
     fn steering_queue_empty_height_is_zero() {
         let panel = SteeringQueuePanel::new();
-        assert_eq!(panel.desired_height(80), 0);
+        assert_eq!(panel.size_policy(), DockSizePolicy::HiddenWhenEmpty);
+        assert!(matches!(
+            panel.view().kind,
+            crate::presentation::ViewKind::Spacer { rows: 0 }
+        ));
     }
 
     #[test]
     fn steering_queue_queued_then_delivered() {
         let mut panel = SteeringQueuePanel::new();
-        panel.handle_message(&PanelMessage::SteeringQueued("first".to_string()));
-        panel.handle_message(&PanelMessage::SteeringQueued("second".to_string()));
-        assert_eq!(panel.desired_height(80), 2);
-
-        panel.handle_message(&PanelMessage::SteeringDelivered("first".to_string()));
-        assert_eq!(panel.pending, vec!["second"]);
-        panel.handle_message(&PanelMessage::SteeringDelivered("second".to_string()));
-        assert_eq!(panel.desired_height(80), 0);
+        panel.queued("first".to_string());
+        panel.queued("second".to_string());
+        assert_eq!(
+            crate::presentation::internal::view_height(&panel.view(), 80),
+            2
+        );
+        panel.delivered("first");
+        panel.delivered("second");
+        assert!(matches!(
+            panel.view().kind,
+            crate::presentation::ViewKind::Spacer { rows: 0 }
+        ));
     }
 
     #[test]
     fn bottom_panel_bar_collapses_when_visible_empty() {
         let bar = BottomPanelBar::default();
         assert_eq!(bar.desired_height(80), 0);
-        assert_eq!(bar.visible(), Some(PanelKind::SteeringQueue));
+        assert!(bar.visible().is_none());
     }
 
     #[test]
     fn bottom_panel_bar_keeps_hidden_state_through_show_hide() {
         let mut bar = BottomPanelBar::default();
-        bar.steer_queued("pending".to_string());
+        let steering = bar.register(SteeringQueuePanel::new());
+        bar.show(steering);
+        let _ = bar.with_mut(steering, |panel| panel.queued("pending".to_string()));
         assert_eq!(bar.desired_height(80), 1);
-
-        // Hiding the bar collapses the region, but the panel's state is preserved and
-        // reappears when shown again.
         bar.hide();
         assert_eq!(bar.desired_height(80), 0);
-        bar.show(PanelKind::SteeringQueue);
+        let id = bar.visible();
+        assert!(id.is_none());
+        bar.show(steering);
         assert_eq!(bar.desired_height(80), 1);
-        assert_eq!(bar.visible(), Some(PanelKind::SteeringQueue));
     }
 
     #[test]
     fn passive_panel_returns_no_keys_so_composer_handles_them() {
-        // The visible steering queue is passive: it never consumes keys, so the bar
-        // routes them on to the composer untouched.
         let mut bar = BottomPanelBar::default();
-        assert!(
-            bar.handle_key(KeyEvent::new(
-                crossterm::event::KeyCode::Char('x'),
-                crossterm::event::KeyModifiers::NONE
-            ))
-            .is_none()
-        );
+        assert_eq!(bar.handle_key(UiKey::Char('x')), InteractionResult::Ignored);
+        let _ = (KeyCode::Char('x'), KeyModifiers::NONE);
     }
 }

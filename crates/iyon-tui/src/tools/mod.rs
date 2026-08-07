@@ -3,4 +3,4 @@ pub(crate) mod renderers;
 pub(crate) mod types;
 
 pub(crate) use registry::ToolRendererRegistry;
-pub(crate) use types::{ToolCallRenderInput, ToolResultRenderInput};
+pub(crate) use types::{ToolCallRenderInput, ToolOutcome, ToolResultRenderInput};
