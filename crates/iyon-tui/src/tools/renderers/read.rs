@@ -34,13 +34,10 @@ impl ToolRenderer for ReadRenderer {
             _ => String::new(),
         };
 
-        vec![
-            TranscriptRow::blank(),
-            TranscriptRow::bullet(
-                format!("read {path}{suffix} — {}", input.status),
-                input.style,
-            ),
-        ]
+        vec![TranscriptRow::bullet(
+            format!("read {path}{suffix} — {}", input.status),
+            input.style,
+        )]
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {

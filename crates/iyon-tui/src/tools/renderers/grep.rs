@@ -23,13 +23,10 @@ impl ToolRenderer for GrepRenderer {
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or(".");
-        vec![
-            TranscriptRow::blank(),
-            TranscriptRow::bullet(
-                format!("grep /{pattern}/ in {path} — {}", input.status),
-                input.style,
-            ),
-        ]
+        vec![TranscriptRow::bullet(
+            format!("grep /{pattern}/ in {path} — {}", input.status),
+            input.style,
+        )]
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> Vec<TranscriptRow> {

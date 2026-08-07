@@ -7,7 +7,7 @@ use crate::transcript::{
     markdown::RenderedRow,
     model::TuiFormatter,
     row::TranscriptRow,
-    slice_segments,
+    slice_segments, think_to_text_newline,
     wrap::{TranscriptCommitBoundary, wrap_transcript_rows},
 };
 
@@ -216,40 +216,29 @@ impl ActiveStreamState {
             return;
         }
 
-        // UX: the agent's answer starts on its own line after reasoning. Insert a
-        // single newline when the first answer text arrives after a thinking
-        // segment (unless that thinking already ended with a newline). Doing this in
-        // the stream keeps `full_text`/segments consistent for byte-exact spill math.
-        let mut chunk = chunk;
-        let mut buffer = String::new();
-        if kind == SegmentKind::Text {
-            let insert_newline = match self.segments.last() {
-                Some(AssistantSegment::Thinking(text)) => !text.ends_with('\n'),
-                _ => false,
-            };
-            if insert_newline {
-                buffer.push('\n');
-                buffer.push_str(chunk);
-                chunk = &buffer;
-            }
-        }
+        // UX: the agent's answer starts on its own line after reasoning. This is
+        // the single central rule (see think_to_text_newline) shared with the
+        // transcript assembly path `push_segment`, so every code path that builds
+        // assistant segments inserts exactly one newline between a thinking segment
+        // and the answer text that follows it.
+        let chunk = think_to_text_newline(&self.segments, kind, chunk);
 
-        self.full_text.push_str(chunk);
+        self.full_text.push_str(&chunk);
         match kind {
             SegmentKind::Text => {
                 if let Some(AssistantSegment::Text(text)) = self.segments.last_mut() {
-                    text.push_str(chunk);
+                    text.push_str(&chunk);
                 } else {
                     self.segments
-                        .push(AssistantSegment::Text(chunk.to_string()));
+                        .push(AssistantSegment::Text(chunk.into_owned()));
                 }
             }
             SegmentKind::Thinking => {
                 if let Some(AssistantSegment::Thinking(text)) = self.segments.last_mut() {
-                    text.push_str(chunk);
+                    text.push_str(&chunk);
                 } else {
                     self.segments
-                        .push(AssistantSegment::Thinking(chunk.to_string()));
+                        .push(AssistantSegment::Thinking(chunk.into_owned()));
                 }
             }
         }
@@ -534,15 +523,17 @@ mod tests {
         stream.push_delta(SegmentKind::Text, "c");
         stream.push_delta(SegmentKind::Thinking, "d");
 
+        // The central think-to-text rule inserts an empty line (two \n) so the
+        // rendered transcript gets a real blank row between thinking and answer.
         assert_eq!(
             stream.segments(),
             &[
                 AssistantSegment::Thinking("ab".to_string()),
-                AssistantSegment::Text("\nc".to_string()),
+                AssistantSegment::Text("\n\nc".to_string()),
                 AssistantSegment::Thinking("d".to_string()),
             ]
         );
-        assert_eq!(stream.full_text(), "ab\ncd");
+        assert_eq!(stream.full_text(), "ab\n\ncd");
 
         // No extra newline when the thinking segment already ended with one.
         let mut already_ended = ActiveStreamState::new();
@@ -571,12 +562,12 @@ mod tests {
     fn into_unfrozen_returns_only_non_frozen_segments() {
         let mut stream = ActiveStreamState::new();
         stream.push_delta(SegmentKind::Thinking, "ab");
-        stream.push_delta(SegmentKind::Text, "cd"); // injected newline -> "ab\ncd"
+        stream.push_delta(SegmentKind::Text, "cd"); // injected blank line -> "ab\n\ncd"
         stream.advance_frozen_until(2);
 
         assert_eq!(
             stream.into_unfrozen_segments(),
-            vec![AssistantSegment::Text("\ncd".to_string())]
+            vec![AssistantSegment::Text("\n\ncd".to_string())]
         );
     }
 

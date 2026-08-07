@@ -23,10 +23,10 @@ impl ToolRenderer for EditRenderer {
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("...");
-        let mut rows = vec![
-            TranscriptRow::blank(),
-            TranscriptRow::bullet(format!("edit {path} — {}", input.status), input.style),
-        ];
+        let mut rows = vec![TranscriptRow::bullet(
+            format!("edit {path} — {}", input.status),
+            input.style,
+        )];
         // Debug-only: surface the raw edits payload; the normal view keeps the
         // call compact and lets the result's diff carry the detail.
         if input.show_arg_preview {

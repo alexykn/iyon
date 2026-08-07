@@ -5,5 +5,5 @@ pub(crate) mod wrap;
 
 pub(crate) use model::{
     AssistantSegment, SegmentKind, TimelineItem, ToolTimelineStatus, TranscriptState,
-    slice_segments,
+    slice_segments, think_to_text_newline,
 };
