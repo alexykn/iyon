@@ -1,2 +1,0 @@
-generated via write tool
-status=ok
