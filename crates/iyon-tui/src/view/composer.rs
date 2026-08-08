@@ -225,6 +225,30 @@ mod tests {
     }
 
     #[test]
+    fn layout_gap_is_not_counted_as_conversation_overflow() {
+        let mut state = AppState::default();
+        state.append_timeline_item(crate::transcript::TimelineItem::UserMessage {
+            text: "user".to_string(),
+        });
+
+        let root = Rect::new(0, 0, 80, 8);
+        let renderer = Renderer;
+        let mut wrap_cache = WrapCache::default();
+        let layout = RunningFrameComposer::prepare(
+            &renderer,
+            &LayoutConfig::default(),
+            &mut state,
+            &mut wrap_cache,
+            root,
+        );
+
+        assert_eq!(state.transcript.uncommitted_len(), 3);
+        assert_eq!(state.conversation_row_count(), 3);
+        assert_eq!(layout.conversation_capacity_rows, 3);
+        assert_eq!(layout.conversation_gap_area.height, 1);
+    }
+
+    #[test]
     fn bottom_panel_pressure_reduces_only_conversation_capacity() {
         let mut state = AppState::default();
         state.receive_stream_segments(vec![(
