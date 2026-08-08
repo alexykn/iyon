@@ -390,6 +390,7 @@ impl StreamView {
 
         View {
             width: WidthRule::Fit,
+            decoration: crate::presentation::api::Decoration::default(),
             kind: ViewKind::Column(ColumnView { children, gap: 0 }),
         }
     }
