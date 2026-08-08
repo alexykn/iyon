@@ -9,7 +9,7 @@ use ratatui::layout::Rect;
 
 use crate::{
     input::WrapCache,
-    runtime::{AppState, FinalizeResult, active::ActiveBehavior},
+    runtime::{AppState, FinalizeResult},
     scrollback::ScrollbackCoordinator,
     terminal::InlineTerminal,
 };
@@ -38,18 +38,7 @@ impl FrameCoordinator {
             state.transcript.ensure_render_cache(root.width.max(1));
             let layout =
                 RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
-            let mut capacity = layout.conversation_capacity_rows;
-            if state
-                .active
-                .as_ref()
-                .is_some_and(|active| active.behavior() == ActiveBehavior::OccludeOnly)
-            {
-                // Occluding chrome is an explicit active-pane policy. It may hide
-                // conversation rows without making those rows part of the visual
-                // conversation area, so derive its extra commit allowance from
-                // that chrome region rather than from host ownership.
-                capacity = capacity.saturating_add(usize::from(layout.active_chrome_area.height));
-            }
+            let capacity = layout.conversation_capacity_rows;
             let overflow = state.conversation_row_count().saturating_sub(capacity);
             if overflow == 0 {
                 break;

@@ -5,7 +5,6 @@ pub(crate) struct LayoutConfig {
     pub(crate) spacer_height: u16,
     pub(crate) conversation_height: u16,
     pub(crate) conversation_gap_height: u16,
-    pub(crate) active_chrome_height: u16,
     pub(crate) panel_height: u16,
     pub(crate) input_height: u16,
     pub(crate) info_height: u16,
@@ -17,7 +16,6 @@ impl Default for LayoutConfig {
             spacer_height: 0,
             conversation_height: 0,
             conversation_gap_height: 0,
-            active_chrome_height: 0,
             panel_height: 0,
             input_height: 3,
             info_height: 1,
@@ -30,7 +28,6 @@ pub(crate) struct ComputedLayout {
     pub(crate) spacer_area: Rect,
     pub(crate) conversation_area: Rect,
     pub(crate) conversation_gap_area: Rect,
-    pub(crate) active_chrome_area: Rect,
     pub(crate) panel_area: Rect,
     pub(crate) input_area: Rect,
     pub(crate) info_area: Rect,
@@ -48,7 +45,6 @@ impl LayoutConfig {
                 // pressure when the terminal is tight.
                 Constraint::Max(self.conversation_height),
                 Constraint::Length(self.conversation_gap_height),
-                Constraint::Length(self.active_chrome_height),
                 Constraint::Length(self.panel_height),
                 Constraint::Length(self.input_height),
                 Constraint::Length(self.info_height),
@@ -60,10 +56,9 @@ impl LayoutConfig {
             spacer_area: vertical[0],
             conversation_area: vertical[1],
             conversation_gap_area: vertical[2],
-            active_chrome_area: vertical[3],
-            panel_area: vertical[4],
-            input_area: vertical[5],
-            info_area: vertical[6],
+            panel_area: vertical[3],
+            input_area: vertical[4],
+            info_area: vertical[5],
             conversation_capacity_rows,
         }
     }
@@ -89,7 +84,6 @@ mod tests {
         let cfg = LayoutConfig {
             conversation_height: 10,
             conversation_gap_height: 1,
-            active_chrome_height: 5,
             panel_height: 3,
             input_height: 3,
             info_height: 1,
@@ -97,29 +91,26 @@ mod tests {
         };
         let layout = cfg.compute(rect(30));
         assert_eq!(layout.panel_area.height, 3);
-        // The panel sits between active and input in vertical order.
-        assert!(layout.active_chrome_area.bottom() <= layout.panel_area.y);
+        assert!(layout.conversation_gap_area.bottom() <= layout.panel_area.y);
         assert!(layout.panel_area.bottom() <= layout.input_area.y);
     }
 
     /// Regression: when the panel appears on a tight terminal, the fixed regions below the
-    /// conversation (chrome / panel / input / info) must keep exactly the heights they were
-    /// asked for — the conversation absorbs any overflow instead of squeezing the composer
-    /// below the height its cursor needs.
+    /// conversation (panel / input / info) must keep exactly the heights they were asked for —
+    /// the conversation absorbs any overflow instead of squeezing the composer below the height
+    /// its cursor needs.
     #[test]
     fn panel_on_tight_terminal_does_not_squeeze_fixed_regions() {
         // A tall multi-line composer (requested 8) on a short 20-row terminal, with panel.
         let cfg = LayoutConfig {
             conversation_height: 12,
             conversation_gap_height: 1,
-            active_chrome_height: 5,
             panel_height: 3,
             input_height: 8,
             info_height: 1,
             ..LayoutConfig::default()
         };
         let layout = cfg.compute(rect(20));
-        assert_eq!(layout.active_chrome_area.height, 5);
         assert_eq!(layout.panel_area.height, 3);
         assert_eq!(layout.input_area.height, 8, "composer must not be squeezed");
         assert_eq!(layout.info_area.height, 1);

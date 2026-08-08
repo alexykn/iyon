@@ -2,10 +2,10 @@ use ratatui::layout::Rect;
 
 use crate::{
     input::WrapCache,
-    runtime::{AppState, BottomPanelBar, active::ActivePaneState},
+    runtime::{AppState, BottomPanelBar},
     view::{
         layout::{ComputedLayout, LayoutConfig},
-        render::{ActiveChromeView, ConversationView, InfoView, InputView, Renderable, Renderer},
+        render::{ConversationView, InfoView, InputView, Renderable, Renderer},
     },
 };
 
@@ -13,7 +13,6 @@ use crate::{
 pub(crate) struct RunningView<'a> {
     pub(crate) layout: ComputedLayout,
     pub(crate) conversation: ConversationView<'a>,
-    pub(crate) active_chrome: ActiveChromeView<'a>,
     pub(crate) panel: &'a BottomPanelBar,
     pub(crate) input: InputView<'a>,
     pub(crate) info: InfoView<'a>,
@@ -81,12 +80,6 @@ impl RunningFrameComposer {
                 hosted_rows: state.assistant_live_rows(),
                 transient_rows: state.active_live_rows(),
             },
-            active_chrome: ActiveChromeView {
-                active: state
-                    .active
-                    .as_ref()
-                    .filter(|active| !active.uses_conversation_surface()),
-            },
             panel: &state.bottom_panel,
             input: InputView {
                 text: state.input.text(),
@@ -113,11 +106,6 @@ impl RunningFrameComposer {
         let conversation_rows = state.conversation_row_count();
         let conversation_height = u16::try_from(conversation_rows).unwrap_or(u16::MAX);
         let conversation_gap_height = u16::from(conversation_rows > 0);
-        let active_chrome_height = state
-            .active
-            .as_ref()
-            .filter(|active| !active.uses_conversation_surface())
-            .map_or(0, ActivePaneState::desired_height);
         let panel_height = state.bottom_panel.desired_height(root.width.max(1));
 
         Self::compute_layout_for_input(
@@ -128,7 +116,6 @@ impl RunningFrameComposer {
             input_wrap_ranges,
             conversation_height,
             conversation_gap_height,
-            active_chrome_height,
             panel_height,
         )
     }
@@ -141,13 +128,11 @@ impl RunningFrameComposer {
         input_wrap_ranges: &[std::ops::Range<usize>],
         conversation_height: u16,
         conversation_gap_height: u16,
-        active_chrome_height: u16,
         panel_height: u16,
     ) -> ComputedLayout {
         let base_cfg = LayoutConfig {
             conversation_height,
             conversation_gap_height,
-            active_chrome_height,
             panel_height,
             ..base_layout.clone()
         };
@@ -161,7 +146,6 @@ impl RunningFrameComposer {
         };
         let input_height = renderer.desired_height(&input_view, pass1.input_area);
         let fixed_height = conversation_gap_height
-            .saturating_add(active_chrome_height)
             .saturating_add(panel_height)
             .saturating_add(input_height)
             .saturating_add(base_cfg.info_height);
@@ -180,7 +164,7 @@ impl RunningFrameComposer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::active::ToolActiveStatus;
+    use crate::runtime::active::{ActivePaneState, ToolActiveStatus};
 
     #[test]
     fn ownership_handoff_preserves_conversation_geometry_and_rows() {
@@ -331,8 +315,6 @@ mod tests {
         assert_eq!(before.spacer_area.height, after.spacer_area.height);
         assert_eq!(before.conversation_area, after.conversation_area);
         assert_eq!(before.input_area.y, after.input_area.y);
-        assert_eq!(before.active_chrome_area.height, 0);
-        assert_eq!(after.active_chrome_area.height, 0);
         assert_eq!(before_transient.len(), 2);
         assert_eq!(before_transient[0], ratatui::text::Line::default());
         assert_eq!(before_transient[1].to_string(), "⠋ Working");
@@ -345,32 +327,53 @@ mod tests {
     }
 
     #[test]
-    fn active_chrome_reserves_height_without_assistant_host() {
+    fn active_tail_rows_are_not_transcript_history() {
         let mut state = AppState::default();
-        state.active = Some(ActivePaneState::working_spinner());
-
-        let layout = RunningFrameComposer::compute_layout(
-            &LayoutConfig::default(),
+        state.append_timeline_item(crate::transcript::TimelineItem::UserMessage {
+            text: "hello".to_string(),
+        });
+        state.start_working_pane();
+        let mut wrap_cache = WrapCache::default();
+        RunningFrameComposer::prepare(
             &Renderer,
-            Rect::new(0, 0, 80, 30),
-            &state,
-            &[0..0],
+            &LayoutConfig::default(),
+            &mut state,
+            &mut wrap_cache,
+            Rect::new(0, 0, 80, 8),
         );
 
-        assert_eq!(layout.active_chrome_area.height, 0);
+        let committed = state.transcript.committable_len();
+        state.transcript.mark_rows_committed(committed);
 
+        assert_eq!(state.active_live_rows().len(), 2);
+        assert_eq!(state.active_live_rows()[1].to_string(), "⠋ Working");
+    }
+
+    #[test]
+    fn active_turn_content_is_part_of_conversation_surface() {
+        let mut state = AppState::default();
+        state.append_timeline_item(crate::transcript::TimelineItem::UserMessage {
+            text: "hello".to_string(),
+        });
         state.active = Some(ActivePaneState::Tool {
             tool_name: "search".to_string(),
             status: ToolActiveStatus::Running,
             detail: None,
         });
-        let layout = RunningFrameComposer::compute_layout(
-            &LayoutConfig::default(),
+
+        let layout = RunningFrameComposer::prepare(
             &Renderer,
+            &LayoutConfig::default(),
+            &mut state,
+            &mut WrapCache::default(),
             Rect::new(0, 0, 80, 30),
-            &state,
-            &[0..0],
         );
-        assert_eq!(layout.active_chrome_area.height, 3);
+
+        assert_eq!(state.active_live_rows().len(), 2);
+        assert_eq!(
+            layout.conversation_area.height,
+            state.conversation_row_count() as u16
+        );
+        assert_eq!(layout.panel_area.height, 0);
     }
 }
