@@ -34,17 +34,29 @@ pub(crate) struct InputView<'a> {
 impl View for InputView<'_> {}
 
 #[derive(Debug, Clone)]
-pub(crate) struct ChatView<'a> {
-    pub(crate) lines: &'a [Line<'static>],
+pub(crate) struct ConversationView<'a> {
+    pub(crate) transcript_rows: &'a [Line<'static>],
+    pub(crate) hosted_rows: &'a [Line<'static>],
 }
-impl View for ChatView<'_> {}
+
+impl ConversationView<'_> {
+    pub(crate) fn len(&self) -> usize {
+        self.transcript_rows
+            .len()
+            .saturating_add(self.hosted_rows.len())
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+impl View for ConversationView<'_> {}
 
 #[derive(Debug, Clone)]
-pub(crate) struct LiveRegionView<'a> {
-    pub(crate) conversation_rows: &'a [Line<'static>],
+pub(crate) struct ActiveChromeView<'a> {
     pub(crate) active: Option<&'a ActivePaneState>,
 }
-impl View for LiveRegionView<'_> {}
+impl View for ActiveChromeView<'_> {}
 
 #[derive(Debug, Clone)]
 pub(crate) struct InfoView<'a> {
@@ -78,11 +90,15 @@ impl Renderer {
                 Style::default().bg(Color::Rgb(66, 44, 72)),
             );
             buffer.set_style(
-                view.layout.chat_area,
+                view.layout.conversation_area,
                 Style::default().bg(Color::Rgb(18, 34, 48)),
             );
             buffer.set_style(
-                view.layout.active_area,
+                view.layout.conversation_gap_area,
+                Style::default().bg(Color::Rgb(18, 34, 48)),
+            );
+            buffer.set_style(
+                view.layout.active_chrome_area,
                 Style::default().bg(Color::Rgb(42, 24, 24)),
             );
             buffer.set_style(
@@ -97,8 +113,9 @@ impl Renderer {
 
         let spacer_view = SpacerView;
         self.render(&spacer_view, frame, view.layout.spacer_area);
-        self.render(&view.chat, frame, view.layout.chat_area);
-        self.render(&view.active, frame, view.layout.active_area);
+        self.render(&view.conversation, frame, view.layout.conversation_area);
+        self.render(&SpacerView, frame, view.layout.conversation_gap_area);
+        self.render(&view.active_chrome, frame, view.layout.active_chrome_area);
         if let Some(panel_view) = view.panel.view() {
             crate::presentation::internal::render_view(
                 &panel_view,
@@ -147,32 +164,71 @@ impl Renderable<SpacerView> for Renderer {
     }
 }
 
-impl Renderable<LiveRegionView<'_>> for Renderer {
-    fn render(&self, view: &LiveRegionView, frame: &mut Frame, area: Rect) {
-        const COMPOSER_GAP_ROWS: usize = 1;
-        let chrome = view.active.map(active_chrome_lines).unwrap_or_default();
-        let chrome_rows = chrome.len();
-        let conversation_gap = if view.conversation_rows.is_empty() {
-            0
-        } else {
-            1
-        };
-        let conversation_capacity = usize::from(area.height)
-            .saturating_sub(chrome_rows)
-            .saturating_sub(conversation_gap.min(COMPOSER_GAP_ROWS));
-        let visible = &view.conversation_rows[view
-            .conversation_rows
-            .len()
-            .saturating_sub(conversation_capacity)..];
+impl Renderable<ConversationView<'_>> for Renderer {
+    fn render(&self, view: &ConversationView, frame: &mut Frame, area: Rect) {
+        // The conversation is one linear bottom-anchored sequence. Iterate the two
+        // owner slices without concatenating or copying them.
+        let visible_rows = usize::from(area.height);
+        let mut skip = view.len().saturating_sub(visible_rows);
+        let mut row = 0usize;
+        let buffer = frame.buffer_mut();
 
-        let mut lines = Vec::with_capacity(visible.len() + conversation_gap + chrome_rows);
-        lines.extend_from_slice(visible);
-        if conversation_gap != 0 {
-            // Frame geometry only: this composer gap is never included in history.
-            lines.push(Line::from(""));
+        for lines in [view.transcript_rows, view.hosted_rows] {
+            if skip >= lines.len() {
+                skip -= lines.len();
+                continue;
+            }
+            for line in &lines[skip..] {
+                let y = area
+                    .y
+                    .saturating_add(u16::try_from(row).unwrap_or(u16::MAX));
+                let row_area = Rect {
+                    x: area.x,
+                    y,
+                    width: area.width,
+                    height: 1,
+                };
+                buffer.set_style(row_area, line.style);
+                buffer.set_line(area.x, y, line, area.width);
+                row = row.saturating_add(1);
+            }
+            skip = 0;
         }
-        lines.extend(chrome);
-        frame.render_widget(Paragraph::new(Text::from(lines)), area);
+    }
+
+    fn desired_height(&self, view: &ConversationView<'_>, _area: Rect) -> u16 {
+        if view.is_empty() {
+            return 0;
+        }
+        u16::try_from(view.len()).unwrap_or(u16::MAX)
+    }
+}
+
+impl Renderable<ActiveChromeView<'_>> for Renderer {
+    fn render(&self, view: &ActiveChromeView, frame: &mut Frame, area: Rect) {
+        let lines = view.active.map(active_chrome_lines).unwrap_or_default();
+        for (index, line) in lines.iter().enumerate().take(usize::from(area.height)) {
+            let y = area
+                .y
+                .saturating_add(u16::try_from(index).unwrap_or(u16::MAX));
+            let row_area = Rect {
+                x: area.x,
+                y,
+                width: area.width,
+                height: 1,
+            };
+            frame.buffer_mut().set_style(row_area, line.style);
+            frame.buffer_mut().set_line(area.x, y, line, area.width);
+        }
+    }
+
+    fn desired_height(&self, view: &ActiveChromeView<'_>, _area: Rect) -> u16 {
+        u16::try_from(
+            view.active
+                .map(active_chrome_lines)
+                .map_or(0, |lines| lines.len()),
+        )
+        .unwrap_or(u16::MAX)
     }
 }
 
@@ -281,37 +337,6 @@ impl Renderable<InputView<'_>> for Renderer {
         let (_, cursor_row) = cursor_xy(view.text, cursor, lines, content_width);
         let visual_rows = (lines.len() as u16).max(cursor_row.saturating_add(1));
         visual_rows.saturating_add(2).min(MAX_INPUT_HEIGHT)
-    }
-}
-
-impl Renderable<ChatView<'_>> for Renderer {
-    fn render(&self, view: &ChatView, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        // NOTE: Do not clear the full chat area via `Paragraph::default()` before painting.
-        // We tried that to eliminate a transient streaming hole, but it did not fix the hole
-        // and introduced visible flicker during streaming.
-
-        let buffer = frame.buffer_mut();
-        let visible_rows = area.height as usize;
-        let start = view.lines.len().saturating_sub(visible_rows);
-        let visible_lines = &view.lines[start..];
-        let top_padding = visible_rows.saturating_sub(visible_lines.len());
-
-        for (row, line) in visible_lines.iter().enumerate() {
-            let y = area.y + u16::try_from(top_padding + row).unwrap_or(u16::MAX);
-            let row_area = Rect {
-                x: area.x,
-                y,
-                width: area.width,
-                height: 1,
-            };
-
-            buffer.set_style(row_area, line.style);
-            buffer.set_line(area.x, y, line, area.width);
-        }
-    }
-
-    fn desired_height(&self, view: &ChatView, _area: Rect) -> u16 {
-        u16::try_from(view.lines.len()).unwrap_or(u16::MAX).max(1)
     }
 }
 

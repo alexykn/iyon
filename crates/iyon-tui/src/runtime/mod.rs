@@ -9,5 +9,5 @@ pub(crate) use active::ActiveTicker;
 pub(crate) use backend::{BackendEventHandler, FrontendEvent};
 pub(crate) use controller::AppController;
 pub(crate) use panel::BottomPanelBar;
-pub(crate) use state::{AppState, ExitState};
+pub(crate) use state::{AppState, ExitState, FinalizeResult};
 pub(crate) use stream_smoother::StreamSmoother;

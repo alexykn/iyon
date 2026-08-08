@@ -10,7 +10,9 @@
 use std::{fmt::Debug, time::Instant};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::presentation::api::{HorizontalAlign, TextSpan, TextView, View, WidthRule, WrapMode};
+use crate::presentation::api::{
+    ColumnView, HorizontalAlign, TextSpan, TextView, View, ViewKind, WidthRule, WrapMode,
+};
 
 /// Opaque monotonic coordinate within a stream's source space.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -213,6 +215,28 @@ impl StreamView {
         Self { nodes }
     }
 
+    /// Lowers the stream's exact/atomic presentation into the ordinary static
+    /// view vocabulary without changing visible content. Structural source
+    /// terminators remain provenance metadata and are intentionally not emitted.
+    pub(crate) fn into_static_view(self) -> View {
+        let children = self
+            .nodes
+            .into_iter()
+            .map(|node| match node {
+                StreamNode::ExactText { width, text, .. } => View {
+                    width,
+                    kind: ViewKind::Text(text),
+                },
+                StreamNode::Atomic { view, .. } => view,
+            })
+            .collect();
+
+        View {
+            width: WidthRule::Fit,
+            kind: ViewKind::Column(ColumnView { children, gap: 0 }),
+        }
+    }
+
     pub(crate) fn suffix_from(&self, offset: StreamOffset) -> Self {
         debug_assert!(self.nodes.iter().all(|node| {
             let range = node.owned_range();
@@ -341,7 +365,8 @@ pub(crate) enum LeadingBoundaryState {
 
 /// Host-managed conversation stream with explicit unit identity and commit cursor.
 ///
-/// Remains alive after sealing until all remaining physical rows have entered native terminal history.
+/// After sealing, the host either drains a pinned physical remainder or is
+/// consumed into an immutable transcript resident tail.
 #[derive(Debug)]
 pub(crate) struct HostedStream<C>
 where
@@ -549,12 +574,65 @@ where
             || self.content.is_sealed()
     }
 
-    pub(crate) fn is_fully_committed(&self) -> bool {
-        self.is_sealed()
-            && self.leading_boundary != LeadingBoundaryState::Pending
-            && self.partial.is_none()
-            && self.committed_through >= self.last_source_end
+    pub(crate) fn handoff_blocking_rows(&self) -> usize {
+        match &self.partial {
+            Some(StreamPartialCommit::FrozenAtomic {
+                rows,
+                committed_rows,
+                ..
+            }) => rows.len().saturating_sub(*committed_rows),
+            None => 0,
+            Some(StreamPartialCommit::Source { .. }) => 0,
+        }
     }
+
+    pub(crate) fn can_handoff(&self) -> bool {
+        self.is_sealed() && self.partial.is_none()
+    }
+
+    /// Consumes the mutable host and transfers its immutable remaining source
+    /// presentation to the transcript host.
+    pub(crate) fn into_resident_handoff(self) -> ResidentStreamHandoff {
+        assert!(
+            self.can_handoff(),
+            "stream is not ready for resident handoff"
+        );
+
+        let snapshot = self.content.snapshot();
+        assert!(snapshot.validate(), "invalid final stream snapshot");
+        assert_eq!(
+            snapshot.source_base, self.committed_through,
+            "resident handoff must begin at the native-history cursor"
+        );
+        assert_eq!(
+            snapshot.stable_through, snapshot.source_end,
+            "sealed resident handoff must be semantically stable"
+        );
+        if snapshot.source_base > StreamOffset::ZERO {
+            assert_ne!(
+                self.leading_boundary,
+                LeadingBoundaryState::Pending,
+                "source cannot advance before its leading boundary is committed"
+            );
+        }
+
+        ResidentStreamHandoff {
+            unit_id: self.unit_id,
+            source_base: snapshot.source_base,
+            source_end: snapshot.source_end,
+            view: snapshot.view.into_static_view(),
+            leading_boundary: self.leading_boundary,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ResidentStreamHandoff {
+    pub(crate) unit_id: crate::transcript::model::TranscriptUnitId,
+    pub(crate) source_base: StreamOffset,
+    pub(crate) source_end: StreamOffset,
+    pub(crate) view: View,
+    pub(crate) leading_boundary: LeadingBoundaryState,
 }
 
 /// The exact physical native-history write and the semantic acknowledgement it carries.
@@ -1420,6 +1498,26 @@ mod tests {
     }
 
     #[test]
+    fn sealed_stream_static_lowering_matches_stream_compilation() {
+        let mut stream = crate::transcript::AssistantStream::new();
+        stream.push_delta(crate::transcript::SegmentKind::Thinking, "thinking\n");
+        stream.push_delta(
+            crate::transcript::SegmentKind::Text,
+            "# Heading\n- list item\n\nwide 漢 e\u{301}\n**bold**",
+        );
+        stream.seal();
+        let snapshot = stream.snapshot();
+        assert!(snapshot.validate());
+
+        for width in [6u16, 20, 80] {
+            let compiled = compile_stream(&snapshot.view, width, snapshot.source_end);
+            let lowered =
+                ViewCompiler::default().compile(&snapshot.view.clone().into_static_view(), width);
+            assert_eq!(compiled.rows, lowered.rows, "row mismatch at width {width}");
+        }
+    }
+
+    #[test]
     fn compile_stream_atomic_partial_freezes_physical_rows() {
         let atomic_view = View::column(
             vec![
@@ -1614,7 +1712,7 @@ mod tests {
             StreamOffset::new(42)
         );
         hosted.apply_commit_success(prepared3.history);
-        assert!(hosted.is_fully_committed());
+        assert!(hosted.can_handoff());
     }
 
     #[test]
@@ -1778,7 +1876,7 @@ mod tests {
         assert_eq!(plan2.next_committed_through, StreamOffset::new(14));
 
         hosted.apply_commit_success(prepared2.history);
-        assert!(hosted.is_fully_committed());
+        assert!(hosted.can_handoff());
         assert_eq!(hosted.partial, None);
         assert_eq!(hosted.snapshot().source_base, StreamOffset::new(14));
     }
@@ -1827,11 +1925,11 @@ mod tests {
         assert_eq!(plan2.next_committed_through, StreamOffset::new(20));
         hosted.apply_commit_success(prepared2.history);
 
-        assert!(hosted.is_fully_committed());
+        assert!(hosted.can_handoff());
     }
 
     #[test]
-    fn hosted_stream_seal_before_first_snapshot_is_not_fully_committed() {
+    fn hosted_stream_seal_before_first_snapshot_can_handoff_before_history_drain() {
         use crate::transcript::model::TranscriptId;
 
         let unit_id = TranscriptId(42);
@@ -1845,12 +1943,12 @@ mod tests {
         let mut hosted = HostedStream::new(unit_id, mock, LeadingBoundaryState::None);
         // IMPORTANT: never call snapshot() or prepare_frame() before seal
         hosted.seal();
-        assert!(!hosted.is_fully_committed());
+        assert!(hosted.can_handoff());
 
         let prepared = hosted.prepare_frame(80, 10);
         assert_eq!(prepared.history.semantic_plan.payload.rows_to_write(), 1);
         hosted.apply_commit_success(prepared.history);
-        assert!(hosted.is_fully_committed());
+        assert!(hosted.can_handoff());
     }
 
     // --- Fix 3: contiguity validation tests ---

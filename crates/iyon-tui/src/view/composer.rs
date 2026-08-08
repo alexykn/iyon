@@ -2,28 +2,22 @@ use ratatui::layout::Rect;
 
 use crate::{
     input::WrapCache,
-    runtime::{
-        AppState, BottomPanelBar,
-        active::{ActiveBehavior, ActivePaneState},
-    },
+    runtime::{AppState, BottomPanelBar, active::ActivePaneState},
     view::{
-        layout::{CommitCapacityPolicy, ComputedLayout, LayoutConfig},
-        render::{ChatView, InfoView, InputView, LiveRegionView, Renderable, Renderer},
+        layout::{ComputedLayout, LayoutConfig},
+        render::{ActiveChromeView, ConversationView, InfoView, InputView, Renderable, Renderer},
     },
 };
 
 #[derive(Debug, Clone)]
 pub(crate) struct RunningView<'a> {
     pub(crate) layout: ComputedLayout,
-    pub(crate) chat: ChatView<'a>,
-    pub(crate) active: LiveRegionView<'a>,
+    pub(crate) conversation: ConversationView<'a>,
+    pub(crate) active_chrome: ActiveChromeView<'a>,
     pub(crate) panel: &'a BottomPanelBar,
     pub(crate) input: InputView<'a>,
     pub(crate) info: InfoView<'a>,
 }
-
-const MIN_ACTIVE_HEIGHT: u16 = 3;
-const MIN_CHAT_HEIGHT: u16 = 1;
 
 #[derive(Debug, Default)]
 pub(crate) struct RunningFrameComposer;
@@ -41,6 +35,7 @@ impl RunningFrameComposer {
             state.input.text(),
             area.width.max(1),
         );
+        state.transcript.ensure_render_cache(area.width.max(1));
         state.prepare_assistant_frame(area.width.max(1), 0);
         let layout = Self::compute_layout(base_layout, renderer, area, state, input_wrap_ranges);
         state.input_view.content_width = layout.input_area.width.max(1);
@@ -71,14 +66,20 @@ impl RunningFrameComposer {
             state.input.text(),
             area.width.max(1),
         );
+        debug_assert!(
+            state.assistant_stream.as_ref().map_or(true, |hosted| {
+                state.transcript.hosted_unit_is_history_tail(hosted.unit_id)
+            }),
+            "hosted conversation rows must follow resident transcript rows"
+        );
 
         RunningView {
             layout,
-            chat: ChatView {
-                lines: state.transcript.uncommitted_rows(),
+            conversation: ConversationView {
+                transcript_rows: state.transcript.uncommitted_rows(),
+                hosted_rows: state.assistant_live_rows(),
             },
-            active: LiveRegionView {
-                conversation_rows: state.assistant_live_rows(),
+            active_chrome: ActiveChromeView {
                 active: state.active.as_ref(),
             },
             panel: &state.bottom_panel,
@@ -104,34 +105,25 @@ impl RunningFrameComposer {
         state: &AppState,
         input_wrap_ranges: &[std::ops::Range<usize>],
     ) -> ComputedLayout {
-        let chat_view = ChatView {
-            lines: state.transcript.uncommitted_rows(),
-        };
-
-        let conversation_height = state.assistant_desired_height();
-        let chrome_height = state
+        let conversation_rows = state.conversation_row_count();
+        let conversation_height = u16::try_from(conversation_rows).unwrap_or(u16::MAX);
+        let conversation_gap_height = u16::from(conversation_rows > 0);
+        let active_chrome_height = state
             .active
             .as_ref()
             .map_or(0, ActivePaneState::desired_height);
-        let active_height = conversation_height.saturating_add(chrome_height);
-        let commit_capacity_policy = match state
-            .active
-            .as_ref()
-            .map(super::super::runtime::active::ActivePaneState::behavior)
-        {
-            Some(ActiveBehavior::OccludeOnly) => CommitCapacityPolicy::OccludeOnly,
-            _ => CommitCapacityPolicy::SpillToTranscript,
-        };
+        let panel_height = state.bottom_panel.desired_height(root.width.max(1));
 
         Self::compute_layout_for_input(
             base_layout,
             renderer,
             root,
             state,
-            &chat_view,
             input_wrap_ranges,
-            active_height,
-            commit_capacity_policy,
+            conversation_height,
+            conversation_gap_height,
+            active_chrome_height,
+            panel_height,
         )
     }
 
@@ -140,15 +132,17 @@ impl RunningFrameComposer {
         renderer: &Renderer,
         root: Rect,
         state: &AppState,
-        chat_view: &ChatView,
         input_wrap_ranges: &[std::ops::Range<usize>],
-        active_height: u16,
-        commit_capacity_policy: CommitCapacityPolicy,
+        conversation_height: u16,
+        conversation_gap_height: u16,
+        active_chrome_height: u16,
+        panel_height: u16,
     ) -> ComputedLayout {
         let base_cfg = LayoutConfig {
-            active_height,
-            panel_height: state.bottom_panel.desired_height(root.width.max(1)),
-            commit_capacity_policy,
+            conversation_height,
+            conversation_gap_height,
+            active_chrome_height,
+            panel_height,
             ..base_layout.clone()
         };
 
@@ -160,28 +154,19 @@ impl RunningFrameComposer {
             wrapped_ranges: input_wrap_ranges,
         };
         let input_height = renderer.desired_height(&input_view, pass1.input_area);
-
-        let active_height = clamp_active_height(
-            active_height,
-            root.height,
-            base_cfg.panel_height,
-            input_height,
-            base_cfg.info_height,
-        );
-        let pass2_cfg = LayoutConfig {
-            active_height,
-            input_height,
-            ..base_cfg.clone()
-        };
-        let pass2 = pass2_cfg.compute(root);
-        let chat_height = renderer.desired_height(chat_view, pass2.chat_area);
+        let fixed_height = conversation_gap_height
+            .saturating_add(active_chrome_height)
+            .saturating_add(panel_height)
+            .saturating_add(input_height)
+            .saturating_add(base_cfg.info_height);
+        let max_conversation_height = root.height.saturating_sub(fixed_height);
+        let conversation_height = conversation_height.min(max_conversation_height);
 
         let final_cfg = LayoutConfig {
-            chat_height,
+            conversation_height,
             input_height,
-            ..pass2_cfg
+            ..base_cfg
         };
-
         final_cfg.compute(root)
     }
 }
@@ -190,6 +175,94 @@ impl RunningFrameComposer {
 mod tests {
     use super::*;
     use crate::runtime::active::ToolActiveStatus;
+
+    #[test]
+    fn ownership_handoff_preserves_conversation_geometry_and_rows() {
+        let mut state = AppState::default();
+        state.receive_stream_segments(vec![(
+            crate::transcript::SegmentKind::Text,
+            "# Heading\n- one\n- two\n\nwide 漢 and combining e\u{301} text".to_string(),
+        )]);
+        let root = Rect::new(0, 0, 80, 20);
+        let renderer = Renderer;
+        let mut wrap_cache = WrapCache::default();
+        let before = RunningFrameComposer::prepare(
+            &renderer,
+            &LayoutConfig::default(),
+            &mut state,
+            &mut wrap_cache,
+            root,
+        );
+        let before_rows = state.assistant_live_rows().to_vec();
+
+        state.finish_active_turn();
+        assert_eq!(
+            state.finalize_sealed_assistant_stream(),
+            crate::runtime::FinalizeResult::HandedOff
+        );
+        let after = RunningFrameComposer::prepare(
+            &renderer,
+            &LayoutConfig::default(),
+            &mut state,
+            &mut wrap_cache,
+            root,
+        );
+        let after_rows = state.transcript.uncommitted_rows().to_vec();
+
+        assert_eq!(before_rows, after_rows);
+        assert_eq!(before.spacer_area.height, after.spacer_area.height);
+        assert_eq!(before.conversation_area.y, after.conversation_area.y);
+        assert_eq!(
+            before.conversation_area.height,
+            after.conversation_area.height
+        );
+        assert_eq!(
+            before.conversation_area.bottom(),
+            after.conversation_area.bottom()
+        );
+        assert_eq!(before.conversation_gap_area, after.conversation_gap_area);
+        assert_eq!(before.input_area.y, after.input_area.y);
+    }
+
+    #[test]
+    fn bottom_panel_pressure_reduces_only_conversation_capacity() {
+        let mut state = AppState::default();
+        state.receive_stream_segments(vec![(
+            crate::transcript::SegmentKind::Text,
+            (0..30)
+                .map(|index| format!("resident content {index}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )]);
+        state.finish_active_turn();
+        assert_eq!(
+            state.finalize_sealed_assistant_stream(),
+            crate::runtime::FinalizeResult::HandedOff
+        );
+
+        let root = Rect::new(0, 0, 80, 20);
+        let renderer = Renderer;
+        let mut wrap_cache = WrapCache::default();
+        let before = RunningFrameComposer::prepare(
+            &renderer,
+            &LayoutConfig::default(),
+            &mut state,
+            &mut wrap_cache,
+            root,
+        );
+        state.enqueue_steer("queued".to_string());
+        let after = RunningFrameComposer::prepare(
+            &renderer,
+            &LayoutConfig::default(),
+            &mut state,
+            &mut wrap_cache,
+            root,
+        );
+
+        assert!(after.conversation_capacity_rows < before.conversation_capacity_rows);
+        assert_eq!(after.input_area.height, before.input_area.height);
+        assert_eq!(after.info_area.height, before.info_area.height);
+    }
 
     #[test]
     fn active_chrome_reserves_height_without_assistant_host() {
@@ -204,7 +277,7 @@ mod tests {
             &[0..0],
         );
 
-        assert_eq!(layout.active_area.height, 3);
+        assert_eq!(layout.active_chrome_area.height, 3);
 
         state.active = Some(ActivePaneState::Tool {
             tool_name: "search".to_string(),
@@ -218,29 +291,6 @@ mod tests {
             &state,
             &[0..0],
         );
-        assert_eq!(layout.active_area.height, 3);
+        assert_eq!(layout.active_chrome_area.height, 3);
     }
-}
-
-fn clamp_active_height(
-    desired: u16,
-    root_height: u16,
-    panel_height: u16,
-    input_height: u16,
-    info_height: u16,
-) -> u16 {
-    if desired == 0 {
-        return 0;
-    }
-
-    let max_height = root_height
-        .saturating_sub(panel_height)
-        .saturating_sub(input_height)
-        .saturating_sub(info_height)
-        .saturating_sub(MIN_CHAT_HEIGHT);
-    if max_height == 0 {
-        return 0;
-    }
-
-    desired.clamp(MIN_ACTIVE_HEIGHT.min(max_height), max_height)
 }

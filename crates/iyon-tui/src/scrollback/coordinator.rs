@@ -91,9 +91,8 @@ impl ScrollbackCoordinator {
 
     /// Advances the currently committable transcript prefix for ordering purposes.
     ///
-    /// Unlike [`Self::commit_running_overflow`], this is not driven by viewport
-    /// pressure. It is used when a later hosted unit wants native-history ownership:
-    /// every committable predecessor row must be accepted before that host may write.
+    /// This is driven by the single global conversation overflow budget. The
+    /// caller supplies only rows still eligible at the current history head.
     pub(crate) fn commit_transcript_prefix(
         &mut self,
         terminal: &mut InlineTerminal,
@@ -111,28 +110,6 @@ impl ScrollbackCoordinator {
         let outcome = self.commit_rows_lossless(terminal, &rows)?;
         transcript.mark_rows_committed(outcome.inserted);
         Ok(outcome.inserted)
-    }
-
-    pub(crate) fn commit_running_overflow(
-        &mut self,
-        terminal: &mut InlineTerminal,
-        transcript: &mut TranscriptState,
-        commit_capacity_rows: usize,
-    ) -> Result<()> {
-        let uncommitted_len = transcript.uncommitted_len();
-        if commit_capacity_rows == 0 || uncommitted_len <= commit_capacity_rows {
-            return Ok(());
-        }
-
-        let overflow = uncommitted_len - commit_capacity_rows;
-        let overflow = overflow.min(transcript.committable_len());
-        if overflow == 0 {
-            return Ok(());
-        }
-        let rows = transcript.uncommitted_rows()[..overflow].to_vec();
-        let outcome = self.commit_rows_lossless(terminal, &rows)?;
-        transcript.mark_rows_committed(outcome.inserted);
-        Ok(())
     }
 
     pub(crate) fn flush_history_chunk(
