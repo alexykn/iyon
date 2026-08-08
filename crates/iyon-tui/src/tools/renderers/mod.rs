@@ -1,4 +1,6 @@
-use crate::presentation::{ColorSpec, RowChild, StyleSpec, ThemeKey, View, WidthRule};
+use crate::presentation::{
+    ColorSpec, IntoView, RowChild, StyleSpec, Text, ThemeKey, View, WidthRule,
+};
 
 pub(super) const TOOL_BODY_OFFSET: u16 = 2;
 use crate::transcript::ToolTimelineStatus;
@@ -45,15 +47,19 @@ pub(super) fn result_style(is_error: bool) -> StyleSpec {
     }
 }
 
-pub(super) fn text(text: impl Into<String>, style: StyleSpec) -> View {
+pub(super) fn text(text: impl Into<String>, style: StyleSpec) -> Text {
     View::styled_text(vec![crate::presentation::TextSpan::styled(text, style)])
 }
 
 pub(super) fn tool_call(text_value: String, style: StyleSpec) -> View {
     View::row(
         vec![
-            RowChild::content(text("●", style.clone()).no_wrap()),
-            RowChild::flex(text(text_value, style).width(crate::presentation::WidthRule::Fill)),
+            RowChild::content(text("●", style.clone()).no_wrap().into_view()),
+            RowChild::flex(
+                text(text_value, style)
+                    .width(crate::presentation::WidthRule::Fill)
+                    .into_view(),
+            ),
         ],
         1,
     )
@@ -62,9 +68,14 @@ pub(super) fn tool_call(text_value: String, style: StyleSpec) -> View {
 pub(super) fn tool_result_line(text_value: impl Into<String>, style: StyleSpec) -> View {
     View::row(
         vec![
-            RowChild::fixed(TOOL_BODY_OFFSET, View::text("").width(WidthRule::Fill)),
+            RowChild::fixed(
+                TOOL_BODY_OFFSET,
+                View::text("").width(WidthRule::Fill).into_view(),
+            ),
             crate::presentation::RowChild::flex(
-                text(text_value, style).width(crate::presentation::WidthRule::Fill),
+                text(text_value, style)
+                    .width(crate::presentation::WidthRule::Fill)
+                    .into_view(),
             ),
         ],
         0,

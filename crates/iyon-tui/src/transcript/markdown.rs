@@ -40,8 +40,8 @@ use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::presentation::{
-    ColorSpec, Decoration, Insets, RowChild, StyleSpec, TextAttributeSpec, TextSpan, ThemeKey,
-    View, WidthRule,
+    ColorSpec, Decoration, Insets, IntoView, RowChild, StyleSpec, TextAttributeSpec, TextSpan,
+    ThemeKey, View, WidthRule,
 };
 use crate::theme;
 use crate::transcript::model::{AssistantSegment, SegmentKind};
@@ -1287,8 +1287,10 @@ pub(crate) fn assistant_row_view(row: &AssistantLogicalRow) -> View {
     match &row.layout {
         AssistantRowLayout::Plain
         | AssistantRowLayout::Heading
-        | AssistantRowLayout::ListContinuation { .. } => body,
-        AssistantRowLayout::ListItem { depth, marker } => list_item_row_view(*depth, *marker, body),
+        | AssistantRowLayout::ListContinuation { .. } => body.into_view(),
+        AssistantRowLayout::ListItem { depth, marker } => {
+            list_item_row_view(*depth, *marker, body.into_view())
+        }
     }
 }
 
@@ -1297,15 +1299,16 @@ fn list_item_row_view(depth: usize, marker: AssistantMarker, body: View) -> View
         AssistantMarker::Bullet => "• ".to_string(),
         AssistantMarker::Ordered { index } => format!("{index}. "),
     };
-    let marker_view =
-        View::styled_text(vec![TextSpan::styled(marker_text, list_style())]).no_wrap();
+    let marker_view = View::styled_text(vec![TextSpan::styled(marker_text, list_style())])
+        .no_wrap()
+        .into_view();
 
     let mut children: Vec<RowChild> = Vec::new();
     if depth > 0 {
         let indent = (depth as u16).saturating_mul(crate::transcript::row::LIST_INDENT as u16);
         children.push(RowChild::fixed(
             indent,
-            View::text("").width(WidthRule::Fill),
+            View::text("").width(WidthRule::Fill).into_view(),
         ));
     }
     children.push(RowChild::content(marker_view));
@@ -1960,9 +1963,13 @@ pub(crate) mod correctness_invariants {
         for width in [12u16, 8, 6, 3, 2, 1] {
             let row = View::row(
                 vec![
-                    RowChild::fixed(2, View::text("•")),
-                    RowChild::flex(View::text("body text wrapping here").width(WidthRule::Fill)),
-                    RowChild::content(View::text("status")),
+                    RowChild::fixed(2, View::text("•").into_view()),
+                    RowChild::flex(
+                        View::text("body text wrapping here")
+                            .width(WidthRule::Fill)
+                            .into_view(),
+                    ),
+                    RowChild::content(View::text("status").into_view()),
                 ],
                 1,
             );
@@ -1984,7 +1991,8 @@ pub(crate) mod correctness_invariants {
             let view = View::styled_text(vec![TextSpan::plain(
                 "A long paragraph of text that should wrap cleanly.",
             )])
-            .width(WidthRule::Fill);
+            .width(WidthRule::Fill)
+            .into_view();
             let block = compile_view(&view, width);
             assert!(
                 block.width <= width,

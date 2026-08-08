@@ -15,8 +15,8 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     presentation::api::{
-        BorderStyle, ColorSpec, ColumnView, ContainerNode, HorizontalAlign, RowView, StyleSpec,
-        TextSpan, TextView, TrackSize, VerticalAlign, View, ViewKind, WidthRule,
+        BorderStyle, ColorSpec, ColumnView, ContainerNode, HorizontalAlign, IntoView, RowView,
+        StyleSpec, TextSpan, TextView, TrackSize, VerticalAlign, View, ViewKind, WidthRule,
     },
     presentation::stream::{ProjectedText, StreamRange},
     theme,
@@ -572,7 +572,8 @@ impl ViewCompiler {
             let indicator_view = View::styled_text(vec![TextSpan::styled(text, style)])
                 .width(WidthRule::Fill)
                 .no_wrap();
-            let indicator_surface = self.layout(&indicator_view, child.width, inherited);
+            let indicator_surface =
+                self.layout(&indicator_view.into_view(), child.width, inherited);
             let row = clamp.max_rows - 1;
             for x in 0..child.width {
                 *output.get_mut(x, row) = Cell::transparent();
@@ -1062,11 +1063,17 @@ mod tests {
     fn tool_view(body: &str) -> View {
         View::row(
             vec![
-                RowChild::content(View::text("●").no_wrap().style(style("tool.running"))),
+                RowChild::content(
+                    View::text("●")
+                        .no_wrap()
+                        .style(style("tool.running"))
+                        .into_view(),
+                ),
                 RowChild::flex(
                     View::text(body)
                         .style(style("text.default"))
-                        .width(WidthRule::Fill),
+                        .width(WidthRule::Fill)
+                        .into_view(),
                 ),
             ],
             1,
@@ -1085,9 +1092,9 @@ mod tests {
         for width in 0..=4 {
             let view = View::row(
                 vec![
-                    RowChild::fixed(3, View::text("abc")),
-                    RowChild::flex(View::text("body").width(WidthRule::Fill)),
-                    RowChild::content(View::text("status")),
+                    RowChild::fixed(3, View::text("abc").into_view()),
+                    RowChild::flex(View::text("body").width(WidthRule::Fill).into_view()),
+                    RowChild::content(View::text("status").into_view()),
                 ],
                 2,
             );
@@ -1105,7 +1112,8 @@ mod tests {
             TextSpan::styled("abc", style("tool.running")),
             TextSpan::styled("def\ngh", style("tool.error")),
         ])
-        .width(WidthRule::Fill);
+        .width(WidthRule::Fill)
+        .into_view();
         let rows = compile_view(&view, 4).rows;
         assert_eq!(text(&rows[0]), "abcd");
         assert_eq!(text(&rows[1]), "ef");
@@ -1116,8 +1124,63 @@ mod tests {
     }
 
     #[test]
+    fn typed_text_style_cascades_to_physical_spans_without_rewriting_them() {
+        let text = View::styled_text([
+            TextSpan::plain("plain"),
+            TextSpan::styled("bold", StyleSpec::new().bold()),
+        ])
+        .style(StyleSpec::new().foreground(ColorSpec::Ansi(1)))
+        .into_view();
+        let rows = compile_view(&text, 20).rows;
+
+        assert_eq!(rows[0].spans[0].style.fg, Some(Color::Indexed(1)));
+        assert!(!rows[0].spans[0].style.add_modifier.contains(Modifier::BOLD));
+        assert_eq!(rows[0].spans[1].style.fg, Some(Color::Indexed(1)));
+        assert!(rows[0].spans[1].style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn typed_text_wrap_and_no_wrap_preserve_existing_behavior() {
+        let wrapped = View::text("abcd efgh")
+            .wrap(WrapMode::WordThenGrapheme)
+            .into_view();
+        let grapheme = View::text("abcd efgh").wrap(WrapMode::Grapheme).into_view();
+        let no_wrap = View::text("abcdef").no_wrap().into_view();
+
+        let ViewKind::Text(wrapped_text) = wrapped.kind else {
+            panic!("expected text view");
+        };
+        let ViewKind::Text(grapheme_text) = grapheme.kind else {
+            panic!("expected text view");
+        };
+        assert_eq!(wrapped_text.wrap, WrapMode::WordThenGrapheme);
+        assert_eq!(grapheme_text.wrap, WrapMode::Grapheme);
+        assert!(
+            !ViewCompiler::default()
+                .compile(&no_wrap, 3)
+                .physically_complete
+        );
+    }
+
+    #[test]
+    fn typed_text_alignment_uses_existing_text_layout() {
+        for (align, expected) in [
+            (HorizontalAlign::Start, "x"),
+            (HorizontalAlign::Center, "  x"),
+            (HorizontalAlign::End, "    x"),
+        ] {
+            let view = View::text("x")
+                .width(WidthRule::Fill)
+                .text_align(align)
+                .into_view();
+            let rows = compile_view(&view, 5).rows;
+            assert_eq!(text(&rows[0]), expected);
+        }
+    }
+
+    #[test]
     fn ancestor_and_child_text_styles_cascade_to_physical_text() {
-        let mut child = View::text("x");
+        let mut child = View::text("x").into_view();
         child.decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(2));
         let mut view = View::box_(child, Decoration::default());
         view.decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(1));
@@ -1131,7 +1194,8 @@ mod tests {
         let mut child = View::styled_text(vec![
             TextSpan::plain("a"),
             TextSpan::styled("b", StyleSpec::new().bold()),
-        ]);
+        ])
+        .into_view();
         child.decoration.text_style = StyleSpec::new().attribute(TextAttribute::Bold, false);
         let mut view = View::box_(child, Decoration::default());
         view.decoration.text_style = StyleSpec::new().bold();
@@ -1155,7 +1219,7 @@ mod tests {
 
     #[test]
     fn surface_background_paints_text_backing_and_transparent_tail() {
-        let mut view = View::text("x").width(WidthRule::Fill);
+        let mut view = View::text("x").width(WidthRule::Fill).into_view();
         view.decoration.surface_background = Some(ColorSpec::Ansi(1));
         let surface = ViewCompiler::default().layout(&view, 4, ResolvedTextStyle::default());
 
@@ -1171,8 +1235,11 @@ mod tests {
             style: BorderStyle::Plain,
             color: Some(ColorSpec::Ansi(2)),
         });
-        let view =
-            View::box_(View::text("x").width(WidthRule::Fill), decoration).width(WidthRule::Fill);
+        let view = View::box_(
+            View::text("x").width(WidthRule::Fill).into_view(),
+            decoration,
+        )
+        .width(WidthRule::Fill);
         let surface = ViewCompiler::default().layout(&view, 5, ResolvedTextStyle::default());
 
         let border = surface.get(0, 1).style;
@@ -1188,8 +1255,11 @@ mod tests {
             style: BorderStyle::Plain,
             color: None,
         });
-        let view =
-            View::box_(View::text("x").width(WidthRule::Fill), decoration).width(WidthRule::Fill);
+        let view = View::box_(
+            View::text("x").width(WidthRule::Fill).into_view(),
+            decoration,
+        )
+        .width(WidthRule::Fill);
         let surface = ViewCompiler::default().layout(&view, 5, ResolvedTextStyle::default());
 
         let border = surface.get(0, 1).style;
@@ -1205,8 +1275,11 @@ mod tests {
             style: BorderStyle::Plain,
             color: None,
         });
-        let view =
-            View::box_(View::text("x").width(WidthRule::Fill), decoration).width(WidthRule::Fill);
+        let view = View::box_(
+            View::text("x").width(WidthRule::Fill).into_view(),
+            decoration,
+        )
+        .width(WidthRule::Fill);
         let surface = ViewCompiler::default().layout(&view, 5, ResolvedTextStyle::default());
 
         assert_eq!(surface.get(1, 1).style.bg, Some(Color::Indexed(2)));
@@ -1221,8 +1294,11 @@ mod tests {
             style: BorderStyle::Plain,
             color: None,
         });
-        let view =
-            View::box_(View::text("x").width(WidthRule::Fill), decoration).width(WidthRule::Fill);
+        let view = View::box_(
+            View::text("x").width(WidthRule::Fill).into_view(),
+            decoration,
+        )
+        .width(WidthRule::Fill);
         let surface = ViewCompiler::default().layout(&view, 5, ResolvedTextStyle::default());
 
         assert_eq!(surface.get(1, 1).style.bg, Some(Color::Indexed(2)));
@@ -1237,7 +1313,7 @@ mod tests {
             style: BorderStyle::Plain,
             color: Some(ColorSpec::Ansi(2)),
         });
-        let view = View::box_(View::text("x"), decoration).width(WidthRule::Fill);
+        let view = View::box_(View::text("x").into_view(), decoration).width(WidthRule::Fill);
 
         for width in [0, 1, 2, 3, 10] {
             let block = compile_view(&view, width);
@@ -1253,7 +1329,7 @@ mod tests {
 
     #[test]
     fn text_background_only_paints_text_cells() {
-        let mut view = View::text("x").width(WidthRule::Fill);
+        let mut view = View::text("x").width(WidthRule::Fill).into_view();
         view.decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
         let surface = ViewCompiler::default().layout(&view, 4, ResolvedTextStyle::default());
 
@@ -1263,7 +1339,7 @@ mod tests {
 
     #[test]
     fn explicit_text_background_wins_over_surface_background() {
-        let mut view = View::text("x").width(WidthRule::Fill);
+        let mut view = View::text("x").width(WidthRule::Fill).into_view();
         view.decoration.surface_background = Some(ColorSpec::Ansi(1));
         view.decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
         let surface = ViewCompiler::default().layout(&view, 4, ResolvedTextStyle::default());
@@ -1274,7 +1350,10 @@ mod tests {
 
     #[test]
     fn nested_surface_backgrounds_preserve_child_region() {
-        let child = View::box_(View::text("x"), Decoration::background(ColorSpec::Ansi(2)));
+        let child = View::box_(
+            View::text("x").into_view(),
+            Decoration::background(ColorSpec::Ansi(2)),
+        );
         let outer =
             View::box_(child, Decoration::background(ColorSpec::Ansi(1))).width(WidthRule::Fill);
         let surface = ViewCompiler::default().layout(&outer, 4, ResolvedTextStyle::default());
@@ -1286,7 +1365,7 @@ mod tests {
     #[test]
     fn transparent_padding_shows_ancestor_surface_background() {
         let child = View::box_(
-            View::text("x"),
+            View::text("x").into_view(),
             Decoration::default().padding(Insets::all(1)),
         );
         let outer =
@@ -1298,7 +1377,7 @@ mod tests {
 
     #[test]
     fn surface_background_does_not_enter_text_style_cascade() {
-        let mut view = View::text("x");
+        let mut view = View::text("x").into_view();
         view.decoration.surface_background = Some(ColorSpec::Ansi(1));
         let resolved = ViewCompiler::default()
             .theme
@@ -1457,12 +1536,12 @@ mod tests {
     fn default_decoration_keeps_core_tails_transparent() {
         let compiler = ViewCompiler::default();
         let views = [
-            View::text("a").width(WidthRule::Fill),
-            View::column(vec![View::text("a").width(WidthRule::Fill)], 0),
-            View::row(vec![RowChild::content(View::text("a"))], 0),
+            View::text("a").width(WidthRule::Fill).into_view(),
+            View::column(vec![View::text("a").width(WidthRule::Fill).into_view()], 0),
+            View::row(vec![RowChild::content(View::text("a").into_view())], 0),
             View::spacer(1).width(WidthRule::Fill),
             View::clamp_rows(
-                View::text("a").width(WidthRule::Fill),
+                View::text("a").width(WidthRule::Fill).into_view(),
                 1,
                 OverflowIndicator::None,
             ),
@@ -1500,7 +1579,8 @@ mod tests {
                 ..StyleSpec::default()
             },
         )])
-        .width(WidthRule::Fill);
+        .width(WidthRule::Fill)
+        .into_view();
         let view = View::box_(child, Decoration::background(ColorSpec::Ansi(1)));
         let surface = ViewCompiler::default().layout(&view, 3, ResolvedTextStyle::default());
 
@@ -1510,7 +1590,10 @@ mod tests {
 
     #[test]
     fn decoration_preserves_physical_incompleteness() {
-        let view = View::box_(View::text("漢"), Decoration::background(ColorSpec::Ansi(1)));
+        let view = View::box_(
+            View::text("漢").into_view(),
+            Decoration::background(ColorSpec::Ansi(1)),
+        );
         let compiler = ViewCompiler::default();
 
         assert!(!compiler.compile(&view, 1).physically_complete);
@@ -1534,7 +1617,7 @@ mod tests {
     #[test]
     fn ordinary_view_does_not_partially_paint_wide_grapheme() {
         let compiler = ViewCompiler::default();
-        let view = View::text("漢");
+        let view = View::text("漢").into_view();
 
         let block = compiler.compile(&view, 1);
 
@@ -1550,7 +1633,7 @@ mod tests {
     #[test]
     fn clamp_emits_indicator() {
         let view = View::clamp_rows(
-            View::text("one two three four"),
+            View::text("one two three four").into_view(),
             2,
             crate::presentation::api::OverflowIndicator::Ellipsis {
                 style: StyleSpec::default(),

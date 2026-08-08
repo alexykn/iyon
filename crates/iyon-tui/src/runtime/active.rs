@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::presentation::{ActiveContent, View};
+use crate::presentation::{ActiveContent, IntoView, View};
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -47,7 +47,8 @@ impl ActiveContent for ActiveTurnContent {
             Self::WorkingSpinner { spinner_frame } => View::text(format!(
                 "{} Working",
                 SPINNER_FRAMES[*spinner_frame % SPINNER_FRAMES.len()]
-            )),
+            ))
+            .into_view(),
             Self::Tool {
                 tool_name,
                 status,
@@ -57,9 +58,10 @@ impl ActiveContent for ActiveTurnContent {
                     ToolActiveStatus::WaitingForApproval { .. } => "approval required",
                     ToolActiveStatus::Running => "running",
                 };
-                let mut children = vec![View::text(format!("tool {tool_name}: {status}"))];
+                let mut children =
+                    vec![View::text(format!("tool {tool_name}: {status}")).into_view()];
                 if let Some(detail) = detail {
-                    children.push(View::text(detail));
+                    children.push(View::text(detail).into_view());
                 }
                 View::column(children, 0)
             }

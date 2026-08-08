@@ -8,7 +8,7 @@
 
 use std::{any::Any, marker::PhantomData};
 
-use crate::presentation::{DockPanel, DockSizePolicy, InteractionResult, UiKey, View};
+use crate::presentation::{DockPanel, DockSizePolicy, InteractionResult, IntoView, UiKey, View};
 
 /// FEATURE EXTENSION API. Opaque registration handle for a dock panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,14 +79,17 @@ impl DockPanel for SteeringQueuePanel {
             .iter()
             .take(MAX_PENDING_ROWS)
             .map(|text| {
-                View::text(format!("Steering: {text}")).width(crate::presentation::WidthRule::Fill)
+                View::text(format!("Steering: {text}"))
+                    .width(crate::presentation::WidthRule::Fill)
+                    .into_view()
             })
             .collect::<Vec<_>>();
         let overflow = self.pending.len().saturating_sub(MAX_PENDING_ROWS);
         if overflow > 0 {
             children.push(
                 View::text(format!("↑ {overflow} more queued"))
-                    .width(crate::presentation::WidthRule::Fill),
+                    .width(crate::presentation::WidthRule::Fill)
+                    .into_view(),
             );
         }
         View::column(children, 0).width(crate::presentation::WidthRule::Fill)

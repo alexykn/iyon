@@ -11,7 +11,8 @@ use std::{fmt::Debug, time::Instant};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::presentation::api::{
-    ColumnView, HorizontalAlign, RowChild, StyleSpec, TextSpan, View, ViewKind, WidthRule, WrapMode,
+    ColumnView, HorizontalAlign, IntoView, RowChild, StyleSpec, TextSpan, View, ViewKind,
+    WidthRule, WrapMode,
 };
 
 /// Opaque monotonic coordinate within a stream's source space.
@@ -349,15 +350,14 @@ impl StreamView {
                             .iter()
                             .filter(|run| !run.display.is_empty())
                             .cloned()
-                            .map(|run| TextSpan::styled(run.display, run.style))
-                            .collect(),
+                            .map(|run| TextSpan::styled(run.display, run.style)),
                     )
                     .width(match &text.layout {
                         ProjectedTextLayout::Plain => text.width,
                         ProjectedTextLayout::Hanging { .. } => WidthRule::Fill,
                     });
                     match &text.layout {
-                        ProjectedTextLayout::Plain => body,
+                        ProjectedTextLayout::Plain => body.into_view(),
                         ProjectedTextLayout::Hanging {
                             body_column,
                             prefix,
@@ -374,11 +374,12 @@ impl StreamView {
                                             prefix_style.clone(),
                                         )])
                                         .no_wrap()
+                                        .into_view()
                                     } else {
-                                        View::text("").width(WidthRule::Fill)
+                                        View::text("").width(WidthRule::Fill).into_view()
                                     },
                                 ),
-                                RowChild::flex(body),
+                                RowChild::flex(body.into_view()),
                             ],
                             0,
                         ),
@@ -1354,7 +1355,7 @@ mod tests {
     fn atomic_wide_grapheme_at_width_one_is_not_committable() {
         let view = StreamView::atomic(
             StreamRange::new(StreamOffset::ZERO, StreamOffset::new("漢".len() as u64)),
-            View::text("漢"),
+            View::text("漢").into_view(),
         );
 
         let compiled = compile_stream(&view, 1, StreamOffset::new("漢".len() as u64));
@@ -1366,7 +1367,7 @@ mod tests {
     fn atomic_wide_grapheme_at_width_two_is_committable() {
         let view = StreamView::atomic(
             StreamRange::new(StreamOffset::ZERO, StreamOffset::new("漢".len() as u64)),
-            View::text("漢"),
+            View::text("漢").into_view(),
         );
 
         let compiled = compile_stream(&view, 2, StreamOffset::new("漢".len() as u64));
@@ -1375,7 +1376,7 @@ mod tests {
 
     #[test]
     fn atomic_view_uses_the_ordinary_view_style_compiler() {
-        let mut view = View::text("atomic");
+        let mut view = View::text("atomic").into_view();
         view.decoration.text_style = StyleSpec::new().bold();
         let stream = StreamView::atomic(
             StreamRange::new(StreamOffset::ZERO, StreamOffset::new(6)),
@@ -1396,7 +1397,13 @@ mod tests {
     #[test]
     fn atomic_nested_wide_grapheme_propagates_incompleteness() {
         // Atomic(Box(Column(Text("before"), Text("漢")))) at width 1
-        let inner = View::column(vec![View::text("before"), View::text("漢")], 0);
+        let inner = View::column(
+            vec![
+                View::text("before").into_view(),
+                View::text("漢").into_view(),
+            ],
+            0,
+        );
         let boxed = View::box_(inner, crate::presentation::api::Decoration::default());
         let view = StreamView::atomic(
             StreamRange::new(StreamOffset::ZERO, StreamOffset::new(10)),
@@ -1543,9 +1550,9 @@ mod tests {
         // Test A: atomic 3 physical rows, commit all 3, plan again from same compiled object => 0 rows
         let atomic_view = View::column(
             vec![
-                View::text("heading"),
-                View::text("body row 1"),
-                View::text("body row 2"),
+                View::text("heading").into_view(),
+                View::text("body row 1").into_view(),
+                View::text("body row 2").into_view(),
             ],
             0,
         );
@@ -1581,7 +1588,13 @@ mod tests {
         ));
         view.push(StreamNode::atomic(
             StreamRange::new(StreamOffset::new(5), StreamOffset::new(20)),
-            View::column(vec![View::text("mid 1"), View::text("mid 2")], 0),
+            View::column(
+                vec![
+                    View::text("mid 1").into_view(),
+                    View::text("mid 2").into_view(),
+                ],
+                0,
+            ),
         ));
         view.push(StreamNode::exact_text(
             StreamRange::new(StreamOffset::new(20), StreamOffset::new(24)),
@@ -1634,7 +1647,7 @@ mod tests {
 
         for width in [1u16, 2, 3, 10, 80] {
             for (label, spans) in &cases {
-                let text_view = View::styled_text(spans.clone());
+                let text_view = View::styled_text(spans.clone()).into_view();
                 let layout_block = compiler.compile(&text_view, width);
 
                 let total_len = spans.iter().map(|s| s.text.len() as u64).sum();
@@ -1719,9 +1732,9 @@ mod tests {
     fn compile_stream_atomic_partial_freezes_physical_rows() {
         let atomic_view = View::column(
             vec![
-                View::text("heading"),
-                View::text("body row 1"),
-                View::text("body row 2"),
+                View::text("heading").into_view(),
+                View::text("body row 1").into_view(),
+                View::text("body row 2").into_view(),
             ],
             0,
         );
@@ -1821,7 +1834,11 @@ mod tests {
                     StreamNode::atomic(
                         StreamRange::new(StreamOffset::ZERO, StreamOffset::new(30)),
                         View::column(
-                            vec![View::text("A0"), View::text("A1"), View::text("A2")],
+                            vec![
+                                View::text("A0").into_view(),
+                                View::text("A1").into_view(),
+                                View::text("A2").into_view(),
+                            ],
                             0,
                         ),
                     ),
@@ -2241,7 +2258,7 @@ mod tests {
             view: StreamView::new(vec![
                 StreamNode::atomic(
                     StreamRange::new(StreamOffset::new(0), StreamOffset::new(9)),
-                    View::text("bold"),
+                    View::text("bold").into_view(),
                 ),
                 StreamNode::exact_text(
                     StreamRange::new(StreamOffset::new(9), StreamOffset::new(14)),
