@@ -22,7 +22,7 @@
 //! * `layout` — plain vs list-item (structure/geometry intent);
 //! * `style` — the row-level gutter/prefix style;
 //! * `source` — source stability / streaming bookkeeping (`content_len`,
-//!   `has_newline`, `restricted`, `stable_prefix_len`), used only by the
+//!   `has_newline`, `stable_prefix_len`), used only by the
 //!   still-special active + pinned source-backed assistant path.
 //!
 //! Streaming is *tolerant*: an unclosed marker (`**unclosed`, `*ital`, `` `code ``)
@@ -32,6 +32,8 @@
 //! The inline parser is **extended-grapheme safe and never panics on any valid
 //! UTF-8 prefix** (a live stream feeds partial source). Every offset used to
 //! slice `&str` is a byte offset derived from char/byte boundaries.
+
+use std::ops::Range;
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -61,6 +63,8 @@ pub(crate) struct AssistantDocument {
 pub(crate) struct AssistantLogicalRow {
     /// Inline content as semantic spans.
     pub(crate) spans: Vec<TextSpan>,
+    /// Source-mapped inline display runs used by streaming presentation.
+    pub(crate) projected_runs: Vec<AssistantProjectedRun>,
     /// Structural/geometry intent (plain vs list item).
     pub(crate) layout: AssistantRowLayout,
     /// Row-level (gutter/prefix) style. Used by the streaming adapter to style
@@ -75,6 +79,9 @@ pub(crate) struct AssistantLogicalRow {
 pub(crate) enum AssistantRowLayout {
     Plain,
     Heading,
+    ListContinuation {
+        body_column: u16,
+    },
     ListItem {
         depth: usize,
         marker: AssistantMarker,
@@ -92,6 +99,23 @@ pub(crate) enum AssistantMarker {
 pub(crate) enum AssistantContinuation {
     Paragraph,
     Heading,
+    List { body_column: u16 },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AssistantProjectedRun {
+    pub(crate) display: String,
+    pub(crate) style: StyleSpec,
+    /// Row-relative source bytes owned by this displayed run.
+    pub(crate) owned: Range<usize>,
+    /// Visible source bytes, when the display is an exact source projection.
+    pub(crate) exact_visible: Option<Range<usize>>,
+    /// Context needed when restarting inside the visible portion. `None` means
+    /// the run can be reparsed from any legal checkpoint within that portion.
+    pub(crate) restart_from: Option<usize>,
+    /// Context needed when restarting in hidden source attached before the
+    /// visible portion.
+    pub(crate) prefix_restart_from: Option<usize>,
 }
 
 /// Source stability / streaming bookkeeping. Neither contains terminal width.
@@ -101,8 +125,6 @@ pub(crate) struct AssistantSourceMeta {
     pub(crate) content_len: usize,
     /// Whether this logical row terminates in a hard newline `\n`.
     pub(crate) has_newline: bool,
-    /// True when the row hides/replaces source bytes and must freeze whole-line.
-    pub(crate) restricted: bool,
     /// Largest source-byte prefix of THIS logical row whose current presentation
     /// cannot change under any future append, including semantic reinterpretation
     /// and extended-grapheme safety. Range: 0..=content_len.
@@ -254,12 +276,12 @@ fn parse_continuation_line(line: RawLine, cont: AssistantContinuation) -> Assist
     if full.is_empty() {
         return AssistantLogicalRow {
             spans: Vec::new(),
+            projected_runs: Vec::new(),
             layout: AssistantRowLayout::Plain,
             style: StyleSpec::default(),
             source: AssistantSourceMeta {
                 content_len: 0,
                 has_newline,
-                restricted: false,
                 stable_prefix_len: 0,
             },
         };
@@ -275,18 +297,19 @@ fn parse_continuation_line(line: RawLine, cont: AssistantContinuation) -> Assist
             };
             AssistantLogicalRow {
                 spans: header_spans(&line),
+                projected_runs: Vec::new(),
                 layout: AssistantRowLayout::Heading,
                 style: header_style(),
                 source: AssistantSourceMeta {
                     content_len,
                     has_newline,
-                    restricted: false,
                     stable_prefix_len,
                 },
             }
         }
         AssistantContinuation::Paragraph => {
-            let (spans, restricted, paragraph_semantic_stable) = paragraph_spans(&line);
+            let (spans, projected_runs, _restricted, paragraph_semantic_stable) =
+                paragraph_projected(&line);
             let stable_prefix_len = if has_newline {
                 content_len
             } else {
@@ -294,13 +317,31 @@ fn parse_continuation_line(line: RawLine, cont: AssistantContinuation) -> Assist
             };
             AssistantLogicalRow {
                 spans,
+                projected_runs,
                 layout: AssistantRowLayout::Plain,
                 style: StyleSpec::default(),
                 source: AssistantSourceMeta {
                     content_len,
                     has_newline,
-                    restricted,
                     stable_prefix_len,
+                },
+            }
+        }
+        AssistantContinuation::List { body_column } => {
+            let (spans, projected_runs, body_semantic_stable) = body_inline(&full);
+            AssistantLogicalRow {
+                spans,
+                projected_runs,
+                layout: AssistantRowLayout::ListContinuation { body_column },
+                style: list_style(),
+                source: AssistantSourceMeta {
+                    content_len,
+                    has_newline,
+                    stable_prefix_len: if has_newline {
+                        content_len
+                    } else {
+                        open_stable_prefix_len(&full, body_semantic_stable)
+                    },
                 },
             }
         }
@@ -349,12 +390,12 @@ fn parse_line(line: RawLine) -> AssistantLogicalRow {
     if full.is_empty() {
         return AssistantLogicalRow {
             spans: Vec::new(),
+            projected_runs: Vec::new(),
             layout: AssistantRowLayout::Plain,
             style: StyleSpec::default(),
             source: AssistantSourceMeta {
                 content_len: 0,
                 has_newline,
-                restricted: false,
                 stable_prefix_len: 0,
             },
         };
@@ -363,12 +404,12 @@ fn parse_line(line: RawLine) -> AssistantLogicalRow {
     if !has_newline && classification_is_ambiguous(&full) {
         return AssistantLogicalRow {
             spans: paragraph_spans(&line).0,
+            projected_runs: paragraph_projected(&line).1,
             layout: AssistantRowLayout::Plain,
             style: StyleSpec::default(),
             source: AssistantSourceMeta {
                 content_len,
                 has_newline,
-                restricted: false,
                 stable_prefix_len: open_stable_prefix_len(&full, 0),
             },
         };
@@ -383,20 +424,20 @@ fn parse_line(line: RawLine) -> AssistantLogicalRow {
         };
         return AssistantLogicalRow {
             spans: header_spans(&line),
+            projected_runs: Vec::new(),
             layout: AssistantRowLayout::Heading,
             style: header_style(),
             source: AssistantSourceMeta {
                 content_len,
                 has_newline,
-                restricted: false,
                 stable_prefix_len,
             },
         };
     }
 
     if let Some((depth, index, body_start, body_source)) = ordered_parts(&full) {
-        let (mut spans, body_semantic_stable) = body_inline(body_source);
-        normalize_list_display_tabs(&mut spans);
+        let (spans, projected_runs, body_semantic_stable) = body_inline(body_source);
+        let projected_runs = shift_projected_runs(projected_runs, body_start);
         let semantic_prefix_len = body_start.saturating_add(body_semantic_stable);
         let stable_prefix_len = if has_newline {
             content_len
@@ -405,6 +446,7 @@ fn parse_line(line: RawLine) -> AssistantLogicalRow {
         };
         return AssistantLogicalRow {
             spans,
+            projected_runs,
             layout: AssistantRowLayout::ListItem {
                 depth,
                 marker: AssistantMarker::Ordered { index },
@@ -413,15 +455,14 @@ fn parse_line(line: RawLine) -> AssistantLogicalRow {
             source: AssistantSourceMeta {
                 content_len,
                 has_newline,
-                restricted: true,
                 stable_prefix_len,
             },
         };
     }
 
     if let Some((depth, body_start, body_source)) = unordered_parts(&full) {
-        let (mut spans, body_semantic_stable) = body_inline(body_source);
-        normalize_list_display_tabs(&mut spans);
+        let (spans, projected_runs, body_semantic_stable) = body_inline(body_source);
+        let projected_runs = shift_projected_runs(projected_runs, body_start);
         let semantic_prefix_len = body_start.saturating_add(body_semantic_stable);
         let stable_prefix_len = if has_newline {
             content_len
@@ -430,6 +471,7 @@ fn parse_line(line: RawLine) -> AssistantLogicalRow {
         };
         return AssistantLogicalRow {
             spans,
+            projected_runs,
             layout: AssistantRowLayout::ListItem {
                 depth,
                 marker: AssistantMarker::Bullet,
@@ -438,14 +480,14 @@ fn parse_line(line: RawLine) -> AssistantLogicalRow {
             source: AssistantSourceMeta {
                 content_len,
                 has_newline,
-                restricted: true,
                 stable_prefix_len,
             },
         };
     }
 
     // Plain paragraph (may include Thinking pieces).
-    let (spans, restricted, paragraph_semantic_stable) = paragraph_spans(&line);
+    let (spans, projected_runs, _restricted, paragraph_semantic_stable) =
+        paragraph_projected(&line);
     let stable_prefix_len = if has_newline {
         content_len
     } else {
@@ -453,12 +495,12 @@ fn parse_line(line: RawLine) -> AssistantLogicalRow {
     };
     AssistantLogicalRow {
         spans,
+        projected_runs,
         layout: AssistantRowLayout::Plain,
         style: StyleSpec::default(),
         source: AssistantSourceMeta {
             content_len,
             has_newline,
-            restricted,
             stable_prefix_len,
         },
     }
@@ -477,7 +519,9 @@ fn logical_row_to_rendered(row: &AssistantLogicalRow) -> RenderedRow {
     );
 
     let rendered = match &row.layout {
-        AssistantRowLayout::Plain | AssistantRowLayout::Heading => {
+        AssistantRowLayout::Plain
+        | AssistantRowLayout::Heading
+        | AssistantRowLayout::ListContinuation { .. } => {
             if row.spans.is_empty() {
                 TranscriptRow::blank()
             } else {
@@ -497,7 +541,12 @@ fn logical_row_to_rendered(row: &AssistantLogicalRow) -> RenderedRow {
     RenderedRow {
         row: rendered,
         content_len: row.source.content_len,
-        restricted: row.source.restricted,
+        restricted: matches!(row.layout, AssistantRowLayout::ListItem { .. })
+            || row.projected_runs.iter().any(|run| {
+                run.exact_visible
+                    .as_ref()
+                    .is_some_and(|visible| *visible != run.owned)
+            }),
     }
 }
 
@@ -596,42 +645,156 @@ fn header_spans(line: &RawLine) -> Vec<TextSpan> {
 
 /// List-item body spans parsed for inline emphasis (base = plain). The returned
 /// stability offset is relative to the raw body source passed in.
-fn body_inline(body_source: &str) -> (Vec<TextSpan>, usize) {
-    let (spans, _restricted, stable_len) =
-        parse_inline_text_with_flag(body_source, StyleSpec::default());
-    (spans, stable_len)
+fn shift_projected_runs(
+    mut runs: Vec<AssistantProjectedRun>,
+    offset: usize,
+) -> Vec<AssistantProjectedRun> {
+    for run in &mut runs {
+        run.owned.start += offset;
+        run.owned.end += offset;
+        if let Some(visible) = &mut run.exact_visible {
+            visible.start += offset;
+            visible.end += offset;
+        }
+        run.restart_from = run.restart_from.map(|restart| restart + offset);
+        run.prefix_restart_from = run.prefix_restart_from.map(|restart| restart + offset);
+    }
+    runs
+}
+
+fn body_inline(body_source: &str) -> (Vec<TextSpan>, Vec<AssistantProjectedRun>, usize) {
+    let (mut spans, mut runs, _restricted, stable_len) =
+        parse_inline_projected(body_source, StyleSpec::default());
+    normalize_list_display_tabs(&mut spans);
+    runs = split_tab_replacements(runs);
+    (spans, runs, stable_len)
+}
+
+/// Split tab expansion into source-local replacement atoms without making the
+/// surrounding exact text indivisible.
+fn split_tab_replacements(runs: Vec<AssistantProjectedRun>) -> Vec<AssistantProjectedRun> {
+    let mut split = Vec::new();
+    for run in runs {
+        let Some(visible) = run.exact_visible.clone() else {
+            split.push(run);
+            continue;
+        };
+        if !run.display.contains('\t') {
+            split.push(run);
+            continue;
+        }
+
+        let mut pieces = Vec::new();
+        let mut cursor = 0;
+        for (tab_start, _) in run.display.match_indices('\t') {
+            if tab_start > cursor {
+                pieces.push((cursor..tab_start, true));
+            }
+            pieces.push((tab_start..tab_start + 1, false));
+            cursor = tab_start + 1;
+        }
+        if cursor < run.display.len() {
+            pieces.push((cursor..run.display.len(), true));
+        }
+
+        for (index, (display_range, exact)) in pieces.iter().enumerate() {
+            let source_start = visible.start + display_range.start;
+            let source_end = visible.start + display_range.end;
+            let owned_start = if index == 0 {
+                run.owned.start
+            } else {
+                source_start
+            };
+            let owned_end = if index + 1 == pieces.len() {
+                run.owned.end
+            } else {
+                source_end
+            };
+            let display = if *exact {
+                run.display[display_range.clone()].to_string()
+            } else {
+                "    ".to_string()
+            };
+            split.push(AssistantProjectedRun {
+                display,
+                style: run.style.clone(),
+                owned: owned_start..owned_end,
+                exact_visible: exact.then_some(source_start..source_end),
+                restart_from: run.restart_from,
+                prefix_restart_from: if index == 0 {
+                    run.prefix_restart_from
+                } else {
+                    None
+                },
+            });
+        }
+    }
+    split
 }
 
 /// Paragraph spans: Thinking pieces pass through as muted+italic; Text pieces
 /// get inline emphasis. Returns whether any inline marker was hidden and the
 /// semantic stable prefix byte length.
-fn paragraph_spans(line: &RawLine) -> (Vec<TextSpan>, bool, usize) {
-    let mut spans: Vec<TextSpan> = Vec::new();
+fn paragraph_projected(line: &RawLine) -> (Vec<TextSpan>, Vec<AssistantProjectedRun>, bool, usize) {
+    let row_base = line.pieces.first().map_or(0, |(_, _, start)| *start);
+    let mut spans = Vec::new();
+    let mut runs = Vec::new();
     let mut restricted = false;
     let mut stable_prefix_len = 0;
     let mut hit_unstable = false;
 
-    for (kind, text, _) in &line.pieces {
+    for (kind, text, source_start) in &line.pieces {
         if *kind == SegmentKind::Thinking {
             spans.push(TextSpan::styled(text.clone(), thinking_style_spec()));
+            runs.push(AssistantProjectedRun {
+                display: text.clone(),
+                style: thinking_style_spec(),
+                owned: source_start - row_base..source_start - row_base + text.len(),
+                exact_visible: Some(source_start - row_base..source_start - row_base + text.len()),
+                restart_from: None,
+                prefix_restart_from: None,
+            });
             if !hit_unstable {
-                stable_prefix_len += text.len();
+                let piece_start = source_start - row_base;
+                stable_prefix_len = piece_start + text.len();
             }
             continue;
         }
-        let (parsed, is_restricted, piece_stable) =
-            parse_inline_text_with_flag(text, StyleSpec::default());
+
+        let (parsed, mut parsed_runs, is_restricted, piece_stable) =
+            parse_inline_projected(text, StyleSpec::default());
+        for run in &mut parsed_runs {
+            run.owned.start += source_start - row_base;
+            run.owned.end += source_start - row_base;
+            if let Some(visible) = &mut run.exact_visible {
+                visible.start += source_start - row_base;
+                visible.end += source_start - row_base;
+            }
+            run.restart_from = run
+                .restart_from
+                .map(|restart| restart + source_start - row_base);
+            run.prefix_restart_from = run
+                .prefix_restart_from
+                .map(|restart| restart + source_start - row_base);
+        }
         restricted |= is_restricted;
         spans.extend(parsed);
+        runs.extend(parsed_runs);
 
         if !hit_unstable {
-            stable_prefix_len += piece_stable;
+            let piece_start = source_start - row_base;
+            stable_prefix_len = piece_start + piece_stable;
             if piece_stable < text.len() {
                 hit_unstable = true;
             }
         }
     }
-    (spans, restricted, stable_prefix_len)
+    (spans, runs, restricted, stable_prefix_len)
+}
+
+fn paragraph_spans(line: &RawLine) -> (Vec<TextSpan>, bool, usize) {
+    let (spans, _runs, restricted, stable) = paragraph_projected(line);
+    (spans, restricted, stable)
 }
 
 // ---------------------------------------------------------------------------
@@ -785,9 +948,17 @@ enum Emphasis {
 }
 
 #[derive(Debug, Clone)]
-struct EmphSpan {
-    text: String,
-    style: StyleSpec,
+enum InlinePiece {
+    Visible {
+        text: String,
+        style: StyleSpec,
+        source: Range<usize>,
+        restart_from: Option<usize>,
+    },
+    Hidden {
+        source: Range<usize>,
+        restart_from: Option<usize>,
+    },
 }
 
 /// Adds the emphasis strength's attribute flags onto `base` (foreground kept, so
@@ -805,9 +976,6 @@ fn combine_style(base: &StyleSpec, kind: Emphasis) -> StyleSpec {
     style
 }
 
-/// True when a delimiter run at byte offset `i` is flanked by whitespace / string
-/// edges on both sides. Such detached delimiters never open or close emphasis
-/// (`2 * 3`).
 /// True when a delimiter run at byte offset `i` is flanked by whitespace / string
 /// edges on both sides. Such detached delimiters never open or close emphasis
 /// (`2 * 3`).
@@ -850,25 +1018,40 @@ fn find_closer(text: &str, from: usize, ch: char, need_count: usize) -> Option<(
     None
 }
 
-fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool, usize) {
-    let mut out: Vec<EmphSpan> = Vec::new();
+fn parse_inline_rec(
+    text: &str,
+    base: StyleSpec,
+    source_base: usize,
+    active_restart: Option<usize>,
+) -> (Vec<InlinePiece>, bool, usize) {
+    let mut out: Vec<InlinePiece> = Vec::new();
     let mut plain = String::new();
+    let mut plain_start = 0usize;
     let mut restricted = false;
     let mut unstable_from: Option<usize> = None;
     let mut i = 0usize;
 
+    macro_rules! begin_plain {
+        () => {
+            if plain.is_empty() {
+                plain_start = i;
+            }
+        };
+    }
     macro_rules! flush {
         () => {
             if !plain.is_empty() {
-                out.push(EmphSpan {
+                out.push(InlinePiece::Visible {
                     text: std::mem::take(&mut plain),
                     style: base.clone(),
+                    source: source_base + plain_start..source_base + i,
+                    restart_from: active_restart,
                 });
             }
         };
     }
 
-    let mut record_unstable = |unstable_from: &mut Option<usize>, offset: usize| {
+    let record_unstable = |unstable_from: &mut Option<usize>, offset: usize| {
         if let Some(existing) = *unstable_from {
             *unstable_from = Some(existing.min(offset));
         } else {
@@ -885,16 +1068,26 @@ fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool, usize)
                 flush!();
                 let mut code_style = base.clone();
                 code_style.foreground = Some(ColorSpec::Theme(ThemeKey::from("markdown.code")));
-                debug_assert!(rest.is_char_boundary(rel));
-                out.push(EmphSpan {
+                let construct_restart = active_restart.or(Some(source_base + i));
+                out.push(InlinePiece::Hidden {
+                    source: source_base + i..source_base + i + 1,
+                    restart_from: construct_restart,
+                });
+                out.push(InlinePiece::Visible {
                     text: rest[..rel].to_string(),
                     style: code_style,
+                    source: source_base + i + 1..source_base + i + 1 + rel,
+                    restart_from: construct_restart,
+                });
+                out.push(InlinePiece::Hidden {
+                    source: source_base + i + 1 + rel..source_base + i + rel + 2,
+                    restart_from: construct_restart,
                 });
                 restricted = true;
-                // backtick opener (1) + content (rel) + closer (1) = `rel + 2` bytes.
-                i = i + 1 + rel + 1;
+                i += rel + 2;
             } else {
                 record_unstable(&mut unstable_from, i);
+                begin_plain!();
                 plain.push(ch);
                 i += 1;
             }
@@ -904,14 +1097,12 @@ fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool, usize)
         if ch == '*' || ch == '_' {
             let run_count = text[i..].chars().take_while(|c0| *c0 == ch).count();
             let run_bytes = run_count * ch.len_utf8();
-
-            // If a delimiter run reaches EOF, even if currently detached, future appends
-            // can turn it into an opener (e.g. "hello *" + "world*")!
             if i + run_bytes == text.len() {
                 record_unstable(&mut unstable_from, i);
             }
 
             if is_detached(text, i, run_bytes) {
+                begin_plain!();
                 for _ in 0..run_count {
                     plain.push(ch);
                 }
@@ -930,30 +1121,42 @@ fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool, usize)
                 find_closer(text, i + open_bytes, ch, open_count)
             {
                 flush!();
-                debug_assert!(text.is_char_boundary(i + open_bytes));
-                debug_assert!(text.is_char_boundary(close_start));
+                let construct_restart = active_restart.or(Some(source_base + i));
+                out.push(InlinePiece::Hidden {
+                    source: source_base + i..source_base + i + open_bytes,
+                    restart_from: construct_restart,
+                });
                 let inner = &text[i + open_bytes..close_start];
                 let inner_base = combine_style(&base, kind);
-                let (inner_spans, _inner_restricted, _inner_stable) =
-                    parse_inline_rec(inner, inner_base);
-                out.extend(inner_spans);
+                let (inner_pieces, _inner_restricted, inner_stable) = parse_inline_rec(
+                    inner,
+                    inner_base,
+                    source_base + i + open_bytes,
+                    construct_restart,
+                );
+                out.extend(inner_pieces);
+                if inner_stable < inner.len() {
+                    record_unstable(&mut unstable_from, i + open_bytes + inner_stable);
+                }
+                out.push(InlinePiece::Hidden {
+                    source: source_base + close_start..source_base + close_start + close_bytes,
+                    restart_from: construct_restart,
+                });
                 restricted = true;
-
-                // If the closing delimiter run touches EOF, appending another delimiter
-                // char (e.g. "**bold**" + "*") can extend the closing run and change the parse!
                 if close_start + close_bytes == text.len() {
                     record_unstable(&mut unstable_from, i);
                 }
-
                 i = close_start + close_bytes;
             } else {
                 record_unstable(&mut unstable_from, i);
+                begin_plain!();
                 plain.push(ch);
                 i += ch.len_utf8();
             }
             continue;
         }
 
+        begin_plain!();
         plain.push(ch);
         i += ch.len_utf8();
     }
@@ -963,19 +1166,85 @@ fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool, usize)
     (out, restricted, stable_prefix_len)
 }
 
-/// Parses inline emphasis into semantic spans, reporting whether any marker was
-/// hidden (restricted) and the semantic stable prefix length.
-fn parse_inline_text_with_flag(text: &str, base: StyleSpec) -> (Vec<TextSpan>, bool, usize) {
-    let (spans, restricted, stable_len) = parse_inline_rec(text, base);
-    let out = spans
-        .into_iter()
-        .map(|sp| TextSpan::styled(sp.text, sp.style))
-        .collect();
-    (out, restricted, stable_len)
+fn visible_pieces(pieces: &[InlinePiece]) -> Vec<TextSpan> {
+    pieces
+        .iter()
+        .filter_map(|piece| match piece {
+            InlinePiece::Visible { text, style, .. } => {
+                Some(TextSpan::styled(text.clone(), style.clone()))
+            }
+            InlinePiece::Hidden { .. } => None,
+        })
+        .collect()
 }
 
-fn parse_inline_text(text: &str, base: StyleSpec) -> Vec<TextSpan> {
-    parse_inline_text_with_flag(text, base).0
+fn projected_runs(pieces: &[InlinePiece]) -> Vec<AssistantProjectedRun> {
+    let mut runs = Vec::new();
+    let mut pending_hidden: Option<(Range<usize>, Option<usize>)> = None;
+    for piece in pieces {
+        match piece {
+            InlinePiece::Hidden {
+                source,
+                restart_from,
+            } => {
+                pending_hidden = Some(match pending_hidden.take() {
+                    Some((previous, previous_restart)) => (
+                        previous.start..source.end,
+                        previous_restart.or(*restart_from),
+                    ),
+                    None => (source.clone(), *restart_from),
+                });
+            }
+            InlinePiece::Visible {
+                text,
+                style,
+                source,
+                restart_from: visible_restart,
+            } => {
+                let (owned_start, prefix_restart_from) = pending_hidden
+                    .take()
+                    .map_or((source.start, None), |(hidden, restart)| {
+                        (hidden.start, restart)
+                    });
+                runs.push(AssistantProjectedRun {
+                    display: text.clone(),
+                    style: style.clone(),
+                    owned: owned_start..source.end,
+                    exact_visible: Some(source.clone()),
+                    restart_from: *visible_restart,
+                    prefix_restart_from,
+                });
+            }
+        }
+    }
+    if let Some((hidden, restart_from)) = pending_hidden {
+        if let Some(last) = runs.last_mut() {
+            last.owned.end = hidden.end;
+        } else {
+            runs.push(AssistantProjectedRun {
+                display: String::new(),
+                style: StyleSpec::default(),
+                owned: hidden,
+                exact_visible: None,
+                restart_from,
+                prefix_restart_from: None,
+            });
+        }
+    }
+    runs
+}
+
+fn parse_inline_projected(
+    text: &str,
+    base: StyleSpec,
+) -> (Vec<TextSpan>, Vec<AssistantProjectedRun>, bool, usize) {
+    let (pieces, restricted, stable_len) = parse_inline_rec(text, base, 0, None);
+    (
+        visible_pieces(&pieces),
+        projected_runs(&pieces),
+        restricted,
+        stable_len,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1018,7 +1287,9 @@ pub(crate) fn assistant_document_view(document: &AssistantDocument, first_unit: 
 pub(crate) fn assistant_row_view(row: &AssistantLogicalRow) -> View {
     let body = View::styled_text(row.spans.clone()).width(WidthRule::Fill);
     match &row.layout {
-        AssistantRowLayout::Plain | AssistantRowLayout::Heading => body,
+        AssistantRowLayout::Plain
+        | AssistantRowLayout::Heading
+        | AssistantRowLayout::ListContinuation { .. } => body,
         AssistantRowLayout::ListItem { depth, marker } => list_item_row_view(*depth, *marker, body),
     }
 }
@@ -1061,6 +1332,16 @@ fn concat_pieces(line: &RawLine) -> String {
 
 fn piece_source_len(line: &RawLine) -> usize {
     line.pieces.iter().map(|(_, t, _)| t.len()).sum()
+}
+
+#[cfg(test)]
+fn has_hidden_projection(row: &AssistantLogicalRow) -> bool {
+    matches!(row.layout, AssistantRowLayout::ListItem { .. })
+        || row.projected_runs.iter().any(|run| {
+            run.exact_visible
+                .as_ref()
+                .is_some_and(|visible| *visible != run.owned)
+        })
 }
 
 #[cfg(test)]
@@ -1334,7 +1615,7 @@ mod correctness {
     fn heading_styles_line() {
         let doc = parse_assistant(&text_segs("## hello"));
         assert_eq!(doc.rows.len(), 1);
-        assert!(!doc.rows[0].source.restricted);
+        assert!(!has_hidden_projection(&doc.rows[0]));
         let text: String = doc.rows[0].spans.iter().map(|s| s.text.as_str()).collect();
         assert_eq!(text, "## hello");
         assert!(doc.rows[0].spans.iter().all(|s| tag(&s.style) == "H"));
@@ -1353,7 +1634,7 @@ mod correctness {
         let text: String = doc.rows[0].spans.iter().map(|s| s.text.as_str()).collect();
         assert_eq!(text, "## think", "thinking never parses as markdown");
         assert_eq!(tag(&doc.rows[0].spans[0].style), "IT");
-        assert!(!doc.rows[0].source.restricted);
+        assert!(!has_hidden_projection(&doc.rows[0]));
     }
 }
 
@@ -1789,7 +2070,7 @@ pub(crate) mod correctness_invariants {
         let doc = parse_assistant(&[AssistantSegment::Text("abc **bold**".to_string())]);
         assert_eq!(doc.rows.len(), 1);
         let row = &doc.rows[0];
-        assert!(row.source.restricted);
+        assert!(has_hidden_projection(row));
         assert!(!row.source.has_newline);
         assert_eq!(row.source.content_len, "abc **bold**".len());
         // Closer touches EOF, so stable_prefix_len stops before opener
@@ -1801,7 +2082,7 @@ pub(crate) mod correctness_invariants {
         let doc = parse_assistant(&[AssistantSegment::Text("abc **bold** x".to_string())]);
         assert_eq!(doc.rows.len(), 1);
         let row = &doc.rows[0];
-        assert!(row.source.restricted);
+        assert!(has_hidden_projection(row));
         assert!(!row.source.has_newline);
         assert_eq!(row.source.content_len, "abc **bold** x".len());
         // The semantic transformation is pinned, but the trailing `x` EGC is
@@ -1814,7 +2095,7 @@ pub(crate) mod correctness_invariants {
         let doc = parse_assistant(&[AssistantSegment::Text("abc **bold**\n".to_string())]);
         assert_eq!(doc.rows.len(), 1);
         let row = &doc.rows[0];
-        assert!(row.source.restricted);
+        assert!(has_hidden_projection(row));
         assert!(row.source.has_newline);
         assert_eq!(row.source.content_len, "abc **bold**".len());
         assert_eq!(row.source.stable_prefix_len, row.source.content_len);
@@ -1825,7 +2106,7 @@ pub(crate) mod correctness_invariants {
         let doc = parse_assistant(&[AssistantSegment::Text("abc **bold".to_string())]);
         assert_eq!(doc.rows.len(), 1);
         let row = &doc.rows[0];
-        assert!(!row.source.restricted);
+        assert!(!has_hidden_projection(row));
         assert!(!row.source.has_newline);
         assert_eq!(row.source.content_len, "abc **bold".len());
         // Stops before the potentially active "**"
@@ -1838,7 +2119,7 @@ pub(crate) mod correctness_invariants {
         let doc = parse_assistant(&[AssistantSegment::Text("- item".to_string())]);
         assert_eq!(doc.rows.len(), 1);
         let row = &doc.rows[0];
-        assert!(row.source.restricted);
+        assert!(has_hidden_projection(row));
         assert!(!row.source.has_newline);
         assert_eq!(row.source.content_len, "- item".len());
         // The list semantics are pinned, but the final `m` EGC is still open.
@@ -1849,7 +2130,7 @@ pub(crate) mod correctness_invariants {
     fn parser_list_with_newline_is_stable_through_raw_content() {
         let doc = parse_assistant(&[AssistantSegment::Text("- item\n".to_string())]);
         let row = &doc.rows[0];
-        assert!(row.source.restricted);
+        assert!(has_hidden_projection(row));
         assert!(row.source.has_newline);
         assert_eq!(row.source.content_len, "- item".len());
         assert_eq!(row.source.stable_prefix_len, row.source.content_len);
@@ -1860,7 +2141,7 @@ pub(crate) mod correctness_invariants {
         let doc = parse_assistant(&[AssistantSegment::Text("- item **bo".to_string())]);
         assert_eq!(doc.rows.len(), 1);
         let row = &doc.rows[0];
-        assert!(row.source.restricted);
+        assert!(has_hidden_projection(row));
         assert!(!row.source.has_newline);
         assert_eq!(row.source.content_len, "- item **bo".len());
         // Stable prefix stops before "**" in body: "- item " (7 bytes)
@@ -1873,7 +2154,7 @@ pub(crate) mod correctness_invariants {
         let doc = parse_assistant(&[AssistantSegment::Text("- item **bo\n".to_string())]);
         assert_eq!(doc.rows.len(), 1);
         let row = &doc.rows[0];
-        assert!(row.source.restricted);
+        assert!(has_hidden_projection(row));
         assert!(row.source.has_newline);
         assert_eq!(row.source.content_len, "- item **bo".len());
         assert_eq!(row.source.stable_prefix_len, row.source.content_len);
@@ -1884,7 +2165,7 @@ pub(crate) mod correctness_invariants {
         let doc = parse_assistant(&[AssistantSegment::Text("**b _i_ b**".to_string())]);
         assert_eq!(doc.rows.len(), 1);
         let row = &doc.rows[0];
-        assert!(row.source.restricted);
+        assert!(has_hidden_projection(row));
         assert!(!row.source.has_newline);
         assert_eq!(row.source.content_len, "**b _i_ b**".len());
         assert_eq!(row.source.stable_prefix_len, 0);
@@ -1968,10 +2249,65 @@ pub(crate) mod correctness_invariants {
 
         let doc = parse_assistant(&[AssistantSegment::Text("- \t\t**bo".to_string())]);
         let row = &doc.rows[0];
-        assert!(row.source.restricted);
+        assert!(has_hidden_projection(row));
         assert_eq!(row.source.content_len, 8);
         assert_eq!(row.source.stable_prefix_len, 4);
         assert!(row.source.stable_prefix_len <= row.source.content_len);
+    }
+
+    #[test]
+    fn nested_projection_retains_outer_restart_context() {
+        let source = "prefix **outer _inner content which wraps_ outer** suffix";
+        let doc = parse_assistant(&[AssistantSegment::Text(source.to_string())]);
+        let row = &doc.rows[0];
+
+        let inner = row
+            .projected_runs
+            .iter()
+            .find(|run| run.display.contains("inner"))
+            .expect("nested italic run");
+        assert_eq!(inner.restart_from, Some(source.find("**").unwrap()));
+        assert!(inner.style.attributes.bold);
+        assert!(inner.style.attributes.italic);
+
+        let suffix = row
+            .projected_runs
+            .iter()
+            .find(|run| run.display.contains("suffix"))
+            .expect("plain suffix run");
+        assert_eq!(suffix.restart_from, None);
+    }
+
+    #[test]
+    fn list_tab_replacements_are_local_projection_atoms() {
+        let source = "- **before\tinside** followed by a long tail";
+        let doc = parse_assistant(&[AssistantSegment::Text(source.to_string())]);
+        let row = &doc.rows[0];
+        let tab_source = source.find('\t').unwrap();
+        let tab_run = row
+            .projected_runs
+            .iter()
+            .find(|run| run.owned.start == tab_source && run.owned.end == tab_source + 1)
+            .expect("tab replacement run");
+
+        assert_eq!(tab_run.display, "    ");
+        assert_eq!(tab_run.exact_visible, None);
+        assert_eq!(tab_run.restart_from, Some(2));
+        assert!(
+            row.projected_runs
+                .iter()
+                .any(|run| run.display == "before" && run.style.attributes.bold)
+        );
+        assert!(
+            row.projected_runs
+                .iter()
+                .any(|run| { run.display == "inside" && run.style.attributes.bold })
+        );
+        assert!(
+            row.projected_runs
+                .iter()
+                .any(|run| run.display.contains("followed"))
+        );
     }
 
     #[test]

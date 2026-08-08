@@ -3,13 +3,17 @@
 //! Encapsulates Thinking styling, Markdown interpretation, thinking -> text
 //! newline separation, and the width-independent stability frontier.
 
+use unicode_width::UnicodeWidthStr;
+
+use crate::presentation::api::HorizontalAlign;
 use crate::presentation::{
-    StreamNode, StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamView,
-    StreamingContent,
+    ExactTerminator, ProjectedText, ProjectedTextLayout, ProjectedTextRun, StreamNode,
+    StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamView, StreamingContent,
+    WidthRule, WrapMode,
 };
 use crate::transcript::markdown::{
-    AssistantContinuation, AssistantDocument, AssistantRowLayout, assistant_row_view,
-    parse_assistant, parse_assistant_tail,
+    AssistantContinuation, AssistantDocument, AssistantRowLayout, parse_assistant,
+    parse_assistant_tail,
 };
 use crate::transcript::model::{
     AssistantSegment, SegmentKind, slice_segments, think_to_text_newline,
@@ -17,7 +21,8 @@ use crate::transcript::model::{
 
 #[cfg(test)]
 use crate::presentation::stream::{
-    StreamAtomicId, StreamProvenance, StreamRowCommit, compile_stream, plan_commit,
+    HostedStream, LeadingBoundaryState, StreamProvenance, StreamRowCommit, compile_stream,
+    plan_commit,
 };
 
 #[derive(Debug)]
@@ -82,45 +87,79 @@ impl AssistantStream {
         self.sealed
     }
 
-    fn continuation_at(&self, offset: StreamOffset) -> Option<AssistantContinuation> {
+    fn restart_plan_at(
+        &self,
+        offset: StreamOffset,
+    ) -> (StreamOffset, Option<AssistantContinuation>) {
         let doc = parse_assistant(&self.segments);
-        let mut cursor = 0usize;
         let target = offset.as_u64() as usize;
+        let mut cursor = 0usize;
 
         for row in &doc.rows {
-            let row_total_len = row.source.total_len();
-            let row_end = cursor + row_total_len;
-
-            if target <= cursor {
-                return None;
-            }
-
+            let row_end = cursor + row.source.total_len();
             if target < row_end {
-                debug_assert!(
-                    !row.source.restricted,
-                    "Atomic/restricted row must not have partial physical cursor advancement: target={}, cursor={}, row_end={}",
-                    target, cursor, row_end
-                );
-                return match row.layout {
-                    AssistantRowLayout::Heading => Some(AssistantContinuation::Heading),
-                    AssistantRowLayout::Plain => Some(AssistantContinuation::Paragraph),
-                    AssistantRowLayout::ListItem { .. } => {
-                        panic!(
-                            "ListItem must be restricted and cannot have partial cursor advancement"
-                        );
+                let mut restart = target;
+                for run in &row.projected_runs {
+                    let run_start = cursor + run.owned.start;
+                    let run_end = cursor + run.owned.end;
+                    if target >= run_start && target < run_end {
+                        // Source projection determines where a stream may be
+                        // physically cut. Parser restart metadata determines
+                        // how much earlier source is needed to reconstruct the
+                        // semantic suffix. Exact projection does not imply
+                        // parser independence.
+                        let restart_from = match run.exact_visible.as_ref() {
+                            Some(visible) => {
+                                let visible_start = cursor + visible.start;
+                                if target < visible_start {
+                                    run.prefix_restart_from
+                                } else {
+                                    run.restart_from
+                                }
+                            }
+                            None => run.restart_from.or(run.prefix_restart_from),
+                        };
+                        restart = restart_from.map_or(target, |restart| cursor + restart);
+                        break;
                     }
+                }
+                let continuation = if restart > cursor {
+                    Some(match row.layout {
+                        AssistantRowLayout::Heading => AssistantContinuation::Heading,
+                        AssistantRowLayout::Plain => AssistantContinuation::Paragraph,
+                        AssistantRowLayout::ListItem { depth, marker } => {
+                            AssistantContinuation::List {
+                                body_column: list_body_column(depth, &marker),
+                            }
+                        }
+                        AssistantRowLayout::ListContinuation { body_column } => {
+                            AssistantContinuation::List { body_column }
+                        }
+                    })
+                } else {
+                    None
                 };
+                return (StreamOffset::new(restart as u64), continuation);
             }
-
             if target == row_end {
-                return None;
+                return (offset, None);
             }
-
             cursor = row_end;
         }
-
-        None
+        (offset, None)
     }
+}
+
+fn list_body_column(depth: usize, marker: &crate::transcript::markdown::AssistantMarker) -> u16 {
+    let marker_width = match marker {
+        crate::transcript::markdown::AssistantMarker::Bullet => 2,
+        crate::transcript::markdown::AssistantMarker::Ordered { index } => {
+            index.to_string().len() as u16 + 2
+        }
+    };
+    (depth as u16)
+        .saturating_mul(crate::transcript::row::LIST_INDENT as u16)
+        .saturating_add(marker_width)
 }
 
 impl StreamingContent for AssistantStream {
@@ -150,8 +189,9 @@ impl StreamingContent for AssistantStream {
 
         debug_assert!(offset <= self.source_end);
 
-        self.continuation = self.continuation_at(offset);
-        self.source_base = offset;
+        let (restart, continuation) = self.restart_plan_at(offset);
+        self.continuation = continuation;
+        self.source_base = restart;
         self.revision = self.revision.next();
     }
 
@@ -182,16 +222,136 @@ fn build_assistant_stream_view(
     for row in &doc.rows {
         let owned_end;
 
-        if row.source.restricted {
-            let total_len = row.source.total_len() as u64;
-            let range = StreamRange::new(cursor, cursor.saturating_add(total_len));
-            owned_end = range.end;
-            nodes.push(StreamNode::atomic(range, assistant_row_view(row)));
+        let text_end = cursor.saturating_add(row.source.content_len as u64);
+        let text_range = StreamRange::new(cursor, text_end);
+        let list_layout = match &row.layout {
+            AssistantRowLayout::ListItem { depth, marker } => {
+                let marker_text = match marker {
+                    crate::transcript::markdown::AssistantMarker::Bullet => "• ".to_string(),
+                    crate::transcript::markdown::AssistantMarker::Ordered { index } => {
+                        format!("{index}. ")
+                    }
+                };
+                Some((
+                    row.projected_runs
+                        .first()
+                        .map_or(row.source.content_len, |run| run.owned.start),
+                    list_body_column(*depth, marker),
+                    format!(
+                        "{}{}",
+                        " ".repeat(*depth * crate::transcript::row::LIST_INDENT),
+                        marker_text
+                    ),
+                    true,
+                ))
+            }
+            AssistantRowLayout::ListContinuation { body_column } => {
+                Some((0, *body_column, String::new(), false))
+            }
+            _ => None,
+        };
+        if let Some((body_start, body_column, prefix, show_prefix)) = list_layout {
+            if show_prefix {
+                debug_assert_eq!(
+                    UnicodeWidthStr::width(prefix.as_str()),
+                    usize::from(body_column)
+                );
+            }
+            let runs = row
+                .projected_runs
+                .iter()
+                .map(|run| ProjectedTextRun {
+                    display: run.display.clone(),
+                    style: run.style.clone(),
+                    owned: StreamRange::new(
+                        cursor.saturating_add(run.owned.start as u64),
+                        cursor.saturating_add(run.owned.end as u64),
+                    ),
+                    exact_visible: run.exact_visible.as_ref().map(|visible| {
+                        StreamRange::new(
+                            cursor.saturating_add(visible.start as u64),
+                            cursor.saturating_add(visible.end as u64),
+                        )
+                    }),
+                })
+                .collect();
+            let projected = ProjectedText {
+                content_range: StreamRange::new(
+                    cursor,
+                    cursor.saturating_add(row.source.content_len as u64),
+                ),
+                terminator: if row.source.has_newline {
+                    ExactTerminator::HardNewline
+                } else {
+                    ExactTerminator::None
+                },
+                width: WidthRule::Fill,
+                wrap: WrapMode::WordThenGrapheme,
+                align: HorizontalAlign::Start,
+                layout: ProjectedTextLayout::Hanging {
+                    body_column,
+                    prefix,
+                    prefix_style: row.style.clone(),
+                    prefix_source: StreamRange::new(
+                        cursor,
+                        cursor.saturating_add(body_start as u64),
+                    ),
+                    show_prefix,
+                },
+                runs,
+            };
+            let node = StreamNode::projected_text(projected);
+            owned_end = node.owned_range().end;
+            nodes.push(node);
         } else {
-            let text_end = cursor.saturating_add(row.source.content_len as u64);
-            let text_range = StreamRange::new(cursor, text_end);
-            let node =
-                StreamNode::exact_line(text_range, row.spans.clone(), row.source.has_newline);
+            let runs = if row.projected_runs.is_empty() {
+                let mut run_cursor = cursor;
+                row.spans
+                    .iter()
+                    .map(|span| {
+                        let start = run_cursor;
+                        run_cursor = run_cursor.saturating_add(span.text.len() as u64);
+                        ProjectedTextRun {
+                            display: span.text.clone(),
+                            style: span.style.clone(),
+                            owned: StreamRange::new(start, run_cursor),
+                            exact_visible: Some(StreamRange::new(start, run_cursor)),
+                        }
+                    })
+                    .collect()
+            } else {
+                row.projected_runs
+                    .iter()
+                    .map(|run| ProjectedTextRun {
+                        display: run.display.clone(),
+                        style: run.style.clone(),
+                        owned: StreamRange::new(
+                            cursor.saturating_add(run.owned.start as u64),
+                            cursor.saturating_add(run.owned.end as u64),
+                        ),
+                        exact_visible: run.exact_visible.as_ref().map(|visible| {
+                            StreamRange::new(
+                                cursor.saturating_add(visible.start as u64),
+                                cursor.saturating_add(visible.end as u64),
+                            )
+                        }),
+                    })
+                    .collect()
+            };
+            let projected = ProjectedText {
+                content_range: text_range,
+                terminator: if row.source.has_newline {
+                    ExactTerminator::HardNewline
+                } else {
+                    ExactTerminator::None
+                },
+                width: WidthRule::Fit,
+                wrap: WrapMode::WordThenGrapheme,
+                align: HorizontalAlign::Start,
+                layout: ProjectedTextLayout::Plain,
+                runs,
+            };
+            let node = StreamNode::projected_text(projected);
             owned_end = node.owned_range().end;
             nodes.push(node);
         }
@@ -232,21 +392,222 @@ mod tests {
     }
 
     #[test]
-    fn assistant_stream_markdown_atomic_node() {
+    fn stability_is_row_relative_after_a_hard_newline() {
+        let mut stream = AssistantStream::new();
+        stream.push_delta(SegmentKind::Text, "done\nopen");
+
+        let snapshot = stream.snapshot();
+        assert_eq!(snapshot.source_end, StreamOffset::new(9));
+        assert_eq!(snapshot.stable_through, StreamOffset::new(8));
+    }
+
+    #[test]
+    fn projected_markdown_paragraph_spills_before_seal() {
+        let mut hosted = HostedStream::new(
+            crate::transcript::model::TranscriptId(1),
+            AssistantStream::new(),
+            LeadingBoundaryState::None,
+        );
+        let chunks = [
+            "ordinary **bold",
+            " words** ordinary ordinary ",
+            "ordinary ordinary ordinary ordinary ordinary",
+        ];
+        let mut committed = Vec::new();
+        for chunk in chunks {
+            hosted.content_mut().push_delta(SegmentKind::Text, chunk);
+            let prepared = hosted.prepare_frame(12, 1);
+            if !prepared.history.rows.is_empty() {
+                hosted.apply_commit_success(prepared.history);
+            }
+            committed.push(hosted.committed_through);
+        }
+        assert!(committed[1] > committed[0]);
+        assert!(committed[2] > committed[1]);
+        let snapshot = hosted.snapshot();
+        assert!(snapshot.source_base <= hosted.committed_through);
+        assert!(snapshot.validate());
+    }
+
+    #[test]
+    fn projected_compaction_retains_inline_restart_context() {
+        let source = "prefix **abcdefghijklmnop long bold text** suffix";
+        let opener = source.find("**").unwrap() as u64;
+        let closer = source[opener as usize + 2..].find("**").unwrap() as u64 + opener + 2;
+        let mut hosted = HostedStream::new(
+            crate::transcript::model::TranscriptId(2),
+            AssistantStream::new(),
+            LeadingBoundaryState::None,
+        );
+        hosted.content_mut().push_delta(SegmentKind::Text, source);
+
+        let mut committed_inside = false;
+        for _ in 0..32 {
+            let prepared = hosted.prepare_frame(6, 1);
+            if prepared.history.rows.is_empty() {
+                break;
+            }
+            hosted.apply_commit_success(prepared.history);
+            if hosted.committed_through.as_u64() > opener + 2
+                && hosted.committed_through.as_u64() < closer
+            {
+                committed_inside = true;
+                let snapshot = hosted.snapshot();
+                assert_eq!(snapshot.source_base, StreamOffset::new(opener));
+                let suffix = snapshot.view.suffix_from(hosted.committed_through);
+                let rendered = suffix.into_static_view();
+                let text = format!("{rendered:?}");
+                assert!(!text.contains("**"));
+            }
+        }
+        assert!(committed_inside);
+
+        hosted.content_mut().push_delta(SegmentKind::Text, "\n");
+        for _ in 0..64 {
+            let prepared = hosted.prepare_frame(8, 1);
+            if prepared.history.rows.is_empty() {
+                break;
+            }
+            hosted.apply_commit_success(prepared.history);
+        }
+        let final_snapshot = hosted.snapshot();
+        assert_eq!(final_snapshot.source_base, final_snapshot.source_end);
+    }
+
+    #[test]
+    fn restart_planning_distinguishes_hidden_prefix_and_visible_context() {
+        let source = "prefix **bold** suffix";
+        let opener = source.find("**").unwrap();
+        let closer = source[opener + 2..].find("**").unwrap() + opener + 2;
+        let suffix_start = source.find("suffix").unwrap();
+        let mut stream = AssistantStream::new();
+        stream.push_delta(SegmentKind::Text, source);
+
+        let (restart_before_closer, _) = stream.restart_plan_at(StreamOffset::new(closer as u64));
+        assert_eq!(restart_before_closer, StreamOffset::new(opener as u64));
+
+        stream.compact_before(StreamOffset::new(closer as u64));
+        let snapshot = stream.snapshot();
+        assert_eq!(snapshot.source_base, StreamOffset::new(opener as u64));
+        assert!(!format!("{snapshot:?}").contains("**"));
+
+        let suffix_offset = StreamOffset::new((suffix_start + 1) as u64);
+        let (restart_in_suffix, _) = stream.restart_plan_at(suffix_offset);
+        assert_eq!(restart_in_suffix, suffix_offset);
+        stream.compact_before(suffix_offset);
+        assert_eq!(stream.snapshot().source_base, suffix_offset);
+    }
+
+    #[test]
+    fn hosted_nested_compaction_preserves_outer_and_inner_styles() {
+        let source = "prefix **outer _inner content which wraps_ outer** suffix";
+        let opener = source.find("**").unwrap() as u64;
+        let inner_start = source.find("inner").unwrap() as u64;
+        let outer_close = source[opener as usize + 2..].find("**").unwrap() as u64 + opener + 2;
+        let mut hosted = HostedStream::new(
+            crate::transcript::model::TranscriptId(4),
+            AssistantStream::new(),
+            LeadingBoundaryState::None,
+        );
+        hosted.content_mut().push_delta(SegmentKind::Text, source);
+
+        let mut committed_inside = false;
+        for _ in 0..64 {
+            let prepared = hosted.prepare_frame(8, 1);
+            if prepared.history.rows.is_empty() {
+                break;
+            }
+            hosted.apply_commit_success(prepared.history);
+            let committed = hosted.committed_through.as_u64();
+            if committed > inner_start && committed < outer_close {
+                committed_inside = true;
+                let snapshot = hosted.snapshot();
+                assert_eq!(snapshot.source_base, StreamOffset::new(opener));
+                let inner = snapshot
+                    .view
+                    .nodes
+                    .iter()
+                    .find_map(|node| match node {
+                        StreamNode::Text(text) => {
+                            text.runs.iter().find(|run| run.display.contains("inner"))
+                        }
+                        StreamNode::Atomic { .. } => None,
+                    })
+                    .expect("nested live suffix");
+                assert!(inner.style.attributes.bold);
+                assert!(inner.style.attributes.italic);
+                break;
+            }
+        }
+        assert!(committed_inside);
+    }
+
+    #[test]
+    fn list_tab_restart_retains_inline_context_after_replacement() {
+        let source = "- **before\tinside** tail";
+        let opener = source.find("**").unwrap() as u64;
+        let inside = source.find("inside").unwrap() as u64;
+        let mut stream = AssistantStream::new();
+        stream.push_delta(SegmentKind::Text, source);
+
+        let (restart, _) = stream.restart_plan_at(StreamOffset::new(inside + 1));
+        assert_eq!(restart, StreamOffset::new(opener));
+
+        stream.compact_before(StreamOffset::new(inside + 1));
+        let snapshot = stream.snapshot();
+        let inside = snapshot
+            .view
+            .nodes
+            .iter()
+            .find_map(|node| match node {
+                StreamNode::Text(text) => {
+                    text.runs.iter().find(|run| run.display.contains("inside"))
+                }
+                StreamNode::Atomic { .. } => None,
+            })
+            .expect("tabbed bold suffix");
+        assert!(inside.style.attributes.bold);
+    }
+
+    #[test]
+    fn projected_list_item_spills_and_retains_hanging_context() {
+        let mut hosted = HostedStream::new(
+            crate::transcript::model::TranscriptId(3),
+            AssistantStream::new(),
+            LeadingBoundaryState::None,
+        );
+        hosted.content_mut().push_delta(
+            SegmentKind::Text,
+            "- **a very long list item that keeps wrapping** and continues",
+        );
+        let mut committed = false;
+        for _ in 0..32 {
+            let prepared = hosted.prepare_frame(8, 1);
+            if prepared.history.rows.is_empty() {
+                break;
+            }
+            hosted.apply_commit_success(prepared.history);
+            committed |= hosted.committed_through > StreamOffset::new(2);
+        }
+        assert!(committed);
+        assert!(hosted.snapshot().validate());
+    }
+
+    #[test]
+    fn assistant_stream_markdown_projected_node() {
         let mut stream = AssistantStream::new();
         stream.push_delta(SegmentKind::Text, "**bold text**\nplain text");
 
         let snap = stream.snapshot();
         assert_eq!(snap.view.nodes.len(), 2);
-        // First node (**bold text**) is atomic
+        // Markdown styling is projected text, not a row-wide atomic group.
         assert!(matches!(
             snap.view.nodes[0].provenance(),
-            StreamProvenance::Atomic(_)
+            StreamProvenance::Projected(_)
         ));
-        // Second node is exact
         assert!(matches!(
             snap.view.nodes[1].provenance(),
-            StreamProvenance::Exact(_)
+            StreamProvenance::Projected(_)
         ));
     }
 
@@ -347,8 +708,8 @@ mod tests {
     }
 
     #[test]
-    fn hard_newline_source_ownership_atomic_markdown() {
-        // Test E: "**bold**\nplain" -> Atomic owns through newline (9) before plain begins
+    fn hard_newline_source_ownership_projected_markdown() {
+        // Test E: "**bold**\nplain" -> projected text owns through newline (9).
         let mut stream = AssistantStream::new();
         stream.push_delta(SegmentKind::Text, "**bold**\nplain");
         stream.seal();
@@ -361,10 +722,7 @@ mod tests {
         assert_eq!(compiled.rows.len(), 2);
         assert_eq!(
             compiled.commit[0],
-            StreamRowCommit::Atomic {
-                group: StreamAtomicId(1),
-                source_end: StreamOffset::new(9)
-            }
+            StreamRowCommit::Exact(StreamOffset::new(9))
         );
         assert_eq!(
             compiled.commit[1],
@@ -376,7 +734,7 @@ mod tests {
 
     #[test]
     fn atomic_completed_line_is_stable_when_open() {
-        // "**bold**\n" is restricted + has_newline => Atomic AND stable
+        // A projected Markdown row with a hard newline is stable.
         let mut stream = AssistantStream::new();
         stream.push_delta(SegmentKind::Text, "**bold**\n");
         // NOT sealed
@@ -384,18 +742,20 @@ mod tests {
         let snap = stream.snapshot();
         assert!(snap.validate());
         assert_eq!(snap.source_end, StreamOffset::new(9));
-        // Atomic with newline should be stable through source_end
+        // Projected text with newline should be stable through source_end.
         assert_eq!(snap.stable_through, StreamOffset::new(9));
 
-        // Atomic group should be eligible to spill
         let compiled = compile_stream(&snap.view, 80, snap.stable_through);
         assert_eq!(compiled.committable_prefix_rows, 1);
-        assert!(matches!(compiled.commit[0], StreamRowCommit::Atomic { .. }));
+        assert_eq!(
+            compiled.commit[0],
+            StreamRowCommit::Exact(StreamOffset::new(9))
+        );
     }
 
     #[test]
     fn atomic_closed_bold_touching_eof_is_unstable_when_open() {
-        // "**bold**" (closed bold touching EOF) => restricted, stable_prefix_len == 0
+        // A closed bold span touching EOF remains semantically unstable.
         let mut stream = AssistantStream::new();
         stream.push_delta(SegmentKind::Text, "**bold**");
         // NOT sealed
@@ -444,7 +804,7 @@ mod tests {
 
     #[test]
     fn trailing_list_with_unfinished_markdown_is_unstable() {
-        // "- item **bo" => restricted = true, stable_prefix_len = 7 < 11
+        // "- item **bo" stops semantic stability at byte 7.
         let mut stream = AssistantStream::new();
         stream.push_delta(SegmentKind::Text, "- item **bo");
         // NOT sealed
@@ -453,7 +813,7 @@ mod tests {
         assert_eq!(snap.source_end, StreamOffset::new(11));
         assert_eq!(snap.stable_through, StreamOffset::new(7));
 
-        // Atomic node range is 0..11, so it cannot commit when stable_through is 7
+        // The projected list body cannot commit across the unstable delimiter.
         let compiled = compile_stream(&snap.view, 80, snap.stable_through);
         assert_eq!(compiled.committable_prefix_rows, 0);
         assert!(matches!(compiled.commit[0], StreamRowCommit::Blocked));
@@ -462,7 +822,7 @@ mod tests {
     #[test]
     fn trailing_list_with_ordinary_body_waits_for_egc_safety() {
         // "- item" is semantically determined, but the final `m` EGC remains
-        // open. The Atomic node therefore cannot commit until a newline/seal.
+        // open. The final physical row therefore cannot commit until a newline/seal.
         let mut stream = AssistantStream::new();
         stream.push_delta(SegmentKind::Text, "- item");
         // NOT sealed
@@ -485,7 +845,10 @@ mod tests {
         assert_eq!(snap.stable_through, StreamOffset::new(7));
         let compiled = compile_stream(&snap.view, 80, snap.stable_through);
         assert_eq!(compiled.committable_prefix_rows, 1);
-        assert!(matches!(compiled.commit[0], StreamRowCommit::Atomic { .. }));
+        assert_eq!(
+            compiled.commit[0],
+            StreamRowCommit::Exact(StreamOffset::new(7))
+        );
     }
 
     #[test]
@@ -512,15 +875,10 @@ mod tests {
                 StreamOffset::ZERO
             );
             assert_eq!(phase_two.view.nodes.len(), 1, "suffix={suffix:?}");
-            assert!(
-                matches!(
-                    phase_two.view.nodes[0].provenance(),
-                    StreamProvenance::Atomic(_) if suffix.starts_with('-') || suffix.starts_with('1')
-                ) || matches!(
-                    phase_two.view.nodes[0].provenance(),
-                    StreamProvenance::Exact(_) if suffix.starts_with('#')
-                )
-            );
+            assert!(matches!(
+                phase_two.view.nodes[0].provenance(),
+                StreamProvenance::Projected(_)
+            ));
         }
     }
 
@@ -528,8 +886,8 @@ mod tests {
     fn mixed_atomic_exact_mutable_tail_stability() {
         // "**bold**\nplain\nmutable"
         // "**bold**\n" = 9 bytes, "plain\n" = 6 bytes, "mutable" = 7 bytes => total = 22
-        // Atomic completed line (0..9) => stable
-        // Exact completed line "plain\n" (9..15) => stable
+        // Projected completed line (0..9) => stable
+        // Projected completed line "plain\n" (9..15) => stable
         // Exact mutable tail "mutable" (15..22) => stability stops before trailing EGC
         let mut stream = AssistantStream::new();
         stream.push_delta(SegmentKind::Text, "**bold**\nplain\nmutable");
@@ -546,9 +904,9 @@ mod tests {
         assert!(snap.stable_through >= StreamOffset::new(15));
         assert!(snap.stable_through < snap.source_end);
 
-        // The Atomic completed line must be committable (stable_through >= 9)
+        // The completed projected lines must be committable.
         let compiled = compile_stream(&snap.view, 80, snap.stable_through);
-        assert!(compiled.committable_prefix_rows >= 2); // Atomic row + Exact "plain" row
+        assert!(compiled.committable_prefix_rows >= 2);
     }
 
     // --- Compaction & continuation regressions ---
@@ -583,7 +941,7 @@ mod tests {
         assert_eq!(snap2.source_base, StreamOffset::new(6));
         assert_eq!(snap2.source_end, StreamOffset::new(14));
 
-        // First node in snapshot must NOT start before 6: Atomic(6..14)
+        // The retained suffix starts at the acknowledged source checkpoint.
         assert_eq!(snap2.view.nodes.len(), 1);
         assert_eq!(
             snap2.view.nodes[0].owned_range(),
@@ -598,13 +956,10 @@ mod tests {
 
         let compiled2 = compile_stream(&snap3.view, 80, snap3.stable_through);
         assert_eq!(compiled2.committable_prefix_rows, 1);
-        assert!(matches!(
+        assert_eq!(
             compiled2.commit[0],
-            StreamRowCommit::Atomic {
-                source_end,
-                ..
-            } if source_end == StreamOffset::new(14)
-        ));
+            StreamRowCommit::Exact(StreamOffset::new(14))
+        );
     }
 
     #[test]
