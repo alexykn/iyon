@@ -269,11 +269,16 @@ impl AppState {
                 });
             }
             LiveTail::Active(active) => {
-                active.content = content;
-                active.frame = None;
+                let leading_gap = content.boundary() == FlowBoundary::Default
+                    && self.transcript.has_conversation_content();
+                *active = HostedActiveContent {
+                    content,
+                    leading_gap,
+                    frame: None,
+                };
             }
             LiveTail::Streaming { .. } => {
-                debug_assert!(false, "active content cannot replace a streaming tail");
+                panic!("active content cannot replace a streaming tail");
             }
         }
     }
@@ -788,8 +793,11 @@ mod tests {
         state.prepare_active_frame(80);
         let before = state.active_live_rows().to_vec();
 
+        state.transcript.ensure_render_cache(80);
         let predecessor_rows = state.transcript.committable_len();
+        assert!(predecessor_rows > 0);
         state.transcript.mark_rows_committed(predecessor_rows);
+        assert!(state.transcript.uncommitted_rows().is_empty());
         state.prepare_active_frame(80);
 
         assert_eq!(before, state.active_live_rows());
