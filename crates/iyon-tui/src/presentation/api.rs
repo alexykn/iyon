@@ -109,10 +109,8 @@ impl View {
     }
 
     pub(crate) fn style(mut self, style: StyleSpec) -> Self {
-        if let ViewKind::Text(text) = &mut self.kind {
-            for span in &mut text.spans {
-                span.style = style.clone();
-            }
+        if matches!(self.kind, ViewKind::Text(_)) {
+            self.decoration.text_style.overlay(&style);
         }
         self
     }
@@ -137,12 +135,66 @@ pub(crate) enum WidthRule {
     Fill,
 }
 
-/// FEATURE EXTENSION API. Generic semantic styling, independent of Ratatui.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// FEATURE EXTENSION API. Sparse semantic text-style intent, independent of
+/// Ratatui. Unspecified fields inherit from the preceding cascade layer.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct StyleSpec {
     pub(crate) foreground: Option<ColorSpec>,
     pub(crate) background: Option<ColorSpec>,
-    pub(crate) attributes: TextAttributes,
+    pub(crate) attributes: TextAttributeSpec,
+}
+
+impl StyleSpec {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn foreground(mut self, color: ColorSpec) -> Self {
+        self.foreground = Some(color);
+        self
+    }
+
+    pub(crate) fn background(mut self, color: ColorSpec) -> Self {
+        self.background = Some(color);
+        self
+    }
+
+    pub(crate) fn bold(self) -> Self {
+        self.attribute(TextAttribute::Bold, true)
+    }
+
+    pub(crate) fn dim(self) -> Self {
+        self.attribute(TextAttribute::Dim, true)
+    }
+
+    pub(crate) fn italic(self) -> Self {
+        self.attribute(TextAttribute::Italic, true)
+    }
+
+    pub(crate) fn underline(self) -> Self {
+        self.attribute(TextAttribute::Underline, true)
+    }
+
+    pub(crate) fn reversed(self) -> Self {
+        self.attribute(TextAttribute::Reversed, true)
+    }
+
+    pub(crate) fn attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
+        self.attributes.set(attribute, enabled);
+        self
+    }
+
+    /// Applies the explicitly specified fields from `incoming`; it is the
+    /// more-specific patch and never clears unspecified fields.
+    pub(crate) fn overlay(&mut self, incoming: &Self) {
+        if incoming.foreground.is_some() {
+            self.foreground = incoming.foreground.clone();
+        }
+        if incoming.background.is_some() {
+            self.background = incoming.background.clone();
+        }
+        self.attributes.overlay(incoming.attributes);
+    }
 }
 
 /// FEATURE EXTENSION API. Styled text, represented without terminal types.
@@ -274,19 +326,20 @@ pub(crate) struct ContainerNode {
 
 /// FEATURE EXTENSION API. Common semantic decoration applied by the compiler
 /// around a View node.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Decoration {
     pub(crate) padding: Insets,
-    pub(crate) foreground: Option<ColorSpec>,
-    pub(crate) background: Option<ColorSpec>,
+    /// Paints the allocated physical surface, including transparent geometry.
+    pub(crate) surface_background: Option<ColorSpec>,
     pub(crate) border: Option<BorderSpec>,
-    pub(crate) attributes: TextAttributes,
+    /// Sparse text intent inherited by descendants and text spans.
+    pub(crate) text_style: StyleSpec,
 }
 
 impl Decoration {
     pub(crate) fn background(color: ColorSpec) -> Self {
         Self {
-            background: Some(color),
+            surface_background: Some(color),
             ..Self::default()
         }
     }
@@ -351,14 +404,54 @@ impl From<&str> for ThemeKey {
     }
 }
 
-/// FEATURE EXTENSION API. Backend-neutral text attributes.
+/// FEATURE EXTENSION API. Sparse text-attribute intent.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct TextAttributes {
-    pub(crate) bold: bool,
-    pub(crate) dim: bool,
-    pub(crate) italic: bool,
-    pub(crate) underline: bool,
-    pub(crate) reversed: bool,
+pub(crate) struct TextAttributeSpec {
+    pub(crate) bold: Option<bool>,
+    pub(crate) dim: Option<bool>,
+    pub(crate) italic: Option<bool>,
+    pub(crate) underline: Option<bool>,
+    pub(crate) reversed: Option<bool>,
+}
+
+impl TextAttributeSpec {
+    fn set(&mut self, attribute: TextAttribute, enabled: bool) {
+        match attribute {
+            TextAttribute::Bold => self.bold = Some(enabled),
+            TextAttribute::Dim => self.dim = Some(enabled),
+            TextAttribute::Italic => self.italic = Some(enabled),
+            TextAttribute::Underline => self.underline = Some(enabled),
+            TextAttribute::Reversed => self.reversed = Some(enabled),
+        }
+    }
+
+    fn overlay(&mut self, incoming: Self) {
+        if incoming.bold.is_some() {
+            self.bold = incoming.bold;
+        }
+        if incoming.dim.is_some() {
+            self.dim = incoming.dim;
+        }
+        if incoming.italic.is_some() {
+            self.italic = incoming.italic;
+        }
+        if incoming.underline.is_some() {
+            self.underline = incoming.underline;
+        }
+        if incoming.reversed.is_some() {
+            self.reversed = incoming.reversed;
+        }
+    }
+}
+
+/// FEATURE EXTENSION API. Semantic text-attribute selector.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TextAttribute {
+    Bold,
+    Dim,
+    Italic,
+    Underline,
+    Reversed,
 }
 
 /// FEATURE EXTENSION API. Generic border description.
@@ -481,6 +574,39 @@ pub(crate) trait TranscriptBlock: Debug {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sparse_style_overlay_preserves_unspecified_fields_and_allows_false() {
+        let mut existing = StyleSpec::new().foreground(ColorSpec::Ansi(1)).bold();
+        existing.overlay(&StyleSpec::new().italic());
+        assert_eq!(existing.foreground, Some(ColorSpec::Ansi(1)));
+        assert_eq!(existing.attributes.bold, Some(true));
+        assert_eq!(existing.attributes.italic, Some(true));
+
+        existing.overlay(&StyleSpec::new().attribute(TextAttribute::Bold, false));
+        assert_eq!(existing.attributes.bold, Some(false));
+    }
+
+    #[test]
+    fn view_style_merges_node_intent_without_rewriting_spans() {
+        let mut view = View::styled_text(vec![
+            TextSpan::plain("plain"),
+            TextSpan::styled("bold", StyleSpec::new().bold()),
+        ])
+        .style(StyleSpec::new().foreground(ColorSpec::Ansi(1)))
+        .style(StyleSpec::new().italic());
+
+        assert_eq!(
+            view.decoration.text_style.foreground,
+            Some(ColorSpec::Ansi(1))
+        );
+        assert_eq!(view.decoration.text_style.attributes.italic, Some(true));
+        let ViewKind::Text(text) = &mut view.kind else {
+            panic!("expected text view");
+        };
+        assert_eq!(text.spans[0].style, StyleSpec::default());
+        assert_eq!(text.spans[1].style.attributes.bold, Some(true));
+    }
 
     #[test]
     fn row_and_container_are_owned_data() {

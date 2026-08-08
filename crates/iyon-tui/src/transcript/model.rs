@@ -352,12 +352,11 @@ impl TuiFormatter {
     fn format_error_message(&self, text: &str, leading_spacer: bool) -> View {
         let body = View::text(text)
             .width(crate::presentation::WidthRule::Fill)
-            .style(crate::presentation::StyleSpec {
-                foreground: Some(crate::presentation::ColorSpec::Theme(
-                    crate::presentation::ThemeKey::from("text.error"),
+            .style(crate::presentation::StyleSpec::new().foreground(
+                crate::presentation::ColorSpec::Theme(crate::presentation::ThemeKey::from(
+                    "text.error",
                 )),
-                ..crate::presentation::StyleSpec::default()
-            });
+            ));
         if leading_spacer {
             View::column(vec![View::spacer(1), body], 0)
         } else {

@@ -1,6 +1,4 @@
-use crate::presentation::{
-    ColorSpec, RowChild, StyleSpec, TextAttributes, ThemeKey, View, WidthRule,
-};
+use crate::presentation::{ColorSpec, RowChild, StyleSpec, ThemeKey, View, WidthRule};
 
 pub(super) const TOOL_BODY_OFFSET: u16 = 2;
 use crate::transcript::ToolTimelineStatus;
@@ -85,9 +83,9 @@ pub(super) fn column(children: Vec<View>) -> View {
 }
 
 #[allow(dead_code)]
-pub(super) fn dim_attributes() -> TextAttributes {
-    TextAttributes {
-        dim: true,
-        ..TextAttributes::default()
+pub(super) fn dim_attributes() -> crate::presentation::api::TextAttributeSpec {
+    crate::presentation::api::TextAttributeSpec {
+        dim: Some(true),
+        ..Default::default()
     }
 }
