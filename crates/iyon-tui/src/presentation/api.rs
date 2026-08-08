@@ -451,6 +451,10 @@ pub(crate) trait Modal: Debug {
 pub(crate) trait ActiveContent: Debug {
     fn view(&self) -> View;
 
+    fn boundary(&self) -> FlowBoundary {
+        FlowBoundary::Default
+    }
+
     fn tick(&mut self, _now: Instant) -> bool {
         false
     }

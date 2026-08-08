@@ -10,7 +10,7 @@ use ratatui::{
 
 use crate::{
     input::{cursor_xy, wrapped_line_index_by_start},
-    runtime::active::{ActivePaneKind, ActivePaneState, ToolActiveStatus},
+    runtime::active::{ActivePaneState, ToolActiveStatus},
     theme,
     view::RunningView,
 };
@@ -37,6 +37,7 @@ impl View for InputView<'_> {}
 pub(crate) struct ConversationView<'a> {
     pub(crate) transcript_rows: &'a [Line<'static>],
     pub(crate) hosted_rows: &'a [Line<'static>],
+    pub(crate) transient_rows: &'a [Line<'static>],
 }
 
 impl ConversationView<'_> {
@@ -44,6 +45,7 @@ impl ConversationView<'_> {
         self.transcript_rows
             .len()
             .saturating_add(self.hosted_rows.len())
+            .saturating_add(self.transient_rows.len())
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -173,7 +175,7 @@ impl Renderable<ConversationView<'_>> for Renderer {
         let mut row = 0usize;
         let buffer = frame.buffer_mut();
 
-        for lines in [view.transcript_rows, view.hosted_rows] {
+        for lines in [view.transcript_rows, view.hosted_rows, view.transient_rows] {
             if skip >= lines.len() {
                 skip -= lines.len();
                 continue;
@@ -233,21 +235,15 @@ impl Renderable<ActiveChromeView<'_>> for Renderer {
 }
 
 fn active_chrome_lines(active: &ActivePaneState) -> Vec<Line<'static>> {
-    match active.kind() {
-        ActivePaneKind::WorkingSpinner => vec![
-            Line::from(""),
-            Line::from(format!("{} Working", active.spinner_frame())),
-            Line::from(""),
-        ],
-        ActivePaneKind::Tool => match active {
-            ActivePaneState::Tool {
-                tool_name,
-                status,
-                detail,
-            } => render_tool_active(tool_name, status, detail.as_deref()),
-            _ => vec![Line::from("")],
-        },
-        ActivePaneKind::SlashMenu | ActivePaneKind::FilePicker => vec![Line::from("")],
+    match active {
+        ActivePaneState::Tool {
+            tool_name,
+            status,
+            detail,
+        } => render_tool_active(tool_name, status, detail.as_deref()),
+        ActivePaneState::WorkingSpinner { .. }
+        | ActivePaneState::SlashMenu
+        | ActivePaneState::FilePicker => vec![Line::from("")],
     }
 }
 
