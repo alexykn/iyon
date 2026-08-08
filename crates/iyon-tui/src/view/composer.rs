@@ -67,7 +67,7 @@ impl RunningFrameComposer {
             area.width.max(1),
         );
         debug_assert!(
-            state.assistant_stream.as_ref().map_or(true, |hosted| {
+            state.streaming_ref().map_or(true, |hosted| {
                 state.transcript.hosted_unit_is_history_tail(hosted.unit_id)
             }),
             "hosted conversation rows must follow resident transcript rows"
@@ -164,7 +164,6 @@ impl RunningFrameComposer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::active::{ActivePaneState, ToolActiveStatus};
 
     #[test]
     fn ownership_handoff_preserves_conversation_geometry_and_rows() {
@@ -355,11 +354,11 @@ mod tests {
         state.append_timeline_item(crate::transcript::TimelineItem::UserMessage {
             text: "hello".to_string(),
         });
-        state.active = Some(ActivePaneState::Tool {
-            tool_name: "search".to_string(),
-            status: ToolActiveStatus::Running,
-            detail: None,
-        });
+        state.start_tool_call(
+            "tool-call".to_string(),
+            "search".to_string(),
+            serde_json::json!({}),
+        );
 
         let layout = RunningFrameComposer::prepare(
             &Renderer,

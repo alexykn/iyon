@@ -60,32 +60,26 @@ impl FrameCoordinator {
                 continue;
             }
 
-            let host_is_head = state
-                .assistant_stream
-                .as_ref()
-                .is_some_and(|hosted| state.transcript.hosted_unit_is_history_head(hosted.unit_id));
-            if !host_is_head {
+            let Some(unit_id) = state.streaming_ref().map(|hosted| hosted.unit_id) else {
+                break;
+            };
+            if !state.transcript.hosted_unit_is_history_head(unit_id) {
                 break;
             }
 
             state.prepare_assistant_frame(root.width.max(1), overflow);
-            let prepared = state.assistant_frame.take();
+            let prepared = state.take_assistant_frame();
             let Some(prepared) = prepared else {
                 break;
             };
             if prepared.history.rows.is_empty() {
                 break;
             }
-            if let Some(hosted) = state.assistant_stream.as_mut() {
-                if !state.transcript.hosted_unit_is_history_head(hosted.unit_id) {
-                    break;
-                }
-                debug_assert!(
-                    state.transcript.hosted_unit_is_history_head(hosted.unit_id),
-                    "HostedStream attempted to leapfrog an earlier transcript unit"
-                );
-                scrollback.commit_stream_frame(terminal, hosted, prepared)?;
-            }
+            let Some(hosted) = state.streaming_mut() else {
+                break;
+            };
+            debug_assert_eq!(hosted.unit_id, unit_id);
+            scrollback.commit_stream_frame(terminal, hosted, prepared)?;
             root = terminal.current_viewport_area()?;
             root = self.finalize_sealed_host(terminal, state, scrollback, root)?;
         }
@@ -113,7 +107,7 @@ impl FrameCoordinator {
                 | FinalizeResult::HandedOff
                 | FinalizeResult::FullyNative => return Ok(root),
                 FinalizeResult::NeedsPinnedDrain => {
-                    let Some(hosted) = state.assistant_stream.as_ref() else {
+                    let Some(hosted) = state.streaming_ref() else {
                         return Ok(root);
                     };
                     let unit_id = hosted.unit_id;
@@ -131,21 +125,15 @@ impl FrameCoordinator {
                         "pinned HostedStream rows require the global history head"
                     );
                     state.prepare_assistant_frame(root.width.max(1), blocking_rows);
-                    let prepared = state.assistant_frame.take().ok_or_else(|| {
+                    let prepared = state.take_assistant_frame().ok_or_else(|| {
                         anyhow::anyhow!("sealed HostedStream produced no pinned drain frame")
                     })?;
-                    let Some(hosted) = state.assistant_stream.as_mut() else {
+                    let Some(hosted) = state.streaming_mut() else {
                         return Err(anyhow::anyhow!(
                             "HostedStream disappeared during pinned drain"
                         ));
                     };
-                    if !state.transcript.hosted_unit_is_history_head(hosted.unit_id) {
-                        return Ok(root);
-                    }
-                    debug_assert!(
-                        state.transcript.hosted_unit_is_history_head(hosted.unit_id),
-                        "pinned HostedStream rows require the global history head"
-                    );
+                    debug_assert_eq!(hosted.unit_id, unit_id);
                     scrollback.commit_stream_frame(terminal, hosted, prepared)?;
                     root = terminal.current_viewport_area()?;
                 }

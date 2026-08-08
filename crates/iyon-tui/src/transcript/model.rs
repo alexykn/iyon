@@ -167,6 +167,12 @@ pub(crate) struct ResidentStreamTail {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PresentationOverride {
+    Hosted,
+    Resident(ResidentStreamTail),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PresentationOwnership {
     Transcript,
     Hosted,
@@ -462,8 +468,7 @@ pub(crate) struct TranscriptState {
     commit_state: TranscriptCommitState,
     formatter: TuiFormatter,
     assistant_stream_open: bool,
-    ownership: HashMap<TranscriptUnitId, PresentationOwnership>,
-    resident_streams: HashMap<TranscriptId, ResidentStreamTail>,
+    overrides: HashMap<TranscriptUnitId, PresentationOverride>,
 }
 
 impl Default for TranscriptState {
@@ -477,13 +482,16 @@ impl Default for TranscriptState {
             commit_state: TranscriptCommitState::default(),
             formatter: TuiFormatter::default(),
             assistant_stream_open: false,
-            ownership: HashMap::new(),
-            resident_streams: HashMap::new(),
+            overrides: HashMap::new(),
         }
     }
 }
 
 impl TranscriptState {
+    pub(crate) fn has_conversation_content(&self) -> bool {
+        !self.presentation_cache.is_empty()
+    }
+
     pub(crate) fn push_item(&mut self, item: TimelineItem) {
         self.assistant_stream_open = false;
         // If a user message extends a trailing user run, the merged batch must not
@@ -538,8 +546,8 @@ impl TranscriptState {
         });
         self.entry_ids.push(id);
         assert!(
-            self.ownership
-                .insert(id, PresentationOwnership::Hosted)
+            self.overrides
+                .insert(id, PresentationOverride::Hosted)
                 .is_none(),
             "a hosted transcript unit cannot be registered twice"
         );
@@ -760,8 +768,8 @@ impl TranscriptState {
         self.assistant_stream_open = false;
         assert!(
             matches!(
-                self.ownership.get(&unit_id),
-                Some(PresentationOwnership::Hosted)
+                self.overrides.get(&unit_id),
+                Some(PresentationOverride::Hosted)
             ),
             "only a hosted unit can be sealed"
         );
@@ -779,8 +787,8 @@ impl TranscriptState {
         };
 
         matches!(
-            self.ownership.get(&unit_id),
-            Some(PresentationOwnership::Hosted)
+            self.overrides.get(&unit_id),
+            Some(PresentationOverride::Hosted)
         ) && index == self.commit_state.completed_prefix
             && self.commit_state.partial.is_none()
     }
@@ -789,8 +797,8 @@ impl TranscriptState {
         self.presentation_cache.last().is_some_and(|unit| {
             unit.id == unit_id
                 && matches!(
-                    self.ownership.get(&unit_id),
-                    Some(PresentationOwnership::Hosted)
+                    self.overrides.get(&unit_id),
+                    Some(PresentationOverride::Hosted)
                 )
         })
     }
@@ -837,17 +845,15 @@ impl TranscriptState {
                 FlowBoundary::AttachToPrevious
             }
         };
-        self.resident_streams.insert(
+        self.overrides.insert(
             handoff.unit_id,
-            ResidentStreamTail {
+            PresentationOverride::Resident(ResidentStreamTail {
                 source_base: handoff.source_base,
                 source_end: handoff.source_end,
                 view: handoff.view,
                 boundary,
-            },
+            }),
         );
-        self.ownership
-            .insert(handoff.unit_id, PresentationOwnership::ResidentStream);
         self.rebuild_presentation_cache();
         self.invalidate_render_cache();
     }
@@ -860,8 +866,8 @@ impl TranscriptState {
             .expect("hosted stream unit must exist before retirement");
         assert!(
             matches!(
-                self.ownership.get(&unit_id),
-                Some(PresentationOwnership::Hosted)
+                self.overrides.get(&unit_id),
+                Some(PresentationOverride::Hosted)
             ),
             "stream unit must be hosted before native retirement"
         );
@@ -878,8 +884,7 @@ impl TranscriptState {
             "hosted unit cannot retire while an earlier unit is partial"
         );
 
-        self.ownership
-            .insert(unit_id, PresentationOwnership::NativeHistory);
+        self.overrides.remove(&unit_id);
         self.commit_state.completed_prefix = unit_index.saturating_add(1);
         self.rebuild_presentation_cache();
         self.invalidate_render_cache();
@@ -950,11 +955,15 @@ impl TranscriptState {
         self.rebuild_presentation_cache();
     }
 
-    fn ownership_for(&self, unit_id: TranscriptUnitId) -> PresentationOwnership {
-        self.ownership
-            .get(&unit_id)
-            .cloned()
-            .unwrap_or(PresentationOwnership::Transcript)
+    fn ownership_for(&self, unit_id: TranscriptUnitId, unit_index: usize) -> PresentationOwnership {
+        if unit_index < self.commit_state.completed_prefix {
+            return PresentationOwnership::NativeHistory;
+        }
+        match self.overrides.get(&unit_id) {
+            Some(PresentationOverride::Hosted) => PresentationOwnership::Hosted,
+            Some(PresentationOverride::Resident(_)) => PresentationOwnership::ResidentStream,
+            None => PresentationOwnership::Transcript,
+        }
     }
 
     fn rebuild_presentation_cache(&mut self) {
@@ -1011,7 +1020,7 @@ impl TranscriptState {
             let item = &self.canonical_items[index];
             let is_open = open_assistant_idx == Some(index);
             let source_id = self.entry_ids[index];
-            let ownership = self.ownership_for(source_id);
+            let ownership = self.ownership_for(source_id, index);
             let source_backed_started = self.has_source_backed_partial(source_id);
             let presentation = match &ownership {
                 PresentationOwnership::ResidentStream => TranscriptPresentation::ResidentStream,
@@ -1086,13 +1095,8 @@ impl TranscriptState {
                     entry_commit_mode(item, open_assistant_idx == Some(index))
                 }
             };
-            let boundary = match &ownership {
-                PresentationOwnership::ResidentStream => {
-                    self.resident_streams
-                        .get(&source_id)
-                        .expect("resident stream presentation must exist")
-                        .boundary
-                }
+            let boundary = match self.overrides.get(&source_id) {
+                Some(PresentationOverride::Resident(tail)) => tail.boundary,
                 _ => boundary,
             };
             self.presentation_cache.push(TranscriptUnit {
@@ -1209,10 +1213,10 @@ impl TranscriptState {
                     previous_legacy_range = Some(ranges.len());
                 }
                 TranscriptPresentation::ResidentStream => {
-                    let tail = self
-                        .resident_streams
-                        .get(&unit.id)
-                        .expect("resident stream presentation must exist");
+                    let Some(PresentationOverride::Resident(tail)) = self.overrides.get(&unit.id)
+                    else {
+                        panic!("resident stream presentation must exist");
+                    };
                     let block = compile_view(&tail.view, width);
                     let physically_complete = block.physically_complete;
                     rows.extend(block.rows);
@@ -1407,12 +1411,10 @@ impl TranscriptState {
                     continue;
                 }
                 if matches!(
-                    self.ownership.get(&range.id),
-                    Some(PresentationOwnership::ResidentStream)
+                    self.overrides.get(&range.id),
+                    Some(PresentationOverride::Resident(_))
                 ) {
-                    self.ownership
-                        .insert(range.id, PresentationOwnership::NativeHistory);
-                    self.resident_streams.remove(&range.id);
+                    self.overrides.remove(&range.id);
                 }
                 self.commit_state.completed_prefix = range.unit_index.saturating_add(1);
                 self.commit_state.partial = None;
@@ -1856,10 +1858,7 @@ mod tests {
 
         let resident_rows = transcript.uncommitted_len();
         transcript.mark_rows_committed(resident_rows);
-        assert!(matches!(
-            transcript.ownership.get(&registration.id),
-            Some(PresentationOwnership::NativeHistory)
-        ));
+        assert!(!transcript.overrides.contains_key(&registration.id));
         assert_eq!(transcript.commit_state.completed_prefix, 1);
     }
 

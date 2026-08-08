@@ -8,7 +8,7 @@ use crate::{
         ActiveContent, FlowBoundary, HostedStream, PreparedStreamFrame, internal::compile_view,
     },
     runtime::{
-        active::{ActivePaneState, ToolActiveStatus},
+        active::{ActiveTurnContent, ToolActiveStatus},
         backend::ToolUpdatePresentation,
         panel::{BottomPanelBar, PanelHandle, SteeringQueuePanel},
     },
@@ -33,13 +33,61 @@ pub(crate) struct PreparedActiveContent {
 }
 
 #[derive(Debug)]
+pub(crate) struct HostedActiveContent {
+    pub(crate) content: ActiveTurnContent,
+    pub(crate) leading_gap: bool,
+    pub(crate) frame: Option<PreparedActiveContent>,
+}
+
+#[derive(Debug)]
+pub(crate) enum LiveTail {
+    Empty,
+    Active(HostedActiveContent),
+    Streaming {
+        hosted: HostedStream<AssistantStream>,
+        frame: Option<PreparedStreamFrame>,
+    },
+}
+
+impl LiveTail {
+    pub(crate) fn active(&self) -> Option<&ActiveTurnContent> {
+        match self {
+            Self::Active(active) => Some(&active.content),
+            Self::Empty | Self::Streaming { .. } => None,
+        }
+    }
+
+    pub(crate) fn active_mut(&mut self) -> Option<&mut ActiveTurnContent> {
+        match self {
+            Self::Active(active) => Some(&mut active.content),
+            Self::Empty | Self::Streaming { .. } => None,
+        }
+    }
+
+    pub(crate) fn streaming_ref(&self) -> Option<&HostedStream<AssistantStream>> {
+        match self {
+            Self::Streaming { hosted, .. } => Some(hosted),
+            Self::Empty | Self::Active(_) => None,
+        }
+    }
+
+    pub(crate) fn streaming_mut(&mut self) -> Option<&mut HostedStream<AssistantStream>> {
+        match self {
+            Self::Streaming { hosted, .. } => Some(hosted),
+            Self::Empty | Self::Active(_) => None,
+        }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        matches!(self, Self::Empty)
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct AppState {
     pub(crate) input: InputBuffer,
     pub(crate) transcript: TranscriptState,
-    pub(crate) active: Option<ActivePaneState>,
-    pub(crate) assistant_stream: Option<HostedStream<AssistantStream>>,
-    pub(crate) assistant_frame: Option<PreparedStreamFrame>,
-    pub(crate) active_frame: Option<PreparedActiveContent>,
+    pub(crate) live_tail: LiveTail,
     pub(crate) pending_tool_approval: Option<PendingToolApproval>,
     deferred_conversation: VecDeque<DeferredConversationAction>,
     replaying_deferred: bool,
@@ -61,10 +109,7 @@ impl Default for AppState {
         Self {
             input: InputBuffer::default(),
             transcript: TranscriptState::default(),
-            active: None,
-            assistant_stream: None,
-            assistant_frame: None,
-            active_frame: None,
+            live_tail: LiveTail::Empty,
             pending_tool_approval: None,
             deferred_conversation: VecDeque::new(),
             replaying_deferred: false,
@@ -82,35 +127,76 @@ impl AppState {
         self.transcript.push_item(item);
     }
 
+    pub(crate) fn active(&self) -> Option<&ActiveTurnContent> {
+        self.live_tail.active()
+    }
+
+    pub(crate) fn active_mut(&mut self) -> Option<&mut ActiveTurnContent> {
+        self.live_tail.active_mut()
+    }
+
+    pub(crate) fn streaming_ref(&self) -> Option<&HostedStream<AssistantStream>> {
+        self.live_tail.streaming_ref()
+    }
+
+    pub(crate) fn streaming_mut(&mut self) -> Option<&mut HostedStream<AssistantStream>> {
+        self.live_tail.streaming_mut()
+    }
+
     pub(crate) fn prepare_assistant_frame(&mut self, width: u16, desired_commit_rows: usize) {
-        self.assistant_frame = self
-            .assistant_stream
-            .as_mut()
-            .map(|hosted| hosted.prepare_frame(width, desired_commit_rows));
+        if let LiveTail::Streaming { hosted, frame } = &mut self.live_tail {
+            *frame = Some(hosted.prepare_frame(width, desired_commit_rows));
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn assistant_frame_ref(&self) -> Option<&PreparedStreamFrame> {
+        match &self.live_tail {
+            LiveTail::Streaming {
+                frame: Some(frame), ..
+            } => Some(frame),
+            LiveTail::Empty | LiveTail::Active(_) | LiveTail::Streaming { frame: None, .. } => None,
+        }
+    }
+
+    pub(crate) fn take_assistant_frame(&mut self) -> Option<PreparedStreamFrame> {
+        match &mut self.live_tail {
+            LiveTail::Streaming { frame, .. } => frame.take(),
+            LiveTail::Empty | LiveTail::Active(_) => None,
+        }
     }
 
     pub(crate) fn assistant_live_rows(&self) -> &[Line<'static>] {
-        self.assistant_frame
-            .as_ref()
-            .map_or(&[], |frame| frame.live_rows.as_slice())
+        match &self.live_tail {
+            LiveTail::Streaming {
+                frame: Some(frame), ..
+            } => frame.live_rows.as_slice(),
+            LiveTail::Empty | LiveTail::Active(_) | LiveTail::Streaming { frame: None, .. } => &[],
+        }
     }
 
     pub(crate) fn active_live_rows(&self) -> &[Line<'static>] {
-        self.active_frame
-            .as_ref()
-            .map_or(&[], |frame| frame.rows.as_slice())
+        match &self.live_tail {
+            LiveTail::Active(HostedActiveContent {
+                frame: Some(frame), ..
+            }) => frame.rows.as_slice(),
+            LiveTail::Empty | LiveTail::Streaming { .. } | LiveTail::Active(_) => &[],
+        }
     }
 
     pub(crate) fn prepare_active_frame(&mut self, width: u16) {
-        self.active_frame = self.active.as_ref().map(|active| {
-            let mut rows = compile_view(&active.view(), width.max(1)).rows;
-            let has_previous_conversation =
-                self.transcript.uncommitted_len() > 0 || !self.assistant_live_rows().is_empty();
-            if has_previous_conversation && active.boundary() == FlowBoundary::Default {
+        if let LiveTail::Active(HostedActiveContent {
+            content,
+            leading_gap,
+            frame,
+        }) = &mut self.live_tail
+        {
+            let mut rows = compile_view(&content.view(), width.max(1)).rows;
+            if *leading_gap {
                 rows.insert(0, Line::default());
             }
-            PreparedActiveContent { rows }
-        });
+            *frame = Some(PreparedActiveContent { rows });
+        }
     }
 
     pub(crate) fn conversation_row_count(&self) -> usize {
@@ -121,7 +207,7 @@ impl AppState {
     }
 
     pub(crate) fn seal_assistant_stream(&mut self) {
-        let Some(hosted) = self.assistant_stream.as_mut() else {
+        let LiveTail::Streaming { hosted, .. } = &mut self.live_tail else {
             return;
         };
         if hosted.is_sealed() {
@@ -136,7 +222,7 @@ impl AppState {
     }
 
     pub(crate) fn finalize_sealed_assistant_stream(&mut self) -> FinalizeResult {
-        let Some(hosted) = self.assistant_stream.as_ref() else {
+        let Some(hosted) = self.streaming_ref() else {
             return FinalizeResult::Nothing;
         };
         if !hosted.is_sealed() {
@@ -147,9 +233,12 @@ impl AppState {
         }
 
         let unit_id = hosted.unit_id;
-        let hosted = self.assistant_stream.take().expect("host checked above");
+        let LiveTail::Streaming { hosted, .. } =
+            std::mem::replace(&mut self.live_tail, LiveTail::Empty)
+        else {
+            unreachable!("streaming tail disappeared during finalization")
+        };
         let handoff = hosted.into_resident_handoff();
-        self.assistant_frame = None;
 
         let fully_native = handoff.source_base == handoff.source_end
             && handoff.leading_boundary != crate::presentation::LeadingBoundaryState::Pending;
@@ -166,6 +255,33 @@ impl AppState {
         self.transcript.adopt_resident_stream(handoff);
         self.replay_deferred_conversation();
         FinalizeResult::HandedOff
+    }
+
+    fn attach_active_content(&mut self, content: ActiveTurnContent) {
+        match &mut self.live_tail {
+            LiveTail::Empty => {
+                let leading_gap = content.boundary() == FlowBoundary::Default
+                    && self.transcript.has_conversation_content();
+                self.live_tail = LiveTail::Active(HostedActiveContent {
+                    content,
+                    leading_gap,
+                    frame: None,
+                });
+            }
+            LiveTail::Active(active) => {
+                active.content = content;
+                active.frame = None;
+            }
+            LiveTail::Streaming { .. } => {
+                debug_assert!(false, "active content cannot replace a streaming tail");
+            }
+        }
+    }
+
+    fn clear_active_content(&mut self) {
+        if matches!(self.live_tail, LiveTail::Active(_)) {
+            self.live_tail = LiveTail::Empty;
+        }
     }
 
     pub(crate) fn start_tool_call(
@@ -188,7 +304,7 @@ impl AppState {
             arguments,
             ToolTimelineStatus::Running,
         );
-        self.active = Some(ActivePaneState::Tool {
+        self.attach_active_content(ActiveTurnContent::Tool {
             tool_name,
             status: ToolActiveStatus::Running,
             detail: None,
@@ -222,7 +338,7 @@ impl AppState {
             tool_call_id,
             tool_name: tool_name.clone(),
         });
-        self.active = Some(ActivePaneState::Tool {
+        self.attach_active_content(ActiveTurnContent::Tool {
             tool_name,
             status: ToolActiveStatus::WaitingForApproval { approval_id },
             detail: Some(arguments_preview),
@@ -272,7 +388,7 @@ impl AppState {
             return;
         }
         let detail = format_tool_update(update);
-        self.active = Some(ActivePaneState::Tool {
+        self.attach_active_content(ActiveTurnContent::Tool {
             tool_name,
             status: ToolActiveStatus::Running,
             detail,
@@ -291,7 +407,7 @@ impl AppState {
         // input. Drop the redundant "tool x: finished/failed" banner from the active
         // pane instead of echoing it (failed results are signalled by transcript
         // styling, not a separate banner).
-        self.active = None;
+        self.clear_active_content();
     }
 
     pub(crate) fn push_tool_result(
@@ -357,8 +473,8 @@ impl AppState {
         if self.defer_conversation(DeferredConversationAction::StartWorking) {
             return;
         }
-        if self.active.is_none() {
-            self.active = Some(ActivePaneState::working_spinner());
+        if self.live_tail.is_empty() {
+            self.attach_active_content(ActiveTurnContent::working_spinner());
         }
     }
 
@@ -374,43 +490,41 @@ impl AppState {
         if self.defer_conversation(DeferredConversationAction::StreamSegments(chunks.clone())) {
             return;
         }
-        if self
-            .assistant_stream
-            .as_ref()
-            .is_some_and(HostedStream::is_sealed)
-        {
+        if self.streaming_ref().is_some_and(HostedStream::is_sealed) {
             self.deferred_conversation
                 .push_back(DeferredConversationAction::StreamSegments(chunks));
             return;
         }
 
-        if self.assistant_stream.is_none() {
-            let HostedUnitRegistration {
-                id,
-                leading_boundary,
-            } = self.transcript.begin_hosted_assistant_unit();
-            self.assistant_stream = Some(HostedStream::new(
-                id,
-                AssistantStream::new(),
-                leading_boundary,
-            ));
+        if let Some(hosted) = self.streaming_mut() {
+            for (kind, text) in chunks {
+                hosted.content_mut().push_delta(kind, &text);
+            }
+            return;
         }
 
-        // A first presented delta atomically replaces the active-turn capability
-        // with the hosted stream before the next frame is prepared.
-        self.active = None;
-        self.active_frame = None;
-        let hosted = self
-            .assistant_stream
-            .as_mut()
-            .expect("assistant stream was created above");
+        let HostedUnitRegistration {
+            id,
+            leading_boundary,
+        } = self.transcript.begin_hosted_assistant_unit();
+        let mut hosted = HostedStream::new(id, AssistantStream::new(), leading_boundary);
         for (kind, text) in chunks {
             hosted.content_mut().push_delta(kind, &text);
         }
+        // A first presented delta atomically replaces the active-turn capability
+        // with the hosted stream before the next frame is prepared.
+        self.live_tail = LiveTail::Streaming {
+            hosted,
+            frame: None,
+        };
     }
 
     pub(crate) fn finish_active_turn(&mut self) {
         if self.defer_conversation(DeferredConversationAction::FinishActiveTurn) {
+            return;
+        }
+        if matches!(self.live_tail, LiveTail::Active(_)) {
+            self.live_tail = LiveTail::Empty;
             return;
         }
         self.seal_assistant_stream();
@@ -427,15 +541,12 @@ impl AppState {
     }
 
     fn conversation_barrier_active(&self) -> bool {
-        self.assistant_stream
-            .as_ref()
-            .is_some_and(HostedStream::is_sealed)
+        self.streaming_ref().is_some_and(HostedStream::is_sealed)
     }
 
     fn defer_after_current_stream(&mut self, action: DeferredConversationAction) -> bool {
         if self
-            .assistant_stream
-            .as_ref()
+            .streaming_ref()
             .is_some_and(|hosted| !hosted.is_sealed())
         {
             self.seal_assistant_stream();
@@ -651,18 +762,72 @@ mod tests {
     }
 
     #[test]
+    fn streaming_tail_cannot_resurrect_working_content() {
+        let mut state = AppState::default();
+        state.append_timeline_item(TimelineItem::UserMessage {
+            text: "hello".to_string(),
+        });
+        state.start_working_pane();
+        assert!(matches!(state.live_tail, LiveTail::Active(_)));
+
+        state.receive_stream_segments(vec![(SegmentKind::Text, "first".to_string())]);
+        assert!(matches!(state.live_tail, LiveTail::Streaming { .. }));
+
+        state.start_working_pane();
+        assert!(matches!(state.live_tail, LiveTail::Streaming { .. }));
+        assert!(state.active().is_none());
+    }
+
+    #[test]
+    fn active_flow_boundary_survives_predecessor_promotion() {
+        let mut state = AppState::default();
+        state.append_timeline_item(TimelineItem::UserMessage {
+            text: "hello".to_string(),
+        });
+        state.start_working_pane();
+        state.prepare_active_frame(80);
+        let before = state.active_live_rows().to_vec();
+
+        let predecessor_rows = state.transcript.committable_len();
+        state.transcript.mark_rows_committed(predecessor_rows);
+        state.prepare_active_frame(80);
+
+        assert_eq!(before, state.active_live_rows());
+        assert_eq!(before, vec![Line::default(), Line::from("⠋ Working")]);
+    }
+
+    #[test]
+    fn active_only_turn_termination_clears_the_live_tail() {
+        let mut finished = AppState::default();
+        finished.start_working_pane();
+        finished.finish_active_turn();
+        assert!(finished.live_tail.is_empty());
+
+        let mut cancelled = AppState::default();
+        cancelled.start_working_pane();
+        cancelled.finish_active_turn();
+        assert!(cancelled.live_tail.is_empty());
+
+        let mut failed = AppState::default();
+        failed.start_working_pane();
+        failed.fail_active_turn("failed".to_string());
+        assert!(failed.live_tail.is_empty());
+        assert!(failed.streaming_ref().is_none());
+    }
+
+    #[test]
     fn hosted_stream_is_the_only_assistant_content_store() {
         let mut state = AppState::default();
         state.receive_stream_segments(vec![(SegmentKind::Text, "assistant text".to_string())]);
 
-        let hosted = state.assistant_stream.as_ref().expect("host created");
+        let hosted = state.streaming_ref().expect("host created");
         assert_eq!(
             hosted.content().segments(),
             &[crate::transcript::model::AssistantSegment::Text(
                 "assistant text".to_string()
             )]
         );
-        assert!(state.active.is_none());
+        assert!(state.active().is_none());
     }
 
     #[test]
@@ -693,10 +858,9 @@ mod tests {
         });
         state.receive_stream_segments(vec![(SegmentKind::Text, "a\nb\nc".to_string())]);
         state.prepare_assistant_frame(80, 2);
-        let prepared = state.assistant_frame.take().expect("first host frame");
+        let prepared = state.take_assistant_frame().expect("first host frame");
         state
-            .assistant_stream
-            .as_mut()
+            .streaming_mut()
             .expect("host")
             .apply_commit_success(prepared.history);
         state.prepare_assistant_frame(80, 0);
@@ -720,7 +884,7 @@ mod tests {
         });
         state.receive_stream_segments(vec![(SegmentKind::Text, "assistant".to_string())]);
 
-        let hosted = state.assistant_stream.as_ref().expect("host created");
+        let hosted = state.streaming_ref().expect("host created");
         assert_eq!(
             hosted.leading_boundary,
             crate::presentation::LeadingBoundaryState::Pending
@@ -744,31 +908,25 @@ mod tests {
     fn sealed_host_defers_new_stream_until_handoff() {
         let mut state = AppState::default();
         state.receive_stream_segments(vec![(SegmentKind::Text, "assistant A".to_string())]);
-        let first_id = state.assistant_stream.as_ref().expect("host A").unit_id;
+        let first_id = state.streaming_ref().expect("host A").unit_id;
         state.finish_active_turn();
-        let first_end = state
-            .assistant_stream
-            .as_mut()
-            .expect("host A")
-            .snapshot()
-            .source_end;
+        let first_end = state.streaming_mut().expect("host A").snapshot().source_end;
 
         state.receive_stream_segments(vec![(SegmentKind::Text, "assistant B".to_string())]);
-        let host = state.assistant_stream.as_mut().expect("host A retained");
+        let host = state.streaming_mut().expect("host A retained");
         assert_eq!(host.unit_id, first_id);
         assert_eq!(host.snapshot().source_end, first_end);
         assert_eq!(state.deferred_conversation.len(), 1);
 
         state.prepare_assistant_frame(80, 10);
-        let prepared = state.assistant_frame.take().expect("host A frame");
+        let prepared = state.take_assistant_frame().expect("host A frame");
         state
-            .assistant_stream
-            .as_mut()
+            .streaming_mut()
             .expect("host A retained")
             .apply_commit_success(prepared.history);
         state.finalize_sealed_assistant_stream();
 
-        let host_b = state.assistant_stream.as_ref().expect("host B replayed");
+        let host_b = state.streaming_ref().expect("host B replayed");
         assert_ne!(host_b.unit_id, first_id);
         assert_eq!(
             host_b.content().segments(),
@@ -811,7 +969,7 @@ mod tests {
             state.finalize_sealed_assistant_stream(),
             super::FinalizeResult::HandedOff
         );
-        assert!(state.assistant_stream.is_none());
+        assert!(state.streaming_ref().is_none());
         state.transcript.ensure_render_cache(80);
         assert_eq!(
             state.transcript.uncommitted_rows().len(),
@@ -843,10 +1001,9 @@ mod tests {
         );
 
         state.prepare_assistant_frame(80, 100);
-        let prepared = state.assistant_frame.take().expect("first frame");
+        let prepared = state.take_assistant_frame().expect("first frame");
         state
-            .assistant_stream
-            .as_mut()
+            .streaming_mut()
             .expect("first host")
             .apply_commit_success(prepared.history);
         state.finalize_sealed_assistant_stream();
@@ -864,13 +1021,12 @@ mod tests {
         state.prepare_assistant_frame(6, 1);
 
         let before_rows = state
-            .assistant_frame
-            .as_ref()
+            .assistant_frame_ref()
             .expect("prepared frame")
             .live_rows
             .clone();
         let (before_committed, before_source_base, before_partial) = {
-            let hosted = state.assistant_stream.as_mut().expect("host created");
+            let hosted = state.streaming_mut().expect("host created");
             let snapshot = hosted.snapshot();
             (
                 hosted.committed_through,
@@ -882,13 +1038,12 @@ mod tests {
         // Simulate terminal failure by not applying the prepared plan.
         state.prepare_assistant_frame(6, 0);
         let after_rows = state
-            .assistant_frame
-            .as_ref()
+            .assistant_frame_ref()
             .expect("reprepared frame")
             .live_rows
             .clone();
         let (after_committed, after_source_base, after_partial) = {
-            let hosted = state.assistant_stream.as_mut().expect("host created");
+            let hosted = state.streaming_mut().expect("host created");
             let snapshot = hosted.snapshot();
             (
                 hosted.committed_through,
@@ -908,19 +1063,14 @@ mod tests {
         let mut state = AppState::default();
         state.receive_stream_segments(vec![(SegmentKind::Text, "hello **bo".to_string())]);
         state.prepare_assistant_frame(6, 1);
-        let prepared = state.assistant_frame.take().expect("prepared frame");
+        let prepared = state.take_assistant_frame().expect("prepared frame");
         state
-            .assistant_stream
-            .as_mut()
+            .streaming_mut()
             .expect("host created")
             .apply_commit_success(prepared.history);
 
         state.prepare_assistant_frame(80, 0);
-        let snapshot = state
-            .assistant_stream
-            .as_mut()
-            .expect("host created")
-            .snapshot();
+        let snapshot = state.streaming_mut().expect("host created").snapshot();
         assert_eq!(
             snapshot.source_base,
             crate::presentation::StreamOffset::new(6)
@@ -934,11 +1084,7 @@ mod tests {
         );
 
         state.receive_stream_segments(vec![(SegmentKind::Text, "ld**".to_string())]);
-        let snapshot = state
-            .assistant_stream
-            .as_mut()
-            .expect("host created")
-            .snapshot();
+        let snapshot = state.streaming_mut().expect("host created").snapshot();
         assert_eq!(
             snapshot.view.nodes[0].owned_range(),
             crate::presentation::StreamRange::new(
@@ -954,37 +1100,31 @@ mod tests {
         state.receive_stream_segments(vec![(SegmentKind::Text, "hello".to_string())]);
         state.finish_active_turn();
 
-        let hosted = state.assistant_stream.as_ref().expect("host retained");
+        let hosted = state.streaming_ref().expect("host retained");
         assert!(hosted.is_sealed());
         assert!(hosted.can_handoff());
 
         state.prepare_assistant_frame(80, 10);
-        let prepared = state.assistant_frame.take().expect("prepared frame");
+        let prepared = state.take_assistant_frame().expect("prepared frame");
         state
-            .assistant_stream
-            .as_mut()
+            .streaming_mut()
             .expect("host retained")
             .apply_commit_success(prepared.history);
-        assert!(state.assistant_stream.as_ref().unwrap().can_handoff());
+        assert!(state.streaming_ref().unwrap().can_handoff());
         state.finalize_sealed_assistant_stream();
-        assert!(state.assistant_stream.is_none());
+        assert!(state.streaming_ref().is_none());
     }
 
     #[test]
     fn resident_stream_preserves_birth_unit_id() {
         let mut state = AppState::default();
         state.receive_stream_segments(vec![(SegmentKind::Text, "hello".to_string())]);
-        let id = state
-            .assistant_stream
-            .as_ref()
-            .expect("host created")
-            .unit_id;
+        let id = state.streaming_ref().expect("host created").unit_id;
         state.finish_active_turn();
         state.prepare_assistant_frame(80, 10);
-        let prepared = state.assistant_frame.take().expect("prepared frame");
+        let prepared = state.take_assistant_frame().expect("prepared frame");
         state
-            .assistant_stream
-            .as_mut()
+            .streaming_mut()
             .expect("host retained")
             .apply_commit_success(prepared.history);
         state.finalize_sealed_assistant_stream();
@@ -1009,19 +1149,17 @@ mod tests {
         assert!(matches!(items[0], TimelineItem::AssistantMessage { .. }));
         assert!(
             state
-                .assistant_stream
-                .as_ref()
+                .streaming_ref()
                 .is_some_and(|hosted| hosted.is_sealed())
         );
         // The user and fresh spinner are deferred until the sealed assistant tail
         // has become an immutable resident transcript unit.
-        assert!(state.active.is_none());
+        assert!(state.active().is_none());
 
         state.prepare_assistant_frame(80, 10);
-        let prepared = state.assistant_frame.take().expect("prepared frame");
+        let prepared = state.take_assistant_frame().expect("prepared frame");
         state
-            .assistant_stream
-            .as_mut()
+            .streaming_mut()
             .expect("sealed host")
             .apply_commit_success(prepared.history);
         state.finalize_sealed_assistant_stream();
@@ -1030,8 +1168,8 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert!(matches!(items[1], TimelineItem::UserMessage { .. }));
         assert!(matches!(
-            state.active,
-            Some(ActivePaneState::WorkingSpinner { .. })
+            state.active(),
+            Some(ActiveTurnContent::WorkingSpinner { .. })
         ));
     }
 
