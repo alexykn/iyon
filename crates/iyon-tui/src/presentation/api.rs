@@ -13,6 +13,7 @@ use std::{any::Any, fmt::Debug, time::Instant};
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct View {
     pub(crate) width: WidthRule,
+    pub(crate) decoration: Decoration,
     pub(crate) kind: ViewKind,
 }
 
@@ -20,6 +21,7 @@ impl View {
     pub(crate) fn text(text: impl Into<String>) -> Self {
         Self {
             width: WidthRule::Fit,
+            decoration: Decoration::default(),
             kind: ViewKind::Text(TextView::plain(text)),
         }
     }
@@ -27,6 +29,7 @@ impl View {
     pub(crate) fn styled_text(spans: Vec<TextSpan>) -> Self {
         Self {
             width: WidthRule::Fit,
+            decoration: Decoration::default(),
             kind: ViewKind::Text(TextView {
                 spans,
                 wrap: WrapMode::WordThenGrapheme,
@@ -38,6 +41,7 @@ impl View {
     pub(crate) fn column(children: Vec<View>, gap: u16) -> Self {
         Self {
             width: WidthRule::Fit,
+            decoration: Decoration::default(),
             kind: ViewKind::Column(ColumnView { children, gap }),
         }
     }
@@ -45,6 +49,7 @@ impl View {
     pub(crate) fn row(children: Vec<RowChild>, gap: u16) -> Self {
         Self {
             width: WidthRule::Fill,
+            decoration: Decoration::default(),
             kind: ViewKind::Row(RowView {
                 children,
                 gap,
@@ -57,9 +62,9 @@ impl View {
         let width = child.width;
         Self {
             width,
-            kind: ViewKind::Box(BoxView {
+            decoration,
+            kind: ViewKind::Container(ContainerNode {
                 child: Box::new(child),
-                decoration,
             }),
         }
     }
@@ -67,6 +72,7 @@ impl View {
     pub(crate) fn spacer(rows: u16) -> Self {
         Self {
             width: WidthRule::Fit,
+            decoration: Decoration::default(),
             kind: ViewKind::Spacer { rows },
         }
     }
@@ -74,6 +80,7 @@ impl View {
     pub(crate) fn clamp_rows(child: View, max_rows: u16, overflow: OverflowIndicator) -> Self {
         Self {
             width: child.width,
+            decoration: Decoration::default(),
             kind: ViewKind::ClampRows(ClampRowsView {
                 child: Box::new(child),
                 max_rows,
@@ -117,7 +124,7 @@ pub(crate) enum ViewKind {
     Text(TextView),
     Column(ColumnView),
     Row(RowView),
-    Box(BoxView),
+    Container(ContainerNode),
     Spacer { rows: u16 },
     ClampRows(ClampRowsView),
 }
@@ -259,14 +266,14 @@ pub(crate) enum VerticalAlign {
     Bottom,
 }
 
-/// FEATURE EXTENSION API. Generic box decoration.
+/// FEATURE EXTENSION API. Structural container holding one semantic child.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct BoxView {
+pub(crate) struct ContainerNode {
     pub(crate) child: Box<View>,
-    pub(crate) decoration: Decoration,
 }
 
-/// FEATURE EXTENSION API. Generic box decoration.
+/// FEATURE EXTENSION API. Common semantic decoration applied by the compiler
+/// around a View node.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Decoration {
     pub(crate) padding: Insets,
@@ -290,7 +297,8 @@ impl Decoration {
     }
 }
 
-/// FEATURE EXTENSION API. Box insets; padding belongs to the box, not its child.
+/// FEATURE EXTENSION API. Node insets; padding belongs to the decorated View,
+/// not its structural child.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Insets {
     pub(crate) top: u16,
@@ -475,7 +483,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn row_and_box_are_owned_data() {
+    fn row_and_container_are_owned_data() {
         let view = View::box_(
             View::row(
                 vec![
@@ -486,6 +494,7 @@ mod tests {
             ),
             Decoration::background(ColorSpec::Theme("tool.running".into())).padding(Insets::all(1)),
         );
-        assert!(matches!(view.kind, ViewKind::Box(_)));
+        assert!(matches!(view.kind, ViewKind::Container(_)));
+        assert!(!view.decoration.padding.eq(&Insets::ZERO));
     }
 }

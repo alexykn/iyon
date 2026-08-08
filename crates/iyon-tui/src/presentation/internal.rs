@@ -15,7 +15,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     presentation::api::{
-        BorderStyle, BoxView, ColorSpec, ColumnView, Decoration, HorizontalAlign, RowView,
+        BorderStyle, ColorSpec, ColumnView, ContainerNode, Decoration, HorizontalAlign, RowView,
         StyleSpec, TextAttributes, TextSpan, TextView, TrackSize, VerticalAlign, View, ViewKind,
         WidthRule,
     },
@@ -327,15 +327,68 @@ impl ViewCompiler {
     }
 
     fn layout(&self, view: &View, max_width: u16, inherited: Style) -> Surface {
-        match &view.kind {
-            ViewKind::Text(text) => self.layout_text(view.width, text, max_width, inherited),
+        let decoration = &view.decoration;
+        let resolved = self.theme.resolve_decoration(decoration, inherited);
+        let border = u16::from(decoration.border.is_some());
+        let border_pad = border.saturating_mul(2);
+        let max_content = max_width.saturating_sub(border_pad);
+
+        let left_pad = decoration.padding.left.min(max_content.saturating_sub(1));
+        let right_pad = decoration
+            .padding
+            .right
+            .min(max_content.saturating_sub(left_pad.saturating_add(1)));
+
+        let horizontal = left_pad
+            .saturating_add(right_pad)
+            .saturating_add(border_pad);
+        let inner_width = max_width.saturating_sub(horizontal);
+        let core = self.layout_kind(&view.kind, view.width, inner_width, resolved);
+        let requested_width = core.width.saturating_add(horizontal).min(u16::MAX);
+        let width = match view.width {
+            WidthRule::Fit => requested_width.min(max_width),
+            WidthRule::Fill => max_width,
+        };
+        let height = core
+            .height
+            .saturating_add(decoration.padding.top)
+            .saturating_add(decoration.padding.bottom)
+            .saturating_add(border.saturating_mul(2));
+        let mut output = Surface::new(width, height);
+
+        // An empty decoration is a transparent shell. It still preserves the
+        // node's width/container geometry, but must not turn transparent core
+        // cells into painted blanks.
+        if *decoration != Decoration::default() {
+            output.paint_background(resolved);
+        }
+        let child_x = border.saturating_add(left_pad);
+        let child_y = border.saturating_add(decoration.padding.top);
+        output.composite(&core, child_x, child_y);
+        if let Some(border_spec) = &decoration.border {
+            paint_border(&mut output, border_spec, &self.theme, resolved);
+        }
+        output
+    }
+
+    fn layout_kind(
+        &self,
+        kind: &ViewKind,
+        width_rule: WidthRule,
+        max_width: u16,
+        inherited: Style,
+    ) -> Surface {
+        match kind {
+            ViewKind::Text(text) => self.layout_text(width_rule, text, max_width, inherited),
             ViewKind::Column(column) => {
-                self.layout_column(view.width, column, max_width, inherited)
+                self.layout_column(width_rule, column, max_width, inherited)
             }
-            ViewKind::Row(row) => self.layout_row(view.width, row, max_width, inherited),
-            ViewKind::Box(box_view) => self.layout_box(view.width, box_view, max_width, inherited),
+            ViewKind::Row(row) => self.layout_row(width_rule, row, max_width, inherited),
+            ViewKind::Container(ContainerNode { child }) => {
+                self.layout(child, max_width, inherited)
+            }
             // Spacer is vertical space and fills its allocated width. Its cells
-            // remain transparent so a surrounding Box can paint through it.
+            // remain transparent so a surrounding decorated node can paint through it.
             ViewKind::Spacer { rows } => Surface::new(max_width, *rows),
             ViewKind::ClampRows(clamp) => self.layout_clamp(clamp, max_width, inherited),
         }
@@ -469,51 +522,6 @@ impl ViewCompiler {
             };
             output.composite(&child, x, y);
             x = x.saturating_add(track).saturating_add(allocation.gap);
-        }
-        output
-    }
-
-    fn layout_box(
-        &self,
-        width_rule: WidthRule,
-        box_view: &BoxView,
-        max_width: u16,
-        inherited: Style,
-    ) -> Surface {
-        let decoration = &box_view.decoration;
-        let resolved = self.theme.resolve_decoration(decoration, inherited);
-        let border = u16::from(decoration.border.is_some());
-        let border_pad = border.saturating_mul(2);
-        let max_content = max_width.saturating_sub(border_pad);
-
-        let left_pad = decoration.padding.left.min(max_content.saturating_sub(1));
-        let right_pad = decoration
-            .padding
-            .right
-            .min(max_content.saturating_sub(left_pad.saturating_add(1)));
-
-        let horizontal = left_pad
-            .saturating_add(right_pad)
-            .saturating_add(border_pad);
-        let inner_width = max_width.saturating_sub(horizontal);
-        let child = self.layout(&box_view.child, inner_width, resolved);
-        let requested_width = child.width.saturating_add(horizontal).min(u16::MAX);
-        let width = match width_rule {
-            WidthRule::Fit => requested_width.min(max_width),
-            WidthRule::Fill => max_width,
-        };
-        let height = child
-            .height
-            .saturating_add(decoration.padding.top)
-            .saturating_add(decoration.padding.bottom)
-            .saturating_add(border.saturating_mul(2));
-        let mut output = Surface::new(width, height);
-        output.paint_background(resolved);
-        let child_x = border.saturating_add(left_pad);
-        let child_y = border.saturating_add(decoration.padding.top);
-        output.composite(&child, child_x, child_y);
-        if let Some(border_spec) = &decoration.border {
-            paint_border(&mut output, border_spec, &self.theme, resolved);
         }
         output
     }
@@ -976,6 +984,7 @@ fn apply_attributes(style: &mut Style, attributes: TextAttributes) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::presentation::api::OverflowIndicator;
     use crate::presentation::stream::StreamRowCommit;
     use crate::presentation::{
         ColorSpec, Decoration, ExactTerminator, Insets, ProjectedTextLayout, ProjectedTextRun,
@@ -1207,6 +1216,70 @@ mod tests {
             compiled.commit[1],
             StreamRowCommit::Exact(StreamOffset::new(2))
         );
+    }
+
+    #[test]
+    fn default_decoration_keeps_core_tails_transparent() {
+        let compiler = ViewCompiler::default();
+        let views = [
+            View::text("a").width(WidthRule::Fill),
+            View::column(vec![View::text("a").width(WidthRule::Fill)], 0),
+            View::row(vec![RowChild::content(View::text("a"))], 0),
+            View::spacer(1).width(WidthRule::Fill),
+            View::clamp_rows(
+                View::text("a").width(WidthRule::Fill),
+                1,
+                OverflowIndicator::None,
+            ),
+        ];
+
+        for (index, view) in views.into_iter().enumerate() {
+            let surface = compiler.layout(&view, 4, Style::default());
+            if index == 3 {
+                assert!(surface.cells.iter().all(|cell| !cell.painted));
+            } else {
+                assert!(surface.cells.iter().any(|cell| cell.painted));
+                assert!(!surface.get(3, 0).painted);
+            }
+        }
+    }
+
+    #[test]
+    fn decorated_shell_paints_through_transparent_core() {
+        let view = View::box_(
+            View::spacer(1).width(WidthRule::Fill),
+            Decoration::background(ColorSpec::Ansi(1)),
+        );
+        let surface = ViewCompiler::default().layout(&view, 3, Style::default());
+
+        assert!(surface.get(0, 0).painted);
+        assert_eq!(surface.get(0, 0).style.bg, Some(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn explicit_child_paint_wins_over_outer_background() {
+        let child = View::styled_text(vec![TextSpan::styled(
+            "x",
+            StyleSpec {
+                background: Some(ColorSpec::Ansi(2)),
+                ..StyleSpec::default()
+            },
+        )])
+        .width(WidthRule::Fill);
+        let view = View::box_(child, Decoration::background(ColorSpec::Ansi(1)));
+        let surface = ViewCompiler::default().layout(&view, 3, Style::default());
+
+        assert_eq!(surface.get(0, 0).style.bg, Some(Color::Indexed(2)));
+        assert_eq!(surface.get(2, 0).style.bg, Some(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn decoration_preserves_physical_incompleteness() {
+        let view = View::box_(View::text("漢"), Decoration::background(ColorSpec::Ansi(1)));
+        let compiler = ViewCompiler::default();
+
+        assert!(!compiler.compile(&view, 1).physically_complete);
+        assert!(compiler.compile(&view, 2).physically_complete);
     }
 
     #[test]
