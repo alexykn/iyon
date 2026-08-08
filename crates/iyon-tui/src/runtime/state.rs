@@ -102,21 +102,15 @@ impl AppState {
     }
 
     pub(crate) fn prepare_active_frame(&mut self, width: u16) {
-        self.active_frame = self
-            .active
-            .as_ref()
-            .filter(|active| {
-                active.kind() == crate::runtime::active::ActivePaneKind::WorkingSpinner
-            })
-            .map(|active| {
-                let mut rows = compile_view(&active.view(), width.max(1)).rows;
-                let has_previous_conversation =
-                    self.transcript.uncommitted_len() > 0 || !self.assistant_live_rows().is_empty();
-                if has_previous_conversation && active.boundary() == FlowBoundary::Default {
-                    rows.insert(0, Line::default());
-                }
-                PreparedActiveContent { rows }
-            });
+        self.active_frame = self.active.as_ref().map(|active| {
+            let mut rows = compile_view(&active.view(), width.max(1)).rows;
+            let has_previous_conversation =
+                self.transcript.uncommitted_len() > 0 || !self.assistant_live_rows().is_empty();
+            if has_previous_conversation && active.boundary() == FlowBoundary::Default {
+                rows.insert(0, Line::default());
+            }
+            PreparedActiveContent { rows }
+        });
     }
 
     pub(crate) fn conversation_row_count(&self) -> usize {
@@ -402,9 +396,10 @@ impl AppState {
             ));
         }
 
-        // A first presented delta replaces only the spinner/tool chrome. The hosted
-        // conversation projection remains independent of that transient state.
+        // A first presented delta atomically replaces the active-turn capability
+        // with the hosted stream before the next frame is prepared.
         self.active = None;
+        self.active_frame = None;
         let hosted = self
             .assistant_stream
             .as_mut()

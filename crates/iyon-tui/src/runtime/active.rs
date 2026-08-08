@@ -5,8 +5,9 @@ use crate::presentation::{ActiveContent, View};
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 #[derive(Debug, Clone)]
-/// Transient active-pane chrome. Assistant semantic content is owned by
-/// `HostedStream<AssistantStream>`, not by this state.
+/// Transient content attached to the active conversation turn. Assistant
+/// semantic content is owned by `HostedStream<AssistantStream>`, not by this
+/// state.
 pub(crate) enum ActivePaneState {
     WorkingSpinner {
         spinner_frame: usize,
@@ -16,8 +17,6 @@ pub(crate) enum ActivePaneState {
         status: ToolActiveStatus,
         detail: Option<String>,
     },
-    SlashMenu,
-    FilePicker,
 }
 
 impl ActivePaneState {
@@ -25,31 +24,8 @@ impl ActivePaneState {
         Self::WorkingSpinner { spinner_frame: 0 }
     }
 
-    pub(crate) fn kind(&self) -> ActivePaneKind {
-        match self {
-            Self::WorkingSpinner { .. } => ActivePaneKind::WorkingSpinner,
-            Self::Tool { .. } => ActivePaneKind::Tool,
-            Self::SlashMenu => ActivePaneKind::SlashMenu,
-            Self::FilePicker => ActivePaneKind::FilePicker,
-        }
-    }
-
-    pub(crate) fn behavior(&self) -> ActiveBehavior {
-        match self {
-            Self::WorkingSpinner { .. } => ActiveBehavior::SpillToTranscript,
-            Self::Tool { .. } | Self::SlashMenu | Self::FilePicker => ActiveBehavior::OccludeOnly,
-        }
-    }
-
-    pub(crate) fn uses_conversation_surface(&self) -> bool {
+    pub(crate) fn is_working_spinner(&self) -> bool {
         matches!(self, Self::WorkingSpinner { .. })
-    }
-
-    pub(crate) fn desired_height(&self) -> u16 {
-        match self {
-            Self::WorkingSpinner { .. } => 0,
-            Self::Tool { .. } | Self::SlashMenu | Self::FilePicker => 3,
-        }
     }
 
     pub(crate) fn tick(&mut self) {
@@ -81,32 +57,14 @@ impl ActiveContent for ActivePaneState {
                     ToolActiveStatus::WaitingForApproval { .. } => "approval required",
                     ToolActiveStatus::Running => "running",
                 };
-                View::column(
-                    vec![
-                        View::spacer(1),
-                        View::text(format!("tool {tool_name}: {status}")),
-                        View::text(detail.as_deref().unwrap_or("")),
-                    ],
-                    0,
-                )
+                let mut children = vec![View::text(format!("tool {tool_name}: {status}"))];
+                if let Some(detail) = detail {
+                    children.push(View::text(detail));
+                }
+                View::column(children, 0)
             }
-            Self::SlashMenu | Self::FilePicker => View::spacer(1),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ActivePaneKind {
-    WorkingSpinner,
-    Tool,
-    SlashMenu,
-    FilePicker,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ActiveBehavior {
-    SpillToTranscript,
-    OccludeOnly,
 }
 
 #[derive(Debug)]
@@ -156,7 +114,7 @@ impl ActiveTicker {
             return false;
         };
 
-        if active.kind() != ActivePaneKind::WorkingSpinner {
+        if !active.is_working_spinner() {
             self.animating = false;
             self.next_tick = now + self.interval;
             return false;
@@ -173,8 +131,5 @@ impl ActiveTicker {
 }
 
 fn is_spinner_animating(active: Option<&ActivePaneState>) -> bool {
-    matches!(
-        active.map(ActivePaneState::kind),
-        Some(ActivePaneKind::WorkingSpinner)
-    )
+    active.is_some_and(ActivePaneState::is_working_spinner)
 }

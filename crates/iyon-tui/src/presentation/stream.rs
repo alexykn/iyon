@@ -582,7 +582,6 @@ where
                 ..
             }) => rows.len().saturating_sub(*committed_rows),
             None => 0,
-            Some(StreamPartialCommit::Source { .. }) => 0,
         }
     }
 
@@ -727,9 +726,6 @@ pub(crate) struct CompiledStream {
 /// Persistent partial-commit state across frame / resize boundaries.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum StreamPartialCommit {
-    /// Exact source offset committed so far.
-    Source { through: StreamOffset },
-
     /// Frozen physical rows of an atomic region that was partially committed to history.
     FrozenAtomic {
         group: StreamAtomicId,

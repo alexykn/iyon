@@ -170,13 +170,14 @@ pub(crate) struct ResidentStreamTail {
 pub(crate) enum PresentationOwnership {
     Transcript,
     Hosted,
-    ResidentStream(ResidentStreamTail),
+    ResidentStream,
     NativeHistory,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum TranscriptPresentation {
     View(View),
+    ResidentStream,
 
     /// INTERNAL ASSISTANT STREAM SEMANTICS.
     ///
@@ -462,6 +463,7 @@ pub(crate) struct TranscriptState {
     formatter: TuiFormatter,
     assistant_stream_open: bool,
     ownership: HashMap<TranscriptUnitId, PresentationOwnership>,
+    resident_streams: HashMap<TranscriptId, ResidentStreamTail>,
 }
 
 impl Default for TranscriptState {
@@ -476,6 +478,7 @@ impl Default for TranscriptState {
             formatter: TuiFormatter::default(),
             assistant_stream_open: false,
             ownership: HashMap::new(),
+            resident_streams: HashMap::new(),
         }
     }
 }
@@ -834,15 +837,17 @@ impl TranscriptState {
                 FlowBoundary::AttachToPrevious
             }
         };
-        self.ownership.insert(
+        self.resident_streams.insert(
             handoff.unit_id,
-            PresentationOwnership::ResidentStream(ResidentStreamTail {
+            ResidentStreamTail {
                 source_base: handoff.source_base,
                 source_end: handoff.source_end,
                 view: handoff.view,
                 boundary,
-            }),
+            },
         );
+        self.ownership
+            .insert(handoff.unit_id, PresentationOwnership::ResidentStream);
         self.rebuild_presentation_cache();
         self.invalidate_render_cache();
     }
@@ -1009,9 +1014,7 @@ impl TranscriptState {
             let ownership = self.ownership_for(source_id);
             let source_backed_started = self.has_source_backed_partial(source_id);
             let presentation = match &ownership {
-                PresentationOwnership::ResidentStream(tail) => {
-                    TranscriptPresentation::View(tail.view.clone())
-                }
+                PresentationOwnership::ResidentStream => TranscriptPresentation::ResidentStream,
                 PresentationOwnership::Hosted | PresentationOwnership::NativeHistory => {
                     TranscriptPresentation::View(View::column(Vec::new(), 0))
                 }
@@ -1069,7 +1072,7 @@ impl TranscriptState {
             let lifecycle = match &ownership {
                 PresentationOwnership::Hosted if is_open => EntryLifecycle::Open,
                 PresentationOwnership::Hosted
-                | PresentationOwnership::ResidentStream(_)
+                | PresentationOwnership::ResidentStream
                 | PresentationOwnership::NativeHistory => EntryLifecycle::Sealed,
                 PresentationOwnership::Transcript => {
                     entry_lifecycle(item, open_assistant_idx == Some(index))
@@ -1077,14 +1080,19 @@ impl TranscriptState {
             };
             let commit_mode = match &ownership {
                 PresentationOwnership::Hosted => EntryCommitMode::Blocked,
-                PresentationOwnership::ResidentStream(_)
+                PresentationOwnership::ResidentStream
                 | PresentationOwnership::NativeHistory
                 | PresentationOwnership::Transcript => {
                     entry_commit_mode(item, open_assistant_idx == Some(index))
                 }
             };
             let boundary = match &ownership {
-                PresentationOwnership::ResidentStream(tail) => tail.boundary,
+                PresentationOwnership::ResidentStream => {
+                    self.resident_streams
+                        .get(&source_id)
+                        .expect("resident stream presentation must exist")
+                        .boundary
+                }
                 _ => boundary,
             };
             self.presentation_cache.push(TranscriptUnit {
@@ -1200,6 +1208,25 @@ impl TranscriptState {
                     row_end_boundaries.extend(wrapped.row_end_boundaries.into_iter().map(Some));
                     previous_legacy_range = Some(ranges.len());
                 }
+                TranscriptPresentation::ResidentStream => {
+                    let tail = self
+                        .resident_streams
+                        .get(&unit.id)
+                        .expect("resident stream presentation must exist");
+                    let block = compile_view(&tail.view, width);
+                    let physically_complete = block.physically_complete;
+                    rows.extend(block.rows);
+                    row_end_boundaries.extend(std::iter::repeat_n(
+                        None,
+                        rows.len().saturating_sub(content_start),
+                    ));
+                    entry_committable_prefix = if physically_complete {
+                        rows.len().saturating_sub(content_start)
+                    } else {
+                        0
+                    };
+                    previous_legacy_range = None;
+                }
                 TranscriptPresentation::View(view) => {
                     let mut physically_complete = true;
                     if let Some(PartialCommit::Semantic {
@@ -1243,7 +1270,10 @@ impl TranscriptState {
                 id: unit.id,
                 lifecycle: unit.lifecycle,
                 commit_mode: unit.commit_mode,
-                semantic: matches!(unit.presentation, TranscriptPresentation::View(_)),
+                semantic: matches!(
+                    unit.presentation,
+                    TranscriptPresentation::View(_) | TranscriptPresentation::ResidentStream
+                ),
                 rows: start..rows.len(),
                 leading_flow_rows,
                 committable_prefix_rows: entry_committable_prefix,
@@ -1378,10 +1408,11 @@ impl TranscriptState {
                 }
                 if matches!(
                     self.ownership.get(&range.id),
-                    Some(PresentationOwnership::ResidentStream(_))
+                    Some(PresentationOwnership::ResidentStream)
                 ) {
                     self.ownership
                         .insert(range.id, PresentationOwnership::NativeHistory);
+                    self.resident_streams.remove(&range.id);
                 }
                 self.commit_state.completed_prefix = range.unit_index.saturating_add(1);
                 self.commit_state.partial = None;

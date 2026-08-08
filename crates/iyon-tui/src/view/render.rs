@@ -10,7 +10,6 @@ use ratatui::{
 
 use crate::{
     input::{cursor_xy, wrapped_line_index_by_start},
-    runtime::active::{ActivePaneState, ToolActiveStatus},
     theme,
     view::RunningView,
 };
@@ -55,12 +54,6 @@ impl ConversationView<'_> {
 impl View for ConversationView<'_> {}
 
 #[derive(Debug, Clone)]
-pub(crate) struct ActiveChromeView<'a> {
-    pub(crate) active: Option<&'a ActivePaneState>,
-}
-impl View for ActiveChromeView<'_> {}
-
-#[derive(Debug, Clone)]
 pub(crate) struct InfoView<'a> {
     pub(crate) provider: &'a str,
     pub(crate) model_id: &'a str,
@@ -100,10 +93,6 @@ impl Renderer {
                 Style::default().bg(Color::Rgb(18, 34, 48)),
             );
             buffer.set_style(
-                view.layout.active_chrome_area,
-                Style::default().bg(Color::Rgb(42, 24, 24)),
-            );
-            buffer.set_style(
                 view.layout.input_area,
                 Style::default().bg(Color::Rgb(20, 36, 20)),
             );
@@ -117,7 +106,6 @@ impl Renderer {
         self.render(&spacer_view, frame, view.layout.spacer_area);
         self.render(&view.conversation, frame, view.layout.conversation_area);
         self.render(&SpacerView, frame, view.layout.conversation_gap_area);
-        self.render(&view.active_chrome, frame, view.layout.active_chrome_area);
         if let Some(panel_view) = view.panel.view() {
             crate::presentation::internal::render_view(
                 &panel_view,
@@ -168,7 +156,7 @@ impl Renderable<SpacerView> for Renderer {
 
 impl Renderable<ConversationView<'_>> for Renderer {
     fn render(&self, view: &ConversationView, frame: &mut Frame, area: Rect) {
-        // The conversation is one linear bottom-anchored sequence. Iterate the two
+        // The conversation is one linear bottom-anchored sequence. Iterate the
         // owner slices without concatenating or copying them.
         let visible_rows = usize::from(area.height);
         let mut skip = view.len().saturating_sub(visible_rows);
@@ -204,63 +192,6 @@ impl Renderable<ConversationView<'_>> for Renderer {
         }
         u16::try_from(view.len()).unwrap_or(u16::MAX)
     }
-}
-
-impl Renderable<ActiveChromeView<'_>> for Renderer {
-    fn render(&self, view: &ActiveChromeView, frame: &mut Frame, area: Rect) {
-        let lines = view.active.map(active_chrome_lines).unwrap_or_default();
-        for (index, line) in lines.iter().enumerate().take(usize::from(area.height)) {
-            let y = area
-                .y
-                .saturating_add(u16::try_from(index).unwrap_or(u16::MAX));
-            let row_area = Rect {
-                x: area.x,
-                y,
-                width: area.width,
-                height: 1,
-            };
-            frame.buffer_mut().set_style(row_area, line.style);
-            frame.buffer_mut().set_line(area.x, y, line, area.width);
-        }
-    }
-
-    fn desired_height(&self, view: &ActiveChromeView<'_>, _area: Rect) -> u16 {
-        u16::try_from(
-            view.active
-                .map(active_chrome_lines)
-                .map_or(0, |lines| lines.len()),
-        )
-        .unwrap_or(u16::MAX)
-    }
-}
-
-fn active_chrome_lines(active: &ActivePaneState) -> Vec<Line<'static>> {
-    match active {
-        ActivePaneState::Tool {
-            tool_name,
-            status,
-            detail,
-        } => render_tool_active(tool_name, status, detail.as_deref()),
-        ActivePaneState::WorkingSpinner { .. }
-        | ActivePaneState::SlashMenu
-        | ActivePaneState::FilePicker => vec![Line::from("")],
-    }
-}
-
-fn render_tool_active(
-    tool_name: &str,
-    status: &ToolActiveStatus,
-    detail: Option<&str>,
-) -> Vec<Line<'static>> {
-    let status = match status {
-        ToolActiveStatus::WaitingForApproval { .. } => "approval required",
-        ToolActiveStatus::Running => "running",
-    };
-    vec![
-        Line::from(""),
-        Line::from(format!("tool {tool_name}: {status}")),
-        Line::from(detail.unwrap_or("").to_string()),
-    ]
 }
 
 impl Renderable<InputView<'_>> for Renderer {
