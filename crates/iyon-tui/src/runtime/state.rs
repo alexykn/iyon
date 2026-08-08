@@ -1,12 +1,18 @@
+use std::collections::VecDeque;
+
+use ratatui::text::Line;
+
 use crate::{
     input::InputBuffer,
+    presentation::{HostedStream, PreparedStreamFrame},
     runtime::{
         active::{ActivePaneState, ToolActiveStatus},
         backend::ToolUpdatePresentation,
         panel::{BottomPanelBar, PanelHandle, SteeringQueuePanel},
     },
     transcript::{
-        AssistantSegment, SegmentKind, TimelineItem, ToolTimelineStatus, TranscriptState,
+        AssistantStream, HostedUnitRegistration, SegmentKind, TimelineItem, ToolTimelineStatus,
+        TranscriptState,
     },
 };
 use iyon_core::ReasoningLevel;
@@ -16,7 +22,11 @@ pub(crate) struct AppState {
     pub(crate) input: InputBuffer,
     pub(crate) transcript: TranscriptState,
     pub(crate) active: Option<ActivePaneState>,
+    pub(crate) assistant_stream: Option<HostedStream<AssistantStream>>,
+    pub(crate) assistant_frame: Option<PreparedStreamFrame>,
     pub(crate) pending_tool_approval: Option<PendingToolApproval>,
+    deferred_conversation: VecDeque<DeferredConversationAction>,
+    replaying_deferred: bool,
 
     pub(crate) bottom_panel: BottomPanelBar,
     pub(crate) steering_panel: PanelHandle<SteeringQueuePanel>,
@@ -36,7 +46,11 @@ impl Default for AppState {
             input: InputBuffer::default(),
             transcript: TranscriptState::default(),
             active: None,
+            assistant_stream: None,
+            assistant_frame: None,
             pending_tool_approval: None,
+            deferred_conversation: VecDeque::new(),
+            replaying_deferred: false,
             bottom_panel,
             steering_panel,
             input_view: InputViewState::default(),
@@ -51,16 +65,89 @@ impl AppState {
         self.transcript.push_item(item);
     }
 
-    pub(crate) fn append_assistant_message(&mut self, segments: Vec<AssistantSegment>) {
-        self.transcript.append_assistant_fragment(segments);
+    pub(crate) fn prepare_assistant_frame(&mut self, width: u16, desired_commit_rows: usize) {
+        self.assistant_frame = self
+            .assistant_stream
+            .as_mut()
+            .map(|hosted| hosted.prepare_frame(width, desired_commit_rows));
     }
 
-    pub(crate) fn append_assistant_stream_fragment(&mut self, segments: Vec<AssistantSegment>) {
-        self.transcript.append_assistant_stream_fragment(segments);
+    pub(crate) fn assistant_live_rows(&self) -> &[Line<'static>] {
+        self.assistant_frame
+            .as_ref()
+            .map_or(&[], |frame| frame.live_rows.as_slice())
     }
 
-    pub(crate) fn finish_assistant_stream(&mut self) {
-        self.transcript.finish_assistant_stream();
+    pub(crate) fn assistant_desired_height(&self) -> u16 {
+        if self.assistant_stream.is_none() {
+            return 0;
+        }
+
+        const COMPOSER_GAP_ROWS: usize = 1;
+        let conversation_rows = self.assistant_live_rows().len();
+        u16::try_from(conversation_rows.saturating_add(COMPOSER_GAP_ROWS)).unwrap_or(u16::MAX)
+    }
+
+    pub(crate) fn assistant_commit_rows_for_height(&self, height: u16) -> usize {
+        let live_rows = self.assistant_live_rows().len();
+        if live_rows == 0 {
+            return 0;
+        }
+
+        // A sealed host must drain all remaining physical rows even when its
+        // projection fits the live viewport. Otherwise it can never retire and
+        // the conversation barrier would remain active forever.
+        if self
+            .assistant_stream
+            .as_ref()
+            .is_some_and(HostedStream::is_sealed)
+        {
+            return live_rows;
+        }
+
+        // Open streams spill only physical overflow. Transient chrome consumes
+        // region height, but never changes the hosted projection or ownership.
+        let chrome_height = self
+            .active
+            .as_ref()
+            .map_or(0, ActivePaneState::desired_height);
+        let conversation_height = usize::from(height).saturating_sub(usize::from(chrome_height));
+        let conversation_capacity = conversation_height.saturating_sub(1).max(1);
+        live_rows.saturating_sub(conversation_capacity)
+    }
+
+    pub(crate) fn seal_assistant_stream(&mut self) {
+        let Some(hosted) = self.assistant_stream.as_mut() else {
+            return;
+        };
+        if hosted.is_sealed() {
+            return;
+        }
+
+        hosted.seal();
+        let unit_id = hosted.unit_id;
+        let segments = hosted.content().segments().to_vec();
+        self.transcript
+            .seal_hosted_assistant_unit(unit_id, segments);
+    }
+
+    pub(crate) fn retire_assistant_stream_if_fully_committed(&mut self) {
+        let Some(hosted) = self.assistant_stream.as_ref() else {
+            return;
+        };
+        if !hosted.is_fully_committed() {
+            return;
+        }
+
+        let unit_id = self
+            .assistant_stream
+            .as_ref()
+            .expect("host checked above")
+            .unit_id;
+        self.transcript.finish_stream_unit(unit_id);
+        self.assistant_stream.take().expect("host checked above");
+        self.assistant_frame = None;
+        self.replay_deferred_conversation();
     }
 
     pub(crate) fn start_tool_call(
@@ -69,6 +156,13 @@ impl AppState {
         tool_name: String,
         arguments: serde_json::Value,
     ) {
+        if self.defer_after_current_stream(DeferredConversationAction::StartToolCall {
+            tool_call_id: tool_call_id.clone(),
+            tool_name: tool_name.clone(),
+            arguments: arguments.clone(),
+        }) {
+            return;
+        }
         self.finish_active_turn();
         self.transcript.upsert_tool_call(
             tool_call_id,
@@ -90,6 +184,14 @@ impl AppState {
         tool_name: String,
         arguments: serde_json::Value,
     ) {
+        if self.defer_after_current_stream(DeferredConversationAction::RequestToolApproval {
+            approval_id,
+            tool_call_id: tool_call_id.clone(),
+            tool_name: tool_name.clone(),
+            arguments: arguments.clone(),
+        }) {
+            return;
+        }
         let arguments_preview = format_arguments_preview(&arguments);
         self.transcript.upsert_tool_call(
             tool_call_id.clone(),
@@ -115,6 +217,13 @@ impl AppState {
         tool_call_id: String,
         approved: bool,
     ) {
+        if self.defer_after_current_stream(DeferredConversationAction::ResolveToolApproval {
+            approval_id,
+            tool_call_id: tool_call_id.clone(),
+            approved,
+        }) {
+            return;
+        }
         let tool_name = self
             .pending_tool_approval
             .as_ref()
@@ -138,6 +247,12 @@ impl AppState {
     }
 
     pub(crate) fn update_tool_call(&mut self, tool_name: String, update: ToolUpdatePresentation) {
+        if self.defer_after_current_stream(DeferredConversationAction::UpdateToolCall {
+            tool_name: tool_name.clone(),
+            update: update.clone(),
+        }) {
+            return;
+        }
         let detail = format_tool_update(update);
         self.active = Some(ActivePaneState::Tool {
             tool_name,
@@ -147,6 +262,12 @@ impl AppState {
     }
 
     pub(crate) fn finish_tool_call(&mut self, tool_call_id: String, is_error: bool) {
+        if self.defer_after_current_stream(DeferredConversationAction::FinishToolCall {
+            tool_call_id: tool_call_id.clone(),
+            is_error,
+        }) {
+            return;
+        }
         self.transcript.finish_tool_call(&tool_call_id, is_error);
         // The tool's output is already rendered in the transcript right above the
         // input. Drop the redundant "tool x: finished/failed" banner from the active
@@ -163,6 +284,15 @@ impl AppState {
         details: serde_json::Value,
         is_error: bool,
     ) {
+        if self.defer_after_current_stream(DeferredConversationAction::PushToolResult {
+            tool_call_id: tool_call_id.clone(),
+            tool_name: tool_name.clone(),
+            text: text.clone(),
+            details: details.clone(),
+            is_error,
+        }) {
+            return;
+        }
         self.transcript
             .push_tool_result(tool_call_id, tool_name, text, details, is_error);
     }
@@ -176,10 +306,11 @@ impl AppState {
     }
 
     pub(crate) fn submit_user_message(&mut self, text: String) {
-        // A steered message can arrive while the agent is still streaming a partial
-        // reply. Finalize that partial as a complete assistant message first so the
-        // user message is appended after it (not interleaved into a live pane). This
-        // is a no-op when no assistant stream is active.
+        if self.defer_after_current_stream(DeferredConversationAction::UserMessage(text.clone())) {
+            return;
+        }
+        // If there was no active host, this is still a harmless barrier call; otherwise
+        // `defer_after_current_stream` already sealed it before returning false.
         self.finish_active_turn();
         // If this user message is a delivered steer, remove it from the pending queue
         // (it has now actually been sent to the agent).
@@ -205,45 +336,168 @@ impl AppState {
     }
 
     pub(crate) fn start_working_pane(&mut self) {
+        if self.defer_conversation(DeferredConversationAction::StartWorking) {
+            return;
+        }
         if self.active.is_none() {
             self.active = Some(ActivePaneState::working_spinner());
         }
     }
 
     pub(crate) fn receive_stream_segments(&mut self, chunks: Vec<(SegmentKind, String)>) {
-        for (kind, text) in chunks {
-            if !self
-                .active
-                .as_ref()
-                .is_some_and(super::active::ActivePaneState::is_spillable)
-            {
-                self.active = Some(ActivePaneState::working_spinner());
-            }
-
-            if let Some(active) = self.active.as_mut() {
-                active.push_assistant_segment(kind, &text);
-            }
+        let chunks: Vec<_> = chunks
+            .into_iter()
+            .filter(|(_, text)| !text.is_empty())
+            .collect();
+        if chunks.is_empty() {
+            return;
         }
-    }
 
-    pub(crate) fn take_active_unfrozen_transcript_segments(
-        &mut self,
-    ) -> Option<Vec<AssistantSegment>> {
-        self.active
-            .take()
-            .and_then(ActivePaneState::into_unfrozen_transcript_segments)
+        // A sealed host that has already finished its physical write is still only
+        // awaiting the next retirement pass. Retire it before accepting a new source;
+        // a sealed host must never be reused.
+        if self
+            .assistant_stream
+            .as_ref()
+            .is_some_and(|hosted| hosted.is_sealed() && hosted.is_fully_committed())
+        {
+            self.retire_assistant_stream_if_fully_committed();
+        }
+        if self.defer_conversation(DeferredConversationAction::StreamSegments(chunks.clone())) {
+            return;
+        }
+        if self
+            .assistant_stream
+            .as_ref()
+            .is_some_and(HostedStream::is_sealed)
+        {
+            self.deferred_conversation
+                .push_back(DeferredConversationAction::StreamSegments(chunks));
+            return;
+        }
+
+        if self.assistant_stream.is_none() {
+            let HostedUnitRegistration {
+                id,
+                leading_boundary,
+            } = self.transcript.begin_hosted_assistant_unit();
+            self.assistant_stream = Some(HostedStream::new(
+                id,
+                AssistantStream::new(),
+                leading_boundary,
+            ));
+        }
+
+        // A first presented delta replaces only the spinner/tool chrome. The hosted
+        // conversation projection remains independent of that transient state.
+        self.active = None;
+        let hosted = self
+            .assistant_stream
+            .as_mut()
+            .expect("assistant stream was created above");
+        for (kind, text) in chunks {
+            hosted.content_mut().push_delta(kind, &text);
+        }
     }
 
     pub(crate) fn finish_active_turn(&mut self) {
-        if let Some(segments) = self.take_active_unfrozen_transcript_segments() {
-            self.append_assistant_stream_fragment(segments);
+        if self.defer_conversation(DeferredConversationAction::FinishActiveTurn) {
+            return;
         }
-        self.finish_assistant_stream();
+        self.seal_assistant_stream();
     }
 
     pub(crate) fn fail_active_turn(&mut self, message: String) {
+        if self
+            .defer_after_current_stream(DeferredConversationAction::FailActiveTurn(message.clone()))
+        {
+            return;
+        }
         self.finish_active_turn();
         self.append_error_message(message);
+    }
+
+    fn conversation_barrier_active(&self) -> bool {
+        self.assistant_stream
+            .as_ref()
+            .is_some_and(|hosted| hosted.is_sealed() && !hosted.is_fully_committed())
+    }
+
+    fn defer_after_current_stream(&mut self, action: DeferredConversationAction) -> bool {
+        if self
+            .assistant_stream
+            .as_ref()
+            .is_some_and(|hosted| !hosted.is_sealed())
+        {
+            self.seal_assistant_stream();
+        }
+        self.defer_conversation(action)
+    }
+
+    fn defer_conversation(&mut self, action: DeferredConversationAction) -> bool {
+        if !self.conversation_barrier_active() {
+            return false;
+        }
+        if self.replaying_deferred {
+            // Keep the action being replayed ahead of events already queued
+            // behind it. It will be retried after the newly sealed host drains.
+            self.deferred_conversation.push_front(action);
+        } else {
+            self.deferred_conversation.push_back(action);
+        }
+        true
+    }
+
+    fn replay_deferred_conversation(&mut self) {
+        self.replaying_deferred = true;
+        while let Some(action) = self.deferred_conversation.pop_front() {
+            if self.conversation_barrier_active() {
+                self.deferred_conversation.push_front(action);
+                break;
+            }
+            match action {
+                DeferredConversationAction::UserMessage(text) => self.submit_user_message(text),
+                DeferredConversationAction::StreamSegments(chunks) => {
+                    self.receive_stream_segments(chunks)
+                }
+                DeferredConversationAction::StartWorking => self.start_working_pane(),
+                DeferredConversationAction::FinishActiveTurn => self.finish_active_turn(),
+                DeferredConversationAction::FailActiveTurn(message) => {
+                    self.fail_active_turn(message)
+                }
+                DeferredConversationAction::StartToolCall {
+                    tool_call_id,
+                    tool_name,
+                    arguments,
+                } => self.start_tool_call(tool_call_id, tool_name, arguments),
+                DeferredConversationAction::RequestToolApproval {
+                    approval_id,
+                    tool_call_id,
+                    tool_name,
+                    arguments,
+                } => self.request_tool_approval(approval_id, tool_call_id, tool_name, arguments),
+                DeferredConversationAction::ResolveToolApproval {
+                    approval_id,
+                    tool_call_id,
+                    approved,
+                } => self.resolve_tool_approval(approval_id, tool_call_id, approved),
+                DeferredConversationAction::UpdateToolCall { tool_name, update } => {
+                    self.update_tool_call(tool_name, update)
+                }
+                DeferredConversationAction::FinishToolCall {
+                    tool_call_id,
+                    is_error,
+                } => self.finish_tool_call(tool_call_id, is_error),
+                DeferredConversationAction::PushToolResult {
+                    tool_call_id,
+                    tool_name,
+                    text,
+                    details,
+                    is_error,
+                } => self.push_tool_result(tool_call_id, tool_name, text, details, is_error),
+            }
+        }
+        self.replaying_deferred = false;
     }
 
     pub(crate) fn apply_config(
@@ -265,6 +519,46 @@ impl AppState {
         let provider = self.info.provider.as_str();
         self.info.reasoning_effort = ReasoningLevel::next_for(self.info.reasoning_effort, provider);
     }
+}
+
+#[derive(Debug)]
+enum DeferredConversationAction {
+    UserMessage(String),
+    StreamSegments(Vec<(SegmentKind, String)>),
+    StartWorking,
+    FinishActiveTurn,
+    FailActiveTurn(String),
+    StartToolCall {
+        tool_call_id: String,
+        tool_name: String,
+        arguments: serde_json::Value,
+    },
+    RequestToolApproval {
+        approval_id: u64,
+        tool_call_id: String,
+        tool_name: String,
+        arguments: serde_json::Value,
+    },
+    ResolveToolApproval {
+        approval_id: u64,
+        tool_call_id: String,
+        approved: bool,
+    },
+    UpdateToolCall {
+        tool_name: String,
+        update: ToolUpdatePresentation,
+    },
+    FinishToolCall {
+        tool_call_id: String,
+        is_error: bool,
+    },
+    PushToolResult {
+        tool_call_id: String,
+        tool_name: String,
+        text: String,
+        details: serde_json::Value,
+        is_error: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -336,9 +630,306 @@ pub(crate) struct InfoState {
 mod tests {
     use super::*;
 
-    /// A steered message submitted while the agent is mid-stream must first commit the
-    /// partial assistant reply as a complete message, then append the user message —
-    /// never interleave the user message into the live streaming pane.
+    #[test]
+    fn hosted_stream_is_the_only_assistant_content_store() {
+        let mut state = AppState::default();
+        state.receive_stream_segments(vec![(SegmentKind::Text, "assistant text".to_string())]);
+
+        let hosted = state.assistant_stream.as_ref().expect("host created");
+        assert_eq!(
+            hosted.content().segments(),
+            &[crate::transcript::model::AssistantSegment::Text(
+                "assistant text".to_string()
+            )]
+        );
+        assert!(state.active.is_none());
+    }
+
+    #[test]
+    fn hosted_unit_is_registered_at_birth_and_sealed_in_place() {
+        let mut state = AppState::default();
+        state.transcript.push_item(TimelineItem::UserMessage {
+            text: "user".to_string(),
+        });
+        state.receive_stream_segments(vec![(SegmentKind::Text, "assistant".to_string())]);
+
+        let hosted = state.assistant_stream.as_ref().expect("host created");
+        assert_eq!(
+            hosted.leading_boundary,
+            crate::presentation::LeadingBoundaryState::Pending
+        );
+        assert_eq!(state.transcript.test_items().len(), 2);
+        assert!(matches!(
+            state.transcript.test_items()[1],
+            TimelineItem::AssistantMessage { ref segments } if segments.is_empty()
+        ));
+
+        state.finish_active_turn();
+        assert_eq!(state.transcript.test_items().len(), 2);
+        assert!(matches!(
+            state.transcript.test_items()[1],
+            TimelineItem::AssistantMessage { ref segments }
+                if segments == &vec![crate::transcript::model::AssistantSegment::Text("assistant".to_string())]
+        ));
+    }
+
+    #[test]
+    fn sealed_host_defers_new_stream_until_retirement() {
+        let mut state = AppState::default();
+        state.receive_stream_segments(vec![(SegmentKind::Text, "assistant A".to_string())]);
+        let first_id = state.assistant_stream.as_ref().expect("host A").unit_id;
+        state.finish_active_turn();
+        let first_end = state
+            .assistant_stream
+            .as_mut()
+            .expect("host A")
+            .snapshot()
+            .source_end;
+
+        state.receive_stream_segments(vec![(SegmentKind::Text, "assistant B".to_string())]);
+        let host = state.assistant_stream.as_mut().expect("host A retained");
+        assert_eq!(host.unit_id, first_id);
+        assert_eq!(host.snapshot().source_end, first_end);
+        assert_eq!(state.deferred_conversation.len(), 1);
+
+        state.prepare_assistant_frame(80, 10);
+        let prepared = state.assistant_frame.take().expect("host A frame");
+        state
+            .assistant_stream
+            .as_mut()
+            .expect("host A retained")
+            .apply_commit_success(prepared.history);
+        state.retire_assistant_stream_if_fully_committed();
+
+        let host_b = state.assistant_stream.as_ref().expect("host B replayed");
+        assert_ne!(host_b.unit_id, first_id);
+        assert_eq!(
+            host_b.content().segments(),
+            &[crate::transcript::model::AssistantSegment::Text(
+                "assistant B".to_string()
+            )]
+        );
+        assert!(matches!(
+            state.transcript.test_items()[0],
+            TimelineItem::AssistantMessage { ref segments }
+                if segments == &vec![crate::transcript::model::AssistantSegment::Text("assistant A".to_string())]
+        ));
+        assert!(matches!(
+            state.transcript.test_items()[1],
+            TimelineItem::AssistantMessage { ref segments } if segments.is_empty()
+        ));
+    }
+
+    #[test]
+    fn sealed_fitting_assistant_drains_and_unblocks_next_turn() {
+        let mut state = AppState::default();
+        state.submit_user_message("first".to_string());
+        state.receive_stream_segments(vec![(SegmentKind::Text, "short answer".to_string())]);
+        state.prepare_assistant_frame(80, 0);
+
+        // An open stream that fits does not spill merely because it is visible.
+        assert_eq!(state.assistant_commit_rows_for_height(40), 0);
+
+        state.finish_active_turn();
+        state.prepare_assistant_frame(80, 0);
+        let live_rows = state.assistant_live_rows().len();
+        assert!(live_rows > 0);
+
+        // A sealed stream drains its complete hosted projection regardless of
+        // viewport overflow, allowing its barrier to retire.
+        assert_eq!(state.assistant_commit_rows_for_height(40), live_rows);
+        state.prepare_assistant_frame(80, live_rows);
+        let prepared = state.assistant_frame.take().expect("sealed frame");
+        state
+            .assistant_stream
+            .as_mut()
+            .expect("sealed host")
+            .apply_commit_success(prepared.history);
+        state.retire_assistant_stream_if_fully_committed();
+        assert!(state.assistant_stream.is_none());
+
+        state.submit_user_message("second".to_string());
+        assert!(state.deferred_conversation.is_empty());
+        assert!(state.transcript.test_items().iter().any(|item| {
+            matches!(item, TimelineItem::UserMessage { text } if text == "second")
+        }));
+    }
+
+    #[test]
+    fn deferred_replay_keeps_barrier_action_ahead_of_later_tool_events() {
+        let mut state = AppState::default();
+        state.receive_stream_segments(vec![(SegmentKind::Text, "first".to_string())]);
+        state.finish_active_turn();
+
+        state.receive_stream_segments(vec![(SegmentKind::Text, "second".to_string())]);
+        state.start_tool_call(
+            "tool-1".to_string(),
+            "search".to_string(),
+            serde_json::json!({}),
+        );
+        state.update_tool_call(
+            "search".to_string(),
+            ToolUpdatePresentation::Text("running".to_string()),
+        );
+
+        state.prepare_assistant_frame(80, 100);
+        let prepared = state.assistant_frame.take().expect("first frame");
+        state
+            .assistant_stream
+            .as_mut()
+            .expect("first host")
+            .apply_commit_success(prepared.history);
+        state.retire_assistant_stream_if_fully_committed();
+
+        assert!(matches!(
+            state.deferred_conversation.front(),
+            Some(DeferredConversationAction::StartToolCall { .. })
+        ));
+    }
+
+    #[test]
+    fn hosted_plan_failure_does_not_mutate_stream_or_live_rows() {
+        let mut state = AppState::default();
+        state.receive_stream_segments(vec![(SegmentKind::Text, "hello **bo".to_string())]);
+        state.prepare_assistant_frame(6, 1);
+
+        let before_rows = state
+            .assistant_frame
+            .as_ref()
+            .expect("prepared frame")
+            .live_rows
+            .clone();
+        let (before_committed, before_source_base, before_partial) = {
+            let hosted = state.assistant_stream.as_mut().expect("host created");
+            let snapshot = hosted.snapshot();
+            (
+                hosted.committed_through,
+                snapshot.source_base,
+                hosted.partial.clone(),
+            )
+        };
+
+        // Simulate terminal failure by not applying the prepared plan.
+        state.prepare_assistant_frame(6, 0);
+        let after_rows = state
+            .assistant_frame
+            .as_ref()
+            .expect("reprepared frame")
+            .live_rows
+            .clone();
+        let (after_committed, after_source_base, after_partial) = {
+            let hosted = state.assistant_stream.as_mut().expect("host created");
+            let snapshot = hosted.snapshot();
+            (
+                hosted.committed_through,
+                snapshot.source_base,
+                hosted.partial.clone(),
+            )
+        };
+
+        assert_eq!(before_rows, after_rows);
+        assert_eq!(before_committed, after_committed);
+        assert_eq!(before_source_base, after_source_base);
+        assert_eq!(before_partial, after_partial);
+    }
+
+    #[test]
+    fn hosted_success_reprepares_from_compacted_source_boundary() {
+        let mut state = AppState::default();
+        state.receive_stream_segments(vec![(SegmentKind::Text, "hello **bo".to_string())]);
+        state.prepare_assistant_frame(6, 1);
+        let prepared = state.assistant_frame.take().expect("prepared frame");
+        state
+            .assistant_stream
+            .as_mut()
+            .expect("host created")
+            .apply_commit_success(prepared.history);
+
+        state.prepare_assistant_frame(80, 0);
+        let snapshot = state
+            .assistant_stream
+            .as_mut()
+            .expect("host created")
+            .snapshot();
+        assert_eq!(
+            snapshot.source_base,
+            crate::presentation::StreamOffset::new(6)
+        );
+        assert_eq!(
+            snapshot.view.nodes[0].owned_range(),
+            crate::presentation::StreamRange::new(
+                crate::presentation::StreamOffset::new(6),
+                crate::presentation::StreamOffset::new(10),
+            )
+        );
+
+        state.receive_stream_segments(vec![(SegmentKind::Text, "ld**".to_string())]);
+        let snapshot = state
+            .assistant_stream
+            .as_mut()
+            .expect("host created")
+            .snapshot();
+        assert_eq!(
+            snapshot.view.nodes[0].owned_range(),
+            crate::presentation::StreamRange::new(
+                crate::presentation::StreamOffset::new(6),
+                crate::presentation::StreamOffset::new(14),
+            )
+        );
+    }
+
+    #[test]
+    fn sealing_keeps_host_until_successful_final_promotion() {
+        let mut state = AppState::default();
+        state.receive_stream_segments(vec![(SegmentKind::Text, "hello".to_string())]);
+        state.finish_active_turn();
+
+        let hosted = state.assistant_stream.as_ref().expect("host retained");
+        assert!(hosted.is_sealed());
+        assert!(!hosted.is_fully_committed());
+
+        state.prepare_assistant_frame(80, 10);
+        let prepared = state.assistant_frame.take().expect("prepared frame");
+        state
+            .assistant_stream
+            .as_mut()
+            .expect("host retained")
+            .apply_commit_success(prepared.history);
+        assert!(
+            state
+                .assistant_stream
+                .as_ref()
+                .unwrap()
+                .is_fully_committed()
+        );
+        state.retire_assistant_stream_if_fully_committed();
+        assert!(state.assistant_stream.is_none());
+    }
+
+    #[test]
+    fn retired_stream_preserves_birth_unit_id() {
+        let mut state = AppState::default();
+        state.receive_stream_segments(vec![(SegmentKind::Text, "hello".to_string())]);
+        let id = state
+            .assistant_stream
+            .as_ref()
+            .expect("host created")
+            .unit_id;
+        state.finish_active_turn();
+        state.prepare_assistant_frame(80, 10);
+        let prepared = state.assistant_frame.take().expect("prepared frame");
+        state
+            .assistant_stream
+            .as_mut()
+            .expect("host retained")
+            .apply_commit_success(prepared.history);
+        state.retire_assistant_stream_if_fully_committed();
+
+        assert_eq!(state.transcript.test_entry_ids(), &[id]);
+    }
+
+    /// A steered message submitted while the agent is mid-stream seals the assistant
+    /// host and defers the user until the hosted tail has drained.
     #[test]
     fn submit_user_message_finalizes_active_assistant() {
         let mut state = AppState::default();
@@ -350,26 +941,34 @@ mod tests {
         state.submit_user_message("steer message".to_string());
 
         let items = state.transcript.test_items();
+        assert_eq!(items.len(), 1);
+        assert!(matches!(items[0], TimelineItem::AssistantMessage { .. }));
+        assert!(
+            state
+                .assistant_stream
+                .as_ref()
+                .is_some_and(|hosted| hosted.is_sealed())
+        );
+        // The user and fresh spinner are deferred until the sealed assistant tail
+        // has entered native history.
+        assert!(state.active.is_none());
+
+        state.prepare_assistant_frame(80, 10);
+        let prepared = state.assistant_frame.take().expect("prepared frame");
+        state
+            .assistant_stream
+            .as_mut()
+            .expect("sealed host")
+            .apply_commit_success(prepared.history);
+        state.retire_assistant_stream_if_fully_committed();
+
+        let items = state.transcript.test_items();
         assert_eq!(items.len(), 2);
-        match &items[0] {
-            TimelineItem::AssistantMessage { segments } => {
-                let text: String = segments
-                    .iter()
-                    .filter_map(|s| match s {
-                        AssistantSegment::Text(t) => Some(t.clone()),
-                        AssistantSegment::Thinking(_) => None,
-                    })
-                    .collect();
-                assert_eq!(text, "partial reply");
-            }
-            other => panic!("expected assistant message first, got {other:?}"),
-        }
-        match &items[1] {
-            TimelineItem::UserMessage { text } => assert_eq!(text, "steer message"),
-            other => panic!("expected user message after assistant, got {other:?}"),
-        }
-        // The active pane is a fresh working spinner (no leftover partial stream).
-        assert!(state.active.as_ref().is_some());
+        assert!(matches!(items[1], TimelineItem::UserMessage { .. }));
+        assert!(matches!(
+            state.active,
+            Some(ActivePaneState::WorkingSpinner { .. })
+        ));
     }
 
     /// A steered message stays in the pending queue until it is actually delivered to

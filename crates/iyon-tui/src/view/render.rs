@@ -40,10 +40,11 @@ pub(crate) struct ChatView<'a> {
 impl View for ChatView<'_> {}
 
 #[derive(Debug, Clone)]
-pub(crate) struct ActiveView<'a> {
+pub(crate) struct LiveRegionView<'a> {
+    pub(crate) conversation_rows: &'a [Line<'static>],
     pub(crate) active: Option<&'a ActivePaneState>,
 }
-impl View for ActiveView<'_> {}
+impl View for LiveRegionView<'_> {}
 
 #[derive(Debug, Clone)]
 pub(crate) struct InfoView<'a> {
@@ -146,73 +147,51 @@ impl Renderable<SpacerView> for Renderer {
     }
 }
 
-impl Renderable<ActiveView<'_>> for Renderer {
-    fn render(&self, view: &ActiveView, frame: &mut Frame, area: Rect) {
-        let Some(active) = view.active else {
-            frame.render_widget(Paragraph::default(), area);
-            return;
+impl Renderable<LiveRegionView<'_>> for Renderer {
+    fn render(&self, view: &LiveRegionView, frame: &mut Frame, area: Rect) {
+        const COMPOSER_GAP_ROWS: usize = 1;
+        let chrome = view.active.map(active_chrome_lines).unwrap_or_default();
+        let chrome_rows = chrome.len();
+        let conversation_gap = if view.conversation_rows.is_empty() {
+            0
+        } else {
+            1
         };
+        let conversation_capacity = usize::from(area.height)
+            .saturating_sub(chrome_rows)
+            .saturating_sub(conversation_gap.min(COMPOSER_GAP_ROWS));
+        let visible = &view.conversation_rows[view
+            .conversation_rows
+            .len()
+            .saturating_sub(conversation_capacity)..];
 
-        let lines = match active.kind() {
-            ActivePaneKind::WorkingSpinner => vec![
-                Line::from(""),
-                Line::from(format!("{} Working", active.spinner_frame())),
-                Line::from(""),
-            ],
-            ActivePaneKind::AssistantStreaming => match active.stream() {
-                Some(stream) => stream.rendered_tail_rows().map_or_else(
-                    || {
-                        let mut out = Vec::new();
-                        out.extend(
-                            std::iter::repeat_with(|| Line::from(""))
-                                .take(stream.top_padding_rows()),
-                        );
-                        out.push(Line::from(stream.active_tail()));
-                        out.extend(
-                            std::iter::repeat_with(|| Line::from(""))
-                                .take(stream.bottom_padding_rows()),
-                        );
-                        out
-                    },
-                    |rows| {
-                        // Active streaming renders pane margins explicitly. Top padding is
-                        // temporary until the assistant message has spilled into transcript;
-                        // bottom padding is the stable gap above the input box. Keep this
-                        // calculation in sync with ActiveStreamState::spill_overflow_rows.
-                        let top_padding = stream.top_padding_rows();
-                        let bottom_padding = stream.bottom_padding_rows();
-                        let reserved_rows = top_padding.saturating_add(bottom_padding);
-                        let body_height = usize::from(area.height)
-                            .saturating_sub(reserved_rows)
-                            .max(1);
-                        let visible = &rows[rows.len().saturating_sub(body_height)..];
-
-                        let mut out = Vec::with_capacity(
-                            visible
-                                .len()
-                                .saturating_add(top_padding)
-                                .saturating_add(bottom_padding),
-                        );
-                        out.extend(std::iter::repeat_with(|| Line::from("")).take(top_padding));
-                        out.extend_from_slice(visible);
-                        out.extend(std::iter::repeat_with(|| Line::from("")).take(bottom_padding));
-                        out
-                    },
-                ),
-                None => vec![Line::from("")],
-            },
-            ActivePaneKind::Tool => match active {
-                ActivePaneState::Tool {
-                    tool_name,
-                    status,
-                    detail,
-                } => render_tool_active(tool_name, status, detail.as_deref()),
-                _ => vec![Line::from("")],
-            },
-            ActivePaneKind::SlashMenu => vec![Line::from("")],
-            ActivePaneKind::FilePicker => vec![Line::from("")],
-        };
+        let mut lines = Vec::with_capacity(visible.len() + conversation_gap + chrome_rows);
+        lines.extend_from_slice(visible);
+        if conversation_gap != 0 {
+            // Frame geometry only: this composer gap is never included in history.
+            lines.push(Line::from(""));
+        }
+        lines.extend(chrome);
         frame.render_widget(Paragraph::new(Text::from(lines)), area);
+    }
+}
+
+fn active_chrome_lines(active: &ActivePaneState) -> Vec<Line<'static>> {
+    match active.kind() {
+        ActivePaneKind::WorkingSpinner => vec![
+            Line::from(""),
+            Line::from(format!("{} Working", active.spinner_frame())),
+            Line::from(""),
+        ],
+        ActivePaneKind::Tool => match active {
+            ActivePaneState::Tool {
+                tool_name,
+                status,
+                detail,
+            } => render_tool_active(tool_name, status, detail.as_deref()),
+            _ => vec![Line::from("")],
+        },
+        ActivePaneKind::SlashMenu | ActivePaneKind::FilePicker => vec![Line::from("")],
     }
 }
 

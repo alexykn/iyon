@@ -8,9 +8,7 @@ use anyhow::Result;
 use ratatui::layout::Rect;
 
 use crate::{
-    input::WrapCache,
-    runtime::{AppController, AppState},
-    scrollback::ScrollbackCoordinator,
+    input::WrapCache, runtime::AppState, scrollback::ScrollbackCoordinator,
     terminal::InlineTerminal,
 };
 
@@ -32,17 +30,25 @@ impl FrameCoordinator {
         layout_config: &LayoutConfig,
         wrap_cache: &mut WrapCache,
         scrollback: &mut ScrollbackCoordinator,
-        controller: &mut AppController,
         root: Rect,
     ) -> Result<()> {
+        state.transcript.ensure_render_cache(root.width.max(1));
+        state.retire_assistant_stream_if_fully_committed();
         state.transcript.ensure_render_cache(root.width.max(1));
 
         let mut layout =
             RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
 
-        if controller
-            .spill_active_into_transcript_if_needed(state, usize::from(layout.active_area.height))
-        {
+        let desired_commit_rows = state.assistant_commit_rows_for_height(layout.active_area.height);
+        if desired_commit_rows > 0 {
+            state.prepare_assistant_frame(root.width.max(1), desired_commit_rows);
+            let prepared = state.assistant_frame.take();
+            if let (Some(hosted), Some(prepared)) = (state.assistant_stream.as_mut(), prepared) {
+                // The coordinator writes exactly the rows selected by the host plan. The
+                // host is acknowledged only after the terminal accepts every requested row.
+                scrollback.commit_stream_frame(terminal, hosted, prepared)?;
+            }
+            state.retire_assistant_stream_if_fully_committed();
             state.transcript.ensure_render_cache(root.width.max(1));
             layout =
                 RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);

@@ -149,7 +149,6 @@ impl App {
             &self.layout,
             &mut self.wrap_cache,
             &mut self.scrollback,
-            &mut self.controller,
             root,
         )?;
         Ok(())
@@ -318,11 +317,7 @@ impl App {
 
     fn step_finalize_active(&mut self, state: &mut AppState) -> Result<()> {
         self.flush_stream_smoother(state);
-
-        if let Some(segments) = state.take_active_unfrozen_transcript_segments() {
-            state.append_assistant_message(segments);
-        }
-
+        state.finish_active_turn();
         state.exit_state = ExitState::FlushHistory;
         Ok(())
     }
@@ -334,6 +329,20 @@ impl App {
     ) -> Result<()> {
         let root = self.current_root_rect(terminal)?;
         state.transcript.ensure_render_cache(root.width.max(1));
+
+        if state.assistant_stream.is_some() {
+            state.prepare_assistant_frame(root.width.max(1), EXIT_DRAIN_CHUNK);
+            let prepared = state.assistant_frame.take();
+            if let (Some(hosted), Some(prepared)) = (state.assistant_stream.as_mut(), prepared) {
+                self.scrollback
+                    .commit_stream_frame(terminal, hosted, prepared)?;
+            }
+            state.retire_assistant_stream_if_fully_committed();
+            state.transcript.ensure_render_cache(root.width.max(1));
+            if state.assistant_stream.is_some() {
+                return Ok(());
+            }
+        }
 
         match self.scrollback.flush_history_chunk(
             terminal,

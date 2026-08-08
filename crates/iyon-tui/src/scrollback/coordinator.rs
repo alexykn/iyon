@@ -6,6 +6,7 @@
 use anyhow::Result;
 use ratatui::text::Line;
 
+use crate::presentation::{HostedStream, PreparedStreamFrame, StreamingContent};
 use crate::transcript::TranscriptState;
 use crate::{scrollback::committer::ScrollbackCommitter, terminal::InlineTerminal};
 
@@ -75,6 +76,17 @@ impl ScrollbackCoordinator {
             inserted,
             requested: rows.len(),
         })
+    }
+
+    pub(crate) fn commit_stream_frame<C: StreamingContent>(
+        &mut self,
+        terminal: &mut InlineTerminal,
+        hosted: &mut HostedStream<C>,
+        prepared: PreparedStreamFrame,
+    ) -> Result<()> {
+        self.commit_rows_checked(terminal, prepared.history.rows.as_slice())?;
+        hosted.apply_commit_success(prepared.history);
+        Ok(())
     }
 
     pub(crate) fn commit_running_overflow(
