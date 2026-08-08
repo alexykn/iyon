@@ -4,7 +4,9 @@ use ratatui::text::Line;
 
 use crate::{
     input::InputBuffer,
-    presentation::{HostedStream, PreparedStreamFrame},
+    presentation::{
+        ActiveContent, FlowBoundary, HostedStream, PreparedStreamFrame, internal::compile_view,
+    },
     runtime::{
         active::{ActivePaneState, ToolActiveStatus},
         backend::ToolUpdatePresentation,
@@ -25,6 +27,11 @@ pub(crate) enum FinalizeResult {
     FullyNative,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct PreparedActiveContent {
+    pub(crate) rows: Vec<Line<'static>>,
+}
+
 #[derive(Debug)]
 pub(crate) struct AppState {
     pub(crate) input: InputBuffer,
@@ -32,6 +39,7 @@ pub(crate) struct AppState {
     pub(crate) active: Option<ActivePaneState>,
     pub(crate) assistant_stream: Option<HostedStream<AssistantStream>>,
     pub(crate) assistant_frame: Option<PreparedStreamFrame>,
+    pub(crate) active_frame: Option<PreparedActiveContent>,
     pub(crate) pending_tool_approval: Option<PendingToolApproval>,
     deferred_conversation: VecDeque<DeferredConversationAction>,
     replaying_deferred: bool,
@@ -56,6 +64,7 @@ impl Default for AppState {
             active: None,
             assistant_stream: None,
             assistant_frame: None,
+            active_frame: None,
             pending_tool_approval: None,
             deferred_conversation: VecDeque::new(),
             replaying_deferred: false,
@@ -86,10 +95,35 @@ impl AppState {
             .map_or(&[], |frame| frame.live_rows.as_slice())
     }
 
+    pub(crate) fn active_live_rows(&self) -> &[Line<'static>] {
+        self.active_frame
+            .as_ref()
+            .map_or(&[], |frame| frame.rows.as_slice())
+    }
+
+    pub(crate) fn prepare_active_frame(&mut self, width: u16) {
+        self.active_frame = self
+            .active
+            .as_ref()
+            .filter(|active| {
+                active.kind() == crate::runtime::active::ActivePaneKind::WorkingSpinner
+            })
+            .map(|active| {
+                let mut rows = compile_view(&active.view(), width.max(1)).rows;
+                let has_previous_conversation =
+                    self.transcript.uncommitted_len() > 0 || !self.assistant_live_rows().is_empty();
+                if has_previous_conversation && active.boundary() == FlowBoundary::Default {
+                    rows.insert(0, Line::default());
+                }
+                PreparedActiveContent { rows }
+            });
+    }
+
     pub(crate) fn conversation_row_count(&self) -> usize {
         self.transcript
             .uncommitted_len()
             .saturating_add(self.assistant_live_rows().len())
+            .saturating_add(self.active_live_rows().len())
     }
 
     pub(crate) fn seal_assistant_stream(&mut self) {

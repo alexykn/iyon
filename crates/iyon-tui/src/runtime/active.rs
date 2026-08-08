@@ -41,12 +41,14 @@ impl ActivePaneState {
         }
     }
 
+    pub(crate) fn uses_conversation_surface(&self) -> bool {
+        matches!(self, Self::WorkingSpinner { .. })
+    }
+
     pub(crate) fn desired_height(&self) -> u16 {
         match self {
-            Self::WorkingSpinner { .. }
-            | Self::Tool { .. }
-            | Self::SlashMenu
-            | Self::FilePicker => 3,
+            Self::WorkingSpinner { .. } => 0,
+            Self::Tool { .. } | Self::SlashMenu | Self::FilePicker => 3,
         }
     }
 
@@ -54,14 +56,6 @@ impl ActivePaneState {
         if let Self::WorkingSpinner { spinner_frame } = self {
             *spinner_frame = spinner_frame.wrapping_add(1);
         }
-    }
-
-    pub(crate) fn spinner_frame(&self) -> &'static str {
-        let frame = match self {
-            Self::WorkingSpinner { spinner_frame } => *spinner_frame,
-            _ => 0,
-        };
-        SPINNER_FRAMES[frame % SPINNER_FRAMES.len()]
     }
 }
 
@@ -74,17 +68,10 @@ pub(crate) enum ToolActiveStatus {
 impl ActiveContent for ActivePaneState {
     fn view(&self) -> View {
         match self {
-            Self::WorkingSpinner { spinner_frame } => View::column(
-                vec![
-                    View::spacer(1),
-                    View::text(format!(
-                        "{} Working",
-                        SPINNER_FRAMES[*spinner_frame % SPINNER_FRAMES.len()]
-                    )),
-                    View::spacer(1),
-                ],
-                0,
-            ),
+            Self::WorkingSpinner { spinner_frame } => View::text(format!(
+                "{} Working",
+                SPINNER_FRAMES[*spinner_frame % SPINNER_FRAMES.len()]
+            )),
             Self::Tool {
                 tool_name,
                 status,

@@ -37,6 +37,7 @@ impl RunningFrameComposer {
         );
         state.transcript.ensure_render_cache(area.width.max(1));
         state.prepare_assistant_frame(area.width.max(1), 0);
+        state.prepare_active_frame(area.width.max(1));
         let layout = Self::compute_layout(base_layout, renderer, area, state, input_wrap_ranges);
         state.input_view.content_width = layout.input_area.width.max(1);
 
@@ -78,9 +79,13 @@ impl RunningFrameComposer {
             conversation: ConversationView {
                 transcript_rows: state.transcript.uncommitted_rows(),
                 hosted_rows: state.assistant_live_rows(),
+                transient_rows: state.active_live_rows(),
             },
             active_chrome: ActiveChromeView {
-                active: state.active.as_ref(),
+                active: state
+                    .active
+                    .as_ref()
+                    .filter(|active| !active.uses_conversation_surface()),
             },
             panel: &state.bottom_panel,
             input: InputView {
@@ -111,6 +116,7 @@ impl RunningFrameComposer {
         let active_chrome_height = state
             .active
             .as_ref()
+            .filter(|active| !active.uses_conversation_surface())
             .map_or(0, ActivePaneState::desired_height);
         let panel_height = state.bottom_panel.desired_height(root.width.max(1));
 
@@ -289,6 +295,56 @@ mod tests {
     }
 
     #[test]
+    fn working_spinner_to_hosted_stream_preserves_conversation_geometry() {
+        let mut state = AppState::default();
+        state.append_timeline_item(crate::transcript::TimelineItem::UserMessage {
+            text: "hello".to_string(),
+        });
+        state.start_working_pane();
+
+        let root = Rect::new(0, 0, 80, 20);
+        let renderer = Renderer;
+        let mut wrap_cache = WrapCache::default();
+        let before = RunningFrameComposer::prepare(
+            &renderer,
+            &LayoutConfig::default(),
+            &mut state,
+            &mut wrap_cache,
+            root,
+        );
+        let before_rows = state.conversation_row_count();
+        let before_transient = state.active_live_rows().to_vec();
+
+        state.receive_stream_segments(vec![(
+            crate::transcript::SegmentKind::Text,
+            "first assistant row".to_string(),
+        )]);
+        let after = RunningFrameComposer::prepare(
+            &renderer,
+            &LayoutConfig::default(),
+            &mut state,
+            &mut wrap_cache,
+            root,
+        );
+
+        assert_eq!(before_rows, state.conversation_row_count());
+        assert_eq!(before.spacer_area.height, after.spacer_area.height);
+        assert_eq!(before.conversation_area, after.conversation_area);
+        assert_eq!(before.input_area.y, after.input_area.y);
+        assert_eq!(before.active_chrome_area.height, 0);
+        assert_eq!(after.active_chrome_area.height, 0);
+        assert_eq!(before_transient.len(), 2);
+        assert_eq!(before_transient[0], ratatui::text::Line::default());
+        assert_eq!(before_transient[1].to_string(), "⠋ Working");
+        assert_eq!(state.active_live_rows().len(), 0);
+        assert_eq!(state.assistant_live_rows().len(), 2);
+        assert_eq!(
+            state.assistant_live_rows()[0],
+            ratatui::text::Line::default()
+        );
+    }
+
+    #[test]
     fn active_chrome_reserves_height_without_assistant_host() {
         let mut state = AppState::default();
         state.active = Some(ActivePaneState::working_spinner());
@@ -301,7 +357,7 @@ mod tests {
             &[0..0],
         );
 
-        assert_eq!(layout.active_chrome_area.height, 3);
+        assert_eq!(layout.active_chrome_area.height, 0);
 
         state.active = Some(ActivePaneState::Tool {
             tool_name: "search".to_string(),
