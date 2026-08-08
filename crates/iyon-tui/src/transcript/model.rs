@@ -4,8 +4,8 @@ use ratatui::{style::Style, text::Line};
 
 use crate::{
     presentation::{
-        ColorSpec, Decoration, FlowBoundary, Insets, LeadingBoundaryState, ResidentStreamHandoff,
-        StreamOffset, ThemeKey, View, WidthRule, internal::compile_view,
+        ColorSpec, Decoration, FlowBoundary, Insets, IntoView, LeadingBoundaryState,
+        ResidentStreamHandoff, StreamOffset, ThemeKey, View, WidthRule, internal::compile_view,
     },
     theme,
     tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput},
@@ -332,7 +332,7 @@ impl TuiFormatter {
             View::column(
                 messages
                     .iter()
-                    .map(|text| View::text(text.clone()).width(WidthRule::Fill))
+                    .map(|text| View::text(text.clone()).width(WidthRule::Fill).into_view())
                     .collect(),
                 0,
             )
@@ -356,7 +356,8 @@ impl TuiFormatter {
                 crate::presentation::ColorSpec::Theme(crate::presentation::ThemeKey::from(
                     "text.error",
                 )),
-            ));
+            ))
+            .into_view();
         if leading_spacer {
             View::column(vec![View::spacer(1), body], 0)
         } else {

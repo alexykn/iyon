@@ -18,23 +18,27 @@ pub(crate) struct View {
 }
 
 impl View {
-    pub(crate) fn text(text: impl Into<String>) -> Self {
-        Self {
-            width: WidthRule::Fit,
-            decoration: Decoration::default(),
-            kind: ViewKind::Text(TextView::plain(text)),
+    pub(crate) fn text(text: impl Into<String>) -> Text {
+        Text {
+            view: Self {
+                width: WidthRule::Fit,
+                decoration: Decoration::default(),
+                kind: ViewKind::Text(TextView::plain(text)),
+            },
         }
     }
 
-    pub(crate) fn styled_text(spans: Vec<TextSpan>) -> Self {
-        Self {
-            width: WidthRule::Fit,
-            decoration: Decoration::default(),
-            kind: ViewKind::Text(TextView {
-                spans,
-                wrap: WrapMode::WordThenGrapheme,
-                align: HorizontalAlign::Start,
-            }),
+    pub(crate) fn styled_text(spans: impl IntoIterator<Item = TextSpan>) -> Text {
+        Text {
+            view: Self {
+                width: WidthRule::Fit,
+                decoration: Decoration::default(),
+                kind: ViewKind::Text(TextView {
+                    spans: spans.into_iter().collect(),
+                    wrap: WrapMode::WordThenGrapheme,
+                    align: HorizontalAlign::Start,
+                }),
+            },
         }
     }
 
@@ -93,26 +97,91 @@ impl View {
         self.width = width;
         self
     }
+}
 
-    pub(crate) fn no_wrap(mut self) -> Self {
-        if let ViewKind::Text(text) = &mut self.kind {
-            text.wrap = WrapMode::NoWrap;
+/// FEATURE EXTENSION API. Typed semantic text leaf backed by the canonical
+/// [`View`] representation. Its private field preserves the `Text` invariant:
+/// the wrapped view always contains `ViewKind::Text`.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Text {
+    view: View,
+}
+
+/// FEATURE EXTENSION API. Explicit conversion from semantic construction
+/// values into the canonical owned [`View`] representation.
+pub(crate) trait IntoView {
+    fn into_view(self) -> View;
+}
+
+impl Text {
+    fn text_mut(&mut self) -> &mut TextView {
+        match &mut self.view.kind {
+            ViewKind::Text(text) => text,
+            ViewKind::Column(_)
+            | ViewKind::Row(_)
+            | ViewKind::Container(_)
+            | ViewKind::Spacer { .. }
+            | ViewKind::ClampRows(_) => {
+                unreachable!("Text wrapper must always contain ViewKind::Text")
+            }
         }
-        self
     }
 
     pub(crate) fn wrap(mut self, wrap: WrapMode) -> Self {
-        if let ViewKind::Text(text) = &mut self.kind {
-            text.wrap = wrap;
-        }
+        self.text_mut().wrap = wrap;
+        self
+    }
+
+    pub(crate) fn no_wrap(mut self) -> Self {
+        self.text_mut().wrap = WrapMode::NoWrap;
+        self
+    }
+
+    pub(crate) fn text_align(mut self, align: HorizontalAlign) -> Self {
+        self.text_mut().align = align;
         self
     }
 
     pub(crate) fn style(mut self, style: StyleSpec) -> Self {
-        if matches!(self.kind, ViewKind::Text(_)) {
-            self.decoration.text_style.overlay(&style);
-        }
+        self.view.decoration.text_style.overlay(&style);
         self
+    }
+
+    /// Migration-only internal sizing method. Replaced by the final sizing API
+    /// in a later tranche.
+    pub(crate) fn width(mut self, width: WidthRule) -> Self {
+        self.view.width = width;
+        self
+    }
+}
+
+impl IntoView for View {
+    fn into_view(self) -> View {
+        self
+    }
+}
+
+impl IntoView for Text {
+    fn into_view(self) -> View {
+        self.view
+    }
+}
+
+impl IntoView for String {
+    fn into_view(self) -> View {
+        View::text(self).into_view()
+    }
+}
+
+impl<'a> IntoView for &'a str {
+    fn into_view(self) -> View {
+        View::text(self).into_view()
+    }
+}
+
+impl<'a> IntoView for &'a String {
+    fn into_view(self) -> View {
+        View::text(self.as_str()).into_view()
     }
 }
 
@@ -588,8 +657,8 @@ mod tests {
     }
 
     #[test]
-    fn view_style_merges_node_intent_without_rewriting_spans() {
-        let mut view = View::styled_text(vec![
+    fn text_style_merges_node_intent_without_rewriting_spans() {
+        let mut text = View::styled_text([
             TextSpan::plain("plain"),
             TextSpan::styled("bold", StyleSpec::new().bold()),
         ])
@@ -597,15 +666,89 @@ mod tests {
         .style(StyleSpec::new().italic());
 
         assert_eq!(
-            view.decoration.text_style.foreground,
+            text.view.decoration.text_style.foreground,
             Some(ColorSpec::Ansi(1))
         );
-        assert_eq!(view.decoration.text_style.attributes.italic, Some(true));
-        let ViewKind::Text(text) = &mut view.kind else {
+        assert_eq!(
+            text.view.decoration.text_style.attributes.italic,
+            Some(true)
+        );
+        let ViewKind::Text(text_view) = &mut text.view.kind else {
             panic!("expected text view");
         };
-        assert_eq!(text.spans[0].style, StyleSpec::default());
-        assert_eq!(text.spans[1].style.attributes.bold, Some(true));
+        assert_eq!(text_view.spans[0].style, StyleSpec::default());
+        assert_eq!(text_view.spans[1].style.attributes.bold, Some(true));
+
+        let converted = text.into_view();
+        assert!(matches!(converted.kind, ViewKind::Text(_)));
+    }
+
+    #[test]
+    fn typed_text_methods_update_only_canonical_text_payload() {
+        let text = View::text("abcdef")
+            .wrap(WrapMode::Grapheme)
+            .text_align(HorizontalAlign::End)
+            .style(StyleSpec::new().foreground(ColorSpec::Ansi(3)))
+            .width(WidthRule::Fill);
+
+        assert_eq!(text.view.width, WidthRule::Fill);
+        assert_eq!(
+            text.view.decoration.text_style.foreground,
+            Some(ColorSpec::Ansi(3))
+        );
+        let ViewKind::Text(text_view) = &text.view.kind else {
+            panic!("expected text view");
+        };
+        assert_eq!(text_view.wrap, WrapMode::Grapheme);
+        assert_eq!(text_view.align, HorizontalAlign::End);
+        assert_eq!(text_view.spans[0].style, StyleSpec::default());
+    }
+
+    #[test]
+    fn into_view_conversions_are_owned_and_view_conversion_is_identity() {
+        let original = View::column(vec![View::spacer(1)], 0);
+        assert_eq!(original.clone().into_view(), original);
+
+        let string_view = String::from("hello").into_view();
+        let borrowed_source = String::from("hello");
+        let borrowed_view = (&borrowed_source).into_view();
+        let str_view = "hello".into_view();
+        let expected = View::text("hello").into_view();
+        assert_eq!(string_view, expected);
+        assert_eq!(borrowed_view, expected);
+        assert_eq!(str_view, expected);
+
+        let mut source = String::from("owned");
+        let view = (&source).into_view();
+        source.clear();
+        source.push_str("changed");
+        let ViewKind::Text(text) = view.kind else {
+            panic!("expected text view");
+        };
+        assert_eq!(text.spans[0].text, "owned");
+    }
+
+    #[derive(Debug)]
+    struct CustomStatus {
+        value: String,
+    }
+
+    impl IntoView for CustomStatus {
+        fn into_view(self) -> View {
+            View::text(self.value)
+                .style(StyleSpec::new().bold())
+                .into_view()
+        }
+    }
+
+    #[test]
+    fn custom_into_view_implementation_uses_open_boundary() {
+        let view = CustomStatus {
+            value: "status".to_string(),
+        }
+        .into_view();
+        assert_eq!(view.decoration.text_style.attributes.bold, Some(true));
+        assert!(matches!(view.kind, ViewKind::Text(_)));
     }
 
     #[test]
@@ -613,8 +756,12 @@ mod tests {
         let view = View::box_(
             View::row(
                 vec![
-                    RowChild::content(View::text("●").no_wrap()),
-                    RowChild::flex(View::text("long command").width(WidthRule::Fill)),
+                    RowChild::content(View::text("●").no_wrap().into_view()),
+                    RowChild::flex(
+                        View::text("long command")
+                            .width(WidthRule::Fill)
+                            .into_view(),
+                    ),
                 ],
                 1,
             ),

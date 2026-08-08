@@ -1,5 +1,5 @@
 use crate::{
-    presentation::{ColorSpec, StyleSpec, ThemeKey, View},
+    presentation::{ColorSpec, IntoView, StyleSpec, ThemeKey, View},
     tools::{
         registry::ToolRenderer,
         renderers::{column, result_lines, result_style, text, tool_call, tool_result_line},
@@ -73,6 +73,7 @@ fn format_diff_line(line: &str) -> View {
             ..StyleSpec::default()
         },
     )
+    .into_view()
 }
 
 fn status_label(status: crate::transcript::ToolTimelineStatus) -> &'static str {

@@ -9,13 +9,13 @@ pub(super) mod internal;
 pub(crate) mod stream;
 pub(crate) mod wrap;
 
-#[allow(unused_imports)]
-pub(crate) use api::TextAttribute;
 pub(crate) use api::{
     ActiveContent, ColorSpec, Decoration, DockPanel, DockSizePolicy, FlowBoundary, Insets,
     InteractionResult, RowChild, StyleSpec, TextAttributeSpec, TextSpan, ThemeKey, UiKey, View,
     WidthRule, WrapMode,
 };
+#[allow(unused_imports)]
+pub(crate) use api::{HorizontalAlign, IntoView, Text, TextAttribute};
 pub(crate) use stream::{
     ExactTerminator, HostedStream, LeadingBoundaryState, PreparedStreamFrame, ProjectedText,
     ProjectedTextLayout, ProjectedTextRun, ResidentStreamHandoff, StreamNode, StreamOffset,
