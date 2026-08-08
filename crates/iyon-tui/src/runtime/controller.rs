@@ -2,7 +2,6 @@ use anyhow::Result;
 
 use crate::runtime::{
     AppState,
-    active::ActiveBehavior,
     backend::{BackendEventHandler, SubmitTurnResult},
 };
 
@@ -32,33 +31,6 @@ impl AppController {
             dirty |= self.apply(action, state, backend)?;
         }
         Ok(dirty)
-    }
-
-    pub(crate) fn spill_active_into_transcript_if_needed(
-        &mut self,
-        state: &mut AppState,
-        visible_rows: usize,
-    ) -> bool {
-        if !matches!(
-            state
-                .active
-                .as_ref()
-                .map(super::active::ActivePaneState::behavior),
-            Some(ActiveBehavior::SpillToTranscript)
-        ) {
-            return false;
-        }
-
-        let Some(fragment) = state
-            .active
-            .as_mut()
-            .and_then(|pane| pane.spill_overflow_rows(visible_rows))
-        else {
-            return false;
-        };
-
-        state.append_assistant_stream_fragment(fragment);
-        true
     }
 
     fn apply(

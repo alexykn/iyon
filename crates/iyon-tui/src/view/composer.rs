@@ -8,7 +8,7 @@ use crate::{
     },
     view::{
         layout::{CommitCapacityPolicy, ComputedLayout, LayoutConfig},
-        render::{ActiveView, ChatView, InfoView, InputView, Renderable, Renderer},
+        render::{ChatView, InfoView, InputView, LiveRegionView, Renderable, Renderer},
     },
 };
 
@@ -16,7 +16,7 @@ use crate::{
 pub(crate) struct RunningView<'a> {
     pub(crate) layout: ComputedLayout,
     pub(crate) chat: ChatView<'a>,
-    pub(crate) active: ActiveView<'a>,
+    pub(crate) active: LiveRegionView<'a>,
     pub(crate) panel: &'a BottomPanelBar,
     pub(crate) input: InputView<'a>,
     pub(crate) info: InfoView<'a>,
@@ -41,9 +41,7 @@ impl RunningFrameComposer {
             state.input.text(),
             area.width.max(1),
         );
-        if let Some(active) = state.active.as_mut() {
-            active.ensure_stream_render_cache(area.width.max(1));
-        }
+        state.prepare_assistant_frame(area.width.max(1), 0);
         let layout = Self::compute_layout(base_layout, renderer, area, state, input_wrap_ranges);
         state.input_view.content_width = layout.input_area.width.max(1);
 
@@ -79,7 +77,8 @@ impl RunningFrameComposer {
             chat: ChatView {
                 lines: state.transcript.uncommitted_rows(),
             },
-            active: ActiveView {
+            active: LiveRegionView {
+                conversation_rows: state.assistant_live_rows(),
                 active: state.active.as_ref(),
             },
             panel: &state.bottom_panel,
@@ -109,10 +108,12 @@ impl RunningFrameComposer {
             lines: state.transcript.uncommitted_rows(),
         };
 
-        let active_height = state
+        let conversation_height = state.assistant_desired_height();
+        let chrome_height = state
             .active
             .as_ref()
             .map_or(0, ActivePaneState::desired_height);
+        let active_height = conversation_height.saturating_add(chrome_height);
         let commit_capacity_policy = match state
             .active
             .as_ref()
@@ -182,6 +183,42 @@ impl RunningFrameComposer {
         };
 
         final_cfg.compute(root)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::active::ToolActiveStatus;
+
+    #[test]
+    fn active_chrome_reserves_height_without_assistant_host() {
+        let mut state = AppState::default();
+        state.active = Some(ActivePaneState::working_spinner());
+
+        let layout = RunningFrameComposer::compute_layout(
+            &LayoutConfig::default(),
+            &Renderer,
+            Rect::new(0, 0, 80, 30),
+            &state,
+            &[0..0],
+        );
+
+        assert_eq!(layout.active_area.height, 3);
+
+        state.active = Some(ActivePaneState::Tool {
+            tool_name: "search".to_string(),
+            status: ToolActiveStatus::Running,
+            detail: None,
+        });
+        let layout = RunningFrameComposer::compute_layout(
+            &LayoutConfig::default(),
+            &Renderer,
+            Rect::new(0, 0, 80, 30),
+            &state,
+            &[0..0],
+        );
+        assert_eq!(layout.active_area.height, 3);
     }
 }
 
