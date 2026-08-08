@@ -17,6 +17,7 @@ use crate::{
         StyleSpec, TextAttributes, TextSpan, TextView, TrackSize, VerticalAlign, View, ViewKind,
         WidthRule,
     },
+    presentation::stream::{ProjectedText, StreamRange},
     theme,
 };
 
@@ -147,6 +148,164 @@ impl ViewCompiler {
     }
 
     /// Shared text compiler used by both ordinary [`View`] layout and streaming provenance compilation.
+    pub(crate) fn compile_projected_text_with_metadata(
+        &self,
+        text: &ProjectedText,
+        max_width: u16,
+        inherited: Style,
+    ) -> (u16, Vec<CompiledTextRow>) {
+        use crate::presentation::stream::ProjectedTextLayout;
+        use crate::presentation::wrap::{StyledGrapheme, wrap_styled_lines};
+        use std::borrow::Cow;
+
+        if let ProjectedTextLayout::Hanging {
+            body_column,
+            prefix,
+            prefix_style,
+            show_prefix,
+            ..
+        } = &text.layout
+        {
+            let body_start = text
+                .runs
+                .first()
+                .map_or(text.content_range.end, |run| run.owned.start);
+            let body = ProjectedText {
+                content_range: StreamRange::new(body_start, text.content_range.end),
+                terminator: text.terminator,
+                width: WidthRule::Fill,
+                wrap: text.wrap,
+                align: text.align,
+                layout: ProjectedTextLayout::Plain,
+                runs: text.runs.clone(),
+            };
+            let body_width = max_width.saturating_sub(*body_column).max(1);
+            let (_, body_rows) =
+                self.compile_projected_text_with_metadata(&body, body_width, inherited);
+            let prefix_width = UnicodeWidthStr::width(prefix.as_str());
+            let mut rows = Vec::with_capacity(body_rows.len());
+            for (index, mut row) in body_rows.into_iter().enumerate() {
+                let indent = if index == 0 && *show_prefix {
+                    prefix.clone()
+                } else {
+                    " ".repeat(usize::from(*body_column))
+                };
+                let prefix_style = if index == 0 && *show_prefix {
+                    self.theme.resolve(prefix_style, inherited)
+                } else {
+                    inherited
+                };
+                let mut spans = vec![Span::styled(indent, prefix_style)];
+                spans.extend(row.line.spans.drain(..));
+                let mut merged: Vec<Span<'static>> = Vec::with_capacity(spans.len());
+                for span in spans {
+                    if let Some(last) = merged.last_mut()
+                        && last.style == span.style
+                    {
+                        last.content.to_mut().push_str(span.content.as_ref());
+                    } else {
+                        merged.push(span);
+                    }
+                }
+                row.line = Line::from(merged);
+                row.width = row.width.saturating_add(if index == 0 && *show_prefix {
+                    prefix_width
+                } else {
+                    usize::from(*body_column)
+                });
+                row.fits = row.width <= usize::from(max_width);
+                row.source_end = row.source_end.map(|end| {
+                    end + (body_start.as_u64() - text.content_range.start.as_u64()) as usize
+                });
+                rows.push(row);
+            }
+            return (max_width, rows);
+        }
+
+        let mut hard_lines: Vec<Vec<StyledGrapheme<'static>>> = vec![Vec::new()];
+        for run in &text.runs {
+            if run.display.is_empty() {
+                continue;
+            }
+            let style = self.theme.resolve(&run.style, inherited);
+            let Some(visible) = run.exact_visible else {
+                hard_lines.last_mut().unwrap().push(StyledGrapheme {
+                    text: Cow::Owned(run.display.clone()),
+                    width: UnicodeWidthStr::width(run.display.as_str()),
+                    style,
+                    source: Some(
+                        (run.owned.start.as_u64() - text.content_range.start.as_u64()) as usize
+                            ..(run.owned.end.as_u64() - text.content_range.start.as_u64()) as usize,
+                    ),
+                });
+                continue;
+            };
+
+            for (relative, grapheme) in run.display.grapheme_indices(true) {
+                let relative_end = relative + grapheme.len();
+                let mut source_start = visible.start.as_u64() + relative as u64;
+                let mut source_end = visible.start.as_u64() + relative_end as u64;
+                if relative == 0 {
+                    source_start = run.owned.start.as_u64();
+                }
+                if relative_end == run.display.len() {
+                    source_end = run.owned.end.as_u64();
+                }
+                let mapped = StyledGrapheme {
+                    text: Cow::Owned(grapheme.to_string()),
+                    width: UnicodeWidthStr::width(grapheme),
+                    style,
+                    source: Some(
+                        (source_start - text.content_range.start.as_u64()) as usize
+                            ..(source_end - text.content_range.start.as_u64()) as usize,
+                    ),
+                };
+                if grapheme == "\n" {
+                    hard_lines.push(Vec::new());
+                } else {
+                    hard_lines.last_mut().unwrap().push(mapped);
+                }
+            }
+        }
+
+        let intrinsic_width = hard_lines
+            .iter()
+            .map(|line| line.iter().map(|atom| atom.width).sum::<usize>())
+            .max()
+            .unwrap_or(0);
+        let width = match text.width {
+            WidthRule::Fit => intrinsic_width.min(usize::from(max_width)) as u16,
+            WidthRule::Fill => max_width,
+        };
+        let wrapped = wrap_styled_lines(&hard_lines, width, text.wrap);
+        let rows = wrapped
+            .into_iter()
+            .map(|w_line| {
+                let mut spans: Vec<Span<'static>> = Vec::new();
+                for g in &w_line.graphemes {
+                    if let Some(last) = spans.last_mut()
+                        && last.style == g.style
+                    {
+                        last.content.to_mut().push_str(g.text.as_ref());
+                    } else {
+                        spans.push(Span::styled(g.text.to_string(), g.style));
+                    }
+                }
+                CompiledTextRow {
+                    line: Line::from(spans),
+                    source_end: w_line
+                        .graphemes
+                        .last()
+                        .and_then(|g| g.source.as_ref())
+                        .map(|r| r.end),
+                    fits: w_line.fits,
+                    width: w_line.width,
+                }
+            })
+            .collect();
+        (width, rows)
+    }
+
     pub(crate) fn compile_text_with_metadata(
         &self,
         text: &TextView,

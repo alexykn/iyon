@@ -299,10 +299,8 @@ impl TuiFormatter {
         rows
     }
 
-    /// Formats `segments` into logical rows, **including** per-row freeze metadata
-    /// for the active (streaming) pane. Rows that hide markdown markers report
-    /// `restricted = true` so the active pane freezes them whole-line; otherwise
-    /// a partial freeze would render differently live vs. committed.
+    /// Formats `segments` into logical rows, including the legacy rendering
+    /// metadata used by compatibility callers.
     pub(crate) fn format_assistant_body_meta(
         &self,
         segments: &[AssistantSegment],

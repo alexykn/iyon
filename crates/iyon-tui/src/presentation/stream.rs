@@ -11,7 +11,7 @@ use std::{fmt::Debug, time::Instant};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::presentation::api::{
-    ColumnView, HorizontalAlign, TextSpan, TextView, View, ViewKind, WidthRule, WrapMode,
+    ColumnView, HorizontalAlign, RowChild, StyleSpec, TextSpan, View, ViewKind, WidthRule, WrapMode,
 };
 
 /// Opaque monotonic coordinate within a stream's source space.
@@ -82,16 +82,15 @@ impl StreamRange {
 /// Semantic provenance attached to stream view nodes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum StreamProvenance {
-    /// Presentation corresponds directly to this source (e.g. plain streamed text,
-    /// thinking text) and can advance its source cursor row-by-row.
-    Exact(StreamRange),
+    /// A source-mapped text flow whose physical rows can expose monotonic source
+    /// checkpoints, including transformed Markdown text.
+    Projected(StreamRange),
 
-    /// Presentation is derived from this source (e.g. Markdown bold/italic, code,
-    /// list bullets) and must be treated as one semantic unit for commit purposes.
+    /// Presentation is genuinely indivisible and must be committed as one unit.
     Atomic(StreamRange),
 }
 
-/// Structural terminator owned by an [`StreamNode::ExactText`] node after its visible text.
+/// Structural terminator owned by a projected text node after its visible text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum ExactTerminator {
     #[default]
@@ -114,35 +113,22 @@ impl ExactTerminator {
 /// structural terminator, making arbitrary hidden source unrepresentable.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum StreamNode {
-    ExactText {
-        /// Source represented 1:1 by visible TextView UTF-8 bytes.
-        text_range: StreamRange,
+    Text(ProjectedText),
 
-        /// Structural source owned after the final physical row.
-        terminator: ExactTerminator,
-
-        width: WidthRule,
-        text: TextView,
-    },
-
-    Atomic {
-        range: StreamRange,
-        view: View,
-    },
+    Atomic { range: StreamRange, view: View },
 }
 
 impl StreamNode {
+    pub(crate) fn projected_text(text: ProjectedText) -> Self {
+        Self::Text(text)
+    }
+
     pub(crate) fn exact_text(text_range: StreamRange, spans: Vec<TextSpan>) -> Self {
-        Self::ExactText {
+        Self::Text(ProjectedText::identity(
             text_range,
-            terminator: ExactTerminator::None,
-            width: WidthRule::Fit,
-            text: TextView {
-                spans,
-                wrap: WrapMode::WordThenGrapheme,
-                align: HorizontalAlign::Start,
-            },
-        }
+            ExactTerminator::None,
+            spans,
+        ))
     }
 
     pub(crate) fn exact_line(
@@ -150,25 +136,20 @@ impl StreamNode {
         spans: Vec<TextSpan>,
         has_newline: bool,
     ) -> Self {
-        Self::ExactText {
+        Self::Text(ProjectedText::identity(
             text_range,
-            terminator: if has_newline {
+            if has_newline {
                 ExactTerminator::HardNewline
             } else {
                 ExactTerminator::None
             },
-            width: WidthRule::Fit,
-            text: TextView {
-                spans,
-                wrap: WrapMode::WordThenGrapheme,
-                align: HorizontalAlign::Start,
-            },
-        }
+            spans,
+        ))
     }
 
     pub(crate) fn with_width(mut self, width_rule: WidthRule) -> Self {
-        if let Self::ExactText { width, .. } = &mut self {
-            *width = width_rule;
+        if let Self::Text(text) = &mut self {
+            text.width = width_rule;
         }
         self
     }
@@ -180,14 +161,7 @@ impl StreamNode {
     /// The full monotonic source range owned by this node (including any typed structural terminator).
     pub(crate) fn owned_range(&self) -> StreamRange {
         match self {
-            Self::ExactText {
-                text_range,
-                terminator,
-                ..
-            } => StreamRange::new(
-                text_range.start,
-                text_range.end.saturating_add(terminator.source_len()),
-            ),
+            Self::Text(text) => text.owned_range(),
             Self::Atomic { range, .. } => *range,
         }
     }
@@ -198,9 +172,155 @@ impl StreamNode {
 
     pub(crate) fn provenance(&self) -> StreamProvenance {
         match self {
-            Self::ExactText { .. } => StreamProvenance::Exact(self.owned_range()),
+            Self::Text(_) => StreamProvenance::Projected(self.owned_range()),
             Self::Atomic { range, .. } => StreamProvenance::Atomic(*range),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ProjectedText {
+    pub(crate) content_range: StreamRange,
+    pub(crate) terminator: ExactTerminator,
+    pub(crate) width: WidthRule,
+    pub(crate) wrap: WrapMode,
+    pub(crate) align: HorizontalAlign,
+    pub(crate) layout: ProjectedTextLayout,
+    pub(crate) runs: Vec<ProjectedTextRun>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ProjectedTextLayout {
+    Plain,
+    Hanging {
+        body_column: u16,
+        prefix: String,
+        prefix_style: StyleSpec,
+        prefix_source: StreamRange,
+        show_prefix: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ProjectedTextRun {
+    pub(crate) display: String,
+    pub(crate) style: StyleSpec,
+    pub(crate) owned: StreamRange,
+    pub(crate) exact_visible: Option<StreamRange>,
+}
+
+impl ProjectedText {
+    pub(crate) fn owned_range(&self) -> StreamRange {
+        StreamRange::new(
+            self.content_range.start,
+            self.content_range
+                .end
+                .saturating_add(self.terminator.source_len()),
+        )
+    }
+
+    pub(crate) fn identity(
+        content_range: StreamRange,
+        terminator: ExactTerminator,
+        spans: Vec<TextSpan>,
+    ) -> Self {
+        let mut cursor = content_range.start;
+        let mut runs: Vec<ProjectedTextRun> = Vec::new();
+        for span in spans {
+            if span.text.is_empty() {
+                continue;
+            }
+            let start = cursor;
+            cursor = cursor.saturating_add(span.text.len() as u64);
+            if let Some(previous) = runs.last_mut()
+                && previous.style == span.style
+                && previous.owned.end == start
+            {
+                previous.display.push_str(&span.text);
+                previous.owned.end = cursor;
+                previous.exact_visible = Some(StreamRange::new(previous.owned.start, cursor));
+            } else {
+                runs.push(ProjectedTextRun {
+                    display: span.text,
+                    style: span.style,
+                    owned: StreamRange::new(start, cursor),
+                    exact_visible: Some(StreamRange::new(start, cursor)),
+                });
+            }
+        }
+        Self {
+            content_range,
+            terminator,
+            width: WidthRule::Fit,
+            wrap: WrapMode::WordThenGrapheme,
+            align: HorizontalAlign::Start,
+            layout: ProjectedTextLayout::Plain,
+            runs,
+        }
+    }
+}
+
+fn slice_projected_text(text: &ProjectedText, offset: StreamOffset) -> ProjectedText {
+    assert!(offset > text.content_range.start);
+    assert!(offset < text.owned_range().end);
+    assert!(
+        offset <= text.content_range.end,
+        "cannot slice inside a terminator"
+    );
+
+    let mut runs = Vec::new();
+    for run in &text.runs {
+        if run.owned.end <= offset {
+            continue;
+        }
+        if run.owned.start >= offset {
+            runs.push(run.clone());
+            continue;
+        }
+
+        let Some(visible) = run.exact_visible else {
+            panic!("projected replacement may only be sliced at run boundaries");
+        };
+        assert!(offset >= visible.start && offset <= visible.end);
+        let relative = offset.as_u64().saturating_sub(visible.start.as_u64()) as usize;
+        assert!(run.display.is_char_boundary(relative));
+        assert!(
+            run.display
+                .grapheme_indices(true)
+                .any(|(start, _)| start == relative)
+        );
+        let display = run.display[relative..].to_string();
+        runs.push(ProjectedTextRun {
+            display,
+            style: run.style.clone(),
+            owned: StreamRange::new(offset, run.owned.end),
+            exact_visible: Some(StreamRange::new(offset, visible.end)),
+        });
+    }
+
+    ProjectedText {
+        content_range: StreamRange::new(offset, text.content_range.end),
+        terminator: text.terminator,
+        width: text.width,
+        wrap: text.wrap,
+        align: text.align,
+        layout: match &text.layout {
+            ProjectedTextLayout::Plain => ProjectedTextLayout::Plain,
+            ProjectedTextLayout::Hanging {
+                body_column,
+                prefix,
+                prefix_style,
+                prefix_source,
+                ..
+            } => ProjectedTextLayout::Hanging {
+                body_column: *body_column,
+                prefix: prefix.clone(),
+                prefix_style: prefix_style.clone(),
+                prefix_source: *prefix_source,
+                show_prefix: offset <= prefix_source.start,
+            },
+        },
+        runs,
     }
 }
 
@@ -223,10 +343,47 @@ impl StreamView {
             .nodes
             .into_iter()
             .map(|node| match node {
-                StreamNode::ExactText { width, text, .. } => View {
-                    width,
-                    kind: ViewKind::Text(text),
-                },
+                StreamNode::Text(text) => {
+                    let body = View::styled_text(
+                        text.runs
+                            .iter()
+                            .filter(|run| !run.display.is_empty())
+                            .cloned()
+                            .map(|run| TextSpan::styled(run.display, run.style))
+                            .collect(),
+                    )
+                    .width(match &text.layout {
+                        ProjectedTextLayout::Plain => text.width,
+                        ProjectedTextLayout::Hanging { .. } => WidthRule::Fill,
+                    });
+                    match &text.layout {
+                        ProjectedTextLayout::Plain => body,
+                        ProjectedTextLayout::Hanging {
+                            body_column,
+                            prefix,
+                            prefix_style,
+                            show_prefix,
+                            ..
+                        } => View::row(
+                            vec![
+                                RowChild::fixed(
+                                    *body_column,
+                                    if *show_prefix {
+                                        View::styled_text(vec![TextSpan::styled(
+                                            prefix.clone(),
+                                            prefix_style.clone(),
+                                        )])
+                                        .no_wrap()
+                                    } else {
+                                        View::text("").width(WidthRule::Fill)
+                                    },
+                                ),
+                                RowChild::flex(body),
+                            ],
+                            0,
+                        ),
+                    }
+                }
                 StreamNode::Atomic { view, .. } => view,
             })
             .collect();
@@ -238,18 +395,26 @@ impl StreamView {
     }
 
     pub(crate) fn suffix_from(&self, offset: StreamOffset) -> Self {
-        debug_assert!(self.nodes.iter().all(|node| {
+        let mut nodes = Vec::new();
+        for node in &self.nodes {
             let range = node.owned_range();
-            range.end <= offset || range.start >= offset
-        }));
-
-        Self::new(
-            self.nodes
-                .iter()
-                .filter(|node| node.owned_range().start >= offset)
-                .cloned()
-                .collect(),
-        )
+            if range.end <= offset {
+                continue;
+            }
+            if range.start >= offset {
+                nodes.push(node.clone());
+                continue;
+            }
+            match node {
+                StreamNode::Text(text) => {
+                    nodes.push(StreamNode::Text(slice_projected_text(text, offset)));
+                }
+                StreamNode::Atomic { .. } => {
+                    panic!("stream suffix cuts an indivisible atomic node")
+                }
+            }
+        }
+        Self::new(nodes)
     }
 
     pub(crate) fn empty() -> Self {
@@ -313,14 +478,13 @@ impl StreamSnapshot {
                 return false;
             }
 
-            if let StreamNode::ExactText {
-                text_range, text, ..
-            } = node
-            {
-                let visible_len: u64 = text.spans.iter().map(|span| span.text.len() as u64).sum();
-                if visible_len != text_range.len() {
-                    return false;
+            match node {
+                StreamNode::Text(text) => {
+                    if !validate_projected_text(text) {
+                        return false;
+                    }
                 }
+                StreamNode::Atomic { .. } => {}
             }
 
             expected = owned.end;
@@ -333,6 +497,52 @@ impl StreamSnapshot {
 
         true
     }
+}
+
+fn validate_projected_text(text: &ProjectedText) -> bool {
+    if text.content_range.start > text.content_range.end {
+        return false;
+    }
+    let mut expected = match &text.layout {
+        ProjectedTextLayout::Plain => text.content_range.start,
+        ProjectedTextLayout::Hanging {
+            prefix_source,
+            show_prefix,
+            ..
+        } => {
+            if *show_prefix {
+                if prefix_source.start != text.content_range.start
+                    || prefix_source.end > text.content_range.end
+                {
+                    return false;
+                }
+                prefix_source.end
+            } else {
+                text.content_range.start
+            }
+        }
+    };
+    for run in &text.runs {
+        if run.owned.start != expected || run.owned.start >= run.owned.end {
+            return false;
+        }
+        if run.owned.end > text.content_range.end {
+            return false;
+        }
+        if let Some(visible) = run.exact_visible {
+            if visible.start < run.owned.start
+                || visible.end > run.owned.end
+                || visible.start > visible.end
+            {
+                return false;
+            }
+            if run.display.len() != visible.len() as usize {
+                return false;
+            }
+        }
+        expected = run.owned.end;
+    }
+    expected == text.content_range.end
 }
 
 /// Trait for append-only streaming content with explicit source coordinates and semantic stability.
@@ -484,7 +694,8 @@ where
                 )
             }
             _ => {
-                let compiled = compile_stream(&snapshot.view, width, snapshot.stable_through);
+                let live_view = snapshot.view.suffix_from(self.committed_through);
+                let compiled = compile_stream(&live_view, width, snapshot.stable_through);
                 (compiled.rows.clone(), compiled)
             }
         };
@@ -599,9 +810,9 @@ where
 
         let snapshot = self.content.snapshot();
         assert!(snapshot.validate(), "invalid final stream snapshot");
-        assert_eq!(
-            snapshot.source_base, self.committed_through,
-            "resident handoff must begin at the native-history cursor"
+        assert!(
+            snapshot.source_base <= self.committed_through,
+            "resident handoff cannot retain a source base past the native-history cursor"
         );
         assert_eq!(
             snapshot.stable_through, snapshot.source_end,
@@ -617,9 +828,12 @@ where
 
         ResidentStreamHandoff {
             unit_id: self.unit_id,
-            source_base: snapshot.source_base,
+            source_base: self.committed_through,
             source_end: snapshot.source_end,
-            view: snapshot.view.into_static_view(),
+            view: snapshot
+                .view
+                .suffix_from(self.committed_through)
+                .into_static_view(),
             leading_boundary: self.leading_boundary,
         }
     }
@@ -931,23 +1145,11 @@ pub(crate) fn compile_stream(
 
     for node in &view.nodes {
         match node {
-            StreamNode::ExactText {
-                text_range,
-                terminator,
-                width: width_rule,
-                text,
-            } => {
-                let (_w, compiled_rows) = compiler.compile_text_with_metadata(
-                    text,
-                    width,
-                    *width_rule,
-                    Style::default(),
-                    true,
-                );
-
-                let final_offset = text_range.end.saturating_add(terminator.source_len());
+            StreamNode::Text(text) => {
+                let (_w, compiled_rows) =
+                    compiler.compile_projected_text_with_metadata(text, width, Style::default());
+                let final_offset = text.owned_range().end;
                 let row_count = compiled_rows.len();
-
                 if row_count == 0 {
                     rows.push(ratatui::text::Line::default());
                     if !blocked && final_offset <= stable_through {
@@ -963,12 +1165,11 @@ pub(crate) fn compile_stream(
                         let offset = if is_last {
                             final_offset
                         } else {
-                            row.source_end.map_or(text_range.start, |rel| {
-                                text_range.start.saturating_add(rel as u64)
+                            row.source_end.map_or(text.content_range.start, |relative| {
+                                text.content_range.start.saturating_add(relative as u64)
                             })
                         };
                         rows.push(row.line);
-
                         if !blocked && row.fits && offset <= stable_through {
                             commit.push(StreamRowCommit::Exact(offset));
                             committable_prefix_rows += 1;
@@ -1062,16 +1263,23 @@ mod tests {
 
     #[test]
     fn snapshot_validation_rejects_invalid_visible_source_length() {
-        let node = StreamNode::ExactText {
-            text_range: StreamRange::new(StreamOffset::new(0), StreamOffset::new(100)),
+        let node = StreamNode::projected_text(ProjectedText {
+            content_range: StreamRange::new(StreamOffset::new(0), StreamOffset::new(100)),
             terminator: ExactTerminator::None,
             width: WidthRule::Fit,
-            text: TextView {
-                spans: vec![TextSpan::plain("abc")], // 3 bytes, but range is 100
-                wrap: WrapMode::WordThenGrapheme,
-                align: HorizontalAlign::Start,
-            },
-        };
+            wrap: WrapMode::WordThenGrapheme,
+            align: HorizontalAlign::Start,
+            layout: ProjectedTextLayout::Plain,
+            runs: vec![ProjectedTextRun {
+                display: "abc".to_string(),
+                style: StyleSpec::default(),
+                owned: StreamRange::new(StreamOffset::new(0), StreamOffset::new(100)),
+                exact_visible: Some(StreamRange::new(
+                    StreamOffset::new(0),
+                    StreamOffset::new(100),
+                )),
+            }],
+        });
 
         let snapshot = StreamSnapshot {
             revision: StreamRevision::new(1),
