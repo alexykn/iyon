@@ -89,6 +89,30 @@ impl ScrollbackCoordinator {
         Ok(())
     }
 
+    /// Advances the currently committable transcript prefix for ordering purposes.
+    ///
+    /// Unlike [`Self::commit_running_overflow`], this is not driven by viewport
+    /// pressure. It is used when a later hosted unit wants native-history ownership:
+    /// every committable predecessor row must be accepted before that host may write.
+    pub(crate) fn commit_transcript_prefix(
+        &mut self,
+        terminal: &mut InlineTerminal,
+        transcript: &mut TranscriptState,
+        max_rows: usize,
+    ) -> Result<usize> {
+        let rows_to_commit = max_rows
+            .min(transcript.uncommitted_len())
+            .min(transcript.committable_len());
+        if rows_to_commit == 0 {
+            return Ok(0);
+        }
+
+        let rows = transcript.uncommitted_rows()[..rows_to_commit].to_vec();
+        let outcome = self.commit_rows_lossless(terminal, &rows)?;
+        transcript.mark_rows_committed(outcome.inserted);
+        Ok(outcome.inserted)
+    }
+
     pub(crate) fn commit_running_overflow(
         &mut self,
         terminal: &mut InlineTerminal,

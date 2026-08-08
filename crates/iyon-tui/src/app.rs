@@ -327,20 +327,41 @@ impl App {
         terminal: &mut InlineTerminal,
         state: &mut AppState,
     ) -> Result<()> {
-        let root = self.current_root_rect(terminal)?;
+        let mut root = self.current_root_rect(terminal)?;
         state.transcript.ensure_render_cache(root.width.max(1));
 
         if state.assistant_stream.is_some() {
-            state.prepare_assistant_frame(root.width.max(1), EXIT_DRAIN_CHUNK);
-            let prepared = state.assistant_frame.take();
-            if let (Some(hosted), Some(prepared)) = (state.assistant_stream.as_mut(), prepared) {
-                self.scrollback
-                    .commit_stream_frame(terminal, hosted, prepared)?;
-            }
-            state.retire_assistant_stream_if_fully_committed();
-            state.transcript.ensure_render_cache(root.width.max(1));
-            if state.assistant_stream.is_some() {
-                return Ok(());
+            let host_is_head = state
+                .assistant_stream
+                .as_ref()
+                .is_some_and(|hosted| state.transcript.hosted_unit_is_history_head(hosted.unit_id));
+            if !host_is_head {
+                let inserted = self.scrollback.commit_transcript_prefix(
+                    terminal,
+                    &mut state.transcript,
+                    EXIT_DRAIN_CHUNK,
+                )?;
+                if inserted > 0 {
+                    return Ok(());
+                }
+            } else {
+                state.prepare_assistant_frame(root.width.max(1), EXIT_DRAIN_CHUNK);
+                let prepared = state.assistant_frame.take();
+                if let (Some(hosted), Some(prepared)) = (state.assistant_stream.as_mut(), prepared)
+                {
+                    debug_assert!(
+                        state.transcript.hosted_unit_is_history_head(hosted.unit_id),
+                        "HostedStream attempted to leapfrog an earlier transcript unit"
+                    );
+                    self.scrollback
+                        .commit_stream_frame(terminal, hosted, prepared)?;
+                }
+                root = self.current_root_rect(terminal)?;
+                state.retire_assistant_stream_if_fully_committed();
+                state.transcript.ensure_render_cache(root.width.max(1));
+                if state.assistant_stream.is_some() {
+                    return Ok(());
+                }
             }
         }
 
