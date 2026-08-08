@@ -17,6 +17,14 @@ use crate::{
 };
 use iyon_core::ReasoningLevel;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FinalizeResult {
+    Nothing,
+    NeedsPinnedDrain,
+    HandedOff,
+    FullyNative,
+}
+
 #[derive(Debug)]
 pub(crate) struct AppState {
     pub(crate) input: InputBuffer,
@@ -78,42 +86,10 @@ impl AppState {
             .map_or(&[], |frame| frame.live_rows.as_slice())
     }
 
-    pub(crate) fn assistant_desired_height(&self) -> u16 {
-        if self.assistant_stream.is_none() {
-            return 0;
-        }
-
-        const COMPOSER_GAP_ROWS: usize = 1;
-        let conversation_rows = self.assistant_live_rows().len();
-        u16::try_from(conversation_rows.saturating_add(COMPOSER_GAP_ROWS)).unwrap_or(u16::MAX)
-    }
-
-    pub(crate) fn assistant_commit_rows_for_height(&self, height: u16) -> usize {
-        let live_rows = self.assistant_live_rows().len();
-        if live_rows == 0 {
-            return 0;
-        }
-
-        // A sealed host must drain all remaining physical rows even when its
-        // projection fits the live viewport. Otherwise it can never retire and
-        // the conversation barrier would remain active forever.
-        if self
-            .assistant_stream
-            .as_ref()
-            .is_some_and(HostedStream::is_sealed)
-        {
-            return live_rows;
-        }
-
-        // Open streams spill only physical overflow. Transient chrome consumes
-        // region height, but never changes the hosted projection or ownership.
-        let chrome_height = self
-            .active
-            .as_ref()
-            .map_or(0, ActivePaneState::desired_height);
-        let conversation_height = usize::from(height).saturating_sub(usize::from(chrome_height));
-        let conversation_capacity = conversation_height.saturating_sub(1).max(1);
-        live_rows.saturating_sub(conversation_capacity)
+    pub(crate) fn conversation_row_count(&self) -> usize {
+        self.transcript
+            .uncommitted_len()
+            .saturating_add(self.assistant_live_rows().len())
     }
 
     pub(crate) fn seal_assistant_stream(&mut self) {
@@ -131,27 +107,37 @@ impl AppState {
             .seal_hosted_assistant_unit(unit_id, segments);
     }
 
-    pub(crate) fn retire_assistant_stream_if_fully_committed(&mut self) {
+    pub(crate) fn finalize_sealed_assistant_stream(&mut self) -> FinalizeResult {
         let Some(hosted) = self.assistant_stream.as_ref() else {
-            return;
+            return FinalizeResult::Nothing;
         };
-        if !hosted.is_fully_committed() {
-            return;
+        if !hosted.is_sealed() {
+            return FinalizeResult::Nothing;
+        }
+        if !hosted.can_handoff() {
+            return FinalizeResult::NeedsPinnedDrain;
         }
 
-        let unit_id = self
-            .assistant_stream
-            .as_ref()
-            .expect("host checked above")
-            .unit_id;
-        debug_assert!(
-            self.transcript.hosted_unit_is_history_head(unit_id),
-            "HostedStream retired ahead of global transcript frontier"
-        );
-        self.transcript.finish_stream_unit(unit_id);
-        self.assistant_stream.take().expect("host checked above");
+        let unit_id = hosted.unit_id;
+        let hosted = self.assistant_stream.take().expect("host checked above");
+        let handoff = hosted.into_resident_handoff();
         self.assistant_frame = None;
+
+        let fully_native = handoff.source_base == handoff.source_end
+            && handoff.leading_boundary != crate::presentation::LeadingBoundaryState::Pending;
+        if fully_native && self.transcript.hosted_unit_is_history_head(unit_id) {
+            debug_assert!(
+                self.transcript.hosted_unit_is_history_head(unit_id),
+                "HostedStream retired ahead of global transcript frontier"
+            );
+            self.transcript.finish_stream_unit(unit_id);
+            self.replay_deferred_conversation();
+            return FinalizeResult::FullyNative;
+        }
+
+        self.transcript.adopt_resident_stream(handoff);
         self.replay_deferred_conversation();
+        FinalizeResult::HandedOff
     }
 
     pub(crate) fn start_tool_call(
@@ -357,16 +343,6 @@ impl AppState {
             return;
         }
 
-        // A sealed host that has already finished its physical write is still only
-        // awaiting the next retirement pass. Retire it before accepting a new source;
-        // a sealed host must never be reused.
-        if self
-            .assistant_stream
-            .as_ref()
-            .is_some_and(|hosted| hosted.is_sealed() && hosted.is_fully_committed())
-        {
-            self.retire_assistant_stream_if_fully_committed();
-        }
         if self.defer_conversation(DeferredConversationAction::StreamSegments(chunks.clone())) {
             return;
         }
@@ -424,7 +400,7 @@ impl AppState {
     fn conversation_barrier_active(&self) -> bool {
         self.assistant_stream
             .as_ref()
-            .is_some_and(|hosted| hosted.is_sealed() && !hosted.is_fully_committed())
+            .is_some_and(HostedStream::is_sealed)
     }
 
     fn defer_after_current_stream(&mut self, action: DeferredConversationAction) -> bool {
@@ -634,6 +610,17 @@ pub(crate) struct InfoState {
 mod tests {
     use super::*;
 
+    fn conversation_rows(state: &mut AppState, width: u16) -> Vec<Line<'static>> {
+        state.transcript.ensure_render_cache(width);
+        state
+            .transcript
+            .uncommitted_rows()
+            .iter()
+            .cloned()
+            .chain(state.assistant_live_rows().iter().cloned())
+            .collect()
+    }
+
     #[test]
     fn hosted_stream_is_the_only_assistant_content_store() {
         let mut state = AppState::default();
@@ -647,6 +634,53 @@ mod tests {
             )]
         );
         assert!(state.active.is_none());
+    }
+
+    #[test]
+    fn pending_leading_boundary_survives_resident_handoff_without_row_change() {
+        let mut state = AppState::default();
+        state.transcript.push_item(TimelineItem::UserMessage {
+            text: "user".to_string(),
+        });
+        state.receive_stream_segments(vec![(SegmentKind::Text, "assistant".to_string())]);
+        state.prepare_assistant_frame(80, 0);
+        let before = conversation_rows(&mut state, 80);
+
+        state.finish_active_turn();
+        assert_eq!(
+            state.finalize_sealed_assistant_stream(),
+            FinalizeResult::HandedOff
+        );
+        state.prepare_assistant_frame(80, 0);
+        let after = conversation_rows(&mut state, 80);
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn committed_leading_boundary_is_not_repeated_by_resident_tail() {
+        let mut state = AppState::default();
+        state.transcript.push_item(TimelineItem::UserMessage {
+            text: "user".to_string(),
+        });
+        state.receive_stream_segments(vec![(SegmentKind::Text, "a\nb\nc".to_string())]);
+        state.prepare_assistant_frame(80, 2);
+        let prepared = state.assistant_frame.take().expect("first host frame");
+        state
+            .assistant_stream
+            .as_mut()
+            .expect("host")
+            .apply_commit_success(prepared.history);
+        state.prepare_assistant_frame(80, 0);
+        let before = conversation_rows(&mut state, 80);
+
+        state.finish_active_turn();
+        assert_eq!(
+            state.finalize_sealed_assistant_stream(),
+            FinalizeResult::HandedOff
+        );
+        state.prepare_assistant_frame(80, 0);
+        let after = conversation_rows(&mut state, 80);
+        assert_eq!(before, after);
     }
 
     #[test]
@@ -678,7 +712,7 @@ mod tests {
     }
 
     #[test]
-    fn sealed_host_defers_new_stream_until_retirement() {
+    fn sealed_host_defers_new_stream_until_handoff() {
         let mut state = AppState::default();
         state.receive_stream_segments(vec![(SegmentKind::Text, "assistant A".to_string())]);
         let first_id = state.assistant_stream.as_ref().expect("host A").unit_id;
@@ -703,7 +737,7 @@ mod tests {
             .as_mut()
             .expect("host A retained")
             .apply_commit_success(prepared.history);
-        state.retire_assistant_stream_if_fully_committed();
+        state.finalize_sealed_assistant_stream();
 
         let host_b = state.assistant_stream.as_ref().expect("host B replayed");
         assert_ne!(host_b.unit_id, first_id);
@@ -725,49 +759,35 @@ mod tests {
     }
 
     #[test]
-    fn sealed_fitting_assistant_drains_and_unblocks_next_turn() {
+    fn sealed_fitting_assistant_handoff_unblocks_next_turn() {
         let mut state = AppState::default();
         state.submit_user_message("first".to_string());
         state.receive_stream_segments(vec![(SegmentKind::Text, "short answer".to_string())]);
         state.prepare_assistant_frame(80, 0);
 
         // An open stream that fits does not spill merely because it is visible.
-        assert_eq!(state.assistant_commit_rows_for_height(40), 0);
+        assert_eq!(
+            state.conversation_row_count(),
+            state.transcript.uncommitted_len() + state.assistant_live_rows().len()
+        );
 
         state.finish_active_turn();
         state.prepare_assistant_frame(80, 0);
         let live_rows = state.assistant_live_rows().len();
         assert!(live_rows > 0);
 
-        // A sealed stream drains its complete hosted projection regardless of
-        // viewport overflow, allowing its barrier to retire.
-        assert_eq!(state.assistant_commit_rows_for_height(40), live_rows);
-
-        // The user unit is the predecessor of this hosted assistant. Simulate the
-        // ordered prefix drain that FrameCoordinator performs before host writes.
-        state.transcript.ensure_render_cache(80);
-        let user_rows = state.transcript.committable_len();
-        assert!(user_rows > 0);
-        state.transcript.mark_rows_committed(user_rows);
-        assert!(
-            state.transcript.hosted_unit_is_history_head(
-                state
-                    .assistant_stream
-                    .as_ref()
-                    .expect("sealed host")
-                    .unit_id
-            )
+        // Sealing hands the immutable suffix to TranscriptState without forcing
+        // those rows into native history or changing the canonical unit ID.
+        assert_eq!(
+            state.finalize_sealed_assistant_stream(),
+            super::FinalizeResult::HandedOff
         );
-
-        state.prepare_assistant_frame(80, live_rows);
-        let prepared = state.assistant_frame.take().expect("sealed frame");
-        state
-            .assistant_stream
-            .as_mut()
-            .expect("sealed host")
-            .apply_commit_success(prepared.history);
-        state.retire_assistant_stream_if_fully_committed();
         assert!(state.assistant_stream.is_none());
+        state.transcript.ensure_render_cache(80);
+        assert_eq!(
+            state.transcript.uncommitted_rows().len(),
+            state.transcript.committable_len()
+        );
 
         state.submit_user_message("second".to_string());
         assert!(state.deferred_conversation.is_empty());
@@ -800,7 +820,7 @@ mod tests {
             .as_mut()
             .expect("first host")
             .apply_commit_success(prepared.history);
-        state.retire_assistant_stream_if_fully_committed();
+        state.finalize_sealed_assistant_stream();
 
         assert!(matches!(
             state.deferred_conversation.front(),
@@ -900,14 +920,14 @@ mod tests {
     }
 
     #[test]
-    fn sealing_keeps_host_until_successful_final_promotion() {
+    fn sealing_hands_off_before_full_history_promotion() {
         let mut state = AppState::default();
         state.receive_stream_segments(vec![(SegmentKind::Text, "hello".to_string())]);
         state.finish_active_turn();
 
         let hosted = state.assistant_stream.as_ref().expect("host retained");
         assert!(hosted.is_sealed());
-        assert!(!hosted.is_fully_committed());
+        assert!(hosted.can_handoff());
 
         state.prepare_assistant_frame(80, 10);
         let prepared = state.assistant_frame.take().expect("prepared frame");
@@ -916,19 +936,13 @@ mod tests {
             .as_mut()
             .expect("host retained")
             .apply_commit_success(prepared.history);
-        assert!(
-            state
-                .assistant_stream
-                .as_ref()
-                .unwrap()
-                .is_fully_committed()
-        );
-        state.retire_assistant_stream_if_fully_committed();
+        assert!(state.assistant_stream.as_ref().unwrap().can_handoff());
+        state.finalize_sealed_assistant_stream();
         assert!(state.assistant_stream.is_none());
     }
 
     #[test]
-    fn retired_stream_preserves_birth_unit_id() {
+    fn resident_stream_preserves_birth_unit_id() {
         let mut state = AppState::default();
         state.receive_stream_segments(vec![(SegmentKind::Text, "hello".to_string())]);
         let id = state
@@ -944,13 +958,13 @@ mod tests {
             .as_mut()
             .expect("host retained")
             .apply_commit_success(prepared.history);
-        state.retire_assistant_stream_if_fully_committed();
+        state.finalize_sealed_assistant_stream();
 
         assert_eq!(state.transcript.test_entry_ids(), &[id]);
     }
 
     /// A steered message submitted while the agent is mid-stream seals the assistant
-    /// host and defers the user until the hosted tail has drained.
+    /// host and defers the user until the hosted tail has handed off.
     #[test]
     fn submit_user_message_finalizes_active_assistant() {
         let mut state = AppState::default();
@@ -971,7 +985,7 @@ mod tests {
                 .is_some_and(|hosted| hosted.is_sealed())
         );
         // The user and fresh spinner are deferred until the sealed assistant tail
-        // has entered native history.
+        // has become an immutable resident transcript unit.
         assert!(state.active.is_none());
 
         state.prepare_assistant_frame(80, 10);
@@ -981,7 +995,7 @@ mod tests {
             .as_mut()
             .expect("sealed host")
             .apply_commit_success(prepared.history);
-        state.retire_assistant_stream_if_fully_committed();
+        state.finalize_sealed_assistant_stream();
 
         let items = state.transcript.test_items();
         assert_eq!(items.len(), 2);

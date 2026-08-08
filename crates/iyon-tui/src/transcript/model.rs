@@ -1,11 +1,11 @@
-use std::{borrow::Cow, ops::Range};
+use std::{borrow::Cow, collections::HashMap, ops::Range};
 
 use ratatui::{style::Style, text::Line};
 
 use crate::{
     presentation::{
-        ColorSpec, Decoration, FlowBoundary, Insets, LeadingBoundaryState, ThemeKey, View,
-        WidthRule, internal::compile_view,
+        ColorSpec, Decoration, FlowBoundary, Insets, LeadingBoundaryState, ResidentStreamHandoff,
+        StreamOffset, ThemeKey, View, WidthRule, internal::compile_view,
     },
     theme,
     tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput},
@@ -154,15 +154,29 @@ pub(crate) enum ToolTimelineStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ResidentStreamTail {
+    /// First source byte not already owned by native history.
+    pub(crate) source_base: StreamOffset,
+    /// Final source boundary of the sealed stream.
+    pub(crate) source_end: StreamOffset,
+    /// Static semantic presentation of only `source_base..source_end`.
+    pub(crate) view: View,
+    /// Flow boundary still owned by the resident tail.
+    pub(crate) boundary: FlowBoundary,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PresentationOwnership {
+    Transcript,
+    Hosted,
+    ResidentStream(ResidentStreamTail),
+    NativeHistory,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum TranscriptPresentation {
     View(View),
-
-    /// Semantic record whose live physical rows are owned by HostedStream.
-    HostedAssistant,
-
-    /// Semantic record whose physical rows already belong to native terminal history.
-    NativeHistory,
 
     /// INTERNAL ASSISTANT STREAM SEMANTICS.
     ///
@@ -208,6 +222,7 @@ pub(crate) struct TranscriptUnit {
     pub(crate) id: TranscriptUnitId,
     pub(crate) source_ids: Vec<TranscriptId>,
     pub(crate) presentation: TranscriptPresentation,
+    pub(crate) ownership: PresentationOwnership,
     pub(crate) boundary: FlowBoundary,
     pub(crate) truncation: Truncation,
     pub(crate) lifecycle: EntryLifecycle,
@@ -446,9 +461,7 @@ pub(crate) struct TranscriptState {
     commit_state: TranscriptCommitState,
     formatter: TuiFormatter,
     assistant_stream_open: bool,
-    hosted_stream_units: Vec<TranscriptUnitId>,
-    sealed_hosted_units: Vec<TranscriptUnitId>,
-    native_history_units: Vec<TranscriptUnitId>,
+    ownership: HashMap<TranscriptUnitId, PresentationOwnership>,
 }
 
 impl Default for TranscriptState {
@@ -462,9 +475,7 @@ impl Default for TranscriptState {
             commit_state: TranscriptCommitState::default(),
             formatter: TuiFormatter::default(),
             assistant_stream_open: false,
-            hosted_stream_units: Vec::new(),
-            sealed_hosted_units: Vec::new(),
-            native_history_units: Vec::new(),
+            ownership: HashMap::new(),
         }
     }
 }
@@ -523,7 +534,13 @@ impl TranscriptState {
             segments: Vec::new(),
         });
         self.entry_ids.push(id);
-        self.hosted_stream_units.push(id);
+        assert!(
+            self.ownership
+                .insert(id, PresentationOwnership::Hosted)
+                .is_none(),
+            "a hosted transcript unit cannot be registered twice"
+        );
+        self.assistant_stream_open = true;
         self.rebuild_presentation_cache();
 
         HostedUnitRegistration {
@@ -738,9 +755,13 @@ impl TranscriptState {
             _ => panic!("hosted stream unit must point to an assistant message"),
         }
         self.assistant_stream_open = false;
-        if !self.sealed_hosted_units.contains(&unit_id) {
-            self.sealed_hosted_units.push(unit_id);
-        }
+        assert!(
+            matches!(
+                self.ownership.get(&unit_id),
+                Some(PresentationOwnership::Hosted)
+            ),
+            "only a hosted unit can be sealed"
+        );
         self.rebuild_presentation_cache();
         self.invalidate_render_cache();
     }
@@ -754,9 +775,76 @@ impl TranscriptState {
             return false;
         };
 
-        self.hosted_stream_units.contains(&unit_id)
-            && index == self.commit_state.completed_prefix
+        matches!(
+            self.ownership.get(&unit_id),
+            Some(PresentationOwnership::Hosted)
+        ) && index == self.commit_state.completed_prefix
             && self.commit_state.partial.is_none()
+    }
+
+    pub(crate) fn hosted_unit_is_history_tail(&self, unit_id: TranscriptUnitId) -> bool {
+        self.presentation_cache.last().is_some_and(|unit| {
+            unit.id == unit_id
+                && matches!(
+                    self.ownership.get(&unit_id),
+                    Some(PresentationOwnership::Hosted)
+                )
+        })
+    }
+
+    pub(crate) fn adopt_resident_stream(&mut self, handoff: ResidentStreamHandoff) {
+        assert!(
+            handoff.source_base <= handoff.source_end,
+            "resident source range must be ordered"
+        );
+        let unit_index = self
+            .presentation_cache
+            .iter()
+            .position(|unit| unit.id == handoff.unit_id)
+            .expect("resident handoff unit must exist");
+        let unit = &self.presentation_cache[unit_index];
+        assert!(
+            matches!(&unit.ownership, PresentationOwnership::Hosted),
+            "resident handoff must consume a hosted unit"
+        );
+        assert!(
+            !self.assistant_stream_open,
+            "resident handoff requires a sealed canonical assistant"
+        );
+        let source_id = *unit
+            .source_ids
+            .first()
+            .expect("resident unit must own a canonical source");
+        let source_index = self
+            .entry_ids
+            .iter()
+            .position(|id| *id == source_id)
+            .expect("resident source must exist in canonical history");
+        assert!(
+            matches!(
+                self.canonical_items.get(source_index),
+                Some(TimelineItem::AssistantMessage { .. })
+            ),
+            "resident handoff must target an assistant item"
+        );
+
+        let boundary = match handoff.leading_boundary {
+            LeadingBoundaryState::Pending => unit.boundary,
+            LeadingBoundaryState::Committed | LeadingBoundaryState::None => {
+                FlowBoundary::AttachToPrevious
+            }
+        };
+        self.ownership.insert(
+            handoff.unit_id,
+            PresentationOwnership::ResidentStream(ResidentStreamTail {
+                source_base: handoff.source_base,
+                source_end: handoff.source_end,
+                view: handoff.view,
+                boundary,
+            }),
+        );
+        self.rebuild_presentation_cache();
+        self.invalidate_render_cache();
     }
 
     pub(crate) fn finish_stream_unit(&mut self, unit_id: TranscriptUnitId) {
@@ -766,27 +854,27 @@ impl TranscriptState {
             .position(|unit| unit.id == unit_id)
             .expect("hosted stream unit must exist before retirement");
         assert!(
-            self.hosted_stream_units.contains(&unit_id),
-            "stream unit must be registered before retirement"
-        );
-        assert!(
-            self.sealed_hosted_units.contains(&unit_id),
-            "hosted stream unit must be sealed before retirement"
+            matches!(
+                self.ownership.get(&unit_id),
+                Some(PresentationOwnership::Hosted)
+            ),
+            "stream unit must be hosted before native retirement"
         );
         assert_eq!(
             unit_index, self.commit_state.completed_prefix,
             "hosted unit cannot retire ahead of global history frontier"
         );
         assert!(
+            !self.assistant_stream_open,
+            "hosted unit must be semantically sealed before native retirement"
+        );
+        assert!(
             self.commit_state.partial.is_none(),
             "hosted unit cannot retire while an earlier unit is partial"
         );
 
-        self.hosted_stream_units.retain(|id| *id != unit_id);
-        self.sealed_hosted_units.retain(|id| *id != unit_id);
-        if !self.native_history_units.contains(&unit_id) {
-            self.native_history_units.push(unit_id);
-        }
+        self.ownership
+            .insert(unit_id, PresentationOwnership::NativeHistory);
         self.commit_state.completed_prefix = unit_index.saturating_add(1);
         self.rebuild_presentation_cache();
         self.invalidate_render_cache();
@@ -857,6 +945,13 @@ impl TranscriptState {
         self.rebuild_presentation_cache();
     }
 
+    fn ownership_for(&self, unit_id: TranscriptUnitId) -> PresentationOwnership {
+        self.ownership
+            .get(&unit_id)
+            .cloned()
+            .unwrap_or(PresentationOwnership::Transcript)
+    }
+
     fn rebuild_presentation_cache(&mut self) {
         self.presentation_cache.clear();
         let last_assistant_idx = self
@@ -899,6 +994,7 @@ impl TranscriptState {
                     presentation: TranscriptPresentation::View(TuiFormatter::user_batch_view(
                         &messages,
                     )),
+                    ownership: PresentationOwnership::Transcript,
                     boundary: FlowBoundary::Default,
                     truncation: Truncation::None,
                     lifecycle: EntryLifecycle::Sealed,
@@ -909,14 +1005,17 @@ impl TranscriptState {
 
             let item = &self.canonical_items[index];
             let is_open = open_assistant_idx == Some(index);
-            let source_backed_started = self.has_source_backed_partial(self.entry_ids[index]);
-            let hosted_unit = self.hosted_stream_units.contains(&self.entry_ids[index]);
-            let presentation = if hosted_unit {
-                TranscriptPresentation::HostedAssistant
-            } else if self.native_history_units.contains(&self.entry_ids[index]) {
-                TranscriptPresentation::NativeHistory
-            } else {
-                match item {
+            let source_id = self.entry_ids[index];
+            let ownership = self.ownership_for(source_id);
+            let source_backed_started = self.has_source_backed_partial(source_id);
+            let presentation = match &ownership {
+                PresentationOwnership::ResidentStream(tail) => {
+                    TranscriptPresentation::View(tail.view.clone())
+                }
+                PresentationOwnership::Hosted | PresentationOwnership::NativeHistory => {
+                    TranscriptPresentation::View(View::column(Vec::new(), 0))
+                }
+                PresentationOwnership::Transcript => match item {
                     TimelineItem::AssistantMessage { segments } => {
                         if is_open {
                             let mut rows = self.formatter.format_assistant_message(segments, false);
@@ -938,7 +1037,7 @@ impl TranscriptState {
                         self.formatter.format_error_message(text, index == 0),
                     ),
                     _ => self.formatter.format(item),
-                }
+                },
             };
 
             let boundary = if index > 0
@@ -967,24 +1066,32 @@ impl TranscriptState {
                 } => Truncation::Result,
                 _ => Truncation::None,
             };
-            let lifecycle = if hosted_unit {
-                if self.sealed_hosted_units.contains(&self.entry_ids[index]) {
-                    EntryLifecycle::Sealed
-                } else {
-                    EntryLifecycle::Open
+            let lifecycle = match &ownership {
+                PresentationOwnership::Hosted if is_open => EntryLifecycle::Open,
+                PresentationOwnership::Hosted
+                | PresentationOwnership::ResidentStream(_)
+                | PresentationOwnership::NativeHistory => EntryLifecycle::Sealed,
+                PresentationOwnership::Transcript => {
+                    entry_lifecycle(item, open_assistant_idx == Some(index))
                 }
-            } else {
-                entry_lifecycle(item, open_assistant_idx == Some(index))
             };
-            let commit_mode = if hosted_unit {
-                EntryCommitMode::Blocked
-            } else {
-                entry_commit_mode(item, open_assistant_idx == Some(index))
+            let commit_mode = match &ownership {
+                PresentationOwnership::Hosted => EntryCommitMode::Blocked,
+                PresentationOwnership::ResidentStream(_)
+                | PresentationOwnership::NativeHistory
+                | PresentationOwnership::Transcript => {
+                    entry_commit_mode(item, open_assistant_idx == Some(index))
+                }
+            };
+            let boundary = match &ownership {
+                PresentationOwnership::ResidentStream(tail) => tail.boundary,
+                _ => boundary,
             };
             self.presentation_cache.push(TranscriptUnit {
                 id: self.entry_ids[index],
                 source_ids: vec![self.entry_ids[index]],
                 presentation,
+                ownership,
                 boundary,
                 truncation,
                 lifecycle,
@@ -1059,8 +1166,8 @@ impl TranscriptState {
 
             let start = rows.len();
             let hosted_or_native_history = matches!(
-                unit.presentation,
-                TranscriptPresentation::HostedAssistant | TranscriptPresentation::NativeHistory
+                &unit.ownership,
+                PresentationOwnership::Hosted | PresentationOwnership::NativeHistory
             );
             if unit.boundary == FlowBoundary::Default
                 && unit_index > 0
@@ -1093,10 +1200,8 @@ impl TranscriptState {
                     row_end_boundaries.extend(wrapped.row_end_boundaries.into_iter().map(Some));
                     previous_legacy_range = Some(ranges.len());
                 }
-                TranscriptPresentation::HostedAssistant | TranscriptPresentation::NativeHistory => {
-                    previous_legacy_range = None;
-                }
                 TranscriptPresentation::View(view) => {
+                    let mut physically_complete = true;
                     if let Some(PartialCommit::Semantic {
                         entry_id,
                         rows: frozen_rows,
@@ -1111,6 +1216,7 @@ impl TranscriptState {
                         ));
                     } else {
                         let mut block = compile_view(view, width);
+                        physically_complete = block.physically_complete;
                         if unit.truncation == Truncation::Call {
                             block.rows =
                                 truncate_view_rows(block.rows, DISPLAY_CALL_MAX_LINES + 1, true);
@@ -1123,7 +1229,11 @@ impl TranscriptState {
                             rows.len().saturating_sub(content_start),
                         ));
                     }
-                    entry_committable_prefix = rows.len().saturating_sub(content_start);
+                    entry_committable_prefix = if physically_complete {
+                        rows.len().saturating_sub(content_start)
+                    } else {
+                        0
+                    };
                     previous_legacy_range = None;
                 }
             }
@@ -1163,8 +1273,10 @@ impl TranscriptState {
         }
         let hosted_tail = self.presentation_cache.last().is_some_and(|unit| {
             matches!(
-                unit.presentation,
-                TranscriptPresentation::HostedAssistant | TranscriptPresentation::NativeHistory
+                &unit.ownership,
+                PresentationOwnership::Hosted
+                    | PresentationOwnership::ResidentStream(_)
+                    | PresentationOwnership::NativeHistory
             )
         });
         if !rows.is_empty() && !hosted_tail {
@@ -1279,6 +1391,13 @@ impl TranscriptState {
                     range.leading_flow_rows = 0;
                     remaining -= take;
                     continue;
+                }
+                if matches!(
+                    self.ownership.get(&range.id),
+                    Some(PresentationOwnership::ResidentStream(_))
+                ) {
+                    self.ownership
+                        .insert(range.id, PresentationOwnership::NativeHistory);
                 }
                 self.commit_state.completed_prefix = range.unit_index.saturating_add(1);
                 self.commit_state.partial = None;
@@ -1580,7 +1699,11 @@ fn open_entry_blocks_commit_until_sealed() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{presentation::HostedStream, transcript::AssistantStream};
+    use crate::{
+        presentation::stream::compile_stream,
+        presentation::{HostedStream, StreamOffset},
+        transcript::AssistantStream,
+    };
     use ratatui::style::Modifier;
 
     fn line_text(line: &Line<'static>) -> String {
@@ -1671,6 +1794,81 @@ mod tests {
     }
 
     #[test]
+    fn resident_tail_starts_at_the_committed_stream_cursor() {
+        let mut transcript = TranscriptState::default();
+        let registration = transcript.begin_hosted_assistant_unit();
+        let mut stream = HostedStream::new(
+            registration.id,
+            AssistantStream::new(),
+            registration.leading_boundary,
+        );
+        stream
+            .content_mut()
+            .push_delta(SegmentKind::Text, "a\nb\nc");
+        transcript
+            .seal_hosted_assistant_unit(registration.id, stream.content().segments().to_vec());
+
+        let first = stream.prepare_frame(80, 1);
+        assert_eq!(first.history.rows.len(), 1);
+        stream.apply_commit_success(first.history);
+        let committed_snapshot = {
+            stream.seal();
+            stream.snapshot()
+        };
+        assert!(stream.can_handoff());
+        assert!(committed_snapshot.source_base > StreamOffset::ZERO);
+
+        let handoff = stream.into_resident_handoff();
+        let expected_rows =
+            compile_stream(&committed_snapshot.view, 80, committed_snapshot.source_end).rows;
+        let source_base = handoff.source_base;
+        let source_end = handoff.source_end;
+        transcript.adopt_resident_stream(handoff);
+        transcript.ensure_render_cache(80);
+
+        assert_eq!(source_base, StreamOffset::new(2));
+        assert_eq!(source_end, StreamOffset::new(5));
+        assert_eq!(transcript.uncommitted_rows(), expected_rows.as_slice());
+        assert!(
+            !transcript
+                .uncommitted_rows()
+                .iter()
+                .any(|row| line_text(row).contains('a'))
+        );
+
+        let resident_rows = transcript.uncommitted_len();
+        transcript.mark_rows_committed(resident_rows);
+        assert!(matches!(
+            transcript.ownership.get(&registration.id),
+            Some(PresentationOwnership::NativeHistory)
+        ));
+        assert_eq!(transcript.commit_state.completed_prefix, 1);
+    }
+
+    #[test]
+    fn resident_impossible_width_remains_uncommittable_until_resize() {
+        let mut transcript = TranscriptState::default();
+        let registration = transcript.begin_hosted_assistant_unit();
+        let mut stream = HostedStream::new(
+            registration.id,
+            AssistantStream::new(),
+            registration.leading_boundary,
+        );
+        stream.content_mut().push_delta(SegmentKind::Text, "漢");
+        stream.seal();
+        transcript
+            .seal_hosted_assistant_unit(registration.id, stream.content().segments().to_vec());
+        transcript.adopt_resident_stream(stream.into_resident_handoff());
+
+        transcript.ensure_render_cache(1);
+        assert!(!transcript.uncommitted_rows().is_empty());
+        assert_eq!(transcript.committable_len(), 0);
+
+        transcript.ensure_render_cache(2);
+        assert!(transcript.committable_len() > 0);
+    }
+
+    #[test]
     fn hosted_units_advance_through_one_global_history_frontier() {
         let mut transcript = TranscriptState::default();
         transcript.push_item(TimelineItem::UserMessage {
@@ -1714,11 +1912,10 @@ mod tests {
         assert!(transcript.hosted_unit_is_history_head(assistant1.id));
 
         owners.push(assistant1.id);
-        let prepared1 = stream1.prepare_frame(80, usize::MAX);
-        assert!(!prepared1.history.rows.is_empty());
-        stream1.apply_commit_success(prepared1.history);
-        assert!(stream1.is_fully_committed());
-        transcript.finish_stream_unit(assistant1.id);
+        assert!(stream1.can_handoff());
+        transcript.adopt_resident_stream(stream1.into_resident_handoff());
+        transcript.ensure_render_cache(80);
+        transcript.mark_rows_committed(range_rows_for_unit(&transcript, assistant1.id));
         assert!(!transcript.hosted_unit_is_history_head(assistant2.id));
 
         transcript.ensure_render_cache(80);
@@ -1727,11 +1924,10 @@ mod tests {
         assert!(transcript.hosted_unit_is_history_head(assistant2.id));
 
         owners.push(assistant2.id);
-        let prepared2 = stream2.prepare_frame(80, usize::MAX);
-        assert!(!prepared2.history.rows.is_empty());
-        stream2.apply_commit_success(prepared2.history);
-        assert!(stream2.is_fully_committed());
-        transcript.finish_stream_unit(assistant2.id);
+        assert!(stream2.can_handoff());
+        transcript.adopt_resident_stream(stream2.into_resident_handoff());
+        transcript.ensure_render_cache(80);
+        transcript.mark_rows_committed(range_rows_for_unit(&transcript, assistant2.id));
 
         assert_eq!(owners, vec![user1, assistant1.id, user2, assistant2.id]);
         assert_eq!(transcript.commit_state.completed_prefix, 4);

@@ -1,23 +1,21 @@
 //! INTERNAL PRESENTATION MECHANICS.
 //!
-//! Owns the existing multi-pass convergence between semantic presentation,
-//! active overflow, transcript capacity, native scrollback, and final draw.
-//! Feature code must not orchestrate these phases independently.
+//! Owns the ordered visual conversation surface, loss-aware native-history
+//! promotion, and the final single draw. Feature code must not orchestrate
+//! these phases independently.
 
 use anyhow::Result;
 use ratatui::layout::Rect;
 
 use crate::{
-    input::WrapCache, runtime::AppState, scrollback::ScrollbackCoordinator,
+    input::WrapCache,
+    runtime::{AppState, FinalizeResult, active::ActiveBehavior},
+    scrollback::ScrollbackCoordinator,
     terminal::InlineTerminal,
 };
 
 use super::{LayoutConfig, Renderer, RunningFrameComposer};
 
-/// INTERNAL PRESENTATION MECHANICS.
-///
-/// The algorithm is intentionally the current proven sequence; this type only
-/// removes it from `App` so future frame changes stay below feature code.
 #[derive(Debug, Default)]
 pub(crate) struct FrameCoordinator;
 
@@ -32,86 +30,137 @@ impl FrameCoordinator {
         scrollback: &mut ScrollbackCoordinator,
         root: Rect,
     ) -> Result<()> {
-        const ORDERING_DRAIN_CHUNK: usize = 256;
-
-        state.transcript.ensure_render_cache(root.width.max(1));
-        state.retire_assistant_stream_if_fully_committed();
-        state.transcript.ensure_render_cache(root.width.max(1));
-
         let mut root = root;
-        let mut layout =
-            RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
-        let mut desired_host_rows =
-            state.assistant_commit_rows_for_height(layout.active_area.height);
+        state.transcript.ensure_render_cache(root.width.max(1));
+        root = self.finalize_sealed_host(terminal, state, scrollback, root)?;
 
-        // Hosted assistant rows use a separate physical compiler, but they still
-        // share the transcript's one ordered native-history frontier. If an earlier
-        // transcript unit is partial, drain it before preparing any host write.
-        while desired_host_rows > 0 {
+        loop {
+            state.transcript.ensure_render_cache(root.width.max(1));
+            let layout =
+                RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
+            let mut capacity = layout.conversation_capacity_rows;
+            if state
+                .active
+                .as_ref()
+                .is_some_and(|active| active.behavior() == ActiveBehavior::OccludeOnly)
+            {
+                // Occluding chrome is an explicit active-pane policy. It may hide
+                // conversation rows without making those rows part of the visual
+                // conversation area, so derive its extra commit allowance from
+                // that chrome region rather than from host ownership.
+                capacity = capacity.saturating_add(usize::from(layout.active_chrome_area.height));
+            }
+            let overflow = state.conversation_row_count().saturating_sub(capacity);
+            if overflow == 0 {
+                break;
+            }
+
+            state.transcript.ensure_render_cache(root.width.max(1));
+            let transcript_rows = overflow.min(state.transcript.committable_len());
+            if transcript_rows > 0 {
+                let inserted = scrollback.commit_transcript_prefix(
+                    terminal,
+                    &mut state.transcript,
+                    transcript_rows,
+                )?;
+                if inserted == 0 {
+                    break;
+                }
+                root = terminal.current_viewport_area()?;
+                root = self.finalize_sealed_host(terminal, state, scrollback, root)?;
+                continue;
+            }
+
             let host_is_head = state
                 .assistant_stream
                 .as_ref()
                 .is_some_and(|hosted| state.transcript.hosted_unit_is_history_head(hosted.unit_id));
-            if host_is_head {
+            if !host_is_head {
                 break;
             }
 
-            state.transcript.ensure_render_cache(root.width.max(1));
-            let inserted = scrollback.commit_transcript_prefix(
-                terminal,
-                &mut state.transcript,
-                ORDERING_DRAIN_CHUNK,
-            )?;
-            if inserted == 0 {
-                // An impossible-fit or otherwise blocked predecessor owns the
-                // frontier. The hosted stream must wait rather than leapfrog it.
-                break;
-            }
-
-            root = terminal.current_viewport_area()?;
-            state.transcript.ensure_render_cache(root.width.max(1));
-            layout =
-                RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
-            desired_host_rows = state.assistant_commit_rows_for_height(layout.active_area.height);
-        }
-
-        let host_is_head = state
-            .assistant_stream
-            .as_ref()
-            .is_some_and(|hosted| state.transcript.hosted_unit_is_history_head(hosted.unit_id));
-        if desired_host_rows > 0 && host_is_head {
-            state.prepare_assistant_frame(root.width.max(1), desired_host_rows);
+            state.prepare_assistant_frame(root.width.max(1), overflow);
             let prepared = state.assistant_frame.take();
-            if let (Some(hosted), Some(prepared)) = (state.assistant_stream.as_mut(), prepared) {
+            let Some(prepared) = prepared else {
+                break;
+            };
+            if prepared.history.rows.is_empty() {
+                break;
+            }
+            if let Some(hosted) = state.assistant_stream.as_mut() {
+                if !state.transcript.hosted_unit_is_history_head(hosted.unit_id) {
+                    break;
+                }
                 debug_assert!(
                     state.transcript.hosted_unit_is_history_head(hosted.unit_id),
                     "HostedStream attempted to leapfrog an earlier transcript unit"
                 );
-                // The coordinator writes exactly the rows selected by the host plan. The
-                // host is acknowledged only after the terminal accepts every requested row.
                 scrollback.commit_stream_frame(terminal, hosted, prepared)?;
             }
-            state.retire_assistant_stream_if_fully_committed();
             root = terminal.current_viewport_area()?;
-            state.transcript.ensure_render_cache(root.width.max(1));
-            layout =
-                RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
+            root = self.finalize_sealed_host(terminal, state, scrollback, root)?;
         }
 
-        scrollback.commit_running_overflow(
-            terminal,
-            &mut state.transcript,
-            layout.commit_chat_capacity_rows,
-        )?;
-
-        root = terminal.current_viewport_area()?;
         state.transcript.ensure_render_cache(root.width.max(1));
-        layout = RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
-
-        terminal.draw(|frame| {
-            let view = RunningFrameComposer::view(layout, state, wrap_cache, frame.area());
-            renderer.draw_running(frame, &view);
-        })?;
+        let layout =
+            RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
+        let view = RunningFrameComposer::view(layout, state, wrap_cache, root);
+        terminal.draw(|frame| renderer.draw_running(frame, &view))?;
         Ok(())
+    }
+
+    /// Finalizes a sealed mutable host without drawing an intermediate collapsed
+    /// frame. Only a pinned physical atomic remainder may force a terminal write.
+    fn finalize_sealed_host(
+        &self,
+        terminal: &mut InlineTerminal,
+        state: &mut AppState,
+        scrollback: &mut ScrollbackCoordinator,
+        mut root: Rect,
+    ) -> Result<Rect> {
+        loop {
+            match state.finalize_sealed_assistant_stream() {
+                FinalizeResult::Nothing
+                | FinalizeResult::HandedOff
+                | FinalizeResult::FullyNative => return Ok(root),
+                FinalizeResult::NeedsPinnedDrain => {
+                    let Some(hosted) = state.assistant_stream.as_ref() else {
+                        return Ok(root);
+                    };
+                    let unit_id = hosted.unit_id;
+                    let blocking_rows = hosted.handoff_blocking_rows();
+                    if blocking_rows == 0 {
+                        return Err(anyhow::anyhow!(
+                            "sealed HostedStream cannot hand off its physical partial state"
+                        ));
+                    }
+                    if !state.transcript.hosted_unit_is_history_head(unit_id) {
+                        return Ok(root);
+                    }
+                    debug_assert!(
+                        state.transcript.hosted_unit_is_history_head(unit_id),
+                        "pinned HostedStream rows require the global history head"
+                    );
+                    state.prepare_assistant_frame(root.width.max(1), blocking_rows);
+                    let prepared = state.assistant_frame.take().ok_or_else(|| {
+                        anyhow::anyhow!("sealed HostedStream produced no pinned drain frame")
+                    })?;
+                    let Some(hosted) = state.assistant_stream.as_mut() else {
+                        return Err(anyhow::anyhow!(
+                            "HostedStream disappeared during pinned drain"
+                        ));
+                    };
+                    if !state.transcript.hosted_unit_is_history_head(hosted.unit_id) {
+                        return Ok(root);
+                    }
+                    debug_assert!(
+                        state.transcript.hosted_unit_is_history_head(hosted.unit_id),
+                        "pinned HostedStream rows require the global history head"
+                    );
+                    scrollback.commit_stream_frame(terminal, hosted, prepared)?;
+                    root = terminal.current_viewport_area()?;
+                }
+            }
+        }
     }
 }

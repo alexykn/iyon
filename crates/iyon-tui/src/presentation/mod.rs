@@ -15,6 +15,6 @@ pub(crate) use api::{
     WidthRule, WrapMode,
 };
 pub(crate) use stream::{
-    HostedStream, LeadingBoundaryState, PreparedStreamFrame, StreamNode, StreamOffset, StreamRange,
-    StreamRevision, StreamSnapshot, StreamView, StreamingContent,
+    HostedStream, LeadingBoundaryState, PreparedStreamFrame, ResidentStreamHandoff, StreamNode,
+    StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamView, StreamingContent,
 };

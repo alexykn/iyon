@@ -7,8 +7,8 @@ use crate::transcript::SegmentKind;
 use crate::{
     input::{InputEditor, InputEventHandler, WrapCache},
     runtime::{
-        ActiveTicker, AppController, AppState, BackendEventHandler, ExitState, FrontendEvent,
-        StreamSmoother,
+        ActiveTicker, AppController, AppState, BackendEventHandler, ExitState, FinalizeResult,
+        FrontendEvent, StreamSmoother,
     },
     scrollback::{FlushResult, ScrollbackCoordinator},
     terminal::InlineTerminal,
@@ -330,40 +330,47 @@ impl App {
         let mut root = self.current_root_rect(terminal)?;
         state.transcript.ensure_render_cache(root.width.max(1));
 
-        if state.assistant_stream.is_some() {
-            let host_is_head = state
-                .assistant_stream
-                .as_ref()
-                .is_some_and(|hosted| state.transcript.hosted_unit_is_history_head(hosted.unit_id));
-            if !host_is_head {
-                let inserted = self.scrollback.commit_transcript_prefix(
-                    terminal,
-                    &mut state.transcript,
-                    EXIT_DRAIN_CHUNK,
-                )?;
-                if inserted > 0 {
-                    return Ok(());
-                }
-            } else {
-                state.prepare_assistant_frame(root.width.max(1), EXIT_DRAIN_CHUNK);
-                let prepared = state.assistant_frame.take();
-                if let (Some(hosted), Some(prepared)) = (state.assistant_stream.as_mut(), prepared)
-                {
+        loop {
+            match state.finalize_sealed_assistant_stream() {
+                FinalizeResult::Nothing
+                | FinalizeResult::HandedOff
+                | FinalizeResult::FullyNative => break,
+                FinalizeResult::NeedsPinnedDrain => {
+                    let Some(hosted) = state.assistant_stream.as_ref() else {
+                        break;
+                    };
+                    let blocking_rows = hosted.handoff_blocking_rows();
+                    if blocking_rows == 0 {
+                        return Err(anyhow::anyhow!(
+                            "sealed HostedStream cannot hand off its physical partial state"
+                        ));
+                    }
+                    if !state.transcript.hosted_unit_is_history_head(hosted.unit_id) {
+                        break;
+                    }
                     debug_assert!(
                         state.transcript.hosted_unit_is_history_head(hosted.unit_id),
-                        "HostedStream attempted to leapfrog an earlier transcript unit"
+                        "pinned HostedStream rows require the global history head"
                     );
+                    state.prepare_assistant_frame(root.width.max(1), blocking_rows);
+                    let prepared = state.assistant_frame.take().ok_or_else(|| {
+                        anyhow::anyhow!("sealed HostedStream produced no pinned drain frame")
+                    })?;
+                    let Some(hosted) = state.assistant_stream.as_mut() else {
+                        return Err(anyhow::anyhow!(
+                            "HostedStream disappeared during pinned drain"
+                        ));
+                    };
+                    if !state.transcript.hosted_unit_is_history_head(hosted.unit_id) {
+                        break;
+                    }
                     self.scrollback
                         .commit_stream_frame(terminal, hosted, prepared)?;
-                }
-                root = self.current_root_rect(terminal)?;
-                state.retire_assistant_stream_if_fully_committed();
-                state.transcript.ensure_render_cache(root.width.max(1));
-                if state.assistant_stream.is_some() {
-                    return Ok(());
+                    root = self.current_root_rect(terminal)?;
                 }
             }
         }
+        state.transcript.ensure_render_cache(root.width.max(1));
 
         match self.scrollback.flush_history_chunk(
             terminal,
