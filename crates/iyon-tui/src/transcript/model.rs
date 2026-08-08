@@ -1250,9 +1250,6 @@ impl TranscriptState {
             });
         }
 
-        // Trimming is only applied to rows that are still provisional. The final
-        // blank below is display state and deliberately has no owning range, so it
-        // can never be committed into native history.
         trim_plain_trailing_physical_all(&mut rows, &mut row_end_boundaries, &mut ranges);
         let mut committable_rows = 0;
         for range in &ranges {
@@ -1271,19 +1268,6 @@ impl TranscriptState {
                 }
             }
         }
-        let hosted_tail = self.presentation_cache.last().is_some_and(|unit| {
-            matches!(
-                &unit.ownership,
-                PresentationOwnership::Hosted
-                    | PresentationOwnership::ResidentStream(_)
-                    | PresentationOwnership::NativeHistory
-            )
-        });
-        if !rows.is_empty() && !hosted_tail {
-            rows.push(Line::from(""));
-            row_end_boundaries.push(None);
-        }
-
         TranscriptRenderCache {
             width,
             rows,
@@ -1540,6 +1524,9 @@ fn trim_plain_trailing_physical(
         boundaries.remove(range.rows.end - 1);
         range.rows.end -= 1;
     }
+
+    let content_len = range.rows.len().saturating_sub(range.leading_flow_rows);
+    range.committable_prefix_rows = range.committable_prefix_rows.min(content_len);
 }
 
 fn trim_plain_trailing_physical_all(
@@ -2070,7 +2057,7 @@ mod tests {
         user_error.ensure_render_cache(80);
         assert_eq!(
             rendered_texts_trimmed(&user_error),
-            vec!["", "user", "", "", "error", ""]
+            vec!["", "user", "", "", "error"]
         );
 
         let mut assistant_error = TranscriptState::default();
@@ -2083,7 +2070,7 @@ mod tests {
         assistant_error.ensure_render_cache(80);
         assert_eq!(
             rendered_texts_trimmed(&assistant_error),
-            vec!["", "  answer", "", "error", ""]
+            vec!["", "  answer", "", "error"]
         );
 
         let mut error_user = TranscriptState::default();
@@ -2096,7 +2083,7 @@ mod tests {
         error_user.ensure_render_cache(80);
         assert_eq!(
             rendered_texts_trimmed(&error_user),
-            vec!["", "error", "", "", "user", "", ""]
+            vec!["", "error", "", "", "user", ""]
         );
 
         let mut first_error = TranscriptState::default();
@@ -2104,7 +2091,7 @@ mod tests {
             text: "error".to_string(),
         });
         first_error.ensure_render_cache(80);
-        assert_eq!(rendered_texts_trimmed(&first_error), vec!["", "error", ""]);
+        assert_eq!(rendered_texts_trimmed(&first_error), vec!["", "error"]);
     }
 
     #[test]
@@ -2119,7 +2106,7 @@ mod tests {
 
         assert_eq!(
             rendered_texts_trimmed(&transcript),
-            ["", "  ab", "  cd", "  ef", ""]
+            ["", "  ab", "  cd", "  ef"]
         );
     }
 
@@ -2265,7 +2252,7 @@ mod tests {
         ));
 
         let uncommitted = rendered_texts_trimmed(&transcript);
-        assert_eq!(uncommitted, vec!["", "  Hello world", ""]);
+        assert_eq!(uncommitted, vec!["", "  Hello world"]);
     }
 
     #[test]
@@ -2328,11 +2315,11 @@ mod tests {
         transcript.ensure_render_cache(80);
 
         let texts = rendered_texts_trimmed(&transcript);
-        // Ensure there is no duplicated legacy trailing blank, exactly one flow gap before user message:
-        // [assistant last row, single flow gap, user bubble top padding, user message, user bubble bottom padding, display blank]
+        // Ensure there is exactly one flow gap before the user message:
+        // [assistant last row, single flow gap, user bubble top padding, user message, user bubble bottom padding]
         assert_eq!(
             texts,
-            vec!["  Long assistant line 2", "", "", "Next prompt", "", ""]
+            vec!["  Long assistant line 2", "", "", "Next prompt", ""]
         );
     }
 
@@ -2347,8 +2334,8 @@ mod tests {
         transcript.mark_rows_committed(2);
         // After committing the first two physical rows (blank + "  ab"), the
         // boundary lands after "ab"; the remaining content re-wraps at width 6
-        // (content width 2) as "cd" / "ef" plus the trailing blank.
-        assert_eq!(rendered_texts_trimmed(&transcript), ["  cd", "  ef", ""]);
+        // (content width 2) as "cd" / "ef".
+        assert_eq!(rendered_texts_trimmed(&transcript), ["  cd", "  ef"]);
     }
 
     #[test]
@@ -2368,7 +2355,7 @@ mod tests {
         transcript.mark_rows_committed(user_rows + 1);
         transcript.ensure_render_cache(20);
 
-        assert_eq!(rendered_texts(&transcript), vec!["legacy follows", ""]);
+        assert_eq!(rendered_texts(&transcript), vec!["legacy follows"]);
     }
 
     #[test]
@@ -2445,7 +2432,7 @@ mod tests {
         let count = transcript.committable_len();
         assert!(count > 0);
         transcript.mark_rows_committed(count);
-        assert_eq!(transcript.uncommitted_len(), 1);
+        assert_eq!(transcript.uncommitted_len(), 0);
     }
 
     #[test]
@@ -2733,22 +2720,21 @@ mod tests {
         });
 
         // Rendered as one contiguous block with the shared bubble's bottom padding
-        // kept as its own colored row, followed by a plain gap above the input:
-        // [leading blank, a, b, c, bubble-bottom-blank, plain-gap].
+        // kept as its own colored row. The lower composer gap is layout-owned:
+        // [leading blank, a, b, c, bubble-bottom-blank].
         // One structural semantic bubble owned by a Box: one top padding row of
         // full-width background, then `a`/`b`/`c` with no blank between (column
-        // gap 0), one bottom padding row, then one plain composer gap. No state
-        // blank sits between messages.
+        // gap 0), one bottom padding row. No state blank sits between messages.
         transcript.ensure_render_cache(80);
         let texts = rendered_texts_trimmed(&transcript);
-        assert_eq!(texts, vec!["", "a", "b", "c", "", ""]);
+        assert_eq!(texts, vec!["", "a", "b", "c", ""]);
         let bg_rows: Vec<bool> = transcript
             .uncommitted_rows()
             .iter()
             .map(|r| r.style.bg.is_some() || r.spans.iter().any(|s| s.style.bg.is_some()))
             .collect();
-        // Background fills rows 0..4 (bubble); the final plain gap is not.
-        assert_eq!(bg_rows, vec![true, true, true, true, true, false]);
+        // Background fills every transcript-owned row in the bubble.
+        assert_eq!(bg_rows, vec![true, true, true, true, true]);
     }
 
     #[test]
@@ -2768,11 +2754,10 @@ mod tests {
 
         transcript.ensure_render_cache(80);
         let texts = rendered_texts_trimmed(&transcript);
-        // [\n, a, \n, \n, hi, \n, \n, b, \n, \n] — a and b are separated by the
+        // [\n, a, \n, \n, hi, \n, \n, b, \n] — a and b are separated by the
         // assistant message. Each item keeps its own bubble padding (backgrounded
-        // blank) and a plain separator is added between items; the trailing user
-        // bubble adds one more plain gap above the input separator.
-        assert_eq!(texts, vec!["", "a", "", "", "  hi", "", "", "b", "", ""]);
+        // blank) and a plain separator is added between items.
+        assert_eq!(texts, vec!["", "a", "", "", "  hi", "", "", "b", ""]);
     }
 
     #[test]
@@ -2792,11 +2777,10 @@ mod tests {
         });
 
         // Renderer emits 1 title row + 50 body rows = 51; collapsed keeps
-        // DISPLAY_MAX_LINES + a footer hint, and the assembler adds a trailing
-        // blank so the result clears the input separator.
+        // DISPLAY_MAX_LINES + a footer hint. The lower composer gap is layout-owned.
         transcript.ensure_render_cache(80);
         let rows = transcript.uncommitted_rows();
-        assert_eq!(rows.len(), 15 + 1 + 1, "15 kept + footer + trailing blank");
+        assert_eq!(rows.len(), 15 + 1, "15 kept + footer");
 
         let footer_text: String = rows[15].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(footer_text.contains("36 more lines"), "got {footer_text:?}");
@@ -2814,16 +2798,15 @@ mod tests {
             collapsed: true,
         });
 
-        // 1 title + 2 body = 3 rows (under the cap), plus the assembler's trailing
-        // blank so the result clears the input separator.
+        // 1 title + 2 body = 3 rows (under the cap).
         transcript.ensure_render_cache(80);
         let rows = transcript.uncommitted_rows();
-        assert_eq!(rows.len(), 3 + 1);
+        assert_eq!(rows.len(), 3);
         let texts: Vec<String> = rows
             .iter()
             .map(|row| line_text(row).trim_start().to_string())
             .collect();
-        assert_eq!(texts, vec!["read result", "one", "two", ""]);
+        assert_eq!(texts, vec!["read result", "one", "two"]);
     }
 
     #[test]
@@ -2844,15 +2827,15 @@ mod tests {
         });
 
         // Bullet header only — no argument dump, and no self-injected leading blank
-        // (the assembler owns separators). A trailing blank clears the input separator.
+        // (the assembler owns separators).
         transcript.ensure_render_cache(80);
         let rows = transcript.uncommitted_rows();
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 1);
         let texts: Vec<String> = rows
             .iter()
             .map(|row| line_text(row).trim_start_matches("● ").to_string())
             .collect();
-        assert_eq!(texts, vec!["tool * — finished", ""]);
+        assert_eq!(texts, vec!["tool * — finished"]);
     }
 
     #[test]
@@ -2871,10 +2854,10 @@ mod tests {
         transcript.ensure_render_cache(80);
         let rows = transcript.uncommitted_rows();
         // structure: [colored-blank, hello, colored-blank(bubble bottom), plain
-        // separator, t, trailing-blank] — the bubble's padded bottom row stays part of
-        // the bubble, and a fresh plain gap separates it from the agent message.
+        // separator, t] — the bubble's padded bottom row stays part of the bubble,
+        // and a fresh plain gap separates it from the agent message.
         let texts = rendered_texts_trimmed(&transcript);
-        assert_eq!(texts, vec!["", "hello", "", "", "  t", ""]);
+        assert_eq!(texts, vec!["", "hello", "", "", "  t"]);
 
         // The bubble's bottom padding (rows[2]) must keep the background; the gap
         // (rows[3]) is a plain separator.
@@ -2889,8 +2872,7 @@ mod tests {
     #[test]
     fn user_bubble_keeps_bottom_background_as_last_item() {
         // A just-sent user message is the last item. Its colored bottom padding must
-        // stay part of the bubble (not stripped), and a plain gap clears the input
-        // separator above it.
+        // stay part of the bubble; the lower composer gap is layout-owned.
         let mut transcript = TranscriptState::default();
         transcript.push_item(TimelineItem::UserMessage {
             text: "hello".to_string(),
@@ -2899,14 +2881,12 @@ mod tests {
         transcript.ensure_render_cache(80);
         let rows = transcript.uncommitted_rows();
         let texts = rendered_texts_trimmed(&transcript);
-        // [colored-blank, hello, colored-blank(bubble bottom), plain gap]
-        assert_eq!(texts, vec!["", "hello", "", ""]);
+        // [colored-blank, hello, colored-blank(bubble bottom)]
+        assert_eq!(texts, vec!["", "hello", ""]);
         assert!(
             rows[2].style.bg.is_some() || rows[2].spans.iter().any(|span| span.style.bg.is_some())
         );
-        assert!(
-            rows[3].style.bg.is_none() && !rows[3].spans.iter().any(|span| span.style.bg.is_some())
-        );
+        assert_eq!(rows.len(), 3);
     }
 
     #[test]
@@ -2975,9 +2955,8 @@ mod tests {
                     .to_string()
             })
             .collect();
-        // [call1, result-title, one, two, SEPARATOR, call2, trailing-blank] — the call
-        // and its own result touch with no blank, a single blank precedes the next call,
-        // and the assembler's trailing blank clears the input separator.
+        // [call1, result-title, one, two, SEPARATOR, call2] — the call and its own
+        // result touch with no blank, and a single blank precedes the next call.
         assert_eq!(
             texts,
             vec![
@@ -2987,7 +2966,6 @@ mod tests {
                 "two",
                 "",                    // separator
                 "read ... — finished", // call2
-                "",                    // trailing blank above input
             ]
         );
     }
@@ -3042,11 +3020,11 @@ mod tests {
         let mut t = TranscriptState::default();
         push_all(&mut t, user(&["hello"]));
         t.ensure_render_cache(80);
-        assert_eq!(rendered_texts_trimmed(&t), vec!["", "hello", "", ""]);
-        // Full-width background on every bubble row; the final plain composer gap
-        // is not. Content stays at column 0 (no horizontal inset).
+        assert_eq!(rendered_texts_trimmed(&t), vec!["", "hello", ""]);
+        // Full-width background on every bubble row. Content stays at column 0
+        // (no horizontal inset).
         let bg: Vec<bool> = t.uncommitted_rows().iter().map(has_bg).collect();
-        assert_eq!(bg, vec![true, true, true, false]);
+        assert_eq!(bg, vec![true, true, true]);
         assert_eq!(
             t.uncommitted_rows()[1]
                 .spans
@@ -3066,11 +3044,10 @@ mod tests {
             segments: text_segments("hi"),
         });
         t.ensure_render_cache(80);
-        // bubble(top, a, b, bottom) + one plain flow gap + assistant(indent hi) +
-        // final composer gap.
+        // bubble(top, a, b, bottom) + one plain flow gap + assistant(indent hi).
         assert_eq!(
             rendered_texts_trimmed(&t),
-            vec!["", "a", "b", "", "", "  hi", ""]
+            vec!["", "a", "b", "", "", "  hi"]
         );
     }
 
@@ -3084,7 +3061,7 @@ mod tests {
         t.ensure_render_cache(80);
         assert_eq!(
             rendered_texts_trimmed(&t),
-            vec!["", "  hi", "", "", "a", "b", "", ""]
+            vec!["", "  hi", "", "", "a", "b", ""]
         );
     }
 
@@ -3101,11 +3078,8 @@ mod tests {
         });
         t.ensure_render_cache(80);
         let texts = rendered_texts_trimmed(&t);
-        // bubble(top,a,b,bottom) + one gap + tool header + final gap.
-        assert_eq!(
-            texts,
-            vec!["", "a", "b", "", "", "● read ... — finished", ""]
-        );
+        // bubble(top,a,b,bottom) + one gap + tool header.
+        assert_eq!(texts, vec!["", "a", "b", "", "", "● read ... — finished"]);
 
         // tool call -> user batch.
         let mut t2 = TranscriptState::default();
@@ -3118,10 +3092,7 @@ mod tests {
         push_all(&mut t2, user(&["a", "b"]));
         t2.ensure_render_cache(80);
         let texts2 = rendered_texts_trimmed(&t2);
-        assert_eq!(
-            texts2,
-            vec!["● read ... — finished", "", "", "a", "b", "", ""]
-        );
+        assert_eq!(texts2, vec!["● read ... — finished", "", "", "a", "b", ""]);
     }
 
     #[test]
@@ -3134,7 +3105,7 @@ mod tests {
         t.ensure_render_cache(80);
         assert_eq!(
             rendered_texts_trimmed(&t),
-            vec!["", "a", "b", "", "", "oops", ""]
+            vec!["", "a", "b", "", "", "oops"]
         );
 
         let mut t2 = TranscriptState::default();
@@ -3145,7 +3116,7 @@ mod tests {
         t2.ensure_render_cache(80);
         assert_eq!(
             rendered_texts_trimmed(&t2),
-            vec!["", "oops", "", "", "a", "b", "", ""]
+            vec!["", "oops", "", "", "a", "b", ""]
         );
     }
 
@@ -3157,15 +3128,10 @@ mod tests {
             push_all(&mut t, user(&["a", message]));
             t.ensure_render_cache(width);
             let rows = t.uncommitted_rows();
-            assert!(rows.len() >= 4, "width {width}: got {}", rows.len());
+            assert!(rows.len() >= 3, "width {width}: got {}", rows.len());
             // Top and bottom padding rows always carry the full background.
             assert!(has_bg(&rows[0]), "width {width} top padding lost bg");
-            assert!(
-                has_bg(&rows[rows.len() - 2]),
-                "width {width} bottom lost bg"
-            );
-            // The final row is the plain composer gap, never backgrounded.
-            assert!(!has_bg(rows.last().unwrap()), "width {width} gap had bg");
+            assert!(has_bg(rows.last().unwrap()), "width {width} bottom lost bg");
             // a and message occupy distinct rows (gap 0 inside the bubble). Wrapping
             // may split the long message across rows, so assert the concatenated
             // content preserves it rather than any single row.
@@ -3189,12 +3155,11 @@ mod tests {
         // Partially commit the first two rows (top padding + line0).
         let committed = 2;
         t.mark_rows_committed(committed);
-        let frozen_tail = &original[committed..original.len() - 1];
+        let frozen_tail = &original[committed..];
 
         t.ensure_render_cache(80);
         let now = t.uncommitted_rows();
-        // Committed rows do not return; the remaining bubble rows stay frozen; only
-        // the final provisional composer gap is rebuilt.
+        // Committed rows do not return; the remaining bubble rows stay frozen.
         assert!(now.len() >= frozen_tail.len());
         assert_eq!(
             &now[..frozen_tail.len()],
