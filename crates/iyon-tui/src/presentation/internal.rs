@@ -4,6 +4,8 @@
 //! semantic views once the actual width is known, composes them on a transparent
 //! cell surface, and only then lowers them to final physical `Line`s.
 
+use std::borrow::Cow;
+
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -155,9 +157,7 @@ impl ViewCompiler {
         inherited: Style,
     ) -> (u16, Vec<CompiledTextRow>) {
         use crate::presentation::stream::ProjectedTextLayout;
-        use crate::presentation::wrap::{StyledGrapheme, wrap_styled_lines};
-        use std::borrow::Cow;
-
+        use crate::presentation::wrap::wrap_styled_lines;
         if let ProjectedTextLayout::Hanging {
             body_column,
             prefix,
@@ -222,51 +222,7 @@ impl ViewCompiler {
             return (max_width, rows);
         }
 
-        let mut hard_lines: Vec<Vec<StyledGrapheme<'static>>> = vec![Vec::new()];
-        for run in &text.runs {
-            if run.display.is_empty() {
-                continue;
-            }
-            let style = self.theme.resolve(&run.style, inherited);
-            let Some(visible) = run.exact_visible else {
-                hard_lines.last_mut().unwrap().push(StyledGrapheme {
-                    text: Cow::Owned(run.display.clone()),
-                    width: UnicodeWidthStr::width(run.display.as_str()),
-                    style,
-                    source: Some(
-                        (run.owned.start.as_u64() - text.content_range.start.as_u64()) as usize
-                            ..(run.owned.end.as_u64() - text.content_range.start.as_u64()) as usize,
-                    ),
-                });
-                continue;
-            };
-
-            for (relative, grapheme) in run.display.grapheme_indices(true) {
-                let relative_end = relative + grapheme.len();
-                let mut source_start = visible.start.as_u64() + relative as u64;
-                let mut source_end = visible.start.as_u64() + relative_end as u64;
-                if relative == 0 {
-                    source_start = run.owned.start.as_u64();
-                }
-                if relative_end == run.display.len() {
-                    source_end = run.owned.end.as_u64();
-                }
-                let mapped = StyledGrapheme {
-                    text: Cow::Owned(grapheme.to_string()),
-                    width: UnicodeWidthStr::width(grapheme),
-                    style,
-                    source: Some(
-                        (source_start - text.content_range.start.as_u64()) as usize
-                            ..(source_end - text.content_range.start.as_u64()) as usize,
-                    ),
-                };
-                if grapheme == "\n" {
-                    hard_lines.push(Vec::new());
-                } else {
-                    hard_lines.last_mut().unwrap().push(mapped);
-                }
-            }
-        }
+        let hard_lines = projected_hard_lines(&self.theme, text, inherited);
 
         let intrinsic_width = hard_lines
             .iter()
@@ -671,7 +627,7 @@ fn allocate_tracks(
     RowAllocation { tracks, gap }
 }
 
-use crate::presentation::wrap::{styled_hard_lines, wrap_styled_lines};
+use crate::presentation::wrap::{StyledGrapheme, styled_hard_lines, wrap_styled_lines};
 
 fn paint_border(
     surface: &mut Surface,
@@ -880,6 +836,123 @@ impl ThemeResolver {
     }
 }
 
+#[derive(Debug, Clone)]
+struct ProjectedExactFragment {
+    display_start: usize,
+    display_end: usize,
+    style: Style,
+    owned: StreamRange,
+    visible: StreamRange,
+}
+
+/// Tokenizes adjacent exact projected runs as one visible string so an EGC
+/// cannot be split merely because Markdown/style provenance changes at a run
+/// boundary. Replacement runs remain explicit indivisible barriers.
+fn projected_hard_lines(
+    theme: &ThemeResolver,
+    text: &ProjectedText,
+    inherited: Style,
+) -> Vec<Vec<StyledGrapheme<'static>>> {
+    let mut hard_lines = vec![Vec::new()];
+    let mut exact_display = String::new();
+    let mut exact_fragments = Vec::new();
+
+    for run in &text.runs {
+        if run.display.is_empty() {
+            continue;
+        }
+        let style = theme.resolve(&run.style, inherited);
+        let Some(visible) = run.exact_visible else {
+            append_projected_exact(
+                &mut hard_lines,
+                &exact_display,
+                &exact_fragments,
+                text.content_range.start,
+            );
+            exact_display.clear();
+            exact_fragments.clear();
+            hard_lines.last_mut().unwrap().push(StyledGrapheme {
+                text: Cow::Owned(run.display.clone()),
+                width: UnicodeWidthStr::width(run.display.as_str()),
+                style,
+                source: Some(
+                    (run.owned.start.as_u64() - text.content_range.start.as_u64()) as usize
+                        ..(run.owned.end.as_u64() - text.content_range.start.as_u64()) as usize,
+                ),
+            });
+            continue;
+        };
+
+        let display_start = exact_display.len();
+        exact_display.push_str(&run.display);
+        exact_fragments.push(ProjectedExactFragment {
+            display_start,
+            display_end: exact_display.len(),
+            style,
+            owned: run.owned,
+            visible,
+        });
+    }
+
+    append_projected_exact(
+        &mut hard_lines,
+        &exact_display,
+        &exact_fragments,
+        text.content_range.start,
+    );
+    hard_lines
+}
+
+fn append_projected_exact(
+    hard_lines: &mut Vec<Vec<StyledGrapheme<'static>>>,
+    display: &str,
+    fragments: &[ProjectedExactFragment],
+    content_start: crate::presentation::StreamOffset,
+) {
+    for (relative, grapheme) in display.grapheme_indices(true) {
+        let relative_end = relative + grapheme.len();
+        let first = fragments
+            .iter()
+            .find(|fragment| {
+                relative < fragment.display_end && relative_end > fragment.display_start
+            })
+            .expect("projected EGC must overlap an exact fragment");
+        let last = fragments
+            .iter()
+            .rev()
+            .find(|fragment| fragment.display_start < relative_end)
+            .expect("projected EGC must overlap an exact fragment");
+
+        let first_offset = relative - first.display_start;
+        let source_start = if first_offset == 0 {
+            first.owned.start
+        } else {
+            first.visible.start.saturating_add(first_offset as u64)
+        };
+        let last_offset_end = relative_end - last.display_start;
+        let last_display_len = last.display_end - last.display_start;
+        let source_end = if last_offset_end == last_display_len {
+            last.owned.end
+        } else {
+            last.visible.start.saturating_add(last_offset_end as u64)
+        };
+        let mapped = StyledGrapheme {
+            text: Cow::Owned(grapheme.to_string()),
+            width: UnicodeWidthStr::width(grapheme),
+            style: first.style,
+            source: Some(
+                (source_start.as_u64() - content_start.as_u64()) as usize
+                    ..(source_end.as_u64() - content_start.as_u64()) as usize,
+            ),
+        };
+        if grapheme == "\n" {
+            hard_lines.push(Vec::new());
+        } else {
+            hard_lines.last_mut().unwrap().push(mapped);
+        }
+    }
+}
+
 fn apply_attributes(style: &mut Style, attributes: TextAttributes) {
     let mut modifier = Modifier::empty();
     if attributes.bold {
@@ -903,7 +976,15 @@ fn apply_attributes(style: &mut Style, attributes: TextAttributes) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::presentation::{ColorSpec, Decoration, Insets, RowChild, ThemeKey};
+    use crate::presentation::stream::StreamRowCommit;
+    use crate::presentation::{
+        ColorSpec, Decoration, ExactTerminator, Insets, ProjectedTextLayout, ProjectedTextRun,
+        RowChild, StreamNode, StreamOffset, StreamView, ThemeKey, WrapMode,
+    };
+
+    fn range(start: u64, end: u64) -> StreamRange {
+        StreamRange::new(StreamOffset::new(start), StreamOffset::new(end))
+    }
 
     fn text(row: &Line<'static>) -> String {
         row.spans.iter().map(|span| span.content.as_ref()).collect()
@@ -970,6 +1051,162 @@ mod tests {
         assert_eq!(rows[0].spans[0].style.fg, theme::tool_running().fg);
         assert_eq!(rows[0].spans[1].style.fg, theme::tool_error().fg);
         assert_eq!(rows[2].spans[0].style.fg, theme::tool_error().fg);
+    }
+
+    #[test]
+    fn projected_egc_spans_exact_run_boundaries_and_history_ownership() {
+        let compiler = ViewCompiler::default();
+        let projected = ProjectedText {
+            content_range: range(0, 12),
+            terminator: ExactTerminator::None,
+            width: WidthRule::Fit,
+            wrap: WrapMode::WordThenGrapheme,
+            align: HorizontalAlign::Start,
+            layout: ProjectedTextLayout::Plain,
+            runs: vec![
+                ProjectedTextRun {
+                    display: "a".to_string(),
+                    style: style("markdown.bold"),
+                    owned: range(0, 3),
+                    exact_visible: Some(range(2, 3)),
+                },
+                ProjectedTextRun {
+                    display: "\u{301} rest".to_string(),
+                    style: style("text.default"),
+                    owned: range(3, 12),
+                    exact_visible: Some(range(5, 12)),
+                },
+            ],
+        };
+        let (_, rows) =
+            compiler.compile_projected_text_with_metadata(&projected, 1, Style::default());
+        assert_eq!(text(&rows[0].line), "a\u{301}");
+        assert_eq!(rows[0].source_end, Some(7));
+
+        let view = StreamView::new(vec![StreamNode::projected_text(projected)]);
+        let compiled = crate::presentation::stream::compile_stream(
+            &view,
+            1,
+            crate::presentation::StreamOffset::new(12),
+        );
+        assert_eq!(
+            compiled.commit[0],
+            StreamRowCommit::Exact(StreamOffset::new(7))
+        );
+    }
+
+    #[test]
+    fn projected_egc_spans_zwj_run_boundaries_without_splitting() {
+        let first = "👩";
+        let second = "\u{200d}💻";
+        let split = first.len() as u64;
+        let end = split + second.len() as u64;
+        let projected = ProjectedText {
+            content_range: range(0, end),
+            terminator: ExactTerminator::None,
+            width: WidthRule::Fit,
+            wrap: WrapMode::WordThenGrapheme,
+            align: HorizontalAlign::Start,
+            layout: ProjectedTextLayout::Plain,
+            runs: vec![
+                ProjectedTextRun {
+                    display: first.to_string(),
+                    style: style("markdown.bold"),
+                    owned: range(0, split),
+                    exact_visible: Some(range(0, split)),
+                },
+                ProjectedTextRun {
+                    display: second.to_string(),
+                    style: style("markdown.italic"),
+                    owned: range(split, end),
+                    exact_visible: Some(range(split, end)),
+                },
+            ],
+        };
+        let (_, rows) = ViewCompiler::default().compile_projected_text_with_metadata(
+            &projected,
+            1,
+            Style::default(),
+        );
+        assert_eq!(rows.len(), 1);
+        assert_eq!(text(&rows[0].line), format!("{first}{second}"));
+    }
+
+    #[test]
+    fn projected_replacement_remains_one_indivisible_atom() {
+        let projected = ProjectedText {
+            content_range: range(0, 7),
+            terminator: ExactTerminator::None,
+            width: WidthRule::Fit,
+            wrap: WrapMode::WordThenGrapheme,
+            align: HorizontalAlign::Start,
+            layout: ProjectedTextLayout::Plain,
+            runs: vec![
+                ProjectedTextRun {
+                    display: "foo".to_string(),
+                    style: StyleSpec::default(),
+                    owned: range(0, 3),
+                    exact_visible: Some(range(0, 3)),
+                },
+                ProjectedTextRun {
+                    display: "    ".to_string(),
+                    style: StyleSpec::default(),
+                    owned: range(3, 4),
+                    exact_visible: None,
+                },
+                ProjectedTextRun {
+                    display: "bar".to_string(),
+                    style: StyleSpec::default(),
+                    owned: range(4, 7),
+                    exact_visible: Some(range(4, 7)),
+                },
+            ],
+        };
+        let (_, rows) = ViewCompiler::default().compile_projected_text_with_metadata(
+            &projected,
+            1,
+            Style::default(),
+        );
+        assert!(rows.iter().any(|row| text(&row.line) == "    "));
+    }
+
+    #[test]
+    fn projected_egc_boundaries_still_expose_independent_checkpoints() {
+        let projected = ProjectedText {
+            content_range: range(0, 2),
+            terminator: ExactTerminator::None,
+            width: WidthRule::Fit,
+            wrap: WrapMode::WordThenGrapheme,
+            align: HorizontalAlign::Start,
+            layout: ProjectedTextLayout::Plain,
+            runs: vec![
+                ProjectedTextRun {
+                    display: "a".to_string(),
+                    style: style("markdown.bold"),
+                    owned: range(0, 1),
+                    exact_visible: Some(range(0, 1)),
+                },
+                ProjectedTextRun {
+                    display: "b".to_string(),
+                    style: style("markdown.italic"),
+                    owned: range(1, 2),
+                    exact_visible: Some(range(1, 2)),
+                },
+            ],
+        };
+        let compiled = crate::presentation::stream::compile_stream(
+            &StreamView::new(vec![StreamNode::projected_text(projected)]),
+            1,
+            crate::presentation::StreamOffset::new(2),
+        );
+        assert_eq!(
+            compiled.commit[0],
+            StreamRowCommit::Exact(StreamOffset::new(1))
+        );
+        assert_eq!(
+            compiled.commit[1],
+            StreamRowCommit::Exact(StreamOffset::new(2))
+        );
     }
 
     #[test]
