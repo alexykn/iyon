@@ -1020,7 +1020,8 @@ impl TranscriptState {
             let item = &self.canonical_items[index];
             let is_open = open_assistant_idx == Some(index);
             let source_id = self.entry_ids[index];
-            let ownership = self.ownership_for(source_id, index);
+            let presentation_unit_index = self.presentation_cache.len();
+            let ownership = self.ownership_for(source_id, presentation_unit_index);
             let source_backed_started = self.has_source_backed_partial(source_id);
             let presentation = match &ownership {
                 PresentationOwnership::ResidentStream => TranscriptPresentation::ResidentStream,
@@ -1811,6 +1812,36 @@ mod tests {
         transcript.mark_rows_committed(1);
         assert!(transcript.commit_state.partial.is_none());
         assert!(transcript.hosted_unit_is_history_head(hosted.id));
+    }
+
+    #[test]
+    fn completed_prefix_uses_presentation_unit_indices() {
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "first".to_string(),
+        });
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "second".to_string(),
+        });
+        let registration = transcript.begin_hosted_assistant_unit();
+        transcript.seal_hosted_assistant_unit(
+            registration.id,
+            vec![AssistantSegment::Text("answer".to_string())],
+        );
+        transcript.ensure_render_cache(80);
+
+        let user_rows = transcript.committable_len();
+        assert!(user_rows > 0);
+        transcript.mark_rows_committed(user_rows);
+        assert_eq!(transcript.commit_state.completed_prefix, 1);
+        assert!(transcript.hosted_unit_is_history_head(registration.id));
+
+        transcript.finish_stream_unit(registration.id);
+        assert_eq!(transcript.commit_state.completed_prefix, 2);
+        assert!(matches!(
+            transcript.presentation_cache[1].ownership,
+            PresentationOwnership::NativeHistory
+        ));
     }
 
     #[test]
