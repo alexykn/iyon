@@ -8,6 +8,8 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 use crate::{
     presentation::api::{
@@ -28,6 +30,7 @@ struct Surface {
     width: u16,
     height: u16,
     cells: Vec<Cell>,
+    physically_complete: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -55,6 +58,7 @@ impl Surface {
             width,
             height,
             cells: vec![Cell::transparent(); usize::from(width) * usize::from(height)],
+            physically_complete: true,
         }
     }
 
@@ -83,6 +87,9 @@ impl Surface {
     }
 
     fn composite(&mut self, child: &Surface, x: u16, y: u16) {
+        if !child.physically_complete {
+            self.physically_complete = false;
+        }
         for child_y in 0..child.height {
             let target_y = y.saturating_add(child_y);
             if target_y >= self.height {
@@ -108,6 +115,8 @@ impl Surface {
 pub(crate) struct LayoutBlock {
     pub(crate) width: u16,
     pub(crate) rows: Vec<Line<'static>>,
+    /// False when physical width prevented semantic presentation from being represented completely.
+    pub(crate) physically_complete: bool,
 }
 
 /// INTERNAL PRESENTATION MECHANICS. The sole owner of semantic width and row
@@ -117,13 +126,89 @@ pub(crate) struct ViewCompiler {
     theme: ThemeResolver,
 }
 
+/// A compiled physical text row preserving resolved styles, display width, fit status, and source metadata.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CompiledTextRow {
+    pub(crate) line: Line<'static>,
+    pub(crate) source_end: Option<usize>,
+    pub(crate) fits: bool,
+    pub(crate) width: usize,
+}
+
 impl ViewCompiler {
     pub(crate) fn compile(&self, view: &View, max_width: u16) -> LayoutBlock {
         let surface = self.layout(view, max_width, Style::default());
+        let physically_complete = surface.physically_complete;
         LayoutBlock {
             width: surface.width,
             rows: lower_surface(surface),
+            physically_complete,
         }
+    }
+
+    /// Shared text compiler used by both ordinary [`View`] layout and streaming provenance compilation.
+    pub(crate) fn compile_text_with_metadata(
+        &self,
+        text: &TextView,
+        max_width: u16,
+        width_rule: WidthRule,
+        inherited: Style,
+        track_source: bool,
+    ) -> (u16, Vec<CompiledTextRow>) {
+        let mut relative_source = 0usize;
+        let spans = text.spans.iter().map(|span| {
+            let base = if track_source {
+                let current = relative_source;
+                relative_source += span.text.len();
+                Some(current)
+            } else {
+                None
+            };
+            (
+                span.text.as_str(),
+                self.theme.resolve(&span.style, inherited),
+                base,
+            )
+        });
+        let hard_lines = styled_hard_lines(spans);
+        let intrinsic_width = hard_lines
+            .iter()
+            .map(|line| line.iter().map(|grapheme| grapheme.width).sum::<usize>())
+            .max()
+            .unwrap_or(0);
+        let width = match width_rule {
+            WidthRule::Fit => intrinsic_width.min(usize::from(max_width)) as u16,
+            WidthRule::Fill => max_width,
+        };
+        let wrapped = wrap_styled_lines(&hard_lines, width, text.wrap);
+        let rows = wrapped
+            .into_iter()
+            .map(|w_line| {
+                let mut spans: Vec<Span<'static>> = Vec::new();
+                for g in &w_line.graphemes {
+                    if let Some(last) = spans.last_mut()
+                        && last.style == g.style
+                    {
+                        last.content.to_mut().push_str(g.text.as_ref());
+                    } else {
+                        spans.push(Span::styled(g.text.to_string(), g.style));
+                    }
+                }
+                let source_end = w_line
+                    .graphemes
+                    .last()
+                    .and_then(|g| g.source.as_ref())
+                    .map(|r| r.end);
+                CompiledTextRow {
+                    line: Line::from(spans),
+                    source_end,
+                    fits: w_line.fits,
+                    width: w_line.width,
+                }
+            })
+            .collect();
+
+        (width, rows)
     }
 
     fn layout(&self, view: &View, max_width: u16, inherited: Style) -> Surface {
@@ -148,57 +233,45 @@ impl ViewCompiler {
         max_width: u16,
         inherited: Style,
     ) -> Surface {
-        let spans = text.spans.iter().map(|span| {
-            (
-                span.text.as_str(),
-                self.theme.resolve(&span.style, inherited),
-                None,
-            )
-        });
-        let hard_lines = styled_hard_lines(spans);
-        let intrinsic_width = hard_lines
-            .iter()
-            .map(|line| line.iter().map(|grapheme| grapheme.width).sum::<usize>())
-            .max()
-            .unwrap_or(0);
-        let width = match width_rule {
-            WidthRule::Fit => intrinsic_width.min(usize::from(max_width)) as u16,
-            WidthRule::Fill => max_width,
-        };
-        let wrapped = wrap_styled_lines(&hard_lines, width, text.wrap);
-        let mut surface = Surface::new(width, wrapped.len().max(1) as u16);
-        for (y, line) in wrapped.iter().enumerate() {
-            let line_width = line.width;
+        let (width, rows) =
+            self.compile_text_with_metadata(text, max_width, width_rule, inherited, true);
+        let all_fit = rows.iter().all(|row| row.fits);
+        let mut surface = Surface::new(width, rows.len().max(1) as u16);
+        surface.physically_complete = all_fit;
+        for (y, row) in rows.into_iter().enumerate() {
+            let line_width = row.width;
             let offset = match text.align {
                 HorizontalAlign::Start => 0,
                 HorizontalAlign::Center => usize::from(width).saturating_sub(line_width) / 2,
                 HorizontalAlign::End => usize::from(width).saturating_sub(line_width),
             };
             let mut x = offset;
-            for grapheme in &line.graphemes {
-                if grapheme.width == 0 {
-                    continue;
-                }
-                if x >= usize::from(width) || x.saturating_add(grapheme.width) > usize::from(width)
-                {
-                    break;
-                }
-                let cell = surface.get_mut(x as u16, y as u16);
-                cell.grapheme = Some(grapheme.text.to_string());
-                cell.style = grapheme.style;
-                cell.painted = true;
-                for continuation in 1..grapheme.width {
-                    let position = x + continuation;
-                    if position >= usize::from(width) {
+            for span in &row.line.spans {
+                for g_text in span.content.graphemes(true) {
+                    let g_width = UnicodeWidthStr::width(g_text);
+                    if g_width == 0 {
+                        continue;
+                    }
+                    if x >= usize::from(width) || x.saturating_add(g_width) > usize::from(width) {
                         break;
                     }
-                    let cell = surface.get_mut(position as u16, y as u16);
-                    cell.grapheme = None;
-                    cell.style = grapheme.style;
+                    let cell = surface.get_mut(x as u16, y as u16);
+                    cell.grapheme = Some(g_text.to_string());
+                    cell.style = span.style;
                     cell.painted = true;
-                    cell.continuation = true;
+                    for continuation in 1..g_width {
+                        let position = x + continuation;
+                        if position >= usize::from(width) {
+                            break;
+                        }
+                        let cell = surface.get_mut(position as u16, y as u16);
+                        cell.grapheme = None;
+                        cell.style = span.style;
+                        cell.painted = true;
+                        cell.continuation = true;
+                    }
+                    x += g_width;
                 }
-                x += grapheme.width;
             }
         }
         surface
@@ -345,6 +418,7 @@ impl ViewCompiler {
         }
 
         let mut output = Surface::new(child.width, clamp.max_rows);
+        output.physically_complete = child.physically_complete;
         for y in 0..clamp.max_rows {
             for x in 0..child.width {
                 *output.get_mut(x, y) = child.get(x, y).clone();
@@ -754,11 +828,27 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_view_does_not_partially_paint_wide_grapheme() {
+        let compiler = ViewCompiler::default();
+        let view = View::text("漢");
+
+        let block = compiler.compile(&view, 1);
+
+        // Whatever the established clipped representation is,
+        // it must not contain a half-painted wide grapheme.
+        for row in &block.rows {
+            for span in &row.spans {
+                assert!(!span.content.contains('漢'));
+            }
+        }
+    }
+
+    #[test]
     fn clamp_emits_indicator() {
         let view = View::clamp_rows(
             View::text("one two three four"),
             2,
-            crate::presentation::OverflowIndicator::Ellipsis {
+            crate::presentation::api::OverflowIndicator::Ellipsis {
                 style: StyleSpec::default(),
             },
         );

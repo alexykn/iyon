@@ -22,8 +22,8 @@
 //! * `layout` — plain vs list-item (structure/geometry intent);
 //! * `style` — the row-level gutter/prefix style;
 //! * `source` — source stability / streaming bookkeeping (`content_len`,
-//!   `restricted`), used only by the still-special active + pinned source-backed
-//!   assistant path.
+//!   `has_newline`, `restricted`, `stable_prefix_len`), used only by the
+//!   still-special active + pinned source-backed assistant path.
 //!
 //! Streaming is *tolerant*: an unclosed marker (`**unclosed`, `*ital`, `` `code ``)
 //! renders literally rather than being suppressed. A marker only becomes styled
@@ -35,6 +35,7 @@
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::presentation::{
     ColorSpec, Decoration, Insets, RowChild, StyleSpec, TextAttributes, TextSpan, ThemeKey, View,
@@ -73,6 +74,7 @@ pub(crate) struct AssistantLogicalRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AssistantRowLayout {
     Plain,
+    Heading,
     ListItem {
         depth: usize,
         marker: AssistantMarker,
@@ -85,21 +87,58 @@ pub(crate) enum AssistantMarker {
     Ordered { index: usize },
 }
 
+/// Parser continuation context for the first logical row when live stream source is compacted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AssistantContinuation {
+    Paragraph,
+    Heading,
+}
+
 /// Source stability / streaming bookkeeping. Neither contains terminal width.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AssistantSourceMeta {
     /// Source byte length of this logical row's line (excluding trailing `\n`).
     pub(crate) content_len: usize,
+    /// Whether this logical row terminates in a hard newline `\n`.
+    pub(crate) has_newline: bool,
     /// True when the row hides/replaces source bytes and must freeze whole-line.
     pub(crate) restricted: bool,
+    /// Largest source-byte prefix of THIS logical row whose current presentation
+    /// cannot change under any future append, including semantic reinterpretation
+    /// and extended-grapheme safety. Range: 0..=content_len.
+    pub(crate) stable_prefix_len: usize,
+}
+
+impl AssistantSourceMeta {
+    pub(crate) fn total_len(&self) -> usize {
+        self.content_len + if self.has_newline { 1 } else { 0 }
+    }
 }
 
 /// Parse `segments` once into the shared width-independent document.
 pub(crate) fn parse_assistant(segments: &[AssistantSegment]) -> AssistantDocument {
+    parse_assistant_tail(segments, crate::presentation::StreamOffset::ZERO, None)
+}
+
+/// Parse `segments` into the shared document starting at `source_base`, with an optional
+/// continuation mode for the first logical row.
+pub(crate) fn parse_assistant_tail(
+    segments: &[AssistantSegment],
+    _source_base: crate::presentation::StreamOffset,
+    continuation: Option<AssistantContinuation>,
+) -> AssistantDocument {
     let raw_lines = flatten_lines(segments);
-    AssistantDocument {
-        rows: raw_lines.into_iter().map(parse_line).collect(),
+    let mut rows = Vec::with_capacity(raw_lines.len());
+    for (i, line) in raw_lines.into_iter().enumerate() {
+        if i == 0 {
+            if let Some(cont) = continuation {
+                rows.push(parse_continuation_line(line, cont));
+                continue;
+            }
+        }
+        rows.push(parse_line(line));
     }
+    AssistantDocument { rows }
 }
 
 /// A `TranscriptRow` plus freeze metadata for the active (streaming) pane.
@@ -147,6 +186,7 @@ pub(crate) fn stream_rows(document: &AssistantDocument) -> Vec<RenderedRow> {
 #[derive(Debug)]
 struct RawLine {
     pieces: Vec<(SegmentKind, String, usize)>,
+    has_newline: bool,
 }
 
 /// Flattens segments into logical lines, tracking absolute source byte offsets
@@ -161,10 +201,12 @@ fn flatten_lines(segments: &[AssistantSegment]) -> Vec<RawLine> {
             AssistantSegment::Text(_) => SegmentKind::Text,
             AssistantSegment::Thinking(_) => SegmentKind::Thinking,
         };
-        for (idx, piece) in segment.text().split('\n').enumerate() {
+        let text = segment.text();
+        for (idx, piece) in text.split('\n').enumerate() {
             if idx > 0 {
                 lines.push(RawLine {
                     pieces: std::mem::take(&mut cur),
+                    has_newline: true,
                 });
                 abs += '\n'.len_utf8();
             }
@@ -176,7 +218,10 @@ fn flatten_lines(segments: &[AssistantSegment]) -> Vec<RawLine> {
     }
 
     if !cur.is_empty() || lines.is_empty() {
-        lines.push(RawLine { pieces: cur });
+        lines.push(RawLine {
+            pieces: cur,
+            has_newline: false,
+        });
     }
     lines
 }
@@ -185,8 +230,26 @@ fn flatten_lines(segments: &[AssistantSegment]) -> Vec<RawLine> {
 // Document parse: assign semantic spans, layout, style, and source metadata.
 // ---------------------------------------------------------------------------
 
-fn parse_line(line: RawLine) -> AssistantLogicalRow {
+/// Largest source-byte prefix whose final extended grapheme cluster cannot be
+/// changed by a future append. The final open grapheme is deliberately held
+/// back, even when the current semantic interpretation is otherwise pinned.
+fn open_egc_stable_prefix_len(source: &str) -> usize {
+    source
+        .grapheme_indices(true)
+        .map(|(offset, _)| offset)
+        .last()
+        .unwrap_or(0)
+}
+
+/// Intersects semantic append stability with source extended-grapheme safety.
+fn open_stable_prefix_len(source: &str, semantic_prefix_len: usize) -> usize {
+    semantic_prefix_len.min(open_egc_stable_prefix_len(source))
+}
+
+fn parse_continuation_line(line: RawLine, cont: AssistantContinuation) -> AssistantLogicalRow {
     let full = concat_pieces(&line);
+    let has_newline = line.has_newline;
+    let content_len = piece_source_len(&line);
 
     if full.is_empty() {
         return AssistantLogicalRow {
@@ -195,64 +258,208 @@ fn parse_line(line: RawLine) -> AssistantLogicalRow {
             style: StyleSpec::default(),
             source: AssistantSourceMeta {
                 content_len: 0,
+                has_newline,
                 restricted: false,
+                stable_prefix_len: 0,
+            },
+        };
+    }
+
+    match cont {
+        AssistantContinuation::Heading => {
+            let semantic_prefix_len = content_len;
+            let stable_prefix_len = if has_newline {
+                content_len
+            } else {
+                open_stable_prefix_len(&full, semantic_prefix_len)
+            };
+            AssistantLogicalRow {
+                spans: header_spans(&line),
+                layout: AssistantRowLayout::Heading,
+                style: header_style(),
+                source: AssistantSourceMeta {
+                    content_len,
+                    has_newline,
+                    restricted: false,
+                    stable_prefix_len,
+                },
+            }
+        }
+        AssistantContinuation::Paragraph => {
+            let (spans, restricted, paragraph_semantic_stable) = paragraph_spans(&line);
+            let stable_prefix_len = if has_newline {
+                content_len
+            } else {
+                open_stable_prefix_len(&full, paragraph_semantic_stable)
+            };
+            AssistantLogicalRow {
+                spans,
+                layout: AssistantRowLayout::Plain,
+                style: StyleSpec::default(),
+                source: AssistantSourceMeta {
+                    content_len,
+                    has_newline,
+                    restricted,
+                    stable_prefix_len,
+                },
+            }
+        }
+    }
+}
+
+/// True when the open prefix of a line is ambiguous between plain text and a heading/list marker.
+fn classification_is_ambiguous(full: &str) -> bool {
+    let indent = list_indent(full);
+    let trimmed = indent.trimmed_source;
+
+    // A non-empty indentation-only prefix can still become a list when more
+    // source arrives (e.g. "  " followed by "- item").
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    // 1. Ambiguous heading: 1..=6 '#' with nothing after
+    let hash_count = trimmed.chars().take_while(|c| *c == '#').count();
+    if hash_count >= 1 && hash_count <= 6 && trimmed[hash_count..].is_empty() {
+        return true;
+    }
+
+    // 2. Ambiguous unordered list marker: '-', '+', '*' alone
+    if trimmed == "-" || trimmed == "+" || trimmed == "*" {
+        return true;
+    }
+
+    // 3. Ambiguous ordered list prefix: digits alone, or digits followed by '.' or ')' with nothing after
+    let digit_count = trimmed.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digit_count > 0 {
+        let rest = &trimmed[digit_count..];
+        if rest.is_empty() || rest == "." || rest == ")" {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn parse_line(line: RawLine) -> AssistantLogicalRow {
+    let full = concat_pieces(&line);
+    let has_newline = line.has_newline;
+    let content_len = piece_source_len(&line);
+
+    if full.is_empty() {
+        return AssistantLogicalRow {
+            spans: Vec::new(),
+            layout: AssistantRowLayout::Plain,
+            style: StyleSpec::default(),
+            source: AssistantSourceMeta {
+                content_len: 0,
+                has_newline,
+                restricted: false,
+                stable_prefix_len: 0,
+            },
+        };
+    }
+
+    if !has_newline && classification_is_ambiguous(&full) {
+        return AssistantLogicalRow {
+            spans: paragraph_spans(&line).0,
+            layout: AssistantRowLayout::Plain,
+            style: StyleSpec::default(),
+            source: AssistantSourceMeta {
+                content_len,
+                has_newline,
+                restricted: false,
+                stable_prefix_len: open_stable_prefix_len(&full, 0),
             },
         };
     }
 
     if let Some(_count) = header_run(&full) {
+        let semantic_prefix_len = content_len;
+        let stable_prefix_len = if has_newline {
+            content_len
+        } else {
+            open_stable_prefix_len(&full, semantic_prefix_len)
+        };
         return AssistantLogicalRow {
             spans: header_spans(&line),
-            layout: AssistantRowLayout::Plain,
+            layout: AssistantRowLayout::Heading,
             style: header_style(),
             source: AssistantSourceMeta {
-                content_len: piece_source_len(&line),
+                content_len,
+                has_newline,
                 restricted: false,
+                stable_prefix_len,
             },
         };
     }
 
-    if let Some(depth) = ordered_depth(&full) {
-        let (_sep_len, index, rest) = ordered_parts(&full);
+    if let Some((depth, index, body_start, body_source)) = ordered_parts(&full) {
+        let (mut spans, body_semantic_stable) = body_inline(body_source);
+        normalize_list_display_tabs(&mut spans);
+        let semantic_prefix_len = body_start.saturating_add(body_semantic_stable);
+        let stable_prefix_len = if has_newline {
+            content_len
+        } else {
+            open_stable_prefix_len(&full, semantic_prefix_len)
+        };
         return AssistantLogicalRow {
-            spans: body_inline(&rest),
+            spans,
             layout: AssistantRowLayout::ListItem {
                 depth,
                 marker: AssistantMarker::Ordered { index },
             },
             style: list_style(),
             source: AssistantSourceMeta {
-                content_len: piece_source_len(&line),
+                content_len,
+                has_newline,
                 restricted: true,
+                stable_prefix_len,
             },
         };
     }
 
-    if let Some(depth) = unordered_depth(&full) {
-        let rest = unordered_rest(&full);
+    if let Some((depth, body_start, body_source)) = unordered_parts(&full) {
+        let (mut spans, body_semantic_stable) = body_inline(body_source);
+        normalize_list_display_tabs(&mut spans);
+        let semantic_prefix_len = body_start.saturating_add(body_semantic_stable);
+        let stable_prefix_len = if has_newline {
+            content_len
+        } else {
+            open_stable_prefix_len(&full, semantic_prefix_len)
+        };
         return AssistantLogicalRow {
-            spans: body_inline(&rest),
+            spans,
             layout: AssistantRowLayout::ListItem {
                 depth,
                 marker: AssistantMarker::Bullet,
             },
             style: list_style(),
             source: AssistantSourceMeta {
-                content_len: piece_source_len(&line),
+                content_len,
+                has_newline,
                 restricted: true,
+                stable_prefix_len,
             },
         };
     }
 
     // Plain paragraph (may include Thinking pieces).
-    let (spans, restricted) = paragraph_spans(&line);
+    let (spans, restricted, paragraph_semantic_stable) = paragraph_spans(&line);
+    let stable_prefix_len = if has_newline {
+        content_len
+    } else {
+        open_stable_prefix_len(&full, paragraph_semantic_stable)
+    };
     AssistantLogicalRow {
         spans,
         layout: AssistantRowLayout::Plain,
         style: StyleSpec::default(),
         source: AssistantSourceMeta {
-            content_len: piece_source_len(&line),
+            content_len,
+            has_newline,
             restricted,
+            stable_prefix_len,
         },
     }
 }
@@ -270,7 +477,7 @@ fn logical_row_to_rendered(row: &AssistantLogicalRow) -> RenderedRow {
     );
 
     let rendered = match &row.layout {
-        AssistantRowLayout::Plain => {
+        AssistantRowLayout::Plain | AssistantRowLayout::Heading => {
             if row.spans.is_empty() {
                 TranscriptRow::blank()
             } else {
@@ -387,26 +594,44 @@ fn header_spans(line: &RawLine) -> Vec<TextSpan> {
         .collect()
 }
 
-/// List-item body spans parsed for inline emphasis (base = plain).
-fn body_inline(rest: &str) -> Vec<TextSpan> {
-    parse_inline_text(rest, StyleSpec::default())
+/// List-item body spans parsed for inline emphasis (base = plain). The returned
+/// stability offset is relative to the raw body source passed in.
+fn body_inline(body_source: &str) -> (Vec<TextSpan>, usize) {
+    let (spans, _restricted, stable_len) =
+        parse_inline_text_with_flag(body_source, StyleSpec::default());
+    (spans, stable_len)
 }
 
 /// Paragraph spans: Thinking pieces pass through as muted+italic; Text pieces
-/// get inline emphasis. Returns whether any inline marker was hidden.
-fn paragraph_spans(line: &RawLine) -> (Vec<TextSpan>, bool) {
+/// get inline emphasis. Returns whether any inline marker was hidden and the
+/// semantic stable prefix byte length.
+fn paragraph_spans(line: &RawLine) -> (Vec<TextSpan>, bool, usize) {
     let mut spans: Vec<TextSpan> = Vec::new();
     let mut restricted = false;
+    let mut stable_prefix_len = 0;
+    let mut hit_unstable = false;
+
     for (kind, text, _) in &line.pieces {
         if *kind == SegmentKind::Thinking {
             spans.push(TextSpan::styled(text.clone(), thinking_style_spec()));
+            if !hit_unstable {
+                stable_prefix_len += text.len();
+            }
             continue;
         }
-        let (parsed, is_restricted) = parse_inline_text_with_flag(text, StyleSpec::default());
+        let (parsed, is_restricted, piece_stable) =
+            parse_inline_text_with_flag(text, StyleSpec::default());
         restricted |= is_restricted;
         spans.extend(parsed);
+
+        if !hit_unstable {
+            stable_prefix_len += piece_stable;
+            if piece_stable < text.len() {
+                hit_unstable = true;
+            }
+        }
     }
-    (spans, restricted)
+    (spans, restricted, stable_prefix_len)
 }
 
 // ---------------------------------------------------------------------------
@@ -425,20 +650,46 @@ fn header_run(line: &str) -> Option<usize> {
     (after.is_empty() || after.starts_with(' ')).then_some(count)
 }
 
-/// Counts leading list indentation, normalizing tabs (a tab is treated as 4
-/// spaces). One logical tab = [`LIST_INDENT`] columns.
-fn list_depth(line: &str) -> (usize, String) {
-    let expanded = line.replace('\t', "    ");
-    let indent_cols = expanded.chars().take_while(|c| *c == ' ').count();
-    let depth = indent_cols / crate::transcript::row::LIST_INDENT;
-    (depth, expanded.trim_start().to_string())
+/// Leading indentation geometry and its corresponding raw source position.
+/// Tabs count as four display columns, but the returned slice and offsets remain
+/// in the original source coordinate space.
+#[derive(Debug)]
+struct ListIndent<'a> {
+    depth: usize,
+    source_start: usize,
+    trimmed_source: &'a str,
+}
+
+fn list_indent(line: &str) -> ListIndent<'_> {
+    let mut columns = 0usize;
+    let mut source_start = 0usize;
+
+    for (byte, ch) in line.char_indices() {
+        match ch {
+            ' ' => {
+                columns += 1;
+                source_start = byte + ch.len_utf8();
+            }
+            '\t' => {
+                columns += 4;
+                source_start = byte + ch.len_utf8();
+            }
+            _ => break,
+        }
+    }
+
+    ListIndent {
+        depth: columns / crate::transcript::row::LIST_INDENT,
+        source_start,
+        trimmed_source: &line[source_start..],
+    }
 }
 
 /// The length of an unordered marker `- ` / `* ` / `+ ` (symbol + space).
-fn unordered_marker_len(trimmed_of_full_line: &str) -> Option<usize> {
-    let first = trimmed_of_full_line.chars().next()?;
+fn unordered_marker_len(trimmed_source: &str) -> Option<usize> {
+    let first = trimmed_source.chars().next()?;
     if matches!(first, '-' | '*' | '+') {
-        let mut chars = trimmed_of_full_line.chars();
+        let mut chars = trimmed_source.chars();
         chars.next();
         if chars.next() == Some(' ') {
             return Some(first.len_utf8() + 1);
@@ -447,21 +698,22 @@ fn unordered_marker_len(trimmed_of_full_line: &str) -> Option<usize> {
     None
 }
 
-/// Returns the nesting depth if `full` is an unordered list item.
-fn unordered_depth(full: &str) -> Option<usize> {
-    let (depth, trimmed) = list_depth(full);
-    if unordered_marker_len(&trimmed).is_some() {
-        Some(depth)
-    } else {
-        None
-    }
+/// Returns the raw source depth, body offset, and body slice for an unordered item.
+fn unordered_parts(full: &str) -> Option<(usize, usize, &str)> {
+    let indent = list_indent(full);
+    let marker_len = unordered_marker_len(indent.trimmed_source)?;
+    let body_start = indent.source_start + marker_len;
+    Some((indent.depth, body_start, &full[body_start..]))
 }
 
-/// The body text of an unordered item (after the marker and its space).
-fn unordered_rest(full: &str) -> String {
-    let (_depth, trimmed) = list_depth(full);
-    let marker_len = unordered_marker_len(&trimmed).unwrap_or(0);
-    trimmed[marker_len..].to_string()
+/// Expands tabs only in already-parsed list display spans. Source bookkeeping
+/// must always use the raw source passed to the parser above.
+fn normalize_list_display_tabs(spans: &mut [TextSpan]) {
+    for span in spans {
+        if span.text.contains('\t') {
+            span.text = span.text.replace('\t', "    ");
+        }
+    }
 }
 
 /// Separator length of an ordered item (`1. ` / `1) `) including trailing space.
@@ -497,19 +749,14 @@ fn ordered_separator_len(trimmed: &str) -> Option<usize> {
     }
 }
 
-/// Returns the nesting depth if `full` is an ordered list item.
-fn ordered_depth(full: &str) -> Option<usize> {
-    let (depth, trimmed) = list_depth(full);
-    ordered_separator_len(&trimmed).is_some().then_some(depth)
-}
-
-/// Ordered item parts: (separator_len, parsed index, body text).
-fn ordered_parts(full: &str) -> (usize, usize, String) {
-    let (_depth, trimmed) = list_depth(full);
-    let sep_len = ordered_separator_len(&trimmed).unwrap_or(0);
-    let index = ordered_index(&trimmed);
-    let rest = trimmed[sep_len..].to_string();
-    (sep_len, index, rest)
+/// Returns the raw source depth, parsed index, body offset, and body slice for
+/// an ordered item.
+fn ordered_parts(full: &str) -> Option<(usize, usize, usize, &str)> {
+    let indent = list_indent(full);
+    let separator_len = ordered_separator_len(indent.trimmed_source)?;
+    let index = ordered_index(indent.trimmed_source);
+    let body_start = indent.source_start + separator_len;
+    Some((indent.depth, index, body_start, &full[body_start..]))
 }
 
 /// Parses the numeric index of an ordered item.
@@ -603,10 +850,11 @@ fn find_closer(text: &str, from: usize, ch: char, need_count: usize) -> Option<(
     None
 }
 
-fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool) {
+fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool, usize) {
     let mut out: Vec<EmphSpan> = Vec::new();
     let mut plain = String::new();
     let mut restricted = false;
+    let mut unstable_from: Option<usize> = None;
     let mut i = 0usize;
 
     macro_rules! flush {
@@ -619,6 +867,14 @@ fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool) {
             }
         };
     }
+
+    let mut record_unstable = |unstable_from: &mut Option<usize>, offset: usize| {
+        if let Some(existing) = *unstable_from {
+            *unstable_from = Some(existing.min(offset));
+        } else {
+            *unstable_from = Some(offset);
+        }
+    };
 
     while i < text.len() {
         debug_assert!(text.is_char_boundary(i));
@@ -638,6 +894,7 @@ fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool) {
                 // backtick opener (1) + content (rel) + closer (1) = `rel + 2` bytes.
                 i = i + 1 + rel + 1;
             } else {
+                record_unstable(&mut unstable_from, i);
                 plain.push(ch);
                 i += 1;
             }
@@ -647,6 +904,13 @@ fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool) {
         if ch == '*' || ch == '_' {
             let run_count = text[i..].chars().take_while(|c0| *c0 == ch).count();
             let run_bytes = run_count * ch.len_utf8();
+
+            // If a delimiter run reaches EOF, even if currently detached, future appends
+            // can turn it into an opener (e.g. "hello *" + "world*")!
+            if i + run_bytes == text.len() {
+                record_unstable(&mut unstable_from, i);
+            }
+
             if is_detached(text, i, run_bytes) {
                 for _ in 0..run_count {
                     plain.push(ch);
@@ -670,12 +934,20 @@ fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool) {
                 debug_assert!(text.is_char_boundary(close_start));
                 let inner = &text[i + open_bytes..close_start];
                 let inner_base = combine_style(&base, kind);
-                let (inner_spans, inner_restricted) = parse_inline_rec(inner, inner_base);
+                let (inner_spans, _inner_restricted, _inner_stable) =
+                    parse_inline_rec(inner, inner_base);
                 out.extend(inner_spans);
                 restricted = true;
+
+                // If the closing delimiter run touches EOF, appending another delimiter
+                // char (e.g. "**bold**" + "*") can extend the closing run and change the parse!
+                if close_start + close_bytes == text.len() {
+                    record_unstable(&mut unstable_from, i);
+                }
+
                 i = close_start + close_bytes;
-                let _ = inner_restricted;
             } else {
+                record_unstable(&mut unstable_from, i);
                 plain.push(ch);
                 i += ch.len_utf8();
             }
@@ -687,18 +959,19 @@ fn parse_inline_rec(text: &str, base: StyleSpec) -> (Vec<EmphSpan>, bool) {
     }
 
     flush!();
-    (out, restricted)
+    let stable_prefix_len = unstable_from.unwrap_or(text.len());
+    (out, restricted, stable_prefix_len)
 }
 
 /// Parses inline emphasis into semantic spans, reporting whether any marker was
-/// hidden (restricted).
-fn parse_inline_text_with_flag(text: &str, base: StyleSpec) -> (Vec<TextSpan>, bool) {
-    let (spans, restricted) = parse_inline_rec(text, base);
+/// hidden (restricted) and the semantic stable prefix length.
+fn parse_inline_text_with_flag(text: &str, base: StyleSpec) -> (Vec<TextSpan>, bool, usize) {
+    let (spans, restricted, stable_len) = parse_inline_rec(text, base);
     let out = spans
         .into_iter()
         .map(|sp| TextSpan::styled(sp.text, sp.style))
         .collect();
-    (out, restricted)
+    (out, restricted, stable_len)
 }
 
 fn parse_inline_text(text: &str, base: StyleSpec) -> Vec<TextSpan> {
@@ -742,10 +1015,10 @@ pub(crate) fn assistant_document_view(document: &AssistantDocument, first_unit: 
     .width(WidthRule::Fill)
 }
 
-fn assistant_row_view(row: &AssistantLogicalRow) -> View {
+pub(crate) fn assistant_row_view(row: &AssistantLogicalRow) -> View {
     let body = View::styled_text(row.spans.clone()).width(WidthRule::Fill);
     match &row.layout {
-        AssistantRowLayout::Plain => body,
+        AssistantRowLayout::Plain | AssistantRowLayout::Heading => body,
         AssistantRowLayout::ListItem { depth, marker } => list_item_row_view(*depth, *marker, body),
     }
 }
@@ -1065,7 +1338,7 @@ mod correctness {
         let text: String = doc.rows[0].spans.iter().map(|s| s.text.as_str()).collect();
         assert_eq!(text, "## hello");
         assert!(doc.rows[0].spans.iter().all(|s| tag(&s.style) == "H"));
-        assert!(matches!(doc.rows[0].layout, AssistantRowLayout::Plain));
+        assert!(matches!(doc.rows[0].layout, AssistantRowLayout::Heading));
     }
 
     #[test]
@@ -1507,5 +1780,241 @@ pub(crate) mod correctness_invariants {
         let zwj_g = &hard_zwj[0][8];
         assert_eq!(zwj_g.text.as_ref(), "👩\u{200D}⚕\u{FE0F}");
         assert_eq!(zwj_g.source, Some(8..21));
+    }
+
+    // --- Explicit source stability metadata tests ---
+
+    #[test]
+    fn parser_closed_bold_end_touching_is_unstable() {
+        let doc = parse_assistant(&[AssistantSegment::Text("abc **bold**".to_string())]);
+        assert_eq!(doc.rows.len(), 1);
+        let row = &doc.rows[0];
+        assert!(row.source.restricted);
+        assert!(!row.source.has_newline);
+        assert_eq!(row.source.content_len, "abc **bold**".len());
+        // Closer touches EOF, so stable_prefix_len stops before opener
+        assert_eq!(row.source.stable_prefix_len, "abc ".len());
+    }
+
+    #[test]
+    fn parser_closed_bold_pinned_by_following_source() {
+        let doc = parse_assistant(&[AssistantSegment::Text("abc **bold** x".to_string())]);
+        assert_eq!(doc.rows.len(), 1);
+        let row = &doc.rows[0];
+        assert!(row.source.restricted);
+        assert!(!row.source.has_newline);
+        assert_eq!(row.source.content_len, "abc **bold** x".len());
+        // The semantic transformation is pinned, but the trailing `x` EGC is
+        // still open for append purposes.
+        assert_eq!(row.source.stable_prefix_len, "abc **bold** ".len());
+    }
+
+    #[test]
+    fn parser_closed_bold_with_newline_is_stable() {
+        let doc = parse_assistant(&[AssistantSegment::Text("abc **bold**\n".to_string())]);
+        assert_eq!(doc.rows.len(), 1);
+        let row = &doc.rows[0];
+        assert!(row.source.restricted);
+        assert!(row.source.has_newline);
+        assert_eq!(row.source.content_len, "abc **bold**".len());
+        assert_eq!(row.source.stable_prefix_len, row.source.content_len);
+    }
+
+    #[test]
+    fn parser_unclosed_bold_stops_stability_before_opener() {
+        let doc = parse_assistant(&[AssistantSegment::Text("abc **bold".to_string())]);
+        assert_eq!(doc.rows.len(), 1);
+        let row = &doc.rows[0];
+        assert!(!row.source.restricted);
+        assert!(!row.source.has_newline);
+        assert_eq!(row.source.content_len, "abc **bold".len());
+        // Stops before the potentially active "**"
+        assert_eq!(row.source.stable_prefix_len, "abc ".len());
+        assert!(row.source.stable_prefix_len < row.source.content_len);
+    }
+
+    #[test]
+    fn parser_list_with_ordinary_body_holds_back_final_egc() {
+        let doc = parse_assistant(&[AssistantSegment::Text("- item".to_string())]);
+        assert_eq!(doc.rows.len(), 1);
+        let row = &doc.rows[0];
+        assert!(row.source.restricted);
+        assert!(!row.source.has_newline);
+        assert_eq!(row.source.content_len, "- item".len());
+        // The list semantics are pinned, but the final `m` EGC is still open.
+        assert_eq!(row.source.stable_prefix_len, "- ite".len());
+    }
+
+    #[test]
+    fn parser_list_with_newline_is_stable_through_raw_content() {
+        let doc = parse_assistant(&[AssistantSegment::Text("- item\n".to_string())]);
+        let row = &doc.rows[0];
+        assert!(row.source.restricted);
+        assert!(row.source.has_newline);
+        assert_eq!(row.source.content_len, "- item".len());
+        assert_eq!(row.source.stable_prefix_len, row.source.content_len);
+    }
+
+    #[test]
+    fn parser_list_with_unfinished_inline_markdown_stops_stability() {
+        let doc = parse_assistant(&[AssistantSegment::Text("- item **bo".to_string())]);
+        assert_eq!(doc.rows.len(), 1);
+        let row = &doc.rows[0];
+        assert!(row.source.restricted);
+        assert!(!row.source.has_newline);
+        assert_eq!(row.source.content_len, "- item **bo".len());
+        // Stable prefix stops before "**" in body: "- item " (7 bytes)
+        assert_eq!(row.source.stable_prefix_len, "- item ".len());
+        assert!(row.source.stable_prefix_len < row.source.content_len);
+    }
+
+    #[test]
+    fn parser_completed_list_row_is_stable_through_newline() {
+        let doc = parse_assistant(&[AssistantSegment::Text("- item **bo\n".to_string())]);
+        assert_eq!(doc.rows.len(), 1);
+        let row = &doc.rows[0];
+        assert!(row.source.restricted);
+        assert!(row.source.has_newline);
+        assert_eq!(row.source.content_len, "- item **bo".len());
+        assert_eq!(row.source.stable_prefix_len, row.source.content_len);
+    }
+
+    #[test]
+    fn parser_nested_completed_transformation_touches_eof_is_unstable() {
+        let doc = parse_assistant(&[AssistantSegment::Text("**b _i_ b**".to_string())]);
+        assert_eq!(doc.rows.len(), 1);
+        let row = &doc.rows[0];
+        assert!(row.source.restricted);
+        assert!(!row.source.has_newline);
+        assert_eq!(row.source.content_len, "**b _i_ b**".len());
+        assert_eq!(row.source.stable_prefix_len, 0);
+    }
+
+    #[test]
+    fn parser_ambiguous_line_classifications_return_zero_stability() {
+        let cases = ["#", "##", "-", "+", "*", "1", "12", "1.", "12)"];
+        for case in cases {
+            let doc = parse_assistant(&[AssistantSegment::Text(case.to_string())]);
+            assert_eq!(doc.rows.len(), 1, "failed for {case:?}");
+            assert_eq!(
+                doc.rows[0].source.stable_prefix_len, 0,
+                "expected stable_prefix_len == 0 for ambiguous classification {case:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn parser_pinned_line_classifications_are_egc_safe() {
+        let cases = [
+            "# heading",
+            "## ",
+            "- item",
+            "+ item",
+            "1. item",
+            "12) item",
+        ];
+        for case in cases {
+            let doc = parse_assistant(&[AssistantSegment::Text(case.to_string())]);
+            assert_eq!(doc.rows.len(), 1, "failed for {case:?}");
+            assert!(
+                doc.rows[0].source.stable_prefix_len < doc.rows[0].source.content_len,
+                "open classification {case:?} must hold back its final EGC"
+            );
+        }
+    }
+
+    #[test]
+    fn parser_whitespace_only_prefixes_are_classification_ambiguous() {
+        for source in [" ", "  ", "\t", " \t", "\t "] {
+            let doc = parse_assistant(&[AssistantSegment::Text(source.to_string())]);
+            let row = &doc.rows[0];
+            assert_eq!(row.source.stable_prefix_len, 0, "source={source:?}");
+            assert_eq!(row.source.content_len, source.len(), "source={source:?}");
+        }
+    }
+
+    #[test]
+    fn parser_continuations_apply_open_egc_safety() {
+        let heading = parse_assistant_tail(
+            &[AssistantSegment::Text("continued heading".to_string())],
+            crate::presentation::StreamOffset::new(5),
+            Some(AssistantContinuation::Heading),
+        );
+        assert_eq!(
+            heading.rows[0].source.stable_prefix_len,
+            "continued headin".len()
+        );
+
+        let paragraph = parse_assistant_tail(
+            &[AssistantSegment::Text("- item".to_string())],
+            crate::presentation::StreamOffset::new(5),
+            Some(AssistantContinuation::Paragraph),
+        );
+        assert_eq!(paragraph.rows[0].source.stable_prefix_len, "- ite".len());
+    }
+
+    #[test]
+    fn parser_list_offsets_stay_in_raw_source_coordinates() {
+        let unordered = unordered_parts("- \t\t**bo").expect("unordered list");
+        assert_eq!(unordered.0, 0);
+        assert_eq!(unordered.1, 2);
+        assert_eq!(unordered.2, "\t\t**bo");
+
+        let ordered = ordered_parts("\t1. \t**bo").expect("ordered list");
+        assert_eq!(ordered.0, 2);
+        assert_eq!(ordered.1, 1);
+        assert_eq!(ordered.2, 4);
+        assert_eq!(ordered.3, "\t**bo");
+
+        let doc = parse_assistant(&[AssistantSegment::Text("- \t\t**bo".to_string())]);
+        let row = &doc.rows[0];
+        assert!(row.source.restricted);
+        assert_eq!(row.source.content_len, 8);
+        assert_eq!(row.source.stable_prefix_len, 4);
+        assert!(row.source.stable_prefix_len <= row.source.content_len);
+    }
+
+    #[test]
+    fn parser_list_tabs_expand_only_for_display() {
+        let doc = parse_assistant(&[AssistantSegment::Text("- a\tb".to_string())]);
+        let row = &doc.rows[0];
+        let visible: String = row.spans.iter().map(|span| span.text.as_str()).collect();
+        assert_eq!(visible, "a    b");
+        assert_eq!(row.source.content_len, "- a\tb".len());
+        assert!(row.source.stable_prefix_len <= row.source.content_len);
+
+        let indented = parse_assistant(&[AssistantSegment::Text("\t- item".to_string())]);
+        assert!(matches!(
+            indented.rows[0].layout,
+            AssistantRowLayout::ListItem { depth: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn every_parser_row_stability_frontier_is_raw_bounded() {
+        let corpus = [
+            "plain",
+            "# heading",
+            "  ",
+            "- item",
+            "- \t\t**bo",
+            "\t- a\tb",
+            "1. ordered",
+            "\t1. \t**bo",
+            "abc **bold** x",
+        ];
+        for source in corpus {
+            for with_newline in [false, true] {
+                let source = if with_newline {
+                    format!("{source}\n")
+                } else {
+                    source.to_string()
+                };
+                let doc = parse_assistant(&[AssistantSegment::Text(source)]);
+                for row in doc.rows {
+                    assert!(row.source.stable_prefix_len <= row.source.content_len);
+                }
+            }
+        }
     }
 }

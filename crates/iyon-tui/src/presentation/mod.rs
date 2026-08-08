@@ -6,10 +6,15 @@
 
 pub(crate) mod api;
 pub(super) mod internal;
+pub(crate) mod stream;
 pub(crate) mod wrap;
 
 pub(crate) use api::{
     ActiveContent, ColorSpec, Decoration, DockPanel, DockSizePolicy, FlowBoundary, Insets,
-    InteractionResult, OverflowIndicator, RowChild, StyleSpec, TextAttributes, TextSpan, ThemeKey,
-    UiKey, View, ViewKind, WidthRule, WrapMode,
+    InteractionResult, RowChild, StyleSpec, TextAttributes, TextSpan, ThemeKey, UiKey, View,
+    WidthRule, WrapMode,
+};
+pub(crate) use stream::{
+    HostedStream, LeadingBoundaryState, PreparedStreamFrame, StreamNode, StreamOffset, StreamRange,
+    StreamRevision, StreamSnapshot, StreamView, StreamingContent,
 };

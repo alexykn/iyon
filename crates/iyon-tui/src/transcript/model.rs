@@ -4,8 +4,8 @@ use ratatui::{style::Style, text::Line};
 
 use crate::{
     presentation::{
-        ColorSpec, Decoration, FlowBoundary, Insets, ThemeKey, View, WidthRule,
-        internal::compile_view,
+        ColorSpec, Decoration, FlowBoundary, Insets, LeadingBoundaryState, ThemeKey, View,
+        WidthRule, internal::compile_view,
     },
     theme,
     tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput},
@@ -158,6 +158,12 @@ pub(crate) enum ToolTimelineStatus {
 pub(crate) enum TranscriptPresentation {
     View(View),
 
+    /// Semantic record whose live physical rows are owned by HostedStream.
+    HostedAssistant,
+
+    /// Semantic record whose physical rows already belong to native terminal history.
+    NativeHistory,
+
     /// INTERNAL ASSISTANT STREAM SEMANTICS.
     ///
     /// Source-backed compatibility representation used only while an assistant unit
@@ -166,7 +172,7 @@ pub(crate) enum TranscriptPresentation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct TranscriptId(u64);
+pub(crate) struct TranscriptId(pub(crate) u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EntryLifecycle {
@@ -185,6 +191,12 @@ enum EntryCommitMode {
 /// the namespace of) the first canonical source item's stable [`TranscriptId`],
 /// so unit identity survives presentation rebuilds.
 pub(crate) type TranscriptUnitId = TranscriptId;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HostedUnitRegistration {
+    pub(crate) id: TranscriptUnitId,
+    pub(crate) leading_boundary: LeadingBoundaryState,
+}
 
 /// A presentation unit: the owned, structural object the transcript is assembled
 /// from and that native history consumes. One or more canonical items may fold
@@ -434,6 +446,9 @@ pub(crate) struct TranscriptState {
     commit_state: TranscriptCommitState,
     formatter: TuiFormatter,
     assistant_stream_open: bool,
+    hosted_stream_units: Vec<TranscriptUnitId>,
+    sealed_hosted_units: Vec<TranscriptUnitId>,
+    native_history_units: Vec<TranscriptUnitId>,
 }
 
 impl Default for TranscriptState {
@@ -447,6 +462,9 @@ impl Default for TranscriptState {
             commit_state: TranscriptCommitState::default(),
             formatter: TuiFormatter::default(),
             assistant_stream_open: false,
+            hosted_stream_units: Vec::new(),
+            sealed_hosted_units: Vec::new(),
+            native_history_units: Vec::new(),
         }
     }
 }
@@ -491,6 +509,27 @@ impl TranscriptState {
                     .is_some_and(|partial| partial.entry_id() == id),
             "attempted to extend user batch {id:?} after native history commitment"
         );
+    }
+
+    pub(crate) fn begin_hosted_assistant_unit(&mut self) -> HostedUnitRegistration {
+        let id = self.allocate_id();
+        let leading_boundary = if self.canonical_items.is_empty() {
+            LeadingBoundaryState::None
+        } else {
+            LeadingBoundaryState::Pending
+        };
+
+        self.canonical_items.push(TimelineItem::AssistantMessage {
+            segments: Vec::new(),
+        });
+        self.entry_ids.push(id);
+        self.hosted_stream_units.push(id);
+        self.rebuild_presentation_cache();
+
+        HostedUnitRegistration {
+            id,
+            leading_boundary,
+        }
     }
 
     fn allocate_id(&mut self) -> TranscriptId {
@@ -682,6 +721,44 @@ impl TranscriptState {
         self.append_assistant_segments(segments, false);
     }
 
+    pub(crate) fn seal_hosted_assistant_unit(
+        &mut self,
+        unit_id: TranscriptUnitId,
+        incoming: Vec<AssistantSegment>,
+    ) {
+        let Some(index) = self.entry_ids.iter().position(|id| *id == unit_id) else {
+            panic!("hosted stream unit must be registered at birth");
+        };
+        let mut segments = Vec::new();
+        for segment in incoming {
+            push_segment(&mut segments, segment);
+        }
+        match &mut self.canonical_items[index] {
+            TimelineItem::AssistantMessage { segments: target } => *target = segments,
+            _ => panic!("hosted stream unit must point to an assistant message"),
+        }
+        self.assistant_stream_open = false;
+        if !self.sealed_hosted_units.contains(&unit_id) {
+            self.sealed_hosted_units.push(unit_id);
+        }
+        self.rebuild_presentation_cache();
+        self.invalidate_render_cache();
+    }
+
+    pub(crate) fn finish_stream_unit(&mut self, unit_id: TranscriptUnitId) {
+        debug_assert!(
+            self.hosted_stream_units.contains(&unit_id),
+            "stream unit must be registered before retirement"
+        );
+        self.hosted_stream_units.retain(|id| *id != unit_id);
+        self.sealed_hosted_units.retain(|id| *id != unit_id);
+        if !self.native_history_units.contains(&unit_id) {
+            self.native_history_units.push(unit_id);
+        }
+        self.rebuild_presentation_cache();
+        self.invalidate_render_cache();
+    }
+
     pub(crate) fn append_assistant_stream_fragment(&mut self, segments: Vec<AssistantSegment>) {
         self.append_assistant_segments(segments, true);
     }
@@ -697,6 +774,11 @@ impl TranscriptState {
     #[cfg(test)]
     pub(crate) fn test_items(&self) -> &[TimelineItem] {
         &self.canonical_items
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_entry_ids(&self) -> &[TranscriptId] {
+        &self.entry_ids
     }
 
     fn append_assistant_segments(&mut self, incoming: Vec<AssistantSegment>, stream_open: bool) {
@@ -795,28 +877,35 @@ impl TranscriptState {
             let item = &self.canonical_items[index];
             let is_open = open_assistant_idx == Some(index);
             let source_backed_started = self.has_source_backed_partial(self.entry_ids[index]);
-            let presentation = match item {
-                TimelineItem::AssistantMessage { segments } => {
-                    if is_open {
-                        let mut rows = self.formatter.format_assistant_message(segments, false);
-                        // INTERNAL ASSISTANT STREAM SEMANTICS.
-                        // The live pane owns the moving bottom margin while this
-                        // presentation is open.
-                        drop_trailing_empty_row(&mut rows);
-                        TranscriptPresentation::SourceBackedAssistantRows(rows)
-                    } else if source_backed_started {
-                        let rows = self.formatter.format_assistant_message(segments, true);
-                        TranscriptPresentation::SourceBackedAssistantRows(rows)
-                    } else {
-                        let doc = parse_assistant(segments);
-                        let view = assistant_document_view(&doc, index == 0);
-                        TranscriptPresentation::View(view)
+            let hosted_unit = self.hosted_stream_units.contains(&self.entry_ids[index]);
+            let presentation = if hosted_unit {
+                TranscriptPresentation::HostedAssistant
+            } else if self.native_history_units.contains(&self.entry_ids[index]) {
+                TranscriptPresentation::NativeHistory
+            } else {
+                match item {
+                    TimelineItem::AssistantMessage { segments } => {
+                        if is_open {
+                            let mut rows = self.formatter.format_assistant_message(segments, false);
+                            // INTERNAL ASSISTANT STREAM SEMANTICS.
+                            // The live pane owns the moving bottom margin while this
+                            // presentation is open.
+                            drop_trailing_empty_row(&mut rows);
+                            TranscriptPresentation::SourceBackedAssistantRows(rows)
+                        } else if source_backed_started {
+                            let rows = self.formatter.format_assistant_message(segments, true);
+                            TranscriptPresentation::SourceBackedAssistantRows(rows)
+                        } else {
+                            let doc = parse_assistant(segments);
+                            let view = assistant_document_view(&doc, index == 0);
+                            TranscriptPresentation::View(view)
+                        }
                     }
+                    TimelineItem::ErrorMessage { text } => TranscriptPresentation::View(
+                        self.formatter.format_error_message(text, index == 0),
+                    ),
+                    _ => self.formatter.format(item),
                 }
-                TimelineItem::ErrorMessage { text } => TranscriptPresentation::View(
-                    self.formatter.format_error_message(text, index == 0),
-                ),
-                _ => self.formatter.format(item),
             };
 
             let boundary = if index > 0
@@ -845,14 +934,28 @@ impl TranscriptState {
                 } => Truncation::Result,
                 _ => Truncation::None,
             };
+            let lifecycle = if hosted_unit {
+                if self.sealed_hosted_units.contains(&self.entry_ids[index]) {
+                    EntryLifecycle::Sealed
+                } else {
+                    EntryLifecycle::Open
+                }
+            } else {
+                entry_lifecycle(item, open_assistant_idx == Some(index))
+            };
+            let commit_mode = if hosted_unit {
+                EntryCommitMode::Blocked
+            } else {
+                entry_commit_mode(item, open_assistant_idx == Some(index))
+            };
             self.presentation_cache.push(TranscriptUnit {
                 id: self.entry_ids[index],
                 source_ids: vec![self.entry_ids[index]],
                 presentation,
                 boundary,
                 truncation,
-                lifecycle: entry_lifecycle(item, open_assistant_idx == Some(index)),
-                commit_mode: entry_commit_mode(item, open_assistant_idx == Some(index)),
+                lifecycle,
+                commit_mode,
             });
             index += 1;
         }
@@ -922,10 +1025,15 @@ impl TranscriptState {
             }
 
             let start = rows.len();
+            let hosted_or_native_history = matches!(
+                unit.presentation,
+                TranscriptPresentation::HostedAssistant | TranscriptPresentation::NativeHistory
+            );
             if unit.boundary == FlowBoundary::Default
                 && unit_index > 0
                 && !semantic_frozen
                 && !legacy_gap_committed
+                && !hosted_or_native_history
             {
                 rows.push(Line::from(""));
                 row_end_boundaries.push(None);
@@ -951,6 +1059,9 @@ impl TranscriptState {
                     rows.extend(wrapped.rows);
                     row_end_boundaries.extend(wrapped.row_end_boundaries.into_iter().map(Some));
                     previous_legacy_range = Some(ranges.len());
+                }
+                TranscriptPresentation::HostedAssistant | TranscriptPresentation::NativeHistory => {
+                    previous_legacy_range = None;
                 }
                 TranscriptPresentation::View(view) => {
                     if let Some(PartialCommit::Semantic {
@@ -1017,7 +1128,13 @@ impl TranscriptState {
                 }
             }
         }
-        if !rows.is_empty() {
+        let hosted_tail = self.presentation_cache.last().is_some_and(|unit| {
+            matches!(
+                unit.presentation,
+                TranscriptPresentation::HostedAssistant | TranscriptPresentation::NativeHistory
+            )
+        });
+        if !rows.is_empty() && !hosted_tail {
             rows.push(Line::from(""));
             row_end_boundaries.push(None);
         }
