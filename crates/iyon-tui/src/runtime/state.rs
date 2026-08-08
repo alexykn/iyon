@@ -144,6 +144,10 @@ impl AppState {
             .as_ref()
             .expect("host checked above")
             .unit_id;
+        debug_assert!(
+            self.transcript.hosted_unit_is_history_head(unit_id),
+            "HostedStream retired ahead of global transcript frontier"
+        );
         self.transcript.finish_stream_unit(unit_id);
         self.assistant_stream.take().expect("host checked above");
         self.assistant_frame = None;
@@ -738,6 +742,23 @@ mod tests {
         // A sealed stream drains its complete hosted projection regardless of
         // viewport overflow, allowing its barrier to retire.
         assert_eq!(state.assistant_commit_rows_for_height(40), live_rows);
+
+        // The user unit is the predecessor of this hosted assistant. Simulate the
+        // ordered prefix drain that FrameCoordinator performs before host writes.
+        state.transcript.ensure_render_cache(80);
+        let user_rows = state.transcript.committable_len();
+        assert!(user_rows > 0);
+        state.transcript.mark_rows_committed(user_rows);
+        assert!(
+            state.transcript.hosted_unit_is_history_head(
+                state
+                    .assistant_stream
+                    .as_ref()
+                    .expect("sealed host")
+                    .unit_id
+            )
+        );
+
         state.prepare_assistant_frame(80, live_rows);
         let prepared = state.assistant_frame.take().expect("sealed frame");
         state

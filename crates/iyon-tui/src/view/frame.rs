@@ -32,23 +32,67 @@ impl FrameCoordinator {
         scrollback: &mut ScrollbackCoordinator,
         root: Rect,
     ) -> Result<()> {
+        const ORDERING_DRAIN_CHUNK: usize = 256;
+
         state.transcript.ensure_render_cache(root.width.max(1));
         state.retire_assistant_stream_if_fully_committed();
         state.transcript.ensure_render_cache(root.width.max(1));
 
+        let mut root = root;
         let mut layout =
             RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
+        let mut desired_host_rows =
+            state.assistant_commit_rows_for_height(layout.active_area.height);
 
-        let desired_commit_rows = state.assistant_commit_rows_for_height(layout.active_area.height);
-        if desired_commit_rows > 0 {
-            state.prepare_assistant_frame(root.width.max(1), desired_commit_rows);
+        // Hosted assistant rows use a separate physical compiler, but they still
+        // share the transcript's one ordered native-history frontier. If an earlier
+        // transcript unit is partial, drain it before preparing any host write.
+        while desired_host_rows > 0 {
+            let host_is_head = state
+                .assistant_stream
+                .as_ref()
+                .is_some_and(|hosted| state.transcript.hosted_unit_is_history_head(hosted.unit_id));
+            if host_is_head {
+                break;
+            }
+
+            state.transcript.ensure_render_cache(root.width.max(1));
+            let inserted = scrollback.commit_transcript_prefix(
+                terminal,
+                &mut state.transcript,
+                ORDERING_DRAIN_CHUNK,
+            )?;
+            if inserted == 0 {
+                // An impossible-fit or otherwise blocked predecessor owns the
+                // frontier. The hosted stream must wait rather than leapfrog it.
+                break;
+            }
+
+            root = terminal.current_viewport_area()?;
+            state.transcript.ensure_render_cache(root.width.max(1));
+            layout =
+                RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
+            desired_host_rows = state.assistant_commit_rows_for_height(layout.active_area.height);
+        }
+
+        let host_is_head = state
+            .assistant_stream
+            .as_ref()
+            .is_some_and(|hosted| state.transcript.hosted_unit_is_history_head(hosted.unit_id));
+        if desired_host_rows > 0 && host_is_head {
+            state.prepare_assistant_frame(root.width.max(1), desired_host_rows);
             let prepared = state.assistant_frame.take();
             if let (Some(hosted), Some(prepared)) = (state.assistant_stream.as_mut(), prepared) {
+                debug_assert!(
+                    state.transcript.hosted_unit_is_history_head(hosted.unit_id),
+                    "HostedStream attempted to leapfrog an earlier transcript unit"
+                );
                 // The coordinator writes exactly the rows selected by the host plan. The
                 // host is acknowledged only after the terminal accepts every requested row.
                 scrollback.commit_stream_frame(terminal, hosted, prepared)?;
             }
             state.retire_assistant_stream_if_fully_committed();
+            root = terminal.current_viewport_area()?;
             state.transcript.ensure_render_cache(root.width.max(1));
             layout =
                 RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
@@ -60,7 +104,7 @@ impl FrameCoordinator {
             layout.commit_chat_capacity_rows,
         )?;
 
-        let root = terminal.current_viewport_area()?;
+        root = terminal.current_viewport_area()?;
         state.transcript.ensure_render_cache(root.width.max(1));
         layout = RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
 

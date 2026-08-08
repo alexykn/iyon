@@ -745,16 +745,49 @@ impl TranscriptState {
         self.invalidate_render_cache();
     }
 
+    pub(crate) fn hosted_unit_is_history_head(&self, unit_id: TranscriptUnitId) -> bool {
+        let Some(index) = self
+            .presentation_cache
+            .iter()
+            .position(|unit| unit.id == unit_id)
+        else {
+            return false;
+        };
+
+        self.hosted_stream_units.contains(&unit_id)
+            && index == self.commit_state.completed_prefix
+            && self.commit_state.partial.is_none()
+    }
+
     pub(crate) fn finish_stream_unit(&mut self, unit_id: TranscriptUnitId) {
-        debug_assert!(
+        let unit_index = self
+            .presentation_cache
+            .iter()
+            .position(|unit| unit.id == unit_id)
+            .expect("hosted stream unit must exist before retirement");
+        assert!(
             self.hosted_stream_units.contains(&unit_id),
             "stream unit must be registered before retirement"
         );
+        assert!(
+            self.sealed_hosted_units.contains(&unit_id),
+            "hosted stream unit must be sealed before retirement"
+        );
+        assert_eq!(
+            unit_index, self.commit_state.completed_prefix,
+            "hosted unit cannot retire ahead of global history frontier"
+        );
+        assert!(
+            self.commit_state.partial.is_none(),
+            "hosted unit cannot retire while an earlier unit is partial"
+        );
+
         self.hosted_stream_units.retain(|id| *id != unit_id);
         self.sealed_hosted_units.retain(|id| *id != unit_id);
         if !self.native_history_units.contains(&unit_id) {
             self.native_history_units.push(unit_id);
         }
+        self.commit_state.completed_prefix = unit_index.saturating_add(1);
         self.rebuild_presentation_cache();
         self.invalidate_render_cache();
     }
@@ -1547,6 +1580,7 @@ fn open_entry_blocks_commit_until_sealed() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{presentation::HostedStream, transcript::AssistantStream};
     use ratatui::style::Modifier;
 
     fn line_text(line: &Line<'static>) -> String {
@@ -1573,6 +1607,135 @@ mod tests {
 
     fn text_segments(text: &str) -> Vec<AssistantSegment> {
         vec![AssistantSegment::Text(text.to_string())]
+    }
+
+    fn range_rows_for_unit(transcript: &TranscriptState, unit_id: TranscriptUnitId) -> usize {
+        transcript
+            .rendered_rows_cache
+            .as_ref()
+            .and_then(|cache| cache.ranges.iter().find(|range| range.id == unit_id))
+            .map(|range| range.rows.len())
+            .expect("unit must have a rendered range")
+    }
+
+    #[test]
+    fn hosted_unit_waits_for_partially_committed_user_bubble() {
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "hello".to_string(),
+        });
+        let user_id = transcript.entry_ids[0];
+        let hosted = transcript.begin_hosted_assistant_unit();
+        transcript.seal_hosted_assistant_unit(
+            hosted.id,
+            vec![AssistantSegment::Text("assistant answer".to_string())],
+        );
+        transcript.ensure_render_cache(80);
+
+        // The semantic bubble is top padding, content, bottom padding. Freeze only
+        // its first two physical rows, leaving the bottom background row partial.
+        assert_eq!(range_rows_for_unit(&transcript, user_id), 3);
+        transcript.mark_rows_committed(2);
+        assert!(matches!(
+            transcript.commit_state.partial,
+            Some(PartialCommit::Semantic {
+                entry_id,
+                committed_rows: 2,
+                ..
+            }) if entry_id == user_id
+        ));
+        assert!(!transcript.hosted_unit_is_history_head(hosted.id));
+
+        // The next ordered history payload is exactly U2. The hosted unit has no
+        // permission to contribute rows while that predecessor remains partial.
+        transcript.ensure_render_cache(80);
+        assert_eq!(transcript.committable_len(), 1);
+        assert_eq!(transcript.uncommitted_rows().len(), 1);
+        assert!(
+            transcript.uncommitted_rows()[0].style.bg.is_some()
+                || transcript.uncommitted_rows()[0]
+                    .spans
+                    .iter()
+                    .any(|span| span.style.bg.is_some())
+        );
+        assert!(
+            !transcript
+                .uncommitted_rows()
+                .iter()
+                .any(|row| line_text(row).contains("assistant answer"))
+        );
+
+        transcript.mark_rows_committed(1);
+        assert!(transcript.commit_state.partial.is_none());
+        assert!(transcript.hosted_unit_is_history_head(hosted.id));
+    }
+
+    #[test]
+    fn hosted_units_advance_through_one_global_history_frontier() {
+        let mut transcript = TranscriptState::default();
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "user 1".to_string(),
+        });
+        let user1 = transcript.entry_ids[0];
+        let assistant1 = transcript.begin_hosted_assistant_unit();
+        let mut stream1 = HostedStream::new(
+            assistant1.id,
+            AssistantStream::new(),
+            assistant1.leading_boundary,
+        );
+        stream1
+            .content_mut()
+            .push_delta(SegmentKind::Text, "assistant 1 long response");
+        stream1.seal();
+        transcript.seal_hosted_assistant_unit(assistant1.id, stream1.content().segments().to_vec());
+
+        transcript.push_item(TimelineItem::UserMessage {
+            text: "user 2".to_string(),
+        });
+        let user2 = transcript.entry_ids[2];
+        let assistant2 = transcript.begin_hosted_assistant_unit();
+        let mut stream2 = HostedStream::new(
+            assistant2.id,
+            AssistantStream::new(),
+            assistant2.leading_boundary,
+        );
+        stream2
+            .content_mut()
+            .push_delta(SegmentKind::Text, "assistant 2 long response");
+        stream2.seal();
+        transcript.seal_hosted_assistant_unit(assistant2.id, stream2.content().segments().to_vec());
+
+        let mut owners = Vec::new();
+        transcript.ensure_render_cache(80);
+        assert!(!transcript.hosted_unit_is_history_head(assistant1.id));
+
+        owners.push(user1);
+        transcript.mark_rows_committed(range_rows_for_unit(&transcript, user1));
+        assert!(transcript.hosted_unit_is_history_head(assistant1.id));
+
+        owners.push(assistant1.id);
+        let prepared1 = stream1.prepare_frame(80, usize::MAX);
+        assert!(!prepared1.history.rows.is_empty());
+        stream1.apply_commit_success(prepared1.history);
+        assert!(stream1.is_fully_committed());
+        transcript.finish_stream_unit(assistant1.id);
+        assert!(!transcript.hosted_unit_is_history_head(assistant2.id));
+
+        transcript.ensure_render_cache(80);
+        owners.push(user2);
+        transcript.mark_rows_committed(range_rows_for_unit(&transcript, user2));
+        assert!(transcript.hosted_unit_is_history_head(assistant2.id));
+
+        owners.push(assistant2.id);
+        let prepared2 = stream2.prepare_frame(80, usize::MAX);
+        assert!(!prepared2.history.rows.is_empty());
+        stream2.apply_commit_success(prepared2.history);
+        assert!(stream2.is_fully_committed());
+        transcript.finish_stream_unit(assistant2.id);
+
+        assert_eq!(owners, vec![user1, assistant1.id, user2, assistant2.id]);
+        assert_eq!(transcript.commit_state.completed_prefix, 4);
+        assert!(transcript.commit_state.partial.is_none());
     }
 
     fn rendered_texts(transcript: &TranscriptState) -> Vec<String> {
