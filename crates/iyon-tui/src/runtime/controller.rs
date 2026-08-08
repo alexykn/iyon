@@ -50,7 +50,7 @@ impl AppController {
                 Ok(true)
             }
             FrontendAction::RequestExit => {
-                if state.active.is_some() {
+                if state.active().is_some() || state.streaming_ref().is_some() {
                     backend.try_cancel_active_turn()?;
                 } else {
                     state.request_exit();
@@ -81,7 +81,10 @@ impl AppController {
                 Ok(true)
             }
             FrontendAction::InterruptActiveTurn => {
-                if state.active.is_some() || state.pending_tool_approval.is_some() {
+                if state.active().is_some()
+                    || state.streaming_ref().is_some()
+                    || state.pending_tool_approval.is_some()
+                {
                     backend.try_cancel_active_turn()?;
                 }
                 Ok(true)

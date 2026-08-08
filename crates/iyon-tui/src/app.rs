@@ -124,7 +124,7 @@ impl App {
         let backend_dirty = self.apply_backend_events(backend_events, state);
 
         let now = Instant::now();
-        let active_dirty = self.active_ticker.tick_if_due(now, state.active.as_mut());
+        let active_dirty = self.active_ticker.tick_if_due(now, state.active_mut());
         let smoothed_dirty = self.drain_stream_smoother(state, now);
 
         if input_dirty || backend_dirty || active_dirty || smoothed_dirty {
@@ -292,11 +292,9 @@ impl App {
     }
 
     fn next_wait_timeout(&mut self, state: &AppState) -> Duration {
-        let active_timeout = self.active_ticker.wait_timeout(
-            Instant::now(),
-            state.active.as_ref(),
-            IDLE_POLL_TIMEOUT,
-        );
+        let active_timeout =
+            self.active_ticker
+                .wait_timeout(Instant::now(), state.active(), IDLE_POLL_TIMEOUT);
         let mut timeout = if self.backend_handler.has_in_flight_turn()
             || self.backend_handler.has_pending_config_sync()
         {
@@ -336,34 +334,35 @@ impl App {
                 | FinalizeResult::HandedOff
                 | FinalizeResult::FullyNative => break,
                 FinalizeResult::NeedsPinnedDrain => {
-                    let Some(hosted) = state.assistant_stream.as_ref() else {
+                    let Some(unit_id) = state.streaming_ref().map(|hosted| hosted.unit_id) else {
                         break;
                     };
-                    let blocking_rows = hosted.handoff_blocking_rows();
+                    let blocking_rows = state
+                        .streaming_ref()
+                        .expect("streaming tail disappeared")
+                        .handoff_blocking_rows();
                     if blocking_rows == 0 {
                         return Err(anyhow::anyhow!(
                             "sealed HostedStream cannot hand off its physical partial state"
                         ));
                     }
-                    if !state.transcript.hosted_unit_is_history_head(hosted.unit_id) {
+                    if !state.transcript.hosted_unit_is_history_head(unit_id) {
                         break;
                     }
                     debug_assert!(
-                        state.transcript.hosted_unit_is_history_head(hosted.unit_id),
+                        state.transcript.hosted_unit_is_history_head(unit_id),
                         "pinned HostedStream rows require the global history head"
                     );
                     state.prepare_assistant_frame(root.width.max(1), blocking_rows);
-                    let prepared = state.assistant_frame.take().ok_or_else(|| {
+                    let prepared = state.take_assistant_frame().ok_or_else(|| {
                         anyhow::anyhow!("sealed HostedStream produced no pinned drain frame")
                     })?;
-                    let Some(hosted) = state.assistant_stream.as_mut() else {
+                    let Some(hosted) = state.streaming_mut() else {
                         return Err(anyhow::anyhow!(
                             "HostedStream disappeared during pinned drain"
                         ));
                     };
-                    if !state.transcript.hosted_unit_is_history_head(hosted.unit_id) {
-                        break;
-                    }
+                    debug_assert_eq!(hosted.unit_id, unit_id);
                     self.scrollback
                         .commit_stream_frame(terminal, hosted, prepared)?;
                     root = self.current_root_rect(terminal)?;

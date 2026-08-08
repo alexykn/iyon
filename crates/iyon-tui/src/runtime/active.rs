@@ -8,7 +8,7 @@ const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦
 /// Transient content attached to the active conversation turn. Assistant
 /// semantic content is owned by `HostedStream<AssistantStream>`, not by this
 /// state.
-pub(crate) enum ActivePaneState {
+pub(crate) enum ActiveTurnContent {
     WorkingSpinner {
         spinner_frame: usize,
     },
@@ -19,7 +19,7 @@ pub(crate) enum ActivePaneState {
     },
 }
 
-impl ActivePaneState {
+impl ActiveTurnContent {
     pub(crate) fn working_spinner() -> Self {
         Self::WorkingSpinner { spinner_frame: 0 }
     }
@@ -41,7 +41,7 @@ pub(crate) enum ToolActiveStatus {
     Running,
 }
 
-impl ActiveContent for ActivePaneState {
+impl ActiveContent for ActiveTurnContent {
     fn view(&self) -> View {
         match self {
             Self::WorkingSpinner { spinner_frame } => View::text(format!(
@@ -86,7 +86,7 @@ impl ActiveTicker {
     pub(crate) fn wait_timeout(
         &mut self,
         now: Instant,
-        active: Option<&ActivePaneState>,
+        active: Option<&ActiveTurnContent>,
         idle_timeout: Duration,
     ) -> Duration {
         if !is_spinner_animating(active) {
@@ -106,7 +106,7 @@ impl ActiveTicker {
     pub(crate) fn tick_if_due(
         &mut self,
         now: Instant,
-        active: Option<&mut ActivePaneState>,
+        active: Option<&mut ActiveTurnContent>,
     ) -> bool {
         let Some(active) = active else {
             self.animating = false;
@@ -130,6 +130,6 @@ impl ActiveTicker {
     }
 }
 
-fn is_spinner_animating(active: Option<&ActivePaneState>) -> bool {
-    active.is_some_and(ActivePaneState::is_working_spinner)
+fn is_spinner_animating(active: Option<&ActiveTurnContent>) -> bool {
+    active.is_some_and(ActiveTurnContent::is_working_spinner)
 }
