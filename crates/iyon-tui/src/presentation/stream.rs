@@ -1134,7 +1134,6 @@ pub(crate) fn compile_stream(
     stable_through: StreamOffset,
 ) -> CompiledStream {
     use crate::presentation::internal::ViewCompiler;
-    use ratatui::style::Style;
 
     let width = max_width.max(1);
     let compiler = ViewCompiler::default();
@@ -1148,7 +1147,7 @@ pub(crate) fn compile_stream(
         match node {
             StreamNode::Text(text) => {
                 let (_w, compiled_rows) =
-                    compiler.compile_projected_text_with_metadata(text, width, Style::default());
+                    compiler.compile_projected_text_with_metadata(text, width);
                 let final_offset = text.owned_range().end;
                 let row_count = compiled_rows.len();
                 if row_count == 0 {
@@ -1237,7 +1236,7 @@ pub(crate) fn append_only_text_stable_frontier(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::presentation::api::{StyleSpec, TextAttributes, ThemeKey};
+    use crate::presentation::api::{ColorSpec, StyleSpec, ThemeKey};
     use crate::presentation::internal::ViewCompiler;
     use ratatui::style::Modifier;
 
@@ -1375,6 +1374,26 @@ mod tests {
     }
 
     #[test]
+    fn atomic_view_uses_the_ordinary_view_style_compiler() {
+        let mut view = View::text("atomic");
+        view.decoration.text_style = StyleSpec::new().bold();
+        let stream = StreamView::atomic(
+            StreamRange::new(StreamOffset::ZERO, StreamOffset::new(6)),
+            view.clone(),
+        );
+        let compiled = compile_stream(&stream, 20, StreamOffset::new(6));
+        let ordinary = ViewCompiler::default().compile(&view, 20);
+
+        assert_eq!(compiled.rows, ordinary.rows);
+        assert!(
+            compiled.rows[0].spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+    }
+
+    #[test]
     fn atomic_nested_wide_grapheme_propagates_incompleteness() {
         // Atomic(Box(Column(Text("before"), Text("漢")))) at width 1
         let inner = View::column(vec![View::text("before"), View::text("漢")], 0);
@@ -1410,16 +1429,7 @@ mod tests {
     #[test]
     fn exact_text_accumulates_source_offsets_across_multiple_spans_and_preserves_styles() {
         let span1 = TextSpan::plain("hello "); // 6 bytes (0..6)
-        let span2 = TextSpan::styled(
-            "world",
-            StyleSpec {
-                attributes: TextAttributes {
-                    bold: true,
-                    ..TextAttributes::default()
-                },
-                ..StyleSpec::default()
-            },
-        ); // 5 bytes (6..11)
+        let span2 = TextSpan::styled("world", StyleSpec::new().bold()); // 5 bytes (6..11)
 
         let view = StreamView::exact_text(
             StreamRange::new(StreamOffset::ZERO, StreamOffset::new(11)),
@@ -1488,17 +1498,10 @@ mod tests {
     fn thinking_style_transition_preserves_muted_and_italic() {
         let span_thinking = TextSpan::styled(
             "reasoning\n",
-            StyleSpec {
-                foreground: Some(crate::presentation::api::ColorSpec::Theme(ThemeKey::from(
-                    "text.muted",
-                ))),
-                attributes: TextAttributes {
-                    italic: true,
-                    dim: true,
-                    ..TextAttributes::default()
-                },
-                ..StyleSpec::default()
-            },
+            StyleSpec::new()
+                .foreground(ColorSpec::Theme(ThemeKey::from("text.muted")))
+                .italic()
+                .dim(),
         );
         let span_text = TextSpan::plain("answer");
 
@@ -1608,17 +1611,7 @@ mod tests {
                 "styled spans",
                 vec![
                     TextSpan::plain("plain "),
-                    TextSpan::styled(
-                        "bold italic",
-                        StyleSpec {
-                            attributes: TextAttributes {
-                                bold: true,
-                                italic: true,
-                                ..TextAttributes::default()
-                            },
-                            ..StyleSpec::default()
-                        },
-                    ),
+                    TextSpan::styled("bold italic", StyleSpec::new().bold().italic()),
                 ],
             ),
             (

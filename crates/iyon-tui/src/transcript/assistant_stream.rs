@@ -534,8 +534,8 @@ mod tests {
                         StreamNode::Atomic { .. } => None,
                     })
                     .expect("nested live suffix");
-                assert!(inner.style.attributes.bold);
-                assert!(inner.style.attributes.italic);
+                assert_eq!(inner.style.attributes.bold, Some(true));
+                assert_eq!(inner.style.attributes.italic, Some(true));
                 break;
             }
         }
@@ -566,7 +566,7 @@ mod tests {
                 StreamNode::Atomic { .. } => None,
             })
             .expect("tabbed bold suffix");
-        assert!(inside.style.attributes.bold);
+        assert_eq!(inside.style.attributes.bold, Some(true));
     }
 
     #[test]

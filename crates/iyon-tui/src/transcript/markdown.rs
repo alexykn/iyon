@@ -40,8 +40,8 @@ use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::presentation::{
-    ColorSpec, Decoration, Insets, RowChild, StyleSpec, TextAttributes, TextSpan, ThemeKey, View,
-    WidthRule,
+    ColorSpec, Decoration, Insets, RowChild, StyleSpec, TextAttributeSpec, TextSpan, ThemeKey,
+    View, WidthRule,
 };
 use crate::theme;
 use crate::transcript::model::{AssistantSegment, SegmentKind};
@@ -554,17 +554,15 @@ fn logical_row_to_rendered(row: &AssistantLogicalRow) -> RenderedRow {
 // Semantic styles
 // ---------------------------------------------------------------------------
 
-const fn attr(bold: bool, italic: bool) -> TextAttributes {
-    TextAttributes {
-        bold,
-        italic,
-        underline: false,
-        dim: false,
-        reversed: false,
+fn attr(bold: bool, italic: bool) -> TextAttributeSpec {
+    TextAttributeSpec {
+        bold: bold.then_some(true),
+        italic: italic.then_some(true),
+        ..TextAttributeSpec::default()
     }
 }
 
-fn themed_foreground(key: &str, attributes: TextAttributes) -> StyleSpec {
+fn themed_foreground(key: &str, attributes: TextAttributeSpec) -> StyleSpec {
     StyleSpec {
         foreground: Some(ColorSpec::Theme(ThemeKey::from(key))),
         attributes,
@@ -594,19 +592,19 @@ fn spec_to_style(spec: &StyleSpec) -> Style {
             ColorSpec::Rgb { r, g, b } => Color::Rgb(*r, *g, *b),
         });
     }
-    if spec.attributes.bold {
+    if spec.attributes.bold == Some(true) {
         style = style.add_modifier(Modifier::BOLD);
     }
-    if spec.attributes.italic {
+    if spec.attributes.italic == Some(true) {
         style = style.add_modifier(Modifier::ITALIC);
     }
-    if spec.attributes.dim {
+    if spec.attributes.dim == Some(true) {
         style = style.add_modifier(Modifier::DIM);
     }
-    if spec.attributes.underline {
+    if spec.attributes.underline == Some(true) {
         style = style.add_modifier(Modifier::UNDERLINED);
     }
-    if spec.attributes.reversed {
+    if spec.attributes.reversed == Some(true) {
         style = style.add_modifier(Modifier::REVERSED);
     }
     style
@@ -966,11 +964,11 @@ enum InlinePiece {
 fn combine_style(base: &StyleSpec, kind: Emphasis) -> StyleSpec {
     let mut style = base.clone();
     match kind {
-        Emphasis::Italic => style.attributes.italic = true,
-        Emphasis::Bold => style.attributes.bold = true,
+        Emphasis::Italic => style.attributes.italic = Some(true),
+        Emphasis::Bold => style.attributes.bold = Some(true),
         Emphasis::BoldItalic => {
-            style.attributes.bold = true;
-            style.attributes.italic = true;
+            style.attributes.bold = Some(true);
+            style.attributes.italic = Some(true);
         }
     }
     style
@@ -1467,10 +1465,10 @@ mod correctness {
 
     fn tag(spec: &StyleSpec) -> String {
         let mut s = String::new();
-        if spec.attributes.bold {
+        if spec.attributes.bold == Some(true) {
             s.push('B');
         }
-        if spec.attributes.italic {
+        if spec.attributes.italic == Some(true) {
             s.push('I');
         }
         match &spec.foreground {
@@ -2267,8 +2265,8 @@ pub(crate) mod correctness_invariants {
             .find(|run| run.display.contains("inner"))
             .expect("nested italic run");
         assert_eq!(inner.restart_from, Some(source.find("**").unwrap()));
-        assert!(inner.style.attributes.bold);
-        assert!(inner.style.attributes.italic);
+        assert_eq!(inner.style.attributes.bold, Some(true));
+        assert_eq!(inner.style.attributes.italic, Some(true));
 
         let suffix = row
             .projected_runs
@@ -2296,12 +2294,12 @@ pub(crate) mod correctness_invariants {
         assert!(
             row.projected_runs
                 .iter()
-                .any(|run| run.display == "before" && run.style.attributes.bold)
+                .any(|run| run.display == "before" && run.style.attributes.bold == Some(true))
         );
         assert!(
             row.projected_runs
                 .iter()
-                .any(|run| { run.display == "inside" && run.style.attributes.bold })
+                .any(|run| { run.display == "inside" && run.style.attributes.bold == Some(true) })
         );
         assert!(
             row.projected_runs

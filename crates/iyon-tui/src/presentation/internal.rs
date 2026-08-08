@@ -15,9 +15,8 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     presentation::api::{
-        BorderStyle, ColorSpec, ColumnView, ContainerNode, Decoration, HorizontalAlign, RowView,
-        StyleSpec, TextAttributes, TextSpan, TextView, TrackSize, VerticalAlign, View, ViewKind,
-        WidthRule,
+        BorderStyle, ColorSpec, ColumnView, ContainerNode, HorizontalAlign, RowView, StyleSpec,
+        TextSpan, TextView, TrackSize, VerticalAlign, View, ViewKind, WidthRule,
     },
     presentation::stream::{ProjectedText, StreamRange},
     theme,
@@ -78,14 +77,16 @@ impl Surface {
         &mut self.cells[index]
     }
 
-    fn paint_background(&mut self, style: Style) {
+    fn apply_surface_background(&mut self, color: Color) {
         for cell in &mut self.cells {
             if !cell.painted {
-                cell.style = style;
+                cell.style = Style::default().bg(color);
                 cell.grapheme = None;
                 cell.continuation = false;
+                cell.painted = true;
+            } else if cell.style.bg.is_none() {
+                cell.style.bg = Some(color);
             }
-            cell.painted = true;
         }
     }
 
@@ -140,7 +141,7 @@ pub(crate) struct CompiledTextRow {
 
 impl ViewCompiler {
     pub(crate) fn compile(&self, view: &View, max_width: u16) -> LayoutBlock {
-        let surface = self.layout(view, max_width, Style::default());
+        let surface = self.layout(view, max_width, ResolvedTextStyle::default());
         let physically_complete = surface.physically_complete;
         LayoutBlock {
             width: surface.width,
@@ -154,7 +155,15 @@ impl ViewCompiler {
         &self,
         text: &ProjectedText,
         max_width: u16,
-        inherited: Style,
+    ) -> (u16, Vec<CompiledTextRow>) {
+        self.compile_projected_text_with_style(text, max_width, ResolvedTextStyle::default())
+    }
+
+    fn compile_projected_text_with_style(
+        &self,
+        text: &ProjectedText,
+        max_width: u16,
+        inherited: ResolvedTextStyle,
     ) -> (u16, Vec<CompiledTextRow>) {
         use crate::presentation::stream::ProjectedTextLayout;
         use crate::presentation::wrap::wrap_styled_lines;
@@ -181,7 +190,7 @@ impl ViewCompiler {
             };
             let body_width = max_width.saturating_sub(*body_column).max(1);
             let (_, body_rows) =
-                self.compile_projected_text_with_metadata(&body, body_width, inherited);
+                self.compile_projected_text_with_style(&body, body_width, inherited);
             let prefix_width = UnicodeWidthStr::width(prefix.as_str());
             let mut rows = Vec::with_capacity(body_rows.len());
             for (index, mut row) in body_rows.into_iter().enumerate() {
@@ -191,9 +200,11 @@ impl ViewCompiler {
                     " ".repeat(usize::from(*body_column))
                 };
                 let prefix_style = if index == 0 && *show_prefix {
-                    self.theme.resolve(prefix_style, inherited)
+                    self.theme
+                        .resolve_text_style(inherited, prefix_style)
+                        .to_ratatui_style()
                 } else {
-                    inherited
+                    inherited.to_ratatui_style()
                 };
                 let mut spans = vec![Span::styled(indent, prefix_style)];
                 spans.extend(row.line.spans.drain(..));
@@ -262,12 +273,12 @@ impl ViewCompiler {
         (width, rows)
     }
 
-    pub(crate) fn compile_text_with_metadata(
+    fn compile_text_with_metadata(
         &self,
         text: &TextView,
         max_width: u16,
         width_rule: WidthRule,
-        inherited: Style,
+        inherited: ResolvedTextStyle,
         track_source: bool,
     ) -> (u16, Vec<CompiledTextRow>) {
         let mut relative_source = 0usize;
@@ -281,7 +292,9 @@ impl ViewCompiler {
             };
             (
                 span.text.as_str(),
-                self.theme.resolve(&span.style, inherited),
+                self.theme
+                    .resolve_text_style(inherited, &span.style)
+                    .to_ratatui_style(),
                 base,
             )
         });
@@ -326,9 +339,11 @@ impl ViewCompiler {
         (width, rows)
     }
 
-    fn layout(&self, view: &View, max_width: u16, inherited: Style) -> Surface {
+    fn layout(&self, view: &View, max_width: u16, inherited: ResolvedTextStyle) -> Surface {
         let decoration = &view.decoration;
-        let resolved = self.theme.resolve_decoration(decoration, inherited);
+        let resolved = self
+            .theme
+            .resolve_text_style(inherited, &decoration.text_style);
         let border = u16::from(decoration.border.is_some());
         let border_pad = border.saturating_mul(2);
         let max_content = max_width.saturating_sub(border_pad);
@@ -356,15 +371,12 @@ impl ViewCompiler {
             .saturating_add(border.saturating_mul(2));
         let mut output = Surface::new(width, height);
 
-        // An empty decoration is a transparent shell. It still preserves the
-        // node's width/container geometry, but must not turn transparent core
-        // cells into painted blanks.
-        if *decoration != Decoration::default() {
-            output.paint_background(resolved);
-        }
         let child_x = border.saturating_add(left_pad);
         let child_y = border.saturating_add(decoration.padding.top);
         output.composite(&core, child_x, child_y);
+        if let Some(color) = &decoration.surface_background {
+            output.apply_surface_background(self.theme.resolve_color(color));
+        }
         if let Some(border_spec) = &decoration.border {
             paint_border(&mut output, border_spec, &self.theme, resolved);
         }
@@ -376,7 +388,7 @@ impl ViewCompiler {
         kind: &ViewKind,
         width_rule: WidthRule,
         max_width: u16,
-        inherited: Style,
+        inherited: ResolvedTextStyle,
     ) -> Surface {
         match kind {
             ViewKind::Text(text) => self.layout_text(width_rule, text, max_width, inherited),
@@ -399,7 +411,7 @@ impl ViewCompiler {
         width_rule: WidthRule,
         text: &TextView,
         max_width: u16,
-        inherited: Style,
+        inherited: ResolvedTextStyle,
     ) -> Surface {
         let (width, rows) =
             self.compile_text_with_metadata(text, max_width, width_rule, inherited, true);
@@ -450,7 +462,7 @@ impl ViewCompiler {
         width_rule: WidthRule,
         column: &ColumnView,
         max_width: u16,
-        inherited: Style,
+        inherited: ResolvedTextStyle,
     ) -> Surface {
         let children = column
             .children
@@ -482,7 +494,7 @@ impl ViewCompiler {
         width_rule: WidthRule,
         row: &RowView,
         max_width: u16,
-        inherited: Style,
+        inherited: ResolvedTextStyle,
     ) -> Surface {
         let allocation = allocate_tracks(row, max_width, self, inherited);
         let children = row
@@ -530,7 +542,7 @@ impl ViewCompiler {
         &self,
         clamp: &crate::presentation::api::ClampRowsView,
         max_width: u16,
-        inherited: Style,
+        inherited: ResolvedTextStyle,
     ) -> Surface {
         let child = self.layout(&clamp.child, max_width, inherited);
         if child.height <= clamp.max_rows {
@@ -583,7 +595,7 @@ fn allocate_tracks(
     row: &RowView,
     width: u16,
     compiler: &ViewCompiler,
-    inherited: Style,
+    inherited: ResolvedTextStyle,
 ) -> RowAllocation {
     let count = row.children.len();
     if count == 0 {
@@ -641,16 +653,12 @@ fn paint_border(
     surface: &mut Surface,
     border: &crate::presentation::api::BorderSpec,
     theme: &ThemeResolver,
-    inherited: Style,
+    inherited: ResolvedTextStyle,
 ) {
     if surface.width == 0 || surface.height == 0 {
         return;
     }
-    let style = border
-        .color
-        .as_ref()
-        .map(|color| Style::default().fg(theme.resolve_color(color)))
-        .unwrap_or(inherited);
+    let style = border_style(border, theme, inherited);
     let (horizontal, vertical, corners) = match border.style {
         BorderStyle::Plain => ('─', '│', ('┌', '┐', '└', '┘')),
         BorderStyle::Rounded => ('─', '│', ('╭', '╮', '╰', '╯')),
@@ -715,17 +723,34 @@ fn paint_border(
     }
 }
 
+fn border_style(
+    border: &crate::presentation::api::BorderSpec,
+    theme: &ThemeResolver,
+    inherited: ResolvedTextStyle,
+) -> Style {
+    let mut style = border
+        .color
+        .as_ref()
+        .map(|color| Style::default().fg(theme.resolve_color(color)))
+        .unwrap_or_else(|| inherited.to_ratatui_style());
+    // Text backgrounds belong only to descendant text cells. Border cells
+    // retain the backing surface background established before border paint.
+    style.bg = None;
+    style
+}
+
 fn set_cell(
     surface: &mut Surface,
     x: u16,
     y: u16,
     grapheme: String,
-    style: Style,
+    mut style: Style,
     continuation: bool,
 ) {
     if x >= surface.width || y >= surface.height {
         return;
     }
+    style.bg = surface.get(x, y).style.bg;
     let cell = surface.get_mut(x, y);
     cell.grapheme = Some(grapheme);
     cell.style = style;
@@ -795,31 +820,77 @@ fn lower_surface(surface: Surface) -> Vec<Line<'static>> {
     rows
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ResolvedTextStyle {
+    foreground: Option<Color>,
+    background: Option<Color>,
+    bold: bool,
+    dim: bool,
+    italic: bool,
+    underline: bool,
+    reversed: bool,
+}
+
+impl ResolvedTextStyle {
+    fn to_ratatui_style(self) -> Style {
+        let mut style = Style {
+            fg: self.foreground,
+            bg: self.background,
+            ..Style::default()
+        };
+        let mut modifiers = Modifier::empty();
+        if self.bold {
+            modifiers |= Modifier::BOLD;
+        }
+        if self.dim {
+            modifiers |= Modifier::DIM;
+        }
+        if self.italic {
+            modifiers |= Modifier::ITALIC;
+        }
+        if self.underline {
+            modifiers |= Modifier::UNDERLINED;
+        }
+        if self.reversed {
+            modifiers |= Modifier::REVERSED;
+        }
+        style.add_modifier = modifiers;
+        style
+    }
+}
+
 #[derive(Debug, Default)]
 struct ThemeResolver;
 
 impl ThemeResolver {
-    fn resolve(&self, spec: &StyleSpec, inherited: Style) -> Style {
-        let mut style = inherited;
-        if let Some(foreground) = &spec.foreground {
-            style.fg = Some(self.resolve_color(foreground));
+    fn resolve_text_style(
+        &self,
+        inherited: ResolvedTextStyle,
+        patch: &StyleSpec,
+    ) -> ResolvedTextStyle {
+        let mut resolved = inherited;
+        if let Some(foreground) = &patch.foreground {
+            resolved.foreground = Some(self.resolve_color(foreground));
         }
-        if let Some(background) = &spec.background {
-            style.bg = Some(self.resolve_color(background));
+        if let Some(background) = &patch.background {
+            resolved.background = Some(self.resolve_color(background));
         }
-        apply_attributes(&mut style, spec.attributes);
-        style
-    }
-
-    fn resolve_decoration(&self, decoration: &Decoration, inherited: Style) -> Style {
-        self.resolve(
-            &StyleSpec {
-                foreground: decoration.foreground.clone(),
-                background: decoration.background.clone(),
-                attributes: decoration.attributes,
-            },
-            inherited,
-        )
+        if let Some(value) = patch.attributes.bold {
+            resolved.bold = value;
+        }
+        if let Some(value) = patch.attributes.dim {
+            resolved.dim = value;
+        }
+        if let Some(value) = patch.attributes.italic {
+            resolved.italic = value;
+        }
+        if let Some(value) = patch.attributes.underline {
+            resolved.underline = value;
+        }
+        if let Some(value) = patch.attributes.reversed {
+            resolved.reversed = value;
+        }
+        resolved
     }
 
     fn resolve_color(&self, color: &ColorSpec) -> Color {
@@ -859,7 +930,7 @@ struct ProjectedExactFragment {
 fn projected_hard_lines(
     theme: &ThemeResolver,
     text: &ProjectedText,
-    inherited: Style,
+    inherited: ResolvedTextStyle,
 ) -> Vec<Vec<StyledGrapheme<'static>>> {
     let mut hard_lines = vec![Vec::new()];
     let mut exact_display = String::new();
@@ -869,7 +940,9 @@ fn projected_hard_lines(
         if run.display.is_empty() {
             continue;
         }
-        let style = theme.resolve(&run.style, inherited);
+        let style = theme
+            .resolve_text_style(inherited, &run.style)
+            .to_ratatui_style();
         let Some(visible) = run.exact_visible else {
             append_projected_exact(
                 &mut hard_lines,
@@ -961,30 +1034,10 @@ fn append_projected_exact(
     }
 }
 
-fn apply_attributes(style: &mut Style, attributes: TextAttributes) {
-    let mut modifier = Modifier::empty();
-    if attributes.bold {
-        modifier |= Modifier::BOLD;
-    }
-    if attributes.dim {
-        modifier |= Modifier::DIM;
-    }
-    if attributes.italic {
-        modifier |= Modifier::ITALIC;
-    }
-    if attributes.underline {
-        modifier |= Modifier::UNDERLINED;
-    }
-    if attributes.reversed {
-        modifier |= Modifier::REVERSED;
-    }
-    style.add_modifier |= modifier;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::presentation::api::OverflowIndicator;
+    use crate::presentation::api::{BorderSpec, BorderStyle, OverflowIndicator, TextAttribute};
     use crate::presentation::stream::StreamRowCommit;
     use crate::presentation::{
         ColorSpec, Decoration, ExactTerminator, Insets, ProjectedTextLayout, ProjectedTextRun,
@@ -1063,6 +1116,197 @@ mod tests {
     }
 
     #[test]
+    fn ancestor_and_child_text_styles_cascade_to_physical_text() {
+        let mut child = View::text("x");
+        child.decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(2));
+        let mut view = View::box_(child, Decoration::default());
+        view.decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(1));
+
+        let surface = ViewCompiler::default().layout(&view, 1, ResolvedTextStyle::default());
+        assert_eq!(surface.get(0, 0).style.fg, Some(Color::Indexed(2)));
+    }
+
+    #[test]
+    fn span_style_overrides_node_and_explicit_false_cascades() {
+        let mut child = View::styled_text(vec![
+            TextSpan::plain("a"),
+            TextSpan::styled("b", StyleSpec::new().bold()),
+        ]);
+        child.decoration.text_style = StyleSpec::new().attribute(TextAttribute::Bold, false);
+        let mut view = View::box_(child, Decoration::default());
+        view.decoration.text_style = StyleSpec::new().bold();
+
+        let surface = ViewCompiler::default().layout(&view, 2, ResolvedTextStyle::default());
+        assert!(
+            !surface
+                .get(0, 0)
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert!(
+            surface
+                .get(1, 0)
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+    }
+
+    #[test]
+    fn surface_background_paints_text_backing_and_transparent_tail() {
+        let mut view = View::text("x").width(WidthRule::Fill);
+        view.decoration.surface_background = Some(ColorSpec::Ansi(1));
+        let surface = ViewCompiler::default().layout(&view, 4, ResolvedTextStyle::default());
+
+        assert_eq!(surface.get(0, 0).style.bg, Some(Color::Indexed(1)));
+        assert_eq!(surface.get(3, 0).style.bg, Some(Color::Indexed(1)));
+        assert!(surface.get(3, 0).painted);
+    }
+
+    #[test]
+    fn explicit_border_color_preserves_surface_background() {
+        let mut decoration = Decoration::background(ColorSpec::Ansi(1));
+        decoration.border = Some(BorderSpec {
+            style: BorderStyle::Plain,
+            color: Some(ColorSpec::Ansi(2)),
+        });
+        let view =
+            View::box_(View::text("x").width(WidthRule::Fill), decoration).width(WidthRule::Fill);
+        let surface = ViewCompiler::default().layout(&view, 5, ResolvedTextStyle::default());
+
+        let border = surface.get(0, 1).style;
+        assert_eq!(border.fg, Some(Color::Indexed(2)));
+        assert_eq!(border.bg, Some(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn implicit_border_color_preserves_surface_background_and_inherits_foreground() {
+        let mut decoration = Decoration::background(ColorSpec::Ansi(1));
+        decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(2));
+        decoration.border = Some(BorderSpec {
+            style: BorderStyle::Plain,
+            color: None,
+        });
+        let view =
+            View::box_(View::text("x").width(WidthRule::Fill), decoration).width(WidthRule::Fill);
+        let surface = ViewCompiler::default().layout(&view, 5, ResolvedTextStyle::default());
+
+        let border = surface.get(0, 1).style;
+        assert_eq!(border.fg, Some(Color::Indexed(2)));
+        assert_eq!(border.bg, Some(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn text_background_does_not_leak_into_border() {
+        let mut decoration = Decoration::default();
+        decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
+        decoration.border = Some(BorderSpec {
+            style: BorderStyle::Plain,
+            color: None,
+        });
+        let view =
+            View::box_(View::text("x").width(WidthRule::Fill), decoration).width(WidthRule::Fill);
+        let surface = ViewCompiler::default().layout(&view, 5, ResolvedTextStyle::default());
+
+        assert_eq!(surface.get(1, 1).style.bg, Some(Color::Indexed(2)));
+        assert_eq!(surface.get(0, 1).style.bg, None);
+    }
+
+    #[test]
+    fn surface_and_text_backgrounds_coexist_across_border_and_content() {
+        let mut decoration = Decoration::background(ColorSpec::Ansi(1));
+        decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
+        decoration.border = Some(BorderSpec {
+            style: BorderStyle::Plain,
+            color: None,
+        });
+        let view =
+            View::box_(View::text("x").width(WidthRule::Fill), decoration).width(WidthRule::Fill);
+        let surface = ViewCompiler::default().layout(&view, 5, ResolvedTextStyle::default());
+
+        assert_eq!(surface.get(1, 1).style.bg, Some(Color::Indexed(2)));
+        assert_eq!(surface.get(0, 1).style.bg, Some(Color::Indexed(1)));
+        assert_eq!(surface.get(4, 1).style.bg, Some(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn border_painting_preserves_tiny_width_geometry() {
+        let mut decoration = Decoration::background(ColorSpec::Ansi(1));
+        decoration.border = Some(BorderSpec {
+            style: BorderStyle::Plain,
+            color: Some(ColorSpec::Ansi(2)),
+        });
+        let view = View::box_(View::text("x"), decoration).width(WidthRule::Fill);
+
+        for width in [0, 1, 2, 3, 10] {
+            let block = compile_view(&view, width);
+            assert!(block.width <= width);
+            assert!(
+                block
+                    .rows
+                    .iter()
+                    .all(|row| row.width() <= usize::from(width))
+            );
+        }
+    }
+
+    #[test]
+    fn text_background_only_paints_text_cells() {
+        let mut view = View::text("x").width(WidthRule::Fill);
+        view.decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
+        let surface = ViewCompiler::default().layout(&view, 4, ResolvedTextStyle::default());
+
+        assert_eq!(surface.get(0, 0).style.bg, Some(Color::Indexed(2)));
+        assert!(!surface.get(3, 0).painted);
+    }
+
+    #[test]
+    fn explicit_text_background_wins_over_surface_background() {
+        let mut view = View::text("x").width(WidthRule::Fill);
+        view.decoration.surface_background = Some(ColorSpec::Ansi(1));
+        view.decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
+        let surface = ViewCompiler::default().layout(&view, 4, ResolvedTextStyle::default());
+
+        assert_eq!(surface.get(0, 0).style.bg, Some(Color::Indexed(2)));
+        assert_eq!(surface.get(3, 0).style.bg, Some(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn nested_surface_backgrounds_preserve_child_region() {
+        let child = View::box_(View::text("x"), Decoration::background(ColorSpec::Ansi(2)));
+        let outer =
+            View::box_(child, Decoration::background(ColorSpec::Ansi(1))).width(WidthRule::Fill);
+        let surface = ViewCompiler::default().layout(&outer, 4, ResolvedTextStyle::default());
+
+        assert_eq!(surface.get(0, 0).style.bg, Some(Color::Indexed(2)));
+        assert_eq!(surface.get(3, 0).style.bg, Some(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn transparent_padding_shows_ancestor_surface_background() {
+        let child = View::box_(
+            View::text("x"),
+            Decoration::default().padding(Insets::all(1)),
+        );
+        let outer =
+            View::box_(child, Decoration::background(ColorSpec::Ansi(1))).width(WidthRule::Fill);
+        let surface = ViewCompiler::default().layout(&outer, 5, ResolvedTextStyle::default());
+
+        assert_eq!(surface.get(0, 0).style.bg, Some(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn surface_background_does_not_enter_text_style_cascade() {
+        let mut view = View::text("x");
+        view.decoration.surface_background = Some(ColorSpec::Ansi(1));
+        let resolved = ViewCompiler::default()
+            .theme
+            .resolve_text_style(ResolvedTextStyle::default(), &view.decoration.text_style);
+        assert_eq!(resolved.background, None);
+    }
+
+    #[test]
     fn projected_egc_spans_exact_run_boundaries_and_history_ownership() {
         let compiler = ViewCompiler::default();
         let projected = ProjectedText {
@@ -1087,8 +1331,7 @@ mod tests {
                 },
             ],
         };
-        let (_, rows) =
-            compiler.compile_projected_text_with_metadata(&projected, 1, Style::default());
+        let (_, rows) = compiler.compile_projected_text_with_metadata(&projected, 1);
         assert_eq!(text(&rows[0].line), "a\u{301}");
         assert_eq!(rows[0].source_end, Some(7));
 
@@ -1132,11 +1375,7 @@ mod tests {
                 },
             ],
         };
-        let (_, rows) = ViewCompiler::default().compile_projected_text_with_metadata(
-            &projected,
-            1,
-            Style::default(),
-        );
+        let (_, rows) = ViewCompiler::default().compile_projected_text_with_metadata(&projected, 1);
         assert_eq!(rows.len(), 1);
         assert_eq!(text(&rows[0].line), format!("{first}{second}"));
     }
@@ -1171,11 +1410,7 @@ mod tests {
                 },
             ],
         };
-        let (_, rows) = ViewCompiler::default().compile_projected_text_with_metadata(
-            &projected,
-            1,
-            Style::default(),
-        );
+        let (_, rows) = ViewCompiler::default().compile_projected_text_with_metadata(&projected, 1);
         assert!(rows.iter().any(|row| text(&row.line) == "    "));
     }
 
@@ -1234,7 +1469,7 @@ mod tests {
         ];
 
         for (index, view) in views.into_iter().enumerate() {
-            let surface = compiler.layout(&view, 4, Style::default());
+            let surface = compiler.layout(&view, 4, ResolvedTextStyle::default());
             if index == 3 {
                 assert!(surface.cells.iter().all(|cell| !cell.painted));
             } else {
@@ -1250,7 +1485,7 @@ mod tests {
             View::spacer(1).width(WidthRule::Fill),
             Decoration::background(ColorSpec::Ansi(1)),
         );
-        let surface = ViewCompiler::default().layout(&view, 3, Style::default());
+        let surface = ViewCompiler::default().layout(&view, 3, ResolvedTextStyle::default());
 
         assert!(surface.get(0, 0).painted);
         assert_eq!(surface.get(0, 0).style.bg, Some(Color::Indexed(1)));
@@ -1267,7 +1502,7 @@ mod tests {
         )])
         .width(WidthRule::Fill);
         let view = View::box_(child, Decoration::background(ColorSpec::Ansi(1)));
-        let surface = ViewCompiler::default().layout(&view, 3, Style::default());
+        let surface = ViewCompiler::default().layout(&view, 3, ResolvedTextStyle::default());
 
         assert_eq!(surface.get(0, 0).style.bg, Some(Color::Indexed(2)));
         assert_eq!(surface.get(2, 0).style.bg, Some(Color::Indexed(1)));

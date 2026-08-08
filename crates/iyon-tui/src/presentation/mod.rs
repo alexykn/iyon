@@ -9,9 +9,11 @@ pub(super) mod internal;
 pub(crate) mod stream;
 pub(crate) mod wrap;
 
+#[allow(unused_imports)]
+pub(crate) use api::TextAttribute;
 pub(crate) use api::{
     ActiveContent, ColorSpec, Decoration, DockPanel, DockSizePolicy, FlowBoundary, Insets,
-    InteractionResult, RowChild, StyleSpec, TextAttributes, TextSpan, ThemeKey, UiKey, View,
+    InteractionResult, RowChild, StyleSpec, TextAttributeSpec, TextSpan, ThemeKey, UiKey, View,
     WidthRule, WrapMode,
 };
 pub(crate) use stream::{
