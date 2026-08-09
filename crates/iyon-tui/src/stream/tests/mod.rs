@@ -142,7 +142,7 @@ fn compile_stream_empty_hard_newline_row_produces_one_physical_blank_row() {
     assert_eq!(compiled.rows.len(), 1);
     assert_eq!(compiled.transferable_prefix_rows, 1);
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(3))
     );
 }
@@ -158,7 +158,10 @@ fn atomic_wide_grapheme_at_width_one_is_not_committable() {
 
     let compiled = compile_stream(&view, 1, StreamOffset::new("漢".len() as u64));
     assert_eq!(compiled.transferable_prefix_rows, 0);
-    assert!(matches!(compiled.transfer[0], StreamRowTransfer::Blocked));
+    assert!(matches!(
+        compiled.rows[0].transfer,
+        StreamRowTransfer::Blocked
+    ));
 }
 
 #[test]
@@ -183,8 +186,20 @@ fn atomic_view_uses_the_ordinary_view_style_compiler() {
     let compiled = compile_stream(&stream, 20, StreamOffset::new(6));
     let ordinary = ViewCompiler::default().compile(&view, 20);
 
-    assert_eq!(compiled.rows, ordinary.rows);
-    assert!(compiled.rows[0].cell(0).is_some_and(|cell| cell.style.bold));
+    assert_eq!(
+        compiled
+            .rows
+            .iter()
+            .map(|row| row.physical.clone())
+            .collect::<Vec<_>>(),
+        ordinary.rows
+    );
+    assert!(
+        compiled.rows[0]
+            .physical
+            .cell(0)
+            .is_some_and(|cell| cell.style.bold)
+    );
 }
 
 #[test]
@@ -201,7 +216,14 @@ fn atomic_final_semantic_view_uses_the_same_ordinary_compiler() {
     let compiled = compile_stream(&stream, 20, StreamOffset::new(6));
     let ordinary = ViewCompiler::default().compile(&view, 20);
 
-    assert_eq!(compiled.rows, ordinary.rows);
+    assert_eq!(
+        compiled
+            .rows
+            .iter()
+            .map(|row| row.physical.clone())
+            .collect::<Vec<_>>(),
+        ordinary.rows
+    );
 }
 
 #[test]
@@ -223,7 +245,8 @@ fn atomic_nested_wide_grapheme_propagates_incompleteness() {
     let compiled = compile_stream(&view, 1, StreamOffset::new(10));
     // Physical incompleteness from "漢" must propagate through Column -> Box
     assert_eq!(compiled.transferable_prefix_rows, 0);
-    for c in &compiled.transfer {
+    for row in &compiled.rows {
+        let c = &row.transfer;
         assert!(matches!(c, StreamRowTransfer::Blocked));
     }
 }
@@ -264,7 +287,7 @@ fn exact_text_accumulates_source_offsets_across_multiple_spans_and_preserves_sty
 
     // Row commit offset is the accumulated exact end (11)
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(11))
     );
 }
@@ -324,7 +347,7 @@ fn exact_text_combining_mark_across_spans() {
     let compiled = compile_stream(&view, 20, StreamOffset::new(3));
     assert_eq!(compiled.rows.len(), 1);
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(3))
     );
 }
@@ -345,7 +368,7 @@ fn exact_text_zwj_split_across_spans() {
     assert_eq!(compiled.rows.len(), 1);
     assert_eq!(compiled.rows[0].width(), 2);
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(11))
     );
 }
@@ -377,13 +400,13 @@ fn thinking_style_transition_preserves_muted_and_italic() {
     );
     assert!(compiled.rows[0].cell(0).is_some_and(|cell| cell.style.dim));
     assert_eq!(
-        compiled.transfer[0],
-        StreamRowTransfer::Checkpoint(StreamOffset::new(9))
-    ); // "reasoning"
+        compiled.rows[0].transfer,
+        StreamRowTransfer::Checkpoint(StreamOffset::new(10))
+    ); // "reasoning\n"
 
     // Row 1 is plain text
     assert_eq!(
-        compiled.transfer[1],
+        compiled.rows[1].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(16))
     ); // "reasoning\nanswer"
 }
@@ -451,7 +474,12 @@ fn compile_stream_exact_text_matches_view_compiler_identically() {
                 width
             );
 
-            assert_rows_equivalent(&layout_block.rows, &compiled_stream.rows);
+            let physical = compiled_stream
+                .rows
+                .iter()
+                .map(|row| row.physical.clone())
+                .collect::<Vec<_>>();
+            assert_rows_equivalent(&layout_block.rows, &physical);
         }
     }
 }

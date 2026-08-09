@@ -81,6 +81,24 @@ impl ViewPainter {
                     }
                 }
             }
+            ViewKind::RowViewport(viewport) => {
+                let child_id = node
+                    .children
+                    .first()
+                    .copied()
+                    .expect("row viewport must have one child");
+                let painted = self.paint_node(compiler, tree, child_id, resolved);
+                for y in 0..output.height() {
+                    let source_y = usize::from(viewport.skip_rows).saturating_add(usize::from(y));
+                    if source_y >= usize::from(painted.height()) {
+                        continue;
+                    }
+                    for x in 0..output.width().min(painted.width()) {
+                        *output.get_mut(x, y) = painted.get(x, source_y as u16).clone();
+                    }
+                }
+                output.physically_complete = painted.physically_complete;
+            }
             ViewKind::ComponentSlot(_) => {
                 unreachable!("component slot reached painting")
             }

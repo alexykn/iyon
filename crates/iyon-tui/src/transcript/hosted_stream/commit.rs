@@ -146,7 +146,7 @@ pub(crate) fn plan_commit(
     // Skip rows that have already entered native history in earlier transactions.
     // Handles both individual Exact rows and entire fully-committed Atomic groups.
     while row_idx < compiled.transferable_prefix_rows {
-        match &compiled.transfer[row_idx] {
+        match &compiled.rows[row_idx].transfer {
             StreamRowTransfer::Checkpoint(end) if *end <= current_committed_through => {
                 row_idx += 1;
             }
@@ -155,7 +155,7 @@ pub(crate) fn plan_commit(
             {
                 let committed_group = *group;
                 while row_idx < compiled.transferable_prefix_rows {
-                    match &compiled.transfer[row_idx] {
+                    match &compiled.rows[row_idx].transfer {
                         StreamRowTransfer::Atomic { group, source_end }
                             if *group == committed_group
                                 && *source_end <= current_committed_through =>
@@ -174,7 +174,7 @@ pub(crate) fn plan_commit(
     let mut rows_written = 0;
 
     while row_idx < compiled.transferable_prefix_rows && rows_written < desired_rows {
-        match &compiled.transfer[row_idx] {
+        match &compiled.rows[row_idx].transfer {
             StreamRowTransfer::Checkpoint(offset) => {
                 cursor = *offset;
                 row_idx += 1;
@@ -186,8 +186,8 @@ pub(crate) fn plan_commit(
                 let group_start = row_idx;
                 let mut group_end = row_idx;
 
-                while group_end < compiled.transfer.len()
-                    && matches!(&compiled.transfer[group_end], StreamRowTransfer::Atomic { group: g, .. } if *g == current_group)
+                while group_end < compiled.rows.len()
+                    && matches!(&compiled.rows[group_end].transfer, StreamRowTransfer::Atomic { group: g, .. } if *g == current_group)
                 {
                     group_end += 1;
                 }
@@ -206,7 +206,10 @@ pub(crate) fn plan_commit(
                             .transferable_prefix_rows
                             .saturating_sub(group_start),
                     );
-                    let frozen_rows = compiled.rows[group_start..group_end].to_vec();
+                    let frozen_rows = compiled.rows[group_start..group_end]
+                        .iter()
+                        .map(|row| row.physical.clone())
+                        .collect();
 
                     return CommitPlan {
                         payload: CommitPayload::Compiled {

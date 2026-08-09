@@ -8,9 +8,12 @@ use crate::physical::PhysicalRow;
 use super::{
     coord::StreamOffset,
     node::{StreamNode, StreamView},
+    projected::checkpoint_after_row,
 };
 
-pub(crate) use rows::{CompiledStream, StreamAtomicId, StreamRowTransfer};
+pub(crate) use rows::{
+    CompiledStream, CompiledStreamRow, StreamAtomicId, StreamRowAnchor, StreamRowTransfer,
+};
 
 /// Compiles a [`StreamView`] into physical lines with transfer metadata at the specified width.
 ///
@@ -26,6 +29,7 @@ pub(crate) fn compile_stream(
     let width = max_width.max(1);
     let compiler = ViewCompiler::default();
     let mut rows = Vec::new();
+    let mut anchors = Vec::new();
     let mut transfer = Vec::new();
     let mut transferable_prefix_rows = 0;
     let mut blocked = false;
@@ -40,6 +44,7 @@ pub(crate) fn compile_stream(
                 let row_count = compiled_rows.len();
                 if row_count == 0 {
                     rows.push(PhysicalRow::empty());
+                    anchors.push(StreamRowAnchor::Checkpoint(text.content_range.start));
                     if !blocked && final_offset <= stable_through {
                         transfer.push(StreamRowTransfer::Checkpoint(final_offset));
                         transferable_prefix_rows += 1;
@@ -48,18 +53,25 @@ pub(crate) fn compile_stream(
                         transfer.push(StreamRowTransfer::Blocked);
                     }
                 } else {
+                    let mut checkpoint = text.content_range.start;
                     for (r_idx, row) in compiled_rows.into_iter().enumerate() {
                         let is_last = r_idx + 1 == row_count;
                         let offset = if is_last {
                             final_offset
                         } else {
-                            row.source_end.map_or(text.content_range.start, |relative| {
-                                text.content_range.start.saturating_add(relative as u64)
+                            row.source_end.map_or(checkpoint, |relative| {
+                                text.content_range
+                                    .start
+                                    .checked_add(relative as u64)
+                                    .expect("stream row checkpoint overflow")
                             })
                         };
+                        anchors.push(StreamRowAnchor::Checkpoint(checkpoint));
                         rows.push(row.row);
-                        if !blocked && row.fits && offset <= stable_through {
-                            transfer.push(StreamRowTransfer::Checkpoint(offset));
+                        let boundary = checkpoint_after_row(text, offset);
+                        checkpoint = boundary;
+                        if !blocked && row.fits && boundary <= stable_through {
+                            transfer.push(StreamRowTransfer::Checkpoint(boundary));
                             transferable_prefix_rows += 1;
                         } else {
                             blocked = true;
@@ -75,7 +87,11 @@ pub(crate) fn compile_stream(
                 let all_safe =
                     !blocked && range.end <= stable_through && layout.physically_complete;
 
-                for row in layout.rows {
+                for (row_index, row) in layout.rows.into_iter().enumerate() {
+                    anchors.push(StreamRowAnchor::Atomic {
+                        range: *range,
+                        row: row_index,
+                    });
                     rows.push(row);
                     if all_safe {
                         transfer.push(StreamRowTransfer::Atomic {
@@ -92,9 +108,18 @@ pub(crate) fn compile_stream(
         }
     }
 
+    let rows = rows
+        .into_iter()
+        .zip(anchors)
+        .zip(transfer)
+        .map(|((physical, anchor), transfer)| CompiledStreamRow {
+            physical,
+            anchor,
+            transfer,
+        })
+        .collect();
     CompiledStream {
         rows,
-        transfer,
         transferable_prefix_rows,
     }
 }

@@ -115,6 +115,24 @@ impl View {
         }
     }
 
+    /// Creates a private physical row crop around a component-free view.
+    pub(crate) fn row_viewport(child: View, skip_rows: u16) -> Self {
+        assert!(
+            !child.contains_component_identity(),
+            "row viewport cannot contain components"
+        );
+        Self {
+            component: None,
+            width: WidthRule::Fill,
+            height: HeightRule::Fill,
+            decoration: Decoration::default(),
+            kind: ViewKind::RowViewport(crate::presentation::ir::RowViewportView {
+                child: Box::new(child),
+                skip_rows,
+            }),
+        }
+    }
+
     /// Creates a new structural truncation boundary around this view.
     pub fn clamp_rows(self, max_rows: u16, overflow: OverflowIndicator) -> Self {
         let mut child = self;

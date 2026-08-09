@@ -1,14 +1,16 @@
 //! Generic semantic stream model and resident/source coordination.
 
 use super::{
-    StreamOffset, StreamSnapshot, StreamView, StreamingSource,
+    StreamOffset, StreamRange, StreamSnapshot, StreamView, StreamingSource,
     compile::{CompiledStream, compile_stream},
+    node::{StreamSliceError, semantic_slice_nodes},
     resident::ResidentPrefix,
     validate::StreamValidationError,
 };
 
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum StreamModelError {
+pub enum StreamModelError {
     Validation(StreamValidationError),
     RevisionRegressed,
     SourceBaseRegressed,
@@ -21,6 +23,14 @@ pub(crate) enum StreamModelError {
     SourceNotSealed,
     UnstableAfterSeal,
 }
+
+impl std::fmt::Display for StreamModelError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "stream model error: {self:?}")
+    }
+}
+
+impl std::error::Error for StreamModelError {}
 
 pub(crate) struct StreamModel<S: StreamingSource> {
     source: S,
@@ -126,6 +136,42 @@ impl<S: StreamingSource> StreamModel<S> {
 
     pub(crate) fn semantic_view_from(&self, offset: StreamOffset) -> StreamView {
         self.combined_view().suffix_from(offset)
+    }
+
+    pub(crate) fn semantic_slice(
+        &self,
+        range: StreamRange,
+    ) -> Result<StreamView, StreamSliceError> {
+        let frontier = self.resident.end();
+        let mut nodes = Vec::new();
+
+        if range.start() < frontier {
+            let end = range.end().min(frontier);
+            if range.start() < end {
+                nodes.extend(
+                    semantic_slice_nodes(
+                        self.resident.nodes(),
+                        StreamRange::new(range.start(), end),
+                    )?
+                    .nodes,
+                );
+            }
+        }
+
+        if range.end() > frontier {
+            let start = range.start().max(frontier);
+            if start < range.end() {
+                nodes.extend(
+                    semantic_slice_nodes(
+                        self.current.view.nodes.iter(),
+                        StreamRange::new(start, range.end()),
+                    )?
+                    .nodes,
+                );
+            }
+        }
+
+        Ok(StreamView::new(nodes))
     }
 
     pub(crate) fn compile(&self, width: u16) -> CompiledStream {

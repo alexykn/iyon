@@ -195,6 +195,15 @@ impl Builder {
                 self.clip_subtree(id, clamp_rect);
                 (vec![id], size, child_complete)
             }
+            ViewKind::RowViewport(viewport) => {
+                let (id, child_size, child_complete) =
+                    self.build(&viewport.child, x, y, Some(width), None, clip);
+                (
+                    vec![id],
+                    Size::new(width, child_size.height.saturating_sub(viewport.skip_rows)),
+                    child_complete,
+                )
+            }
             ViewKind::Column(column) => {
                 self.build_column(column, x, y, width, height, fill_height, clip)
             }

@@ -123,7 +123,7 @@ fn projected_egc_spans_exact_run_boundaries_and_history_ownership() {
     let view = StreamView::new(vec![StreamNode::projected_text(projected)]);
     let compiled = crate::stream::compile_stream(&view, 1, crate::stream::StreamOffset::new(12));
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(7))
     );
 }
@@ -298,11 +298,11 @@ fn projected_egc_boundaries_still_expose_independent_checkpoints() {
         crate::stream::StreamOffset::new(2),
     );
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(1))
     );
     assert_eq!(
-        compiled.transfer[1],
+        compiled.rows[1].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(2))
     );
 }

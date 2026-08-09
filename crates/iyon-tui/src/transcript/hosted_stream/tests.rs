@@ -116,6 +116,33 @@ impl StreamingSource for AtomicMockStream {
 }
 
 #[test]
+fn multiline_transfer_checkpoint_does_not_recreate_newline_row() {
+    let mut hosted = HostedStream::new(
+        crate::transcript::model::TranscriptId(43),
+        MockStream {
+            source: "A\nB".to_string(),
+            stable_len: 3,
+            sealed: false,
+            revision: StreamRevision::ZERO,
+        },
+        LeadingBoundaryState::None,
+    );
+
+    let prepared = hosted.prepare_frame(20, 1);
+    assert_eq!(prepared.history.rows.len(), 1);
+    assert_eq!(prepared.history.rows.as_slice()[0].plain_text(), "A");
+    assert_eq!(
+        prepared.history.semantic_plan.next_committed_through,
+        StreamOffset::new(2)
+    );
+    hosted.apply_commit_success(prepared.history);
+
+    let next = hosted.prepare_frame(20, 1);
+    assert_eq!(hosted.committed_through, StreamOffset::new(2));
+    assert_eq!(next.live_rows[0].plain_text(), "B");
+}
+
+#[test]
 fn plan_commit_skips_fully_committed_atomic_group() {
     // Test A: atomic 3 physical rows, commit all 3, plan again from same compiled object => 0 rows
     let atomic_view = View::column(
@@ -450,7 +477,7 @@ fn hosted_stream_lifecycle_survives_sealing() {
     let unit_id = TranscriptId(42);
     let mock = MockStream {
         source: "line 1\nline 2\nline 3".to_string(),
-        stable_len: 13, // covers line 1 (6) + \n (1) + line 2 (6)
+        stable_len: 14, // covers line 1 (6) + \n (1) + line 2 (6) + \n (1)
         sealed: false,
         revision: StreamRevision::ZERO,
     };
@@ -464,7 +491,7 @@ fn hosted_stream_lifecycle_survives_sealing() {
     let plan = prepared.history.semantic_plan.clone();
     // lines 1 and 2 are stable (2 rows)
     assert_eq!(plan.payload.rows_to_write(), 2);
-    assert_eq!(plan.next_committed_through, StreamOffset::new(13));
+    assert_eq!(plan.next_committed_through, StreamOffset::new(14));
 
     // SIMULATE FAILURE: terminal fails to write rows -> apply_commit_success is NOT called!
     assert_eq!(hosted.committed_through, StreamOffset::ZERO);
@@ -472,13 +499,13 @@ fn hosted_stream_lifecycle_survives_sealing() {
 
     // SIMULATE SUCCESS: apply commit plan
     hosted.apply_commit_success(prepared.history);
-    assert_eq!(hosted.committed_through, StreamOffset::new(13));
+    assert_eq!(hosted.committed_through, StreamOffset::new(14));
 
     // Seal stream in-place: HostedStream retains unit_id, committed_through, and partial state!
     hosted.seal();
     assert!(hosted.is_sealed());
     assert_eq!(hosted.unit_id, unit_id);
-    assert_eq!(hosted.committed_through, StreamOffset::new(13));
+    assert_eq!(hosted.committed_through, StreamOffset::new(14));
 
     // Drain remaining line 3 after sealing
     let prepared2 = hosted.prepare_frame(20, 10);
@@ -529,7 +556,12 @@ fn sealed_stream_static_lowering_matches_stream_compilation() {
         let compiled = compile_stream(&snapshot.view, width, snapshot.source_end);
         let lowered =
             ViewCompiler::default().compile(&snapshot.view.clone().into_static_view(), width);
-        assert_rows_equivalent(&compiled.rows, &lowered.rows);
+        let physical = compiled
+            .rows
+            .iter()
+            .map(|row| row.physical.clone())
+            .collect::<Vec<_>>();
+        assert_rows_equivalent(&physical, &lowered.rows);
     }
 }
 

@@ -271,11 +271,11 @@ fn hard_newline_source_ownership_simple() {
     let compiled = compile_stream(&snap.view, 80, snap.stable_through);
     assert_eq!(compiled.rows.len(), 2);
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(4))
     );
     assert_eq!(
-        compiled.transfer[1],
+        compiled.rows[1].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(7))
     );
 }
@@ -294,15 +294,15 @@ fn hard_newline_source_ownership_consecutive() {
     let compiled = compile_stream(&snap.view, 80, snap.stable_through);
     assert_eq!(compiled.rows.len(), 3);
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(2))
     );
     assert_eq!(
-        compiled.transfer[1],
+        compiled.rows[1].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(3))
     );
     assert_eq!(
-        compiled.transfer[2],
+        compiled.rows[2].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(4))
     );
 }
@@ -321,7 +321,7 @@ fn hard_newline_source_ownership_trailing() {
     let compiled = compile_stream(&snap.view, 80, snap.stable_through);
     assert_eq!(compiled.rows.len(), 1);
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(2))
     );
 }
@@ -340,15 +340,15 @@ fn hard_newline_source_ownership_wrapped() {
     let compiled = compile_stream(&snap.view, 4, snap.stable_through);
     assert_eq!(compiled.rows.len(), 3);
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(4))
     );
     assert_eq!(
-        compiled.transfer[1],
+        compiled.rows[1].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(9))
     );
     assert_eq!(
-        compiled.transfer[2],
+        compiled.rows[2].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(10))
     );
 }
@@ -367,11 +367,11 @@ fn hard_newline_source_ownership_projected_markdown() {
     let compiled = compile_stream(&snap.view, 80, snap.stable_through);
     assert_eq!(compiled.rows.len(), 2);
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(9))
     );
     assert_eq!(
-        compiled.transfer[1],
+        compiled.rows[1].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(14))
     );
 }
@@ -394,7 +394,7 @@ fn atomic_completed_line_is_stable_when_open() {
     let compiled = compile_stream(&snap.view, 80, snap.stable_through);
     assert_eq!(compiled.transferable_prefix_rows, 1);
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(9))
     );
 }
@@ -414,7 +414,10 @@ fn atomic_closed_bold_touching_eof_is_unstable_when_open() {
 
     let compiled = compile_stream(&snap.view, 80, snap.stable_through);
     assert_eq!(compiled.transferable_prefix_rows, 0);
-    assert!(matches!(compiled.transfer[0], StreamRowTransfer::Blocked));
+    assert!(matches!(
+        compiled.rows[0].transfer,
+        StreamRowTransfer::Blocked
+    ));
 }
 
 #[test]
@@ -432,7 +435,10 @@ fn atomic_closed_bold_pinned_by_following_source_is_stable_only_before_open_egc(
 
     let compiled = compile_stream(&snap.view, 80, snap.stable_through);
     assert_eq!(compiled.transferable_prefix_rows, 0);
-    assert!(matches!(compiled.transfer[0], StreamRowTransfer::Blocked));
+    assert!(matches!(
+        compiled.rows[0].transfer,
+        StreamRowTransfer::Blocked
+    ));
 }
 
 #[test]
@@ -462,7 +468,10 @@ fn trailing_list_with_unfinished_markdown_is_unstable() {
     // The projected list body cannot commit across the unstable delimiter.
     let compiled = compile_stream(&snap.view, 80, snap.stable_through);
     assert_eq!(compiled.transferable_prefix_rows, 0);
-    assert!(matches!(compiled.transfer[0], StreamRowTransfer::Blocked));
+    assert!(matches!(
+        compiled.rows[0].transfer,
+        StreamRowTransfer::Blocked
+    ));
 }
 
 #[test]
@@ -479,7 +488,10 @@ fn trailing_list_with_ordinary_body_waits_for_egc_safety() {
 
     let compiled = compile_stream(&snap.view, 80, snap.stable_through);
     assert_eq!(compiled.transferable_prefix_rows, 0);
-    assert!(matches!(compiled.transfer[0], StreamRowTransfer::Blocked));
+    assert!(matches!(
+        compiled.rows[0].transfer,
+        StreamRowTransfer::Blocked
+    ));
 }
 
 #[test]
@@ -492,7 +504,7 @@ fn ordinary_list_becomes_committable_after_newline() {
     let compiled = compile_stream(&snap.view, 80, snap.stable_through);
     assert_eq!(compiled.transferable_prefix_rows, 1);
     assert_eq!(
-        compiled.transfer[0],
+        compiled.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(7))
     );
 }
@@ -575,7 +587,7 @@ fn compact_before_preserves_atomic_transition_without_duplicating_committed_sour
     let compiled1 = compile_stream(&snap1.view, 6, snap1.stable_through);
     assert_eq!(compiled1.transferable_prefix_rows, 1);
     assert_eq!(
-        compiled1.transfer[0],
+        compiled1.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(6))
     );
 
@@ -606,7 +618,7 @@ fn compact_before_preserves_atomic_transition_without_duplicating_committed_sour
     let compiled2 = compile_stream(&snap3.view, 80, snap3.stable_through);
     assert_eq!(compiled2.transferable_prefix_rows, 1);
     assert_eq!(
-        compiled2.transfer[0],
+        compiled2.rows[0].transfer,
         StreamRowTransfer::Checkpoint(StreamOffset::new(14))
     );
 }

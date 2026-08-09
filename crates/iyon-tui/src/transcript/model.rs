@@ -1871,9 +1871,13 @@ mod tests {
         assert!(committed_snapshot.source_base > StreamOffset::ZERO);
 
         let handoff = stream.into_resident_handoff();
-        let expected_rows = rows_to_lines(
-            &compile_stream(&committed_snapshot.view, 80, committed_snapshot.source_end).rows,
-        );
+        let compiled = compile_stream(&committed_snapshot.view, 80, committed_snapshot.source_end);
+        let expected_physical = compiled
+            .rows
+            .iter()
+            .map(|row| row.physical.clone())
+            .collect::<Vec<_>>();
+        let expected_rows = rows_to_lines(&expected_physical);
         let source_base = handoff.source_base;
         let source_end = handoff.source_end;
         transcript.adopt_resident_stream(handoff);
