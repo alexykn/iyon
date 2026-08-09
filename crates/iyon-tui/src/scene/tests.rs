@@ -24,7 +24,7 @@ impl Component for Parent {
     fn view(&self) -> View {
         View::vertical(|column| {
             column.child("parent");
-            column.child(View::component_slot(self.child));
+            column.child(View::component(self.child));
         })
     }
 }
@@ -68,7 +68,7 @@ fn one_slot_becomes_an_owned_component_root() {
     let handle = registry.register(Label {
         text: "hello".into(),
     });
-    let resolved = resolve_scene(&View::component_slot(handle), &registry).unwrap();
+    let resolved = resolve_scene(&View::component(handle), &registry).unwrap();
 
     assert_eq!(resolved.mounts.nodes.len(), 1);
     assert_eq!(resolved.mounts.nodes[0].id, handle.id());
@@ -83,7 +83,7 @@ fn nested_child_is_reread_from_registry_on_each_resolution() {
     let child = registry.register(Label { text: "old".into() });
     let parent = registry.register(Parent { child });
 
-    let first = resolve_scene(&View::component_slot(parent), &registry).unwrap();
+    let first = resolve_scene(&View::component(parent), &registry).unwrap();
     assert_eq!(
         first
             .mounts
@@ -97,7 +97,7 @@ fn nested_child_is_reread_from_registry_on_each_resolution() {
     assert!(first.view.view_plain_text().contains("old"));
 
     registry.with_mut(child, |label| label.text = "new".into());
-    let second = resolve_scene(&View::component_slot(parent), &registry).unwrap();
+    let second = resolve_scene(&View::component(parent), &registry).unwrap();
     assert!(second.view.view_plain_text().contains("new"));
     assert_eq!(second.mounts.nodes[1].revision.value(), 1);
 }
@@ -108,7 +108,7 @@ fn slot_properties_become_the_component_ownership_shell() {
     let handle = registry.register(Label {
         text: "hello".into(),
     });
-    let slot = View::component_slot(handle).padding(1).fill_width();
+    let slot = View::component(handle).padding(1).fill_width();
     let resolved = resolve_scene(&slot, &registry).unwrap().view;
 
     assert_eq!(resolved.component, Some(handle.id()));
@@ -127,12 +127,9 @@ fn explicit_outer_structure_stays_outside_component_ownership() {
     let handle = registry.register(Label {
         text: "hello".into(),
     });
-    let resolved = resolve_scene(
-        &View::component_slot(handle).container().padding(1),
-        &registry,
-    )
-    .unwrap()
-    .view;
+    let resolved = resolve_scene(&View::component(handle).container().padding(1), &registry)
+        .unwrap()
+        .view;
 
     assert_eq!(resolved.component, None);
     let crate::presentation::ir::ViewKind::Container(container) = &resolved.kind else {
@@ -146,8 +143,8 @@ fn duplicate_slots_are_rejected_without_returning_a_scene() {
     let mut registry = ComponentRegistry::new();
     let handle = registry.register(Label { text: "x".into() });
     let view = View::vertical(|column| {
-        column.child(View::component_slot(handle));
-        column.child(View::component_slot(handle));
+        column.child(View::component(handle));
+        column.child(View::component(handle));
     });
 
     assert_eq!(
@@ -162,14 +159,14 @@ fn failed_resolution_does_not_mutate_previous_mount_state() {
     let handle = registry.register(Label {
         text: "valid".into(),
     });
-    let valid = resolve_scene(&View::component_slot(handle), &registry).unwrap();
+    let valid = resolve_scene(&View::component(handle), &registry).unwrap();
     let mut mounted = MountedComponents::default();
     mounted.reconcile(valid.mounts.clone());
     let previous = mounted.current().clone();
 
     let invalid = View::vertical(|column| {
-        column.child(View::component_slot(handle));
-        column.child(View::component_slot(handle));
+        column.child(View::component(handle));
+        column.child(View::component(handle));
     });
     assert!(matches!(
         resolve_scene(&invalid, &registry),
@@ -185,7 +182,7 @@ fn missing_slots_are_rejected() {
     registry.remove(handle);
 
     assert_eq!(
-        resolve_scene(&View::component_slot(handle), &registry),
+        resolve_scene(&View::component(handle), &registry),
         Err(ResolveError::MissingComponent { id: handle.id() })
     );
 }
@@ -196,7 +193,7 @@ fn self_and_multi_component_cycles_report_paths() {
     let self_cycle = registry.register(CycleNode { target: None });
     registry.with_mut(self_cycle, |node| node.target = Some(self_cycle.id()));
     assert_eq!(
-        resolve_scene(&View::component_slot(self_cycle), &registry),
+        resolve_scene(&View::component(self_cycle), &registry),
         Err(ResolveError::ComponentCycle {
             path: vec![self_cycle.id(), self_cycle.id()]
         })
@@ -209,7 +206,7 @@ fn self_and_multi_component_cycles_report_paths() {
     registry.with_mut(b, |node| node.target = Some(c.id()));
     registry.with_mut(c, |node| node.target = Some(a.id()));
     assert_eq!(
-        resolve_scene(&View::component_slot(a), &registry),
+        resolve_scene(&View::component(a), &registry),
         Err(ResolveError::ComponentCycle {
             path: vec![a.id(), b.id(), c.id(), a.id()]
         })
@@ -224,7 +221,7 @@ fn wrong_registry_handles_cannot_alias_same_typed_components() {
     });
     let second = ComponentRegistry::new();
     assert_eq!(
-        resolve_scene(&View::component_slot(handle), &second),
+        resolve_scene(&View::component(handle), &second),
         Err(ResolveError::MissingComponent { id: handle.id() })
     );
 }
@@ -248,8 +245,7 @@ fn clipped_component_remains_semantically_mounted() {
     let handle = registry.register(Label {
         text: "hidden".into(),
     });
-    let view =
-        View::component_slot(handle).clamp_rows(0, crate::presentation::OverflowIndicator::None);
+    let view = View::component(handle).clamp_rows(0, crate::presentation::OverflowIndicator::None);
     let resolved = resolve_scene(&view, &registry).unwrap();
 
     assert_eq!(resolved.mounts.nodes[0].id, handle.id());

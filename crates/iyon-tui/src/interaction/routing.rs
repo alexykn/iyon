@@ -1,0 +1,122 @@
+use crate::{
+    component::{ComponentId, ComponentRegistry, MountGraph},
+    output::OutputQueue,
+};
+
+use super::{FocusState, GlobalBindings, InteractionResult, KeyStroke, MountedCapabilities};
+
+/// Private framework keyboard router.
+#[derive(Default)]
+pub(crate) struct KeyRouter {
+    globals: GlobalBindings,
+}
+
+impl KeyRouter {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn add_global(&mut self, binding: super::global::GlobalBinding) {
+        self.globals.push(binding);
+    }
+
+    pub(crate) fn dispatch(
+        &self,
+        key: KeyStroke,
+        focus: &mut FocusState,
+        graph: &MountGraph,
+        capabilities: &MountedCapabilities,
+        registry: &mut ComponentRegistry,
+        queue: &mut OutputQueue,
+    ) -> InteractionResult {
+        route_key(
+            key,
+            focus,
+            graph,
+            capabilities,
+            registry,
+            queue,
+            &self.globals,
+        )
+    }
+}
+
+pub(crate) fn route_key(
+    key: KeyStroke,
+    focus: &mut FocusState,
+    graph: &MountGraph,
+    capabilities: &MountedCapabilities,
+    registry: &mut ComponentRegistry,
+    queue: &mut OutputQueue,
+    globals: &GlobalBindings,
+) -> InteractionResult {
+    let mut cx = queue.event_cx();
+    let chain = routing_chain(focus, graph);
+
+    for id in chain {
+        let Some(component_capabilities) = capabilities.get(id) else {
+            continue;
+        };
+        for capability in &component_capabilities.key_commands {
+            let Some(command) = registry
+                .with_any(id, |component| (capability.map)(component, key))
+                .flatten()
+            else {
+                continue;
+            };
+            let result = registry
+                .with_any_mut(id, |component| {
+                    (capability.handle)(component, command, &mut cx)
+                })
+                .unwrap_or(InteractionResult::Ignored);
+            if matches!(result, InteractionResult::Consumed) {
+                return result;
+            }
+        }
+    }
+
+    if key.key() == super::Key::Tab {
+        let modifiers = key.modifiers();
+        let moved = if modifiers == super::Modifiers::SHIFT {
+            focus.focus_previous(graph, capabilities, registry)
+        } else if modifiers == super::Modifiers::NONE {
+            focus.focus_next(graph, capabilities, registry)
+        } else {
+            false
+        };
+        if moved {
+            return InteractionResult::Consumed;
+        }
+    }
+
+    globals.dispatch(key, &mut cx)
+}
+
+fn routing_chain(focus: &FocusState, graph: &MountGraph) -> Vec<ComponentId> {
+    let start = focus.focused().or_else(|| focus.active_modal());
+    let Some(mut current) = start else {
+        return Vec::new();
+    };
+
+    let modal = focus.active_modal();
+    let mut chain = Vec::new();
+    loop {
+        if modal.is_some_and(|modal| !super::focus::is_descendant_or_self(current, modal, graph)) {
+            break;
+        }
+        chain.push(current);
+        if modal == Some(current) {
+            break;
+        }
+        let Some(parent) = graph
+            .nodes
+            .iter()
+            .find(|node| node.id == current)
+            .and_then(|node| node.parent)
+        else {
+            break;
+        };
+        current = parent;
+    }
+    chain
+}

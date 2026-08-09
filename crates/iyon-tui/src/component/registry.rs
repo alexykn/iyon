@@ -1,10 +1,12 @@
-use std::{any::Any, collections::HashMap};
+use std::{any::Any, collections::HashMap, fmt};
 
 use super::{Component, ComponentHandle, ComponentId, ComponentRevision};
+use crate::interaction::{ComponentCapabilities, ComponentCx};
 use crate::presentation::View;
 
-trait ErasedComponent: std::fmt::Debug {
+trait ErasedComponent {
     fn view(&self) -> View;
+    fn capabilities(&self) -> ComponentCapabilities;
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
@@ -16,6 +18,13 @@ where
 {
     fn view(&self) -> View {
         Component::view(self)
+    }
+
+    fn capabilities(&self) -> ComponentCapabilities {
+        let mut capabilities = ComponentCapabilities::default();
+        let mut cx = ComponentCx::new(&mut capabilities);
+        Component::capabilities(self, &mut cx);
+        capabilities
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -31,10 +40,15 @@ where
     }
 }
 
-#[derive(Debug)]
 struct ComponentEntry {
     component: Box<dyn ErasedComponent>,
     revision: ComponentRevision,
+}
+
+impl fmt::Debug for ComponentEntry {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ComponentEntry(..)")
+    }
 }
 
 /// The sole owner of retained component instances.
@@ -91,6 +105,28 @@ impl ComponentRegistry {
         let entry = self.slots.get(&handle.id())?;
         let component = entry.component.as_any().downcast_ref::<C>()?;
         Some(f(component))
+    }
+
+    pub(crate) fn with_any<R>(&self, id: ComponentId, f: impl FnOnce(&dyn Any) -> R) -> Option<R> {
+        let entry = self.slots.get(&id)?;
+        Some(f(entry.component.as_any()))
+    }
+
+    pub(crate) fn with_any_mut<R>(
+        &mut self,
+        id: ComponentId,
+        f: impl FnOnce(&mut dyn Any) -> R,
+    ) -> Option<R> {
+        let entry = self.slots.get_mut(&id)?;
+        let result = f(entry.component.as_any_mut());
+        entry.revision = entry.revision.increment();
+        Some(result)
+    }
+
+    pub(crate) fn capabilities(&self, id: ComponentId) -> Option<ComponentCapabilities> {
+        self.slots
+            .get(&id)
+            .map(|entry| entry.component.capabilities())
     }
 
     pub(crate) fn with_mut<C, R>(

@@ -6,7 +6,7 @@
 use std::{fmt::Debug, time::Instant};
 
 use super::ir::View;
-use crate::component::Component;
+use crate::{component::Component, interaction::InteractionResult};
 
 /// FEATURE EXTENSION API. Generic attachment relationship decided by a feature.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -32,18 +32,6 @@ pub(crate) enum UiKey {
     End,
     Unknown,
 }
-
-/// FEATURE EXTENSION API. Result returned by a dock or modal interaction.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum InteractionResult {
-    Ignored,
-    Consumed,
-    Action(HostAction),
-}
-
-/// FEATURE EXTENSION API. Host-owned action emitted by an interaction surface.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct HostAction(pub(crate) String);
 
 /// FEATURE EXTENSION API. A stateful surface outside durable conversation history.
 /// Its view is semantic; physical size and clipping belong to the host.

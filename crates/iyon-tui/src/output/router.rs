@@ -17,7 +17,7 @@ struct Route<A> {
 
 /// Failure to add a second route for an output channel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct RouteConflict;
+pub struct RouteConflict;
 
 impl fmt::Display for RouteConflict {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -43,18 +43,18 @@ impl fmt::Display for OutputDispatchError {
 
 impl Error for OutputDispatchError {}
 
-pub(crate) struct OutputRouter<A> {
+pub struct OutputRouter<A> {
     routes: HashMap<OutputId, Route<A>>,
 }
 
 impl<A> OutputRouter<A> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             routes: HashMap::new(),
         }
     }
 
-    pub(crate) fn route<T: 'static>(
+    pub fn route<T: 'static>(
         &mut self,
         output: Output<T>,
         map: impl Fn(T) -> A + 'static,
@@ -76,7 +76,7 @@ impl<A> OutputRouter<A> {
         Ok(())
     }
 
-    pub(crate) fn remove<T: 'static>(&mut self, output: Output<T>) -> bool {
+    pub fn remove<T: 'static>(&mut self, output: Output<T>) -> bool {
         self.routes.remove(&output.id()).is_some()
     }
 

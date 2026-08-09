@@ -41,7 +41,7 @@ impl fmt::Debug for ComponentId {
 }
 
 /// Typed, non-owning identity for a component in a registry.
-pub(crate) struct ComponentHandle<C> {
+pub struct ComponentHandle<C> {
     id: ComponentId,
     marker: PhantomData<fn() -> C>,
 }
@@ -56,10 +56,7 @@ impl<C> Clone for ComponentHandle<C> {
 
 impl<C> fmt::Debug for ComponentHandle<C> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ComponentHandle")
-            .field("id", &self.id)
-            .finish()
+        formatter.write_str("ComponentHandle")
     }
 }
 

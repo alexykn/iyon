@@ -282,7 +282,7 @@ impl InputEventHandler {
                 // An interactive bottom panel (when present) consumes keys it owns
                 // before the composer sees them.
                 if panel.handle_key(components, ui_key(key_event))
-                    != crate::presentation::InteractionResult::Ignored
+                    != crate::interaction::InteractionResult::Ignored
                 {
                     return vec![FrontendAction::RedrawOnly];
                 }

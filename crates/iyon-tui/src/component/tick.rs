@@ -1,14 +1,24 @@
 use std::{
     collections::{HashMap, HashSet},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use super::{Component, ComponentHandle, ComponentId, MountGraph, MountTransitions};
-use crate::component::ComponentRegistry;
+use crate::{
+    component::ComponentRegistry,
+    interaction::MountedCapabilities,
+    output::{EventCx, OutputQueue},
+};
 
 trait TickDriver {
-    fn tick(&mut self, handle: ComponentId, now: Instant, registry: &mut ComponentRegistry)
-    -> bool;
+    fn tick(
+        &mut self,
+        handle: ComponentId,
+        now: Instant,
+        registry: &mut ComponentRegistry,
+        cx: &mut EventCx<'_>,
+    ) -> bool;
 }
 
 struct TypedTickDriver<C, F> {
@@ -26,6 +36,7 @@ where
         handle: ComponentId,
         now: Instant,
         registry: &mut ComponentRegistry,
+        _cx: &mut EventCx<'_>,
     ) -> bool {
         registry
             .with_mut(ComponentHandle::<C>::from_id(handle), |component| {
@@ -35,10 +46,35 @@ where
     }
 }
 
+struct CapabilityTickDriver {
+    callback: Arc<dyn for<'a> Fn(&mut dyn std::any::Any, Instant, &mut EventCx<'a>) -> bool>,
+}
+
+impl TickDriver for CapabilityTickDriver {
+    fn tick(
+        &mut self,
+        handle: ComponentId,
+        now: Instant,
+        registry: &mut ComponentRegistry,
+        cx: &mut EventCx<'_>,
+    ) -> bool {
+        registry
+            .with_any_mut(handle, |component| (self.callback)(component, now, cx))
+            .unwrap_or(false)
+    }
+}
+
 struct TickRegistration {
     interval: Duration,
     next_due: Option<Instant>,
     driver: Box<dyn TickDriver>,
+    source: TickSource,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TickSource {
+    Legacy,
+    Capability,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,14 +131,13 @@ impl TickScheduler {
                     callback,
                     marker: std::marker::PhantomData,
                 }),
+                source: TickSource::Legacy,
             },
         );
         Ok(())
     }
 
-    /// Synchronizes activation from the semantic mount graph. Transitions are
-    /// consumed for deterministic activation/deactivation, while the graph is
-    /// authoritative for registrations created between reconciliations.
+    /// Synchronizes activation from the semantic mount graph.
     pub(crate) fn sync_mounts(
         &mut self,
         graph: &MountGraph,
@@ -143,6 +178,80 @@ impl TickScheduler {
         self.mount_order = graph.ids().collect();
     }
 
+    /// Synchronizes the scheduler's current typed tick declarations with a
+    /// successfully resolved mounted capability set.
+    pub(crate) fn sync_capabilities(
+        &mut self,
+        graph: &MountGraph,
+        capabilities: &MountedCapabilities,
+        transitions: &MountTransitions,
+        now: Instant,
+    ) {
+        self.sync_mounts(graph, transitions, now);
+
+        let desired: HashMap<_, _> = graph
+            .ids()
+            .filter_map(|id| {
+                capabilities
+                    .get(id)
+                    .and_then(|caps| caps.tick.clone().map(|tick| (id, tick)))
+            })
+            .collect();
+
+        for (id, tick) in &desired {
+            if tick.interval.is_zero() {
+                continue;
+            }
+            let driver = Box::new(CapabilityTickDriver {
+                callback: tick.handler.clone(),
+            });
+            match self.registrations.get_mut(id) {
+                Some(registration) if registration.source == TickSource::Capability => {
+                    let interval_changed = registration.interval != tick.interval;
+                    registration.interval = tick.interval;
+                    registration.driver = driver;
+                    if interval_changed {
+                        registration.next_due = None;
+                        self.activate(*id, now);
+                    } else if registration.next_due.is_none() {
+                        self.activate(*id, now);
+                    }
+                }
+                Some(registration) => {
+                    registration.interval = tick.interval;
+                    registration.next_due = None;
+                    registration.driver = driver;
+                    registration.source = TickSource::Capability;
+                    self.activate(*id, now);
+                }
+                None => {
+                    self.registrations.insert(
+                        *id,
+                        TickRegistration {
+                            interval: tick.interval,
+                            next_due: None,
+                            driver,
+                            source: TickSource::Capability,
+                        },
+                    );
+                    self.activate(*id, now);
+                }
+            }
+        }
+
+        let stale: Vec<_> = self
+            .registrations
+            .iter()
+            .filter(|(id, registration)| {
+                registration.source == TickSource::Capability && !desired.contains_key(id)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in stale {
+            self.registrations.remove(&id);
+        }
+    }
+
     pub(crate) fn next_timeout(&self, now: Instant, idle_timeout: Duration) -> Duration {
         self.mount_order
             .iter()
@@ -154,6 +263,16 @@ impl TickScheduler {
     }
 
     pub(crate) fn tick_due(&mut self, now: Instant, registry: &mut ComponentRegistry) -> bool {
+        let mut queue = OutputQueue::new();
+        self.tick_due_with_events(now, registry, &mut queue)
+    }
+
+    pub(crate) fn tick_due_with_events(
+        &mut self,
+        now: Instant,
+        registry: &mut ComponentRegistry,
+        queue: &mut OutputQueue,
+    ) -> bool {
         let due: Vec<_> = self
             .mount_order
             .iter()
@@ -167,11 +286,12 @@ impl TickScheduler {
             .collect();
 
         let mut dirty = false;
+        let mut cx = queue.event_cx();
         for id in due {
             let Some(registration) = self.registrations.get_mut(&id) else {
                 continue;
             };
-            dirty |= registration.driver.tick(id, now, registry);
+            dirty |= registration.driver.tick(id, now, registry, &mut cx);
             registration.next_due = Some(
                 now.checked_add(registration.interval)
                     .expect("component tick deadline exhausted"),

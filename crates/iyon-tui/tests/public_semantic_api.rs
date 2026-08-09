@@ -1,6 +1,7 @@
 use iyon_tui::{
-    BorderSpec, ColorSpec, Horizontal, HorizontalAlign, IntoView, StyleSpec, TextAttribute,
-    TextSpan, Vertical, VerticalAlign, View, WrapMode,
+    BorderSpec, ColorSpec, Component, ComponentCx, ComponentHandle, EventCx, Horizontal,
+    HorizontalAlign, InteractionResult, IntoView, Key, KeyStroke, Modifiers, Output, OutputRouter,
+    StyleSpec, TextAttribute, TextSpan, Vertical, VerticalAlign, View, WrapMode,
 };
 
 struct Status(String);
@@ -89,4 +90,62 @@ fn public_into_view_accepts_owned_and_borrowed_values() {
     let _: View = View::vertical(|column| {
         column.child(Status("status".into()));
     });
+}
+
+struct Counter {
+    value: usize,
+    changed: Output<usize>,
+}
+
+enum CounterCommand {
+    Increment,
+}
+
+impl Counter {
+    fn command(&self, key: KeyStroke) -> Option<CounterCommand> {
+        (key.key() == Key::Char('+')).then_some(CounterCommand::Increment)
+    }
+
+    fn handle(&mut self, command: CounterCommand, cx: &mut EventCx<'_>) -> InteractionResult {
+        match command {
+            CounterCommand::Increment => {
+                self.value += 1;
+                cx.emit(self.changed, self.value);
+                InteractionResult::Consumed
+            }
+        }
+    }
+}
+
+impl Component for Counter {
+    fn view(&self) -> View {
+        View::text(self.value.to_string()).into_view()
+    }
+
+    fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+        cx.focusable();
+        cx.key_commands(Self::command, Self::handle);
+    }
+}
+
+fn component_view<C>(handle: ComponentHandle<C>) -> View {
+    View::component(handle)
+}
+
+#[test]
+fn public_component_and_output_contract_is_backend_free() {
+    fn assert_component<C: Component>() {}
+    assert_component::<Counter>();
+
+    let output = Output::<usize>::new();
+    let mut router = OutputRouter::new();
+    router.route(output, |value| value + 1).unwrap();
+    assert!(router.remove(output));
+
+    let stroke = KeyStroke::with_modifiers(Key::Char('+'), Modifiers::CONTROL);
+    assert_eq!(stroke.key(), Key::Char('+'));
+    assert!(stroke.modifiers().contains(Modifiers::CONTROL));
+
+    let _: Option<ComponentHandle<Counter>> = None;
+    let _ = component_view::<Counter>;
 }

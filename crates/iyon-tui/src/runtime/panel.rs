@@ -4,7 +4,8 @@
 //! themselves live in the shared [`ComponentRegistry`].
 
 use crate::component::{Component, ComponentHandle, ComponentId, ComponentRegistry};
-use crate::presentation::{DockPanel, DockSizePolicy, InteractionResult, IntoView, UiKey, View};
+use crate::interaction::InteractionResult;
+use crate::presentation::{DockPanel, DockSizePolicy, IntoView, UiKey, View};
 
 const MAX_PENDING_ROWS: usize = 4;
 

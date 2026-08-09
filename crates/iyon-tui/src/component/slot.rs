@@ -2,8 +2,8 @@ use super::ComponentHandle;
 use crate::presentation::ir::{ComponentSlotNode, Decoration, View, ViewKind, WidthRule};
 
 impl View {
-    /// Creates a private semantic placement for a retained component.
-    pub(crate) fn component_slot<C>(handle: ComponentHandle<C>) -> Self {
+    /// Creates a live semantic mount for a retained component.
+    pub fn component<C>(handle: ComponentHandle<C>) -> Self {
         Self {
             component: None,
             width: WidthRule::Fit,

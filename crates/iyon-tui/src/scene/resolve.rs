@@ -2,6 +2,7 @@ use std::fmt;
 
 use crate::{
     component::{ComponentId, ComponentRegistry, MountGraph, MountNode},
+    interaction::MountedCapabilities,
     presentation::{
         View,
         ir::{ClampRowsView, ColumnView, ContainerNode, RowChild, RowView, ViewKind},
@@ -36,6 +37,7 @@ pub(crate) fn resolve_scene(
     let mut resolver = Resolver {
         registry,
         mounts: Vec::new(),
+        capabilities: MountedCapabilities::default(),
         seen: Vec::new(),
         active: Vec::new(),
     };
@@ -43,12 +45,14 @@ pub(crate) fn resolve_scene(
     Ok(ResolvedScene {
         view,
         mounts: MountGraph::new(resolver.mounts),
+        capabilities: resolver.capabilities,
     })
 }
 
 struct Resolver<'a> {
     registry: &'a ComponentRegistry,
     mounts: Vec<MountNode>,
+    capabilities: MountedCapabilities,
     seen: Vec<ComponentId>,
     active: Vec<ComponentId>,
 }
@@ -124,6 +128,12 @@ impl Resolver<'_> {
             parent,
             revision,
         });
+        self.capabilities.insert(
+            id,
+            self.registry
+                .capabilities(id)
+                .expect("registered component capabilities disappeared during resolution"),
+        );
         self.active.push(id);
         let resolved = self.resolve_view(&component_view, Some(id));
         self.active.pop();
