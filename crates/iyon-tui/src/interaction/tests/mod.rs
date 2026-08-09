@@ -30,6 +30,30 @@ impl FocusProbe {
     }
 }
 
+struct DynamicFocusProbe {
+    focusable: bool,
+    focused: bool,
+}
+
+impl Component for DynamicFocusProbe {
+    fn view(&self) -> View {
+        View::text("dynamic").into_view()
+    }
+
+    fn capabilities(&self, cx: &mut super::ComponentCx<'_, Self>) {
+        if self.focusable {
+            cx.focusable();
+            cx.on_focus_changed(Self::focus_changed);
+        }
+    }
+}
+
+impl DynamicFocusProbe {
+    fn focus_changed(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+}
+
 struct TickProbe {
     enabled: bool,
     ticks: usize,
@@ -362,6 +386,78 @@ fn focus_change_callbacks_advance_component_revision() {
 }
 
 #[test]
+fn removed_focused_component_receives_blur_from_retained_handler() {
+    let mut registry = ComponentRegistry::new();
+    let first = registry.register(FocusProbe { focused: false });
+    let second = registry.register(FocusProbe { focused: false });
+    let first_scene = scene_for(
+        View::vertical(|column| {
+            column.child(View::component(first));
+        }),
+        &registry,
+    );
+    let mut focus = FocusState::default();
+    focus.reconcile(
+        &first_scene.mounts,
+        &first_scene.capabilities,
+        &mut registry,
+    );
+    assert_eq!(registry.revision(first).unwrap().value(), 1);
+
+    let second_scene = scene_for(
+        View::vertical(|column| {
+            column.child(View::component(second));
+        }),
+        &registry,
+    );
+    focus.reconcile(
+        &second_scene.mounts,
+        &second_scene.capabilities,
+        &mut registry,
+    );
+
+    assert!(!registry.with(first, |probe| probe.focused).unwrap());
+    assert_eq!(registry.revision(first).unwrap().value(), 2);
+    assert!(registry.with(second, |probe| probe.focused).unwrap());
+}
+
+#[test]
+fn losing_focusability_blurs_using_the_previous_capability() {
+    let mut registry = ComponentRegistry::new();
+    let first = registry.register(DynamicFocusProbe {
+        focusable: true,
+        focused: false,
+    });
+    let second = registry.register(FocusProbe { focused: false });
+    let first_scene = scene_for(View::component(first), &registry);
+    let mut focus = FocusState::default();
+    focus.reconcile(
+        &first_scene.mounts,
+        &first_scene.capabilities,
+        &mut registry,
+    );
+    assert_eq!(registry.revision(first).unwrap().value(), 1);
+
+    registry.with_mut(first, |probe| probe.focusable = false);
+    let second_scene = scene_for(
+        View::vertical(|column| {
+            column.child(View::component(first));
+            column.child(View::component(second));
+        }),
+        &registry,
+    );
+    focus.reconcile(
+        &second_scene.mounts,
+        &second_scene.capabilities,
+        &mut registry,
+    );
+
+    assert!(!registry.with(first, |probe| probe.focused).unwrap());
+    assert_eq!(registry.revision(first).unwrap().value(), 3);
+    assert!(registry.with(second, |probe| probe.focused).unwrap());
+}
+
+#[test]
 fn mounted_tick_capabilities_emit_after_the_tick_dispatch_returns() {
     let mut registry = ComponentRegistry::new();
     let output = Output::new();
@@ -480,6 +576,88 @@ fn modal_focus_is_contained_and_restored_in_nested_order() {
         &mut registry,
     );
     assert_eq!(focus.focused(), Some(underlying.id()));
+}
+
+#[test]
+fn removing_a_modal_hierarchy_unwinds_to_background_focus() {
+    let mut registry = ComponentRegistry::new();
+    let background_a = registry.register(FocusProbe { focused: false });
+    let background_b = registry.register(FocusProbe { focused: false });
+    let first_child = registry.register(FocusProbe { focused: false });
+    let nested_child = registry.register(FocusProbe { focused: false });
+    let first = registry.register(Modal {
+        children: vec![first_child],
+        nested: None,
+    });
+    let nested = registry.register(Modal {
+        children: vec![nested_child],
+        nested: None,
+    });
+
+    let background_scene = scene_for(
+        View::vertical(|column| {
+            column.child(View::component(background_a));
+            column.child(View::component(background_b));
+        }),
+        &registry,
+    );
+    let mut focus = FocusState::default();
+    focus.reconcile(
+        &background_scene.mounts,
+        &background_scene.capabilities,
+        &mut registry,
+    );
+    focus.focus_next(
+        &background_scene.mounts,
+        &background_scene.capabilities,
+        &mut registry,
+    );
+    assert_eq!(focus.focused(), Some(background_b.id()));
+
+    let first_scene = scene_for(
+        View::vertical(|column| {
+            column.child(View::component(background_a));
+            column.child(View::component(background_b));
+            column.child(View::component(first));
+        }),
+        &registry,
+    );
+    focus.reconcile(
+        &first_scene.mounts,
+        &first_scene.capabilities,
+        &mut registry,
+    );
+    registry.with_mut(first, |modal| modal.nested = Some(nested));
+
+    let nested_scene = scene_for(
+        View::vertical(|column| {
+            column.child(View::component(background_a));
+            column.child(View::component(background_b));
+            column.child(View::component(first));
+        }),
+        &registry,
+    );
+    focus.reconcile(
+        &nested_scene.mounts,
+        &nested_scene.capabilities,
+        &mut registry,
+    );
+    assert_eq!(focus.focused(), Some(nested_child.id()));
+
+    let removed_scene = scene_for(
+        View::vertical(|column| {
+            column.child(View::component(background_a));
+            column.child(View::component(background_b));
+        }),
+        &registry,
+    );
+    focus.reconcile(
+        &removed_scene.mounts,
+        &removed_scene.capabilities,
+        &mut registry,
+    );
+    assert_eq!(focus.focused(), Some(background_b.id()));
+    assert!(focus.modal_restore_is_empty());
 }
 
 #[test]
