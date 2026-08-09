@@ -1,3 +1,5 @@
+use std::{any::Any, sync::Arc};
+
 use crate::{
     component::{ComponentId, ComponentRegistry, MountGraph},
     interaction::MountedCapabilities,
@@ -6,6 +8,7 @@ use crate::{
 /// Host-owned semantic focus state.
 pub(crate) struct FocusState {
     focused: Option<ComponentId>,
+    focused_handler: Option<Arc<dyn Fn(&mut dyn Any, bool)>>,
     active_modal: Option<ComponentId>,
     modal_restore: Vec<(Option<ComponentId>, Option<ComponentId>)>,
 }
@@ -14,6 +17,7 @@ impl Default for FocusState {
     fn default() -> Self {
         Self {
             focused: None,
+            focused_handler: None,
             active_modal: None,
             modal_restore: Vec::new(),
         }
@@ -29,6 +33,11 @@ impl FocusState {
         self.active_modal
     }
 
+    #[cfg(test)]
+    pub(crate) fn modal_restore_is_empty(&self) -> bool {
+        self.modal_restore.is_empty()
+    }
+
     pub(crate) fn reconcile(
         &mut self,
         graph: &MountGraph,
@@ -38,21 +47,23 @@ impl FocusState {
         let previous_modal = self.active_modal;
         let next_modal = capabilities.modal_ids(graph.nodes.iter()).last();
         let modal_changed = next_modal != previous_modal;
-        let restored = if modal_changed
-            && self
+        let restored = if modal_changed {
+            let restore_index = self
                 .modal_restore
-                .last()
-                .is_some_and(|(target, _)| *target == next_modal)
-        {
-            self.modal_restore.pop().and_then(|(_, focus)| focus)
-        } else if modal_changed && next_modal.is_some() {
-            self.prepare_new_modal(previous_modal, next_modal, graph, capabilities);
-            None
-        } else if modal_changed {
-            // A non-nested transition that does not match a saved frame must
-            // not leave restoration entries for a later modal lifecycle.
-            self.modal_restore.clear();
-            None
+                .iter()
+                .rposition(|(target, _)| *target == next_modal);
+            if let Some(index) = restore_index {
+                self.modal_restore.truncate(index + 1);
+                self.modal_restore.pop().and_then(|(_, focus)| focus)
+            } else if next_modal.is_some() {
+                self.prepare_new_modal(previous_modal, next_modal, graph, capabilities);
+                None
+            } else {
+                // A non-nested transition that does not match a saved frame
+                // must not leave entries for a later modal lifecycle.
+                self.modal_restore.clear();
+                None
+            }
         } else {
             None
         };
@@ -164,17 +175,27 @@ impl FocusState {
         registry: &mut ComponentRegistry,
     ) {
         if self.focused == next {
+            self.focused_handler = next
+                .and_then(|id| capabilities.get(id))
+                .and_then(|caps| caps.focus_changed.as_ref())
+                .cloned();
             return;
         }
 
+        let previous_handler = self.focused_handler.take();
         let previous = self.focused;
         self.focused = next;
 
-        if let Some(id) = previous {
-            notify_focus(id, false, capabilities, registry);
+        if let (Some(id), Some(handler)) = (previous, previous_handler) {
+            notify_focus_handler(id, handler, false, registry);
         }
-        if let Some(id) = next {
-            notify_focus(id, true, capabilities, registry);
+
+        self.focused_handler = next
+            .and_then(|id| capabilities.get(id))
+            .and_then(|caps| caps.focus_changed.as_ref())
+            .cloned();
+        if let (Some(id), Some(handler)) = (next, self.focused_handler.as_ref()) {
+            notify_focus_handler(id, handler.clone(), true, registry);
         }
     }
 }
@@ -235,18 +256,11 @@ pub(crate) fn is_descendant_or_self(
     false
 }
 
-fn notify_focus(
+fn notify_focus_handler(
     id: ComponentId,
+    handler: Arc<dyn Fn(&mut dyn Any, bool)>,
     focused: bool,
-    capabilities: &MountedCapabilities,
     registry: &mut ComponentRegistry,
 ) {
-    let Some(handler) = capabilities
-        .get(id)
-        .and_then(|caps| caps.focus_changed.as_ref())
-        .cloned()
-    else {
-        return;
-    };
     let _ = registry.with_any_mut(id, |component| handler(component, focused));
 }
