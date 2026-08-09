@@ -19,7 +19,7 @@ use super::paint::ThemeResolver;
 
 pub(crate) use tracks::allocate_tracks;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LayoutBlock {
     pub(crate) width: u16,
     pub(crate) rows: Vec<PhysicalRow>,

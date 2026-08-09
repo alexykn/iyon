@@ -3,6 +3,8 @@
 //! Construction APIs lower immediately into these owned nodes. This module
 //! contains no terminal/backend state.
 
+use crate::component::ComponentId;
+
 use super::api::{
     style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleSpec, VerticalAlign},
     text::{HorizontalAlign, TextSpan, WrapMode},
@@ -14,9 +16,33 @@ use super::api::{
 /// exposing terminal state or layout implementation details.
 #[derive(Clone, Debug, PartialEq)]
 pub struct View {
+    pub(crate) component: Option<ComponentId>,
     pub(crate) width: WidthRule,
     pub(crate) decoration: Decoration,
     pub(crate) kind: ViewKind,
+}
+
+impl View {
+    pub(crate) fn with_component(mut self, component: ComponentId) -> Self {
+        self.component = Some(component);
+        self
+    }
+
+    pub(crate) fn attach_component(self, component: ComponentId) -> Self {
+        if self.component.is_none() || self.component == Some(component) {
+            return self.with_component(component);
+        }
+
+        let width = self.width;
+        Self {
+            component: Some(component),
+            width,
+            decoration: Decoration::default(),
+            kind: ViewKind::Container(ContainerNode {
+                child: Box::new(self),
+            }),
+        }
+    }
 }
 /// RETAINED SEMANTIC IR. Generic view node kinds understood by the compiler.
 #[derive(Clone, Debug, PartialEq)]

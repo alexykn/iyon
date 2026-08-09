@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use crate::component::Component;
 use crate::presentation::ActiveContent;
 use crate::{IntoView, View};
 
@@ -42,7 +43,7 @@ pub(crate) enum ToolActiveStatus {
     Running,
 }
 
-impl ActiveContent for ActiveTurnContent {
+impl Component for ActiveTurnContent {
     fn view(&self) -> View {
         match self {
             Self::WorkingSpinner { spinner_frame } => View::text(format!(
@@ -69,6 +70,8 @@ impl ActiveContent for ActiveTurnContent {
         }
     }
 }
+
+impl ActiveContent for ActiveTurnContent {}
 
 #[derive(Debug)]
 pub(crate) struct ActiveTicker {

@@ -27,6 +27,7 @@ impl View {
         let (children, gap, vertical_align) = horizontal.into_parts();
 
         Self {
+            component: None,
             width: WidthRule::Fit,
             decoration: Decoration::default(),
             kind: ViewKind::Row(RowView {
@@ -45,6 +46,7 @@ impl View {
         let (children, gap) = vertical.into_parts();
 
         Self {
+            component: None,
             width: WidthRule::Fit,
             decoration: Decoration::default(),
             kind: ViewKind::Column(ColumnView { children, gap }),
@@ -53,6 +55,7 @@ impl View {
 
     pub(crate) fn column(children: Vec<View>, gap: u16) -> Self {
         Self {
+            component: None,
             width: WidthRule::Fit,
             decoration: Decoration::default(),
             kind: ViewKind::Column(ColumnView { children, gap }),
@@ -61,6 +64,7 @@ impl View {
 
     pub(crate) fn row(children: Vec<RowChild>, gap: u16) -> Self {
         Self {
+            component: None,
             width: WidthRule::Fill,
             decoration: Decoration::default(),
             kind: ViewKind::Row(RowView {
@@ -72,8 +76,11 @@ impl View {
     }
 
     pub(crate) fn box_(child: View, decoration: Decoration) -> Self {
+        let mut child = child;
+        let component = child.component.take();
         let width = child.width;
         Self {
+            component,
             width,
             decoration,
             kind: ViewKind::Container(ContainerNode {
@@ -84,24 +91,30 @@ impl View {
 
     /// Creates a new undecorated structural boundary around this view.
     pub fn container(self) -> Self {
-        let width = self.width;
+        let mut child = self;
+        let component = child.component.take();
+        let width = child.width;
         Self {
+            component,
             width,
             decoration: Decoration::default(),
             kind: ViewKind::Container(ContainerNode {
-                child: Box::new(self),
+                child: Box::new(child),
             }),
         }
     }
 
     /// Creates a new structural truncation boundary around this view.
     pub fn clamp_rows(self, max_rows: u16, overflow: OverflowIndicator) -> Self {
-        let width = self.width;
+        let mut child = self;
+        let component = child.component.take();
+        let width = child.width;
         Self {
+            component,
             width,
             decoration: Decoration::default(),
             kind: ViewKind::ClampRows(ClampRowsView {
-                child: Box::new(self),
+                child: Box::new(child),
                 max_rows,
                 overflow,
             }),
@@ -110,6 +123,7 @@ impl View {
 
     pub fn spacer(rows: u16) -> Self {
         Self {
+            component: None,
             width: WidthRule::Fit,
             decoration: Decoration::default(),
             kind: ViewKind::Spacer { rows },

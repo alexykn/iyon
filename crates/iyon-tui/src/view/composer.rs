@@ -5,7 +5,7 @@ use crate::physical::PhysicalRow;
 
 use crate::{
     input::WrapCache,
-    runtime::{AppState, BottomPanelBar},
+    runtime::AppState,
     view::{
         layout::{ComputedLayout, LayoutConfig},
         render::{ConversationView, InfoView, InputView, Renderable, Renderer},
@@ -16,7 +16,7 @@ use crate::{
 pub(crate) struct RunningView<'a> {
     pub(crate) layout: ComputedLayout,
     pub(crate) conversation: ConversationView<'a>,
-    pub(crate) panel: &'a BottomPanelBar,
+    pub(crate) panel: Option<crate::presentation::View>,
     pub(crate) input: InputView<'a>,
     pub(crate) info: InfoView<'a>,
 }
@@ -83,7 +83,7 @@ impl RunningFrameComposer {
                 hosted_rows: state.assistant_live_rows(),
                 transient_rows: state.active_live_rows(),
             },
-            panel: &state.bottom_panel,
+            panel: state.bottom_panel.view(&state.components),
             input: InputView {
                 text: state.input.text(),
                 cursor_bytes: state.input.cursor_bytes(),
@@ -109,7 +109,9 @@ impl RunningFrameComposer {
         let conversation_rows = state.conversation_row_count();
         let conversation_height = u16::try_from(conversation_rows).unwrap_or(u16::MAX);
         let conversation_gap_height = u16::from(conversation_rows > 0);
-        let panel_height = state.bottom_panel.desired_height(root.width.max(1));
+        let panel_height = state
+            .bottom_panel
+            .desired_height(&state.components, root.width.max(1));
 
         Self::compute_layout_for_input(
             base_layout,

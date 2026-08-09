@@ -395,6 +395,7 @@ impl StreamView {
             .collect();
 
         View {
+            component: None,
             width: WidthRule::Fit,
             decoration: crate::presentation::ir::Decoration::default(),
             kind: ViewKind::Column(ColumnView { children, gap: 0 }),

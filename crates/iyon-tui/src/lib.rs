@@ -33,6 +33,7 @@
 //! ```
 
 mod app;
+mod component;
 mod geometry;
 mod input;
 mod physical;

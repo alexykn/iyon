@@ -415,6 +415,7 @@ mod tests {
     #[test]
     fn legacy_and_new_composition_compile_identically() {
         let old_row = View {
+            component: None,
             width: WidthRule::Fit,
             decoration: Default::default(),
             kind: ViewKind::Row(RowView {

@@ -68,6 +68,7 @@ impl Text {
     fn from_text_view(text: TextView) -> Self {
         Self {
             view: View {
+                component: None,
                 width: WidthRule::Fit,
                 decoration: Decoration::default(),
                 kind: ViewKind::Text(text),

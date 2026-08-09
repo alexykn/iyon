@@ -16,8 +16,8 @@ pub(crate) mod wrap;
 pub(crate) use wrap::{WrapCache, cursor_xy, wrapped_line_index_by_start};
 
 use crate::{
-    input::wrap::cursor_for_display_col, presentation::UiKey, runtime::controller::FrontendAction,
-    runtime::panel::BottomPanelBar,
+    component::ComponentRegistry, input::wrap::cursor_for_display_col, presentation::UiKey,
+    runtime::controller::FrontendAction, runtime::panel::BottomPanelBar,
 };
 
 const WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
@@ -242,15 +242,23 @@ impl InputEventHandler {
         editor: &mut InputEditor<'_>,
         approval_pending: bool,
         panel: &mut BottomPanelBar,
+        components: &mut ComponentRegistry,
     ) -> Result<Vec<FrontendAction>> {
         if !event::poll(timeout)? {
             return Ok(Vec::new());
         }
 
-        let mut actions = self.handle_event(event::read()?, editor, approval_pending, panel);
+        let mut actions =
+            self.handle_event(event::read()?, editor, approval_pending, panel, components);
 
         while event::poll(Duration::from_millis(0))? {
-            actions.extend(self.handle_event(event::read()?, editor, approval_pending, panel));
+            actions.extend(self.handle_event(
+                event::read()?,
+                editor,
+                approval_pending,
+                panel,
+                components,
+            ));
         }
         Ok(actions)
     }
@@ -261,6 +269,7 @@ impl InputEventHandler {
         editor: &mut InputEditor<'_>,
         approval_pending: bool,
         panel: &mut BottomPanelBar,
+        components: &mut ComponentRegistry,
     ) -> Vec<FrontendAction> {
         match event {
             Event::Key(key_event) => {
@@ -272,7 +281,7 @@ impl InputEventHandler {
                 }
                 // An interactive bottom panel (when present) consumes keys it owns
                 // before the composer sees them.
-                if panel.handle_key(ui_key(key_event))
+                if panel.handle_key(components, ui_key(key_event))
                     != crate::presentation::InteractionResult::Ignored
                 {
                     return vec![FrontendAction::RedrawOnly];

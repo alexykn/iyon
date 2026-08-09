@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{
+    component::{Component, ComponentHandle, ComponentRegistry},
     input::InputBuffer,
     physical::PhysicalRow,
     presentation::{
@@ -9,7 +10,7 @@ use crate::{
     runtime::{
         active::{ActiveTurnContent, ToolActiveStatus},
         backend::ToolUpdatePresentation,
-        panel::{BottomPanelBar, PanelHandle, SteeringQueuePanel},
+        panel::{BottomPanelBar, SteeringQueuePanel},
     },
     transcript::{
         AssistantStream, HostedUnitRegistration, SegmentKind, TimelineItem, ToolTimelineStatus,
@@ -91,8 +92,9 @@ pub(crate) struct AppState {
     deferred_conversation: VecDeque<DeferredConversationAction>,
     replaying_deferred: bool,
 
+    pub(crate) components: ComponentRegistry,
     pub(crate) bottom_panel: BottomPanelBar,
-    pub(crate) steering_panel: PanelHandle<SteeringQueuePanel>,
+    pub(crate) steering_panel: ComponentHandle<SteeringQueuePanel>,
 
     pub(crate) input_view: InputViewState,
     pub(crate) info: InfoState,
@@ -102,10 +104,12 @@ pub(crate) struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
+        let mut components = ComponentRegistry::new();
         let mut bottom_panel = BottomPanelBar::new();
-        let steering_panel = bottom_panel.register(SteeringQueuePanel::new());
-        bottom_panel.show(steering_panel);
+        let steering_panel = bottom_panel.register(&mut components, SteeringQueuePanel::new());
+        bottom_panel.show(&mut components, steering_panel);
         Self {
+            components,
             input: InputBuffer::default(),
             transcript: TranscriptState::default(),
             live_tail: LiveTail::Empty,
@@ -454,7 +458,7 @@ impl AppState {
         // (it has now actually been sent to the agent).
         let steering = self.steering_panel;
         let _ = self
-            .bottom_panel
+            .components
             .with_mut(steering, |panel| panel.delivered(&text));
         self.append_timeline_item(TimelineItem::UserMessage { text });
         self.start_working_pane();
@@ -463,7 +467,7 @@ impl AppState {
     pub(crate) fn enqueue_steer(&mut self, text: String) {
         let steering = self.steering_panel;
         let _ = self
-            .bottom_panel
+            .components
             .with_mut(steering, |panel| panel.queued(text));
     }
 
@@ -1194,11 +1198,11 @@ mod tests {
     fn submit_user_message_removes_delivered_steer_from_queue() {
         let mut state = AppState::default();
         state.enqueue_steer("hello".to_string());
-        assert_eq!(state.bottom_panel.desired_height(80), 1);
+        assert_eq!(state.bottom_panel.desired_height(&state.components, 80), 1);
 
         state.submit_user_message("hello".to_string());
 
-        assert_eq!(state.bottom_panel.desired_height(80), 0);
+        assert_eq!(state.bottom_panel.desired_height(&state.components, 80), 0);
         let items = state.transcript.test_items();
         assert_eq!(items.len(), 1);
         assert!(matches!(items[0], TimelineItem::UserMessage { .. }));
