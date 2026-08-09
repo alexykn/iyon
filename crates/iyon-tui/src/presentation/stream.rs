@@ -10,9 +10,13 @@
 use std::{fmt::Debug, time::Instant};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::presentation::api::{
-    ColumnView, HorizontalAlign, IntoView, RowChild, StyleSpec, TextSpan, View, ViewKind,
-    WidthRule, WrapMode,
+use crate::presentation::{
+    api::{
+        IntoView,
+        style::StyleSpec,
+        text::{HorizontalAlign, TextSpan, WrapMode},
+    },
+    ir::{ColumnView, RowChild, View, ViewKind, WidthRule},
 };
 
 /// Opaque monotonic coordinate within a stream's source space.
@@ -391,7 +395,7 @@ impl StreamView {
 
         View {
             width: WidthRule::Fit,
-            decoration: crate::presentation::api::Decoration::default(),
+            decoration: crate::presentation::ir::Decoration::default(),
             kind: ViewKind::Column(ColumnView { children, gap: 0 }),
         }
     }
@@ -1237,7 +1241,7 @@ pub(crate) fn append_only_text_stable_frontier(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::presentation::api::{ColorSpec, StyleSpec, ThemeKey};
+    use crate::presentation::api::style::{ColorSpec, StyleSpec, ThemeKey};
     use crate::presentation::internal::ViewCompiler;
     use ratatui::style::Modifier;
 
@@ -1404,7 +1408,7 @@ mod tests {
             ],
             0,
         );
-        let boxed = View::box_(inner, crate::presentation::api::Decoration::default());
+        let boxed = View::box_(inner, crate::presentation::ir::Decoration::default());
         let view = StreamView::atomic(
             StreamRange::new(StreamOffset::ZERO, StreamOffset::new(10)),
             boxed,
