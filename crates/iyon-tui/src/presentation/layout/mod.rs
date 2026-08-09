@@ -13,7 +13,7 @@ mod tests;
 
 use crate::{
     geometry::{LayoutConstraints, Size},
-    physical::{PhysicalRow, Surface},
+    physical::{PhysicalRow, PhysicalStyle, Surface},
     presentation::View,
 };
 
@@ -40,8 +40,14 @@ pub(crate) struct ViewCompiler {
 }
 
 impl ViewCompiler {
+    pub(crate) fn layout(&self, view: &View, max_width: u16, inherited: PhysicalStyle) -> Surface {
+        let tree = self.layout_tree(view, LayoutConstraints::width_only(max_width));
+        ViewPainter.paint_tree_with_style(self, &tree, inherited)
+    }
+
     pub(crate) fn compile(&self, view: &View, max_width: u16) -> LayoutBlock {
-        let surface = ViewPainter.paint(self, view, max_width);
+        let tree = self.layout_tree(view, LayoutConstraints::width_only(max_width));
+        let surface = ViewPainter.paint_tree(self, &tree);
         let physically_complete = surface.physically_complete;
         LayoutBlock {
             width: surface.width(),

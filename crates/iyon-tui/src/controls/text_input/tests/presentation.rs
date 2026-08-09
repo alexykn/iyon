@@ -1,4 +1,5 @@
 use super::*;
+use crate::geometry::Size;
 use crate::physical::PhysicalStyle;
 use crate::presentation::{IntoView, layout::compile_view};
 use crate::{Component, View};
@@ -84,9 +85,12 @@ fn inside_egc_cursor_matches_legacy_physical_coordinates() {
                     .position(|cell| cell.style.reversed)
                     .map(|column| (column as u16, row as u16))
             });
-        let ranges = crate::input::wrap::compute_wrapped_ranges(text, width);
-        let old_cursor = crate::input::cursor_xy(text, cursor, &ranges, width);
-        assert_eq!(new_cursor, Some(old_cursor), "text={text:?}");
+        let expected = match text {
+            "👩\u{200d}💻" => Some((2, 0)),
+            "🇺🇸" | "e\u{301}" => Some((1, 0)),
+            _ => unreachable!(),
+        };
+        assert_eq!(new_cursor, expected, "text={text:?}");
     }
 }
 
@@ -95,6 +99,47 @@ fn inside_egc_cursor_matches_legacy_physical_coordinates() {
 fn invalid_cursor_anchor_fails_loudly() {
     let view = View::text("é").cursor_at(1).into_view();
     let _ = compile_view(&view, 20);
+}
+
+#[test]
+fn bounded_text_input_uses_width_for_vertical_motion_and_scroll() {
+    let mut input = TextInput::new().multiline(true);
+    input.set_text("abcdefghij");
+    input.set_cursor_for_test(input.text().len());
+    input.layout_size = Some(Size::new(4, 2));
+    input.repair_scroll();
+    assert_eq!(input.scroll_row, 2);
+
+    let view = input.view();
+    let compiled = compile_view(&view, 4);
+    assert_eq!(compiled.rows.len(), 2);
+    assert_eq!(compiled.rows[0].plain_text(), "ghi");
+    assert_eq!(compiled.rows[1].plain_text(), "j");
+
+    input.set_cursor_for_test(9);
+    let ranges = crate::presentation::wrap::input_wrap_ranges("abcdefghij", 4);
+    input.move_up_in_rows_for_test(&ranges);
+    assert_eq!(input.cursor_bytes(), 6);
+}
+
+#[test]
+fn bounded_text_input_recomputes_after_resize_and_zero_size_is_safe() {
+    let mut input = TextInput::new().multiline(true);
+    input.set_text("abcdefgh");
+    input.set_cursor_for_test(input.text().len());
+    input.layout_size = Some(Size::new(4, 2));
+    input.repair_scroll();
+    assert_eq!(input.scroll_row, 1);
+
+    input.layout_size = Some(Size::new(6, 2));
+    input.repair_scroll();
+    assert_eq!(input.scroll_row, 0);
+    let _ = compile_view(&input.view(), 6);
+
+    input.layout_size = Some(Size::new(0, 0));
+    input.repair_scroll();
+    assert_eq!(input.scroll_row, 0);
+    let _ = compile_view(&input.view(), 0);
 }
 
 #[test]

@@ -81,6 +81,40 @@ fn bounded_vertical_tracks_allocate_multiple_flex_children() {
 }
 
 #[test]
+fn unbounded_column_treats_flex_as_intrinsic_after_fixed_tracks() {
+    let view = View::vertical(|column| {
+        column.fixed(3, View::text("header").fill_height());
+        column.child(View::text("content"));
+        column.flex(View::text("body\nline\nthree").fill_height());
+    });
+    let tree = ViewCompiler::default()
+        .layout_tree(&view, crate::geometry::LayoutConstraints::width_only(20));
+    let root = tree.node(tree.root);
+    assert_eq!(root.rect.height, 7);
+    assert_eq!(tree.node(root.children[0]).rect.height, 3);
+    assert_eq!(tree.node(root.children[1]).rect.height, 1);
+    assert_eq!(tree.node(root.children[2]).rect.height, 3);
+}
+
+#[test]
+fn fit_row_respects_fixed_track_and_fill_width_content() {
+    let view = View::row(
+        vec![
+            RowChild::fixed(5, View::text("fixed").fill_width().into_view()),
+            RowChild::content(View::text("x").fill_width().into_view()),
+        ],
+        0,
+    )
+    .fit_width();
+    let tree = ViewCompiler::default()
+        .layout_tree(&view, crate::geometry::LayoutConstraints::width_only(20));
+    let root = tree.node(tree.root);
+    assert_eq!(root.rect.width, 6);
+    assert_eq!(tree.node(root.children[0]).rect.width, 5);
+    assert_eq!(tree.node(root.children[1]).rect.width, 1);
+}
+
+#[test]
 fn bounded_row_vertical_alignment_uses_extra_height() {
     let view = View::horizontal(|row| {
         row.child(View::text("x"));
@@ -92,6 +126,18 @@ fn bounded_row_vertical_alignment_uses_extra_height() {
     assert!(block.rows[0].plain_text().is_empty());
     assert!(block.rows[1].plain_text().is_empty());
     assert_eq!(block.rows[2].plain_text(), "x");
+}
+
+#[test]
+fn clamp_does_not_mask_impossible_wide_grapheme() {
+    let view = View::text("漢")
+        .fill_width()
+        .clamp_rows(1, OverflowIndicator::None);
+    assert!(
+        !ViewCompiler::default()
+            .compile(&view, 1)
+            .physically_complete
+    );
 }
 
 #[test]

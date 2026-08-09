@@ -23,7 +23,7 @@ impl TextInput {
         let start = self.scroll_row.min(ranges.len());
         let end = (start + visible).min(ranges.len());
         let cursor = self.buffer.cursor_bytes();
-        let cursor_row = crate::input::wrapped_line_index_by_start(&ranges, cursor).unwrap_or(0);
+        let cursor_row = super::cursor::wrapped_line_index_by_start(&ranges, cursor).unwrap_or(0);
         View::vertical(|column| {
             for (row_index, range) in ranges[start..end].iter().enumerate() {
                 let row_index = start + row_index;

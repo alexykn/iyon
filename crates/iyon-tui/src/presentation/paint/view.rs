@@ -15,13 +15,17 @@ use crate::presentation::{
 pub(crate) struct ViewPainter;
 
 impl ViewPainter {
-    pub(crate) fn paint(&self, compiler: &ViewCompiler, view: &View, width: u16) -> Surface {
-        compiler.layout(view, width, PhysicalStyle::default())
+    pub(crate) fn paint_tree(&self, compiler: &ViewCompiler, tree: &LayoutTree) -> Surface {
+        self.paint_tree_with_style(compiler, tree, PhysicalStyle::default())
     }
 
-    pub(crate) fn paint_tree(&self, compiler: &ViewCompiler, tree: &LayoutTree) -> Surface {
-        let surface = self.paint_node(compiler, tree, tree.root, PhysicalStyle::default());
-        let mut surface = surface;
+    pub(crate) fn paint_tree_with_style(
+        &self,
+        compiler: &ViewCompiler,
+        tree: &LayoutTree,
+        inherited: PhysicalStyle,
+    ) -> Surface {
+        let mut surface = self.paint_node(compiler, tree, tree.root, inherited);
         surface.physically_complete = tree.physically_complete;
         surface
     }
@@ -41,10 +45,20 @@ impl ViewPainter {
         let mut output = Surface::new(node.rect.width, node.rect.height);
 
         match &view.kind {
-            ViewKind::Text(_) | ViewKind::Spacer { .. } => {
-                let painted = compiler.layout(view, node.rect.width, inherited);
-                output.composite(&painted, 0, 0);
+            ViewKind::Text(text) => {
+                let painted =
+                    compiler.paint_text(text, node.content_rect.width, view.width, resolved);
+                let x = node.content_rect.x.saturating_sub(node.rect.x);
+                let y = node.content_rect.y.saturating_sub(node.rect.y);
+                output.composite(&painted, x, y);
                 output.physically_complete = painted.physically_complete;
+            }
+            ViewKind::Spacer { rows } => {
+                let height = (*rows).min(node.content_rect.height);
+                let painted = Surface::new(node.content_rect.width, height);
+                let x = node.content_rect.x.saturating_sub(node.rect.x);
+                let y = node.content_rect.y.saturating_sub(node.rect.y);
+                output.composite(&painted, x, y);
             }
             ViewKind::Container(ContainerNode { .. })
             | ViewKind::Column(_)
@@ -104,12 +118,17 @@ impl ViewPainter {
         }) else {
             return;
         };
-        let indicator = compiler.layout(
-            &View::styled_text(vec![TextSpan::styled(text, style)])
-                .width(crate::presentation::WidthRule::Fill)
-                .no_wrap()
-                .into_view(),
+        let indicator_view = View::styled_text(vec![TextSpan::styled(text, style)])
+            .width(crate::presentation::WidthRule::Fill)
+            .no_wrap()
+            .into_view();
+        let ViewKind::Text(indicator_text) = &indicator_view.kind else {
+            unreachable!("overflow indicator must be text")
+        };
+        let indicator = compiler.paint_text(
+            indicator_text,
             node.rect.width,
+            crate::presentation::WidthRule::Fill,
             inherited,
         );
         let row = output.height() - 1;

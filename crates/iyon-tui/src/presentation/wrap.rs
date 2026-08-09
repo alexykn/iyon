@@ -8,7 +8,10 @@ use unicode_linebreak::{BreakOpportunity, linebreaks};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::presentation::WrapMode;
+use crate::presentation::{
+    WidthRule, WrapMode,
+    ir::{TextCursorAnchor, TextView},
+};
 
 /// An atomic extended-grapheme cluster with style and optional source range.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -191,6 +194,96 @@ fn tokenize_hard_line<'a>(fragments: Vec<SpanFragment<'a>>) -> Vec<StyledGraphem
     }
 
     line
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StyledTextFlow<'a> {
+    pub(crate) width: u16,
+    pub(crate) rows: Vec<WrappedLine<'a>>,
+    pub(crate) cursor: Option<(usize, usize)>,
+}
+
+pub(crate) fn text_flow<'a>(
+    text: &TextView,
+    hard_lines: Vec<Vec<StyledGrapheme<'a>>>,
+    source: Option<&str>,
+    max_width: u16,
+    inherited_width: WidthRule,
+) -> StyledTextFlow<'a> {
+    let intrinsic_width = hard_lines
+        .iter()
+        .map(|line| line.iter().map(|grapheme| grapheme.width).sum::<usize>())
+        .max()
+        .unwrap_or(0);
+    let cursor_needs_cell = text.cursor.is_some_and(|anchor| {
+        !hard_lines.iter().flatten().any(|grapheme| {
+            grapheme
+                .source
+                .as_ref()
+                .is_some_and(|range| range.start == anchor.byte_offset)
+        })
+    });
+    let intrinsic_width = intrinsic_width + usize::from(cursor_needs_cell);
+    let width = match inherited_width {
+        WidthRule::Fit => intrinsic_width.min(usize::from(max_width)) as u16,
+        WidthRule::Fill => max_width,
+    };
+    let mut rows = if let Some(source) = source.filter(|_| text.cursor.is_some()) {
+        wrap_input_styled_lines(&hard_lines, source, width)
+    } else {
+        wrap_styled_lines(&hard_lines, width, text.wrap)
+    };
+    let cursor = text.cursor.and_then(|anchor| {
+        source.map(|source| {
+            assert!(
+                anchor.byte_offset <= source.len(),
+                "text cursor anchor exceeds source length"
+            );
+            assert!(
+                source.is_char_boundary(anchor.byte_offset),
+                "text cursor anchor is not a UTF-8 boundary"
+            );
+            cursor_position(source, anchor, usize::from(width), &mut rows)
+        })
+    });
+    StyledTextFlow {
+        width,
+        rows,
+        cursor,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TextFlowMetrics {
+    pub(crate) width: u16,
+    pub(crate) row_count: u16,
+    pub(crate) fits: bool,
+}
+
+pub(crate) fn text_flow_metrics(text: &TextView, width: u16) -> TextFlowMetrics {
+    let mut source_offset = 0usize;
+    let hard_lines = styled_hard_lines(text.spans.iter().map(|span| {
+        let base = Some(source_offset);
+        source_offset += span.text.len();
+        (span.text.as_str(), PhysicalStyle::default(), base)
+    }));
+    let source = text
+        .spans
+        .iter()
+        .map(|span| span.text.as_str())
+        .collect::<String>();
+    let flow = text_flow(
+        text,
+        hard_lines,
+        text.cursor.map(|_| source.as_str()),
+        width,
+        WidthRule::Fit,
+    );
+    TextFlowMetrics {
+        width: flow.width,
+        row_count: flow.rows.len().max(1) as u16,
+        fits: flow.rows.iter().all(|row| row.fits),
+    }
 }
 
 /// Generic grapheme-aware line-wrapping kernel.
@@ -413,6 +506,37 @@ pub(crate) fn wrap_input_styled_lines<'a>(
             WrappedLine::new(graphemes, target_width)
         })
         .collect()
+}
+
+fn cursor_position(
+    source: &str,
+    anchor: TextCursorAnchor,
+    max_columns: usize,
+    rows: &mut Vec<WrappedLine<'_>>,
+) -> (usize, usize) {
+    let max_columns = max_columns.max(1);
+    let ranges = input_wrap_ranges(source, max_columns as u16);
+    let mut row = ranges
+        .partition_point(|range| range.start <= anchor.byte_offset)
+        .saturating_sub(1);
+    let line = &ranges[row];
+    let mut column = unicode_width::UnicodeWidthStr::width(&source[line.start..anchor.byte_offset]);
+    if column >= max_columns {
+        row = row.saturating_add(1);
+        column = 0;
+    }
+
+    while rows.len() <= row {
+        rows.push(WrappedLine::new(
+            Vec::new(),
+            max_columns.saturating_sub(1).max(1),
+        ));
+    }
+    if let Some(wrapped) = rows.get_mut(row) {
+        wrapped.width = wrapped.width.max(column.saturating_add(1));
+        wrapped.fits = wrapped.width <= max_columns;
+    }
+    (row, column)
 }
 
 fn input_map_owned_piece(
