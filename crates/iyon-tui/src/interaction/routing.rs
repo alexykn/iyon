@@ -41,6 +41,29 @@ impl KeyRouter {
     }
 }
 
+pub(crate) fn route_paste(
+    text: &str,
+    focus: &FocusState,
+    graph: &MountGraph,
+    capabilities: &MountedCapabilities,
+    registry: &mut ComponentRegistry,
+    queue: &mut OutputQueue,
+) -> InteractionResult {
+    let mut cx = queue.event_cx();
+    for id in routing_chain(focus, graph) {
+        let Some(handler) = capabilities.get(id).and_then(|caps| caps.paste.as_ref()) else {
+            continue;
+        };
+        let result = registry
+            .with_any_mut(id, |component| handler(component, text, &mut cx))
+            .unwrap_or(InteractionResult::Ignored);
+        if matches!(result, InteractionResult::Consumed) {
+            return result;
+        }
+    }
+    InteractionResult::Ignored
+}
+
 pub(crate) fn route_key(
     key: KeyStroke,
     focus: &mut FocusState,
