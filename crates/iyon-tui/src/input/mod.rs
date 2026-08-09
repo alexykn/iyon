@@ -882,4 +882,94 @@ mod tests {
             Some(FrontendAction::RejectPendingTool)
         ));
     }
+
+    #[test]
+    fn generic_text_input_matches_legacy_editor_for_shared_ascii_operations() {
+        use crate::{
+            component::ComponentRegistry,
+            controls::TextInput,
+            interaction::{FocusState, GlobalBindings, Key, KeyStroke, Modifiers, route_key},
+            output::OutputQueue,
+            presentation::View,
+            scene::resolve_scene,
+        };
+
+        let initial = "hello world";
+        let mut legacy = InputBuffer::default();
+        legacy.insert_str(initial);
+        let mut registry = ComponentRegistry::new();
+        let handle = registry.register(TextInput::new().multiline(true));
+        registry.with_mut(handle, |input| input.set_text(initial));
+        let scene = resolve_scene(&View::component(handle), &registry).unwrap();
+        let mut focus = FocusState::default();
+        focus.reconcile(&scene.mounts, &scene.capabilities, &mut registry);
+        let globals = GlobalBindings::default();
+        let mut queue = OutputQueue::new();
+
+        enum Operation {
+            Left,
+            Right,
+            WordLeft,
+            WordRight,
+            Backspace,
+            WordBackspace,
+            Home,
+            End,
+            Insert(char),
+        }
+        let operations = [
+            Operation::Left,
+            Operation::WordLeft,
+            Operation::Insert('!'),
+            Operation::Right,
+            Operation::Backspace,
+            Operation::WordRight,
+            Operation::Home,
+            Operation::End,
+            Operation::WordBackspace,
+        ];
+
+        for operation in operations {
+            let stroke = match operation {
+                Operation::Left => KeyStroke::new(Key::Left),
+                Operation::Right => KeyStroke::new(Key::Right),
+                Operation::WordLeft => KeyStroke::with_modifiers(Key::Left, Modifiers::ALT),
+                Operation::WordRight => KeyStroke::with_modifiers(Key::Right, Modifiers::ALT),
+                Operation::Backspace => KeyStroke::new(Key::Backspace),
+                Operation::WordBackspace => {
+                    KeyStroke::with_modifiers(Key::Backspace, Modifiers::ALT)
+                }
+                Operation::Home => KeyStroke::new(Key::Home),
+                Operation::End => KeyStroke::new(Key::End),
+                Operation::Insert(character) => KeyStroke::new(Key::Char(character)),
+            };
+            match operation {
+                Operation::Left => legacy.move_left(),
+                Operation::Right => legacy.move_right(),
+                Operation::WordLeft => legacy.move_left_word(),
+                Operation::WordRight => legacy.move_right_word(),
+                Operation::Backspace => legacy.delete_char(),
+                Operation::WordBackspace => legacy.delete_word(),
+                Operation::Home => legacy.move_line_start(),
+                Operation::End => legacy.move_line_end(),
+                Operation::Insert(character) => legacy.insert_char(character),
+            }
+            route_key(
+                stroke,
+                &mut focus,
+                &scene.mounts,
+                &scene.capabilities,
+                &mut registry,
+                &mut queue,
+                &globals,
+            );
+            let (text, cursor) = registry
+                .with(handle, |input| {
+                    (input.text().to_owned(), input.cursor_bytes())
+                })
+                .unwrap();
+            assert_eq!(text, legacy.text());
+            assert_eq!(cursor, legacy.cursor_bytes());
+        }
+    }
 }

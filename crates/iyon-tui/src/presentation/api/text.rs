@@ -62,6 +62,7 @@ impl Text {
             spans: spans.into_iter().collect(),
             wrap: WrapMode::WordThenGrapheme,
             align: HorizontalAlign::Start,
+            cursor: None,
         })
     }
 
@@ -96,6 +97,11 @@ impl Text {
 
     pub fn wrap(mut self, wrap: WrapMode) -> Self {
         self.text_mut().wrap = wrap;
+        self
+    }
+
+    pub(crate) fn cursor_at(mut self, byte_offset: usize) -> Self {
+        self.text_mut().cursor = Some(crate::presentation::ir::TextCursorAnchor { byte_offset });
         self
     }
 

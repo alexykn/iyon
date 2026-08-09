@@ -13,7 +13,7 @@ pub(crate) use focus::FocusState;
 pub(crate) use global::GlobalBindings;
 pub use key::{Key, KeyStroke, MediaKey, ModifierKey, Modifiers};
 pub use result::InteractionResult;
-pub(crate) use routing::{KeyRouter, route_key};
+pub(crate) use routing::{KeyRouter, route_key, route_paste};
 
 #[cfg(test)]
 mod tests;

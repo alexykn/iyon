@@ -34,6 +34,7 @@
 
 mod app;
 mod component;
+mod controls;
 mod geometry;
 mod input;
 mod interaction;
@@ -50,6 +51,7 @@ mod transcript;
 mod view;
 
 pub use component::{Component, ComponentCx, ComponentHandle};
+pub use controls::{TextChange, TextInput};
 pub use interaction::{InteractionResult, Key, KeyStroke, MediaKey, ModifierKey, Modifiers};
 pub use output::{EventCx, Output, OutputRouter, RouteConflict};
 pub use presentation::api::{

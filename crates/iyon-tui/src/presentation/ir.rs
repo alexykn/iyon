@@ -75,6 +75,14 @@ pub(crate) struct TextView {
     pub(crate) spans: Vec<TextSpan>,
     pub(crate) wrap: WrapMode,
     pub(crate) align: HorizontalAlign,
+    pub(crate) cursor: Option<TextCursorAnchor>,
+}
+
+/// Private semantic caret metadata. It describes a source boundary only;
+/// layout resolves it to a physical cell without exposing geometry upstream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TextCursorAnchor {
+    pub(crate) byte_offset: usize,
 }
 
 impl TextView {
@@ -83,6 +91,7 @@ impl TextView {
             spans: vec![TextSpan::plain(text)],
             wrap: WrapMode::WordThenGrapheme,
             align: HorizontalAlign::Start,
+            cursor: None,
         }
     }
 }

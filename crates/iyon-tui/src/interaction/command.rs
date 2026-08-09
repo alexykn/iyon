@@ -14,6 +14,11 @@ type MapCommand = dyn Fn(&dyn Any, KeyStroke) -> Option<Box<dyn Any>>;
 type HandleCommand =
     dyn for<'a> Fn(&mut dyn Any, Box<dyn Any>, &mut EventCx<'a>) -> InteractionResult;
 type FocusChanged = dyn Fn(&mut dyn Any, bool);
+type PasteHandler = dyn for<'paste, 'event> Fn(
+    &mut dyn Any,
+    &'paste str,
+    &mut EventCx<'event>,
+) -> InteractionResult;
 type TickHandler = dyn for<'a> Fn(&mut dyn Any, Instant, &mut EventCx<'a>) -> bool;
 
 #[derive(Clone)]
@@ -33,6 +38,7 @@ pub(crate) struct ComponentCapabilities {
     pub(crate) focusable: bool,
     pub(crate) modal_scope: bool,
     pub(crate) focus_changed: Option<Arc<FocusChanged>>,
+    pub(crate) paste: Option<Arc<PasteHandler>>,
     pub(crate) key_commands: Vec<KeyCommandCapability>,
     pub(crate) tick: Option<TickCapability>,
 }
@@ -44,6 +50,7 @@ impl std::fmt::Debug for ComponentCapabilities {
             .field("focusable", &self.focusable)
             .field("modal_scope", &self.modal_scope)
             .field("key_commands", &self.key_commands.len())
+            .field("paste", &self.paste.is_some())
             .field("tick", &self.tick.is_some())
             .finish()
     }
@@ -83,6 +90,25 @@ impl<'a, C> ComponentCx<'a, C> {
                 .downcast_mut::<C>()
                 .expect("component focus handler type mismatch");
             handler(component, focused);
+        }));
+    }
+
+    /// Registers a borrowed paste handler for this component.
+    pub fn on_paste(
+        &mut self,
+        handler: for<'paste, 'event> fn(
+            &mut C,
+            &'paste str,
+            &mut EventCx<'event>,
+        ) -> InteractionResult,
+    ) where
+        C: 'static,
+    {
+        self.capabilities.paste = Some(Arc::new(move |component, text, cx| {
+            let component = component
+                .downcast_mut::<C>()
+                .expect("component paste handler type mismatch");
+            handler(component, text, cx)
         }));
     }
 

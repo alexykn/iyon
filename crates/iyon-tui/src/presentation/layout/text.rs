@@ -9,9 +9,9 @@ use crate::{
     physical::{PhysicalCell, PhysicalRow, PhysicalStyle},
     presentation::{
         StreamRange, WidthRule,
-        ir::TextView,
+        ir::{TextCursorAnchor, TextView},
         stream::{ProjectedText, ProjectedTextLayout},
-        wrap::{StyledGrapheme, styled_hard_lines, wrap_styled_lines},
+        wrap::{StyledGrapheme, WrappedLine, styled_hard_lines, wrap_styled_lines},
     },
 };
 
@@ -142,11 +142,40 @@ impl ViewCompiler {
             .map(|line| line.iter().map(|grapheme| grapheme.width).sum::<usize>())
             .max()
             .unwrap_or(0);
+        let source = text.cursor.map(|anchor| {
+            let source = text
+                .spans
+                .iter()
+                .map(|span| span.text.as_str())
+                .collect::<String>();
+            validate_cursor_anchor(&source, anchor);
+            source
+        });
+        let cursor_needs_cell = text.cursor.is_some_and(|anchor| {
+            !hard_lines.iter().flatten().any(|grapheme| {
+                grapheme.source.as_ref().is_some_and(|range| {
+                    range.start <= anchor.byte_offset && anchor.byte_offset < range.end
+                })
+            })
+        });
+        let intrinsic_width = intrinsic_width + usize::from(cursor_needs_cell);
         let width = match width_rule {
             WidthRule::Fit => intrinsic_width.min(usize::from(max_width)) as u16,
             WidthRule::Fill => max_width,
         };
-        let rows = wrap_styled_lines(&hard_lines, width, text.wrap)
+        // A focused input keeps the established editor contract: one cell is
+        // available for its block caret. This is a semantic cursor policy,
+        // not a backend or geometry callback.
+        let wrap_width = if text.cursor.is_some() {
+            width.saturating_sub(1).max(1)
+        } else {
+            width
+        };
+        let mut wrapped = wrap_styled_lines(&hard_lines, wrap_width, text.wrap);
+        if let (Some(anchor), Some(source)) = (text.cursor, source.as_deref()) {
+            apply_cursor_anchor(&mut wrapped, source, anchor, inherited, usize::from(width));
+        }
+        let rows = wrapped
             .into_iter()
             .map(|w_line| CompiledTextRow {
                 row: row_from_graphemes(&w_line.graphemes),
@@ -160,6 +189,88 @@ impl ViewCompiler {
             })
             .collect();
         (width, rows)
+    }
+}
+
+fn validate_cursor_anchor(text: &str, anchor: TextCursorAnchor) {
+    assert!(
+        anchor.byte_offset <= text.len(),
+        "text cursor anchor exceeds source length"
+    );
+    assert!(
+        text.is_char_boundary(anchor.byte_offset),
+        "text cursor anchor is not a UTF-8 boundary"
+    );
+    assert!(
+        text.grapheme_indices(true)
+            .map(|(start, _)| start)
+            .chain(std::iter::once(text.len()))
+            .any(|start| start == anchor.byte_offset),
+        "text cursor anchor is not an extended-grapheme boundary"
+    );
+}
+
+fn apply_cursor_anchor(
+    rows: &mut Vec<WrappedLine<'_>>,
+    source: &str,
+    anchor: TextCursorAnchor,
+    inherited: PhysicalStyle,
+    target_width: usize,
+) {
+    for row in rows.iter_mut() {
+        if let Some(grapheme) = row.graphemes.iter_mut().find(|grapheme| {
+            grapheme.source.as_ref().is_some_and(|range| {
+                range.start <= anchor.byte_offset && anchor.byte_offset < range.end
+            })
+        }) {
+            grapheme.style.reversed = true;
+            return;
+        }
+    }
+
+    let target = if anchor.byte_offset > 0 && source[..anchor.byte_offset].ends_with('\n') {
+        rows.iter()
+            .position(|row| {
+                row.graphemes.iter().any(|grapheme| {
+                    grapheme
+                        .source
+                        .as_ref()
+                        .is_some_and(|range| range.start >= anchor.byte_offset)
+                })
+            })
+            .unwrap_or_else(|| rows.len().saturating_sub(1))
+    } else {
+        rows.iter()
+            .rposition(|row| {
+                row.graphemes.iter().any(|grapheme| {
+                    grapheme
+                        .source
+                        .as_ref()
+                        .is_some_and(|range| range.end <= anchor.byte_offset)
+                })
+            })
+            .unwrap_or(0)
+    };
+    let row = rows.get_mut(target).expect("text cursor requires a row");
+    let style = row
+        .graphemes
+        .last()
+        .map_or(inherited, |grapheme| grapheme.style);
+    let cursor = StyledGrapheme {
+        text: Cow::Owned(" ".to_string()),
+        width: 1,
+        style: PhysicalStyle {
+            reversed: true,
+            ..style
+        },
+        source: None,
+    };
+    if row.width.saturating_add(1) > target_width && row.width > 0 {
+        rows.push(WrappedLine::new(vec![cursor], target_width));
+    } else {
+        row.graphemes.push(cursor);
+        row.width = row.width.saturating_add(1);
+        row.fits = row.width <= target_width;
     }
 }
 

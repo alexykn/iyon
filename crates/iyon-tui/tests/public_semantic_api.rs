@@ -1,7 +1,8 @@
 use iyon_tui::{
     BorderSpec, ColorSpec, Component, ComponentCx, ComponentHandle, EventCx, Horizontal,
     HorizontalAlign, InteractionResult, IntoView, Key, KeyStroke, Modifiers, Output, OutputRouter,
-    StyleSpec, TextAttribute, TextSpan, Vertical, VerticalAlign, View, WrapMode,
+    StyleSpec, TextAttribute, TextChange, TextInput, TextSpan, Vertical, VerticalAlign, View,
+    WrapMode,
 };
 
 struct Status(String);
@@ -148,4 +149,17 @@ fn public_component_and_output_contract_is_backend_free() {
 
     let _: Option<ComponentHandle<Counter>> = None;
     let _ = component_view::<Counter>;
+}
+
+#[test]
+fn public_text_input_contract_is_backend_free() {
+    fn assert_component<C: Component>() {}
+    assert_component::<TextInput>();
+
+    let mut input = TextInput::new().multiline(true);
+    let submitted: Output<String> = input.submitted();
+    let changed: Output<usize> =
+        input.output_on_change(|change: TextChange<'_>| change.text().len());
+    let _: fn(ComponentHandle<TextInput>) -> View = component_view::<TextInput>;
+    let _: (Output<String>, Output<usize>) = (submitted, changed);
 }
