@@ -253,7 +253,7 @@ mod tests {
         assert_eq!(panel.size_policy(), DockSizePolicy::HiddenWhenEmpty);
         assert!(matches!(
             panel.view().kind,
-            crate::presentation::api::ViewKind::Spacer { rows: 0 }
+            crate::presentation::ir::ViewKind::Spacer { rows: 0 }
         ));
     }
 
@@ -270,7 +270,7 @@ mod tests {
         panel.delivered("second");
         assert!(matches!(
             panel.view().kind,
-            crate::presentation::api::ViewKind::Spacer { rows: 0 }
+            crate::presentation::ir::ViewKind::Spacer { rows: 0 }
         ));
     }
 

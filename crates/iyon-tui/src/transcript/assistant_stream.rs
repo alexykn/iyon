@@ -5,11 +5,10 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::presentation::api::HorizontalAlign;
 use crate::presentation::{
-    ExactTerminator, ProjectedText, ProjectedTextLayout, ProjectedTextRun, StreamNode,
-    StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamView, StreamingContent,
-    WidthRule, WrapMode,
+    ExactTerminator, HorizontalAlign, ProjectedText, ProjectedTextLayout, ProjectedTextRun,
+    StreamNode, StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamView,
+    StreamingContent, WidthRule, WrapMode,
 };
 use crate::transcript::markdown::{
     AssistantContinuation, AssistantDocument, AssistantRowLayout, parse_assistant,

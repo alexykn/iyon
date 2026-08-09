@@ -14,11 +14,17 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    presentation::api::{
-        BorderStyle, ColorSpec, ColumnView, ContainerNode, HorizontalAlign, IntoView, RowView,
-        StyleSpec, TextSpan, TextView, TrackSize, VerticalAlign, View, ViewKind, WidthRule,
-    },
     presentation::stream::{ProjectedText, StreamRange},
+    presentation::{
+        api::{
+            IntoView,
+            style::{
+                BorderSpec, BorderStyle, ColorSpec, OverflowIndicator, StyleSpec, VerticalAlign,
+            },
+            text::{HorizontalAlign, TextSpan},
+        },
+        ir::{ColumnView, ContainerNode, RowView, TextView, TrackSize, View, ViewKind, WidthRule},
+    },
     theme,
 };
 
@@ -540,7 +546,7 @@ impl ViewCompiler {
 
     fn layout_clamp(
         &self,
-        clamp: &crate::presentation::api::ClampRowsView,
+        clamp: &crate::presentation::ir::ClampRowsView,
         max_width: u16,
         inherited: ResolvedTextStyle,
     ) -> Surface {
@@ -560,13 +566,9 @@ impl ViewCompiler {
             }
         }
         let indicator = match &clamp.overflow {
-            crate::presentation::api::OverflowIndicator::None => None,
-            crate::presentation::api::OverflowIndicator::Ellipsis { style } => {
-                Some(("…".to_string(), style.clone()))
-            }
-            crate::presentation::api::OverflowIndicator::Footer { prefix, style } => {
-                Some((prefix.clone(), style.clone()))
-            }
+            OverflowIndicator::None => None,
+            OverflowIndicator::Ellipsis { style } => Some(("…".to_string(), style.clone())),
+            OverflowIndicator::Footer { prefix, style } => Some((prefix.clone(), style.clone())),
         };
         if let Some((text, style)) = indicator {
             let indicator_view = View::styled_text(vec![TextSpan::styled(text, style)])
@@ -652,7 +654,7 @@ use crate::presentation::wrap::{StyledGrapheme, styled_hard_lines, wrap_styled_l
 
 fn paint_border(
     surface: &mut Surface,
-    border: &crate::presentation::api::BorderSpec,
+    border: &BorderSpec,
     theme: &ThemeResolver,
     inherited: ResolvedTextStyle,
 ) {
@@ -724,11 +726,7 @@ fn paint_border(
     }
 }
 
-fn border_style(
-    border: &crate::presentation::api::BorderSpec,
-    theme: &ThemeResolver,
-    inherited: ResolvedTextStyle,
-) -> Style {
+fn border_style(border: &BorderSpec, theme: &ThemeResolver, inherited: ResolvedTextStyle) -> Style {
     let mut style = border
         .color
         .as_ref()
@@ -1038,7 +1036,9 @@ fn append_projected_exact(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::presentation::api::{BorderSpec, BorderStyle, OverflowIndicator, TextAttribute};
+    use crate::presentation::api::style::{
+        BorderSpec, BorderStyle, OverflowIndicator, TextAttribute,
+    };
     use crate::presentation::stream::StreamRowCommit;
     use crate::presentation::{
         ColorSpec, Decoration, ExactTerminator, Insets, ProjectedTextLayout, ProjectedTextRun,
@@ -1635,7 +1635,7 @@ mod tests {
         let view = View::clamp_rows(
             View::text("one two three four").into_view(),
             2,
-            crate::presentation::api::OverflowIndicator::Ellipsis {
+            crate::presentation::api::style::OverflowIndicator::Ellipsis {
                 style: StyleSpec::default(),
             },
         );

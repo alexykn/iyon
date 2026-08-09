@@ -94,8 +94,8 @@ pub(super) fn column(children: Vec<View>) -> View {
 }
 
 #[allow(dead_code)]
-pub(super) fn dim_attributes() -> crate::presentation::api::TextAttributeSpec {
-    crate::presentation::api::TextAttributeSpec {
+pub(super) fn dim_attributes() -> crate::presentation::TextAttributeSpec {
+    crate::presentation::TextAttributeSpec {
         dim: Some(true),
         ..Default::default()
     }

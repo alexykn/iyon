@@ -1,21 +1,31 @@
-//! Presentation boundaries for semantic feature views and renderer internals.
+//! Presentation boundaries for semantic construction, retained IR, and lowering.
 //!
-//! The `api` module is deliberately independent of Ratatui and Iyon domain
-//! concepts. `internal` is the adapter that lowers those descriptions into the
-//! existing transcript row and terminal machinery.
+//! `api` is the curated semantic construction facade. `ir` is the private
+//! retained semantic tree. `internal` lowers that tree into physical layout,
+//! while `stream` owns source-provenance streaming lifecycle and `wrap` owns
+//! Unicode/layout text wrapping.
 
 pub(crate) mod api;
+pub(crate) mod host;
 pub(super) mod internal;
+pub(crate) mod ir;
 pub(crate) mod stream;
 pub(crate) mod wrap;
 
-pub(crate) use api::{
-    ActiveContent, ColorSpec, Decoration, DockPanel, DockSizePolicy, FlowBoundary, Insets,
-    InteractionResult, RowChild, StyleSpec, TextAttributeSpec, TextSpan, ThemeKey, UiKey, View,
-    WidthRule, WrapMode,
-};
 #[allow(unused_imports)]
-pub(crate) use api::{HorizontalAlign, IntoView, Text, TextAttribute};
+pub(crate) use api::{
+    BorderSpec, BorderStyle, ColorSpec, HorizontalAlign, Insets, IntoView, OverflowIndicator,
+    StyleSpec, Text, TextAttribute, TextAttributeSpec, TextSpan, ThemeKey, VerticalAlign, View,
+    WrapMode,
+};
+
+pub(crate) use host::{
+    ActiveContent, DockPanel, DockSizePolicy, FlowBoundary, InteractionResult, UiKey,
+};
+
+// Migration-only crate-internal structural vocabulary. Feature code will stop
+// depending on these once the semantic construction API migration is complete.
+pub(crate) use ir::{Decoration, RowChild, WidthRule};
 pub(crate) use stream::{
     ExactTerminator, HostedStream, LeadingBoundaryState, PreparedStreamFrame, ProjectedText,
     ProjectedTextLayout, ProjectedTextRun, ResidentStreamHandoff, StreamNode, StreamOffset,
