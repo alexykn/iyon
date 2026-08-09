@@ -82,6 +82,9 @@ impl ViewCompiler {
             // The enclosing View shell applies Fill allocation uniformly.
             ViewKind::Spacer { rows } => Surface::new(0, *rows),
             ViewKind::ClampRows(clamp) => self.layout_clamp(clamp, max_width, inherited),
+            ViewKind::ComponentSlot(_) => {
+                unreachable!("component slot reached presentation layout without scene resolution")
+            }
         }
     }
 

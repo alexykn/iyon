@@ -39,6 +39,7 @@ mod input;
 mod physical;
 mod presentation;
 mod runtime;
+mod scene;
 mod scrollback;
 mod terminal;
 mod theme;

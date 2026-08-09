@@ -61,6 +61,36 @@ fn typed_handles_resolve_only_their_own_state() {
 }
 
 #[test]
+fn handles_from_another_registry_never_alias() {
+    let mut first = ComponentRegistry::new();
+    let handle = first.register(Counter { value: 1 });
+    let second = ComponentRegistry::new();
+
+    assert!(!second.contains(handle));
+    assert_eq!(second.with(handle, |_| ()), None);
+    assert_eq!(second.render(handle), None);
+}
+
+#[test]
+fn revisions_only_change_after_successful_mutable_access() {
+    let mut registry = ComponentRegistry::new();
+    let counter = registry.register(Counter { value: 1 });
+    let wrong_type = ComponentHandle::<SameVisual>::from_id(counter.id());
+
+    assert_eq!(registry.revision(counter).unwrap().value(), 0);
+    registry.with(counter, |_| ());
+    assert_eq!(registry.revision(counter).unwrap().value(), 0);
+    registry.render(counter);
+    assert_eq!(registry.revision(counter).unwrap().value(), 0);
+    registry.with_mut(wrong_type, |_| ());
+    assert_eq!(registry.revision(counter).unwrap().value(), 0);
+    registry.with_mut(counter, |value| value.value += 1);
+    assert_eq!(registry.revision(counter).unwrap().value(), 1);
+    registry.with_mut(counter, |_| {});
+    assert_eq!(registry.revision(counter).unwrap().value(), 2);
+}
+
+#[test]
 fn with_mut_changes_the_next_render_snapshot() {
     let mut registry = ComponentRegistry::new();
     let counter = registry.register(Counter { value: 1 });

@@ -1,10 +1,27 @@
-use std::{fmt, hash::Hash, marker::PhantomData, num::NonZeroU64};
+use std::{
+    fmt,
+    hash::Hash,
+    marker::PhantomData,
+    num::NonZeroU64,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+static NEXT_COMPONENT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Opaque identity for a retained component registration.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct ComponentId(NonZeroU64);
 
 impl ComponentId {
+    pub(crate) fn allocate() -> Self {
+        let value = NEXT_COMPONENT_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                current.checked_add(1)
+            })
+            .unwrap_or_else(|_| panic!("component id exhausted"));
+        Self(NonZeroU64::new(value).expect("component id must be nonzero"))
+    }
+
     pub(crate) const fn value(self) -> u64 {
         self.0.get()
     }

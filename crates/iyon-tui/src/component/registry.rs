@@ -1,6 +1,6 @@
-use std::{any::Any, collections::HashMap, num::NonZeroU64};
+use std::{any::Any, collections::HashMap};
 
-use super::{Component, ComponentHandle, ComponentId};
+use super::{Component, ComponentHandle, ComponentId, ComponentRevision};
 use crate::presentation::View;
 
 trait ErasedComponent: std::fmt::Debug {
@@ -31,11 +31,16 @@ where
     }
 }
 
+#[derive(Debug)]
+struct ComponentEntry {
+    component: Box<dyn ErasedComponent>,
+    revision: ComponentRevision,
+}
+
 /// The sole owner of retained component instances.
 #[derive(Debug)]
 pub(crate) struct ComponentRegistry {
-    slots: HashMap<ComponentId, Box<dyn ErasedComponent>>,
-    next_id: Option<NonZeroU64>,
+    slots: HashMap<ComponentId, ComponentEntry>,
 }
 
 impl Default for ComponentRegistry {
@@ -48,7 +53,6 @@ impl ComponentRegistry {
     pub(crate) fn new() -> Self {
         Self {
             slots: HashMap::new(),
-            next_id: NonZeroU64::new(1),
         }
     }
 
@@ -56,12 +60,14 @@ impl ComponentRegistry {
     where
         C: Component,
     {
-        let value = self.next_id.take().expect("component id exhausted");
-        // The maximum nonzero ID was just allocated. The next registration
-        // must fail explicitly rather than reusing or aliasing it.
-        self.next_id = value.get().checked_add(1).and_then(NonZeroU64::new);
-        let id = ComponentId::from_nonzero(value);
-        self.slots.insert(id, Box::new(component));
+        let id = ComponentId::allocate();
+        self.slots.insert(
+            id,
+            ComponentEntry {
+                component: Box::new(component),
+                revision: ComponentRevision::default(),
+            },
+        );
         ComponentHandle::new(id)
     }
 
@@ -71,7 +77,7 @@ impl ComponentRegistry {
     {
         self.slots
             .get(&handle.id())
-            .is_some_and(|component| component.as_any().is::<C>())
+            .is_some_and(|entry| entry.component.as_any().is::<C>())
     }
 
     pub(crate) fn with<C, R>(
@@ -82,8 +88,8 @@ impl ComponentRegistry {
     where
         C: Component,
     {
-        let component = self.slots.get(&handle.id())?;
-        let component = component.as_any().downcast_ref::<C>()?;
+        let entry = self.slots.get(&handle.id())?;
+        let component = entry.component.as_any().downcast_ref::<C>()?;
         Some(f(component))
     }
 
@@ -95,42 +101,60 @@ impl ComponentRegistry {
     where
         C: Component,
     {
-        let component = self.slots.get_mut(&handle.id())?;
-        let component = component.as_any_mut().downcast_mut::<C>()?;
-        Some(f(component))
+        let entry = self.slots.get_mut(&handle.id())?;
+        let component = entry.component.as_any_mut().downcast_mut::<C>()?;
+        let result = f(component);
+        entry.revision = entry.revision.increment();
+        Some(result)
     }
 
     pub(crate) fn render<C>(&self, handle: ComponentHandle<C>) -> Option<View>
     where
         C: Component,
     {
-        let component = self.slots.get(&handle.id())?;
-        if !component.as_any().is::<C>() {
+        let entry = self.slots.get(&handle.id())?;
+        if !entry.component.as_any().is::<C>() {
             return None;
         }
-        Some(component.view().attach_component(handle.id()))
+        Some(entry.component.view().attach_component(handle.id()))
     }
 
     pub(crate) fn remove<C>(&mut self, handle: ComponentHandle<C>) -> Option<C>
     where
         C: Component,
     {
-        let component = self.slots.get(&handle.id())?;
-        if !component.as_any().is::<C>() {
+        let entry = self.slots.get(&handle.id())?;
+        if !entry.component.as_any().is::<C>() {
             return None;
         }
         self.slots
             .remove(&handle.id())?
+            .component
             .into_any()
             .downcast::<C>()
             .ok()
             .map(|component| *component)
     }
 
+    pub(crate) fn revision<C>(&self, handle: ComponentHandle<C>) -> Option<ComponentRevision>
+    where
+        C: Component,
+    {
+        let entry = self.slots.get(&handle.id())?;
+        entry.component.as_any().is::<C>().then_some(entry.revision)
+    }
+
+    /// Resolver-only snapshot access. Unlike `render`, this returns the raw
+    /// semantic component view without attaching ownership metadata.
+    pub(crate) fn view_for_resolution(&self, id: ComponentId) -> Option<(View, ComponentRevision)> {
+        let entry = self.slots.get(&id)?;
+        Some((entry.component.view(), entry.revision))
+    }
+
     /// Internal host operation for resolving a registered identity without
     /// exposing erased objects or raw mutable state.
     pub(crate) fn render_registered(&self, id: ComponentId) -> Option<View> {
-        let component = self.slots.get(&id)?;
-        Some(component.view().attach_component(id))
+        let (view, _) = self.view_for_resolution(id)?;
+        Some(view.attach_component(id))
     }
 }
