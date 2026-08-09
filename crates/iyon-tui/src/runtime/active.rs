@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
-use crate::presentation::{ActiveContent, IntoView, View};
+use crate::presentation::ActiveContent;
+use crate::{IntoView, View};
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -58,12 +59,12 @@ impl ActiveContent for ActiveTurnContent {
                     ToolActiveStatus::WaitingForApproval { .. } => "approval required",
                     ToolActiveStatus::Running => "running",
                 };
-                let mut children =
-                    vec![View::text(format!("tool {tool_name}: {status}")).into_view()];
-                if let Some(detail) = detail {
-                    children.push(View::text(detail).into_view());
-                }
-                View::column(children, 0)
+                View::vertical(|column| {
+                    column.child(format!("tool {tool_name}: {status}"));
+                    if let Some(detail) = detail {
+                        column.child(detail);
+                    }
+                })
             }
         }
     }
@@ -134,4 +135,33 @@ impl ActiveTicker {
 
 fn is_spinner_animating(active: Option<&ActiveTurnContent>) -> bool {
     active.is_some_and(ActiveTurnContent::is_working_spinner)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spinner_view_tracks_initial_and_progressed_frames() {
+        let mut active = ActiveTurnContent::working_spinner();
+        assert_eq!(active.view(), View::text("⠋ Working").into_view());
+
+        active.tick();
+        assert_eq!(active.view(), View::text("⠙ Working").into_view());
+    }
+
+    #[test]
+    fn tool_view_preserves_status_and_optional_detail_order() {
+        let active = ActiveTurnContent::Tool {
+            tool_name: "read".to_string(),
+            status: ToolActiveStatus::Running,
+            detail: Some("src/main.rs".to_string()),
+        };
+
+        let expected = View::vertical(|column| {
+            column.child("tool read: running");
+            column.child("src/main.rs");
+        });
+        assert_eq!(active.view(), expected);
+    }
 }

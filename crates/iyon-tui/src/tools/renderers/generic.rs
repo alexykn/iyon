@@ -1,4 +1,4 @@
-use crate::presentation::View;
+use crate::View;
 use crate::tools::{
     registry::ToolRenderer,
     renderers::{column, result_lines, result_style, tool_call, tool_result_line, tool_style},

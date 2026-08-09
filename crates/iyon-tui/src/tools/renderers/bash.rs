@@ -1,9 +1,9 @@
-use crate::presentation::{ColorSpec, StyleSpec, View};
 use crate::tools::{
     registry::ToolRenderer,
     renderers::{column, result_lines, result_style, tool_call, tool_result_line, tool_style},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use crate::{ColorSpec, StyleSpec, View};
 
 #[derive(Debug)]
 pub(crate) struct BashRenderer;
@@ -39,10 +39,7 @@ impl ToolRenderer for BashRenderer {
             .get("fullOutputPath")
             .and_then(serde_json::Value::as_str)
         {
-            let style = StyleSpec {
-                foreground: Some(ColorSpec::Theme("text.warning".into())),
-                ..StyleSpec::default()
-            };
+            let style = StyleSpec::new().foreground(ColorSpec::theme("text.warning"));
             children.push(tool_result_line(format!("[Full output: {path}]"), style));
         }
         column(children)

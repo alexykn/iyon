@@ -1,14 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{
-    presentation::View,
-    tools::{
-        renderers::{
-            BashRenderer, EditRenderer, FindRenderer, GenericRenderer, GrepRenderer, LsRenderer,
-            ReadRenderer, WriteRenderer,
-        },
-        types::{ToolCallRenderInput, ToolResultRenderInput},
+use crate::View;
+use crate::tools::{
+    renderers::{
+        BashRenderer, EditRenderer, FindRenderer, GenericRenderer, GrepRenderer, LsRenderer,
+        ReadRenderer, WriteRenderer,
     },
+    types::{ToolCallRenderInput, ToolResultRenderInput},
 };
 
 /// FEATURE EXTENSION API.
