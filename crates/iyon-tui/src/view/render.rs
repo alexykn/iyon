@@ -108,9 +108,9 @@ impl Renderer {
         self.render(&spacer_view, frame, view.layout.spacer_area);
         self.render(&view.conversation, frame, view.layout.conversation_area);
         self.render(&SpacerView, frame, view.layout.conversation_gap_area);
-        if let Some(panel_view) = view.panel.view() {
+        if let Some(panel_view) = &view.panel {
             crate::terminal::ratatui::render_view(
-                &panel_view,
+                panel_view,
                 frame.buffer_mut(),
                 view.layout.panel_area,
             );

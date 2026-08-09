@@ -1,46 +1,10 @@
 //! Stateful docked presentation outside durable conversation history.
 //!
-//! FEATURE EXTENSION API.
-//!
-//! Panels own feature state and describe their appearance with generic semantic
-//! views. The dock host owns registration, visibility, focus, and physical
-//! sizing; it does not know what a panel's content means.
+//! The bar owns dock placement and capability dispatch. Component instances
+//! themselves live in the shared [`ComponentRegistry`].
 
-use std::{any::Any, marker::PhantomData};
-
+use crate::component::{Component, ComponentHandle, ComponentId, ComponentRegistry};
 use crate::presentation::{DockPanel, DockSizePolicy, InteractionResult, IntoView, UiKey, View};
-
-/// FEATURE EXTENSION API. Opaque registration handle for a dock panel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PanelId(u64);
-
-/// FEATURE EXTENSION API. Typed registration handle for owning-feature access.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct PanelHandle<P> {
-    id: PanelId,
-    marker: PhantomData<fn() -> P>,
-}
-
-impl<P> Copy for PanelHandle<P> {}
-
-impl<P> Clone for PanelHandle<P> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<P> PanelHandle<P> {
-    pub(crate) fn id(self) -> PanelId {
-        self.id
-    }
-
-    fn new(id: PanelId) -> Self {
-        Self {
-            id,
-            marker: PhantomData,
-        }
-    }
-}
 
 const MAX_PENDING_ROWS: usize = 4;
 
@@ -68,7 +32,7 @@ impl SteeringQueuePanel {
     }
 }
 
-impl DockPanel for SteeringQueuePanel {
+impl Component for SteeringQueuePanel {
     fn view(&self) -> View {
         if self.pending.is_empty() {
             return View::spacer(0);
@@ -80,7 +44,7 @@ impl DockPanel for SteeringQueuePanel {
             .take(MAX_PENDING_ROWS)
             .map(|text| {
                 View::text(format!("Steering: {text}"))
-                    .width(crate::presentation::WidthRule::Fill)
+                    .fill_width()
                     .into_view()
             })
             .collect::<Vec<_>>();
@@ -88,13 +52,15 @@ impl DockPanel for SteeringQueuePanel {
         if overflow > 0 {
             children.push(
                 View::text(format!("↑ {overflow} more queued"))
-                    .width(crate::presentation::WidthRule::Fill)
+                    .fill_width()
                     .into_view(),
             );
         }
-        View::column(children, 0).width(crate::presentation::WidthRule::Fill)
+        View::column(children, 0).fill_width()
     }
+}
 
+impl DockPanel for SteeringQueuePanel {
     fn size_policy(&self) -> DockSizePolicy {
         DockSizePolicy::HiddenWhenEmpty
     }
@@ -104,148 +70,232 @@ impl DockPanel for SteeringQueuePanel {
     }
 }
 
+#[derive(Clone, Copy)]
+struct PanelOps {
+    size_policy: fn(&ComponentRegistry, ComponentId) -> Option<DockSizePolicy>,
+    handle_key: fn(&mut ComponentRegistry, ComponentId, UiKey) -> InteractionResult,
+    focus: fn(&mut ComponentRegistry, ComponentId),
+    blur: fn(&mut ComponentRegistry, ComponentId),
+}
+
+impl std::fmt::Debug for PanelOps {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("PanelOps(..)")
+    }
+}
+
+impl PanelOps {
+    fn for_type<P>() -> Self
+    where
+        P: DockPanel,
+    {
+        Self {
+            size_policy: size_policy::<P>,
+            handle_key: handle_key::<P>,
+            focus: focus::<P>,
+            blur: blur::<P>,
+        }
+    }
+}
+
+fn size_policy<P>(registry: &ComponentRegistry, id: ComponentId) -> Option<DockSizePolicy>
+where
+    P: DockPanel,
+{
+    registry.with(ComponentHandle::<P>::from_id(id), DockPanel::size_policy)
+}
+
+fn handle_key<P>(registry: &mut ComponentRegistry, id: ComponentId, key: UiKey) -> InteractionResult
+where
+    P: DockPanel,
+{
+    registry
+        .with_mut(ComponentHandle::<P>::from_id(id), |panel| {
+            panel.handle_key(key)
+        })
+        .unwrap_or(InteractionResult::Ignored)
+}
+
+fn focus<P>(registry: &mut ComponentRegistry, id: ComponentId)
+where
+    P: DockPanel,
+{
+    let _ = registry.with_mut(ComponentHandle::<P>::from_id(id), DockPanel::focus);
+}
+
+fn blur<P>(registry: &mut ComponentRegistry, id: ComponentId)
+where
+    P: DockPanel,
+{
+    let _ = registry.with_mut(ComponentHandle::<P>::from_id(id), DockPanel::blur);
+}
+
 struct PanelSlot {
-    id: PanelId,
-    panel: Box<dyn DockPanel>,
+    id: ComponentId,
+    ops: PanelOps,
 }
 
 impl std::fmt::Debug for PanelSlot {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PanelSlot").field("id", &self.id).finish()
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PanelSlot")
+            .field("id", &self.id)
+            .finish()
     }
 }
 
-/// FEATURE EXTENSION API. Registry and lifecycle host for bottom-anchored UI.
-#[derive(Debug)]
+/// Registry and lifecycle host for bottom-anchored UI.
+#[derive(Debug, Default)]
 pub(crate) struct BottomPanelBar {
     panels: Vec<PanelSlot>,
-    visible: Option<PanelId>,
-    next_id: u64,
-}
-
-impl Default for BottomPanelBar {
-    fn default() -> Self {
-        Self::new()
-    }
+    visible: Option<ComponentId>,
 }
 
 impl BottomPanelBar {
     pub(crate) fn new() -> Self {
-        Self {
-            panels: Vec::new(),
-            visible: None,
-            next_id: 1,
-        }
+        Self::default()
     }
 
-    /// FEATURE EXTENSION API. Register a stateful panel and receive its handle.
-    pub(crate) fn register<P>(&mut self, panel: P) -> PanelHandle<P>
-    where
-        P: DockPanel + 'static,
-    {
-        let id = PanelId(self.next_id);
-        self.next_id = self.next_id.saturating_add(1);
-        self.panels.push(PanelSlot {
-            id,
-            panel: Box::new(panel),
-        });
-        PanelHandle::new(id)
-    }
-
-    /// FEATURE EXTENSION API. Access a panel through the owning feature's typed handle.
-    pub(crate) fn with_mut<P, R>(
+    /// Register a stateful panel in the shared component registry.
+    pub(crate) fn register<P>(
         &mut self,
-        handle: PanelHandle<P>,
-        f: impl FnOnce(&mut P) -> R,
-    ) -> Option<R>
+        components: &mut ComponentRegistry,
+        panel: P,
+    ) -> ComponentHandle<P>
     where
-        P: DockPanel + 'static,
+        P: DockPanel,
     {
-        let slot = self.panels.iter_mut().find(|slot| slot.id == handle.id)?;
-        let panel = slot.panel.as_any_mut().downcast_mut::<P>()?;
-        Some(f(panel))
+        let handle = components.register(panel);
+        self.panels.push(PanelSlot {
+            id: handle.id(),
+            ops: PanelOps::for_type::<P>(),
+        });
+        handle
     }
 
-    pub(crate) fn show<P>(&mut self, handle: PanelHandle<P>) {
+    pub(crate) fn show<P>(&mut self, components: &mut ComponentRegistry, handle: ComponentHandle<P>)
+    where
+        P: DockPanel,
+    {
         let id = handle.id();
-        if !self.panels.iter().any(|slot| slot.id == id) {
+        if !self.contains(id) || !components.contains(handle) {
             return;
         }
         if let Some(previous) = self.visible.filter(|previous| *previous != id) {
-            if let Some(slot) = self.panels.iter_mut().find(|slot| slot.id == previous) {
-                slot.panel.blur();
-            }
+            self.dispatch(previous, |ops| (ops.blur)(components, previous));
         }
         self.visible = Some(id);
-        if let Some(slot) = self.panels.iter_mut().find(|slot| slot.id == id) {
-            slot.panel.focus();
-        }
+        self.dispatch(id, |ops| (ops.focus)(components, id));
     }
 
-    /// Hide the bar while retaining every panel's state.
-    pub(crate) fn hide(&mut self) {
-        if let Some(id) = self.visible.take()
-            && let Some(slot) = self.panels.iter_mut().find(|slot| slot.id == id)
-        {
-            slot.panel.blur();
-        }
+    /// Hide the bar while retaining every registered component's state.
+    pub(crate) fn hide(&mut self, components: &mut ComponentRegistry) {
+        let Some(id) = self.visible.take() else {
+            return;
+        };
+        self.dispatch(id, |ops| (ops.blur)(components, id));
     }
 
     #[cfg(test)]
-    pub(crate) fn visible(&self) -> Option<PanelId> {
+    pub(crate) fn visible(&self) -> Option<ComponentId> {
         self.visible
     }
 
-    pub(crate) fn desired_height(&self, width: u16) -> u16 {
-        let Some(panel) = self.active() else {
+    pub(crate) fn desired_height(&self, components: &ComponentRegistry, width: u16) -> u16 {
+        let Some(id) = self.visible else {
             return 0;
         };
-        let measured = crate::presentation::layout::view_height(&panel.view(), width);
-        match panel.size_policy() {
-            DockSizePolicy::HiddenWhenEmpty => measured,
-            DockSizePolicy::Content { max_rows } => {
+        let Some(view) = components.render_registered(id) else {
+            return 0;
+        };
+        let measured = crate::presentation::layout::view_height(&view, width);
+        match self
+            .panel_ops(id)
+            .and_then(|ops| (ops.size_policy)(components, id))
+        {
+            Some(DockSizePolicy::HiddenWhenEmpty) => measured,
+            Some(DockSizePolicy::Content { max_rows }) => {
                 max_rows.map_or(measured, |max| measured.min(max))
             }
-            DockSizePolicy::Fixed(height) => height,
+            Some(DockSizePolicy::Fixed(height)) => height,
+            None => 0,
         }
     }
 
-    pub(crate) fn view(&self) -> Option<View> {
-        self.active().map(DockPanel::view)
+    pub(crate) fn view(&self, components: &ComponentRegistry) -> Option<View> {
+        self.visible.and_then(|id| components.render_registered(id))
     }
 
-    pub(crate) fn handle_key(&mut self, key: UiKey) -> InteractionResult {
-        self.active_mut()
-            .map_or(InteractionResult::Ignored, |panel| panel.handle_key(key))
+    pub(crate) fn handle_key(
+        &self,
+        components: &mut ComponentRegistry,
+        key: UiKey,
+    ) -> InteractionResult {
+        let Some(id) = self.visible else {
+            return InteractionResult::Ignored;
+        };
+        self.panel_ops(id)
+            .map_or(InteractionResult::Ignored, |ops| {
+                (ops.handle_key)(components, id, key)
+            })
     }
 
-    fn active(&self) -> Option<&dyn DockPanel> {
-        let id = self.visible?;
+    fn contains(&self, id: ComponentId) -> bool {
+        self.panels.iter().any(|panel| panel.id == id)
+    }
+
+    fn panel_ops(&self, id: ComponentId) -> Option<PanelOps> {
         self.panels
             .iter()
-            .find(|slot| slot.id == id)
-            .map(|slot| slot.panel.as_ref())
+            .find(|panel| panel.id == id)
+            .map(|panel| panel.ops)
     }
 
-    fn active_mut(&mut self) -> Option<&mut dyn DockPanel> {
-        let id = self.visible?;
-        self.panels
-            .iter_mut()
-            .find(|slot| slot.id == id)
-            .map(|slot| slot.panel.as_mut())
-    }
-}
-
-impl dyn DockPanel {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
+    fn dispatch(&self, id: ComponentId, operation: impl FnOnce(PanelOps)) {
+        if let Some(ops) = self.panel_ops(id) {
+            operation(ops);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::component::ComponentRegistry;
     use crossterm::event::{KeyCode, KeyModifiers};
+
+    #[derive(Debug)]
+    struct FocusPanel {
+        focused: bool,
+    }
+
+    impl Component for FocusPanel {
+        fn view(&self) -> View {
+            View::text("focus").into_view()
+        }
+    }
+
+    impl DockPanel for FocusPanel {
+        fn size_policy(&self) -> DockSizePolicy {
+            DockSizePolicy::Fixed(1)
+        }
+
+        fn handle_key(&mut self, _key: UiKey) -> InteractionResult {
+            if self.focused {
+                InteractionResult::Consumed
+            } else {
+                InteractionResult::Ignored
+            }
+        }
+
+        fn focus(&mut self) {
+            self.focused = true;
+        }
+
+        fn blur(&mut self) {
+            self.focused = false;
+        }
+    }
 
     #[test]
     fn steering_queue_empty_height_is_zero() {
@@ -276,30 +326,79 @@ mod tests {
 
     #[test]
     fn bottom_panel_bar_collapses_when_visible_empty() {
+        let components = ComponentRegistry::new();
         let bar = BottomPanelBar::default();
-        assert_eq!(bar.desired_height(80), 0);
+        assert_eq!(bar.desired_height(&components, 80), 0);
         assert!(bar.visible().is_none());
     }
 
     #[test]
     fn bottom_panel_bar_keeps_hidden_state_through_show_hide() {
+        let mut components = ComponentRegistry::new();
         let mut bar = BottomPanelBar::default();
-        let steering = bar.register(SteeringQueuePanel::new());
-        bar.show(steering);
-        let _ = bar.with_mut(steering, |panel| panel.queued("pending".to_string()));
-        assert_eq!(bar.desired_height(80), 1);
-        bar.hide();
-        assert_eq!(bar.desired_height(80), 0);
-        let id = bar.visible();
-        assert!(id.is_none());
-        bar.show(steering);
-        assert_eq!(bar.desired_height(80), 1);
+        let steering = bar.register(&mut components, SteeringQueuePanel::new());
+        bar.show(&mut components, steering);
+        let _ = components.with_mut(steering, |panel| panel.queued("pending".to_string()));
+        assert_eq!(bar.desired_height(&components, 80), 1);
+        bar.hide(&mut components);
+        assert_eq!(bar.desired_height(&components, 80), 0);
+        assert!(bar.visible().is_none());
+        bar.show(&mut components, steering);
+        assert_eq!(bar.desired_height(&components, 80), 1);
     }
 
     #[test]
     fn passive_panel_returns_no_keys_so_composer_handles_them() {
+        let mut components = ComponentRegistry::new();
         let mut bar = BottomPanelBar::default();
-        assert_eq!(bar.handle_key(UiKey::Char('x')), InteractionResult::Ignored);
+        let steering = bar.register(&mut components, SteeringQueuePanel::new());
+        bar.show(&mut components, steering);
+        assert_eq!(
+            bar.handle_key(&mut components, UiKey::Char('x')),
+            InteractionResult::Ignored
+        );
         let _ = (KeyCode::Char('x'), KeyModifiers::NONE);
+    }
+
+    #[test]
+    fn panel_focus_blur_and_key_dispatch_remain_unchanged() {
+        let mut components = ComponentRegistry::new();
+        let mut bar = BottomPanelBar::default();
+        let panel = bar.register(&mut components, FocusPanel { focused: false });
+
+        assert_eq!(
+            bar.handle_key(&mut components, UiKey::Char('x')),
+            InteractionResult::Ignored
+        );
+        bar.show(&mut components, panel);
+        assert_eq!(
+            bar.handle_key(&mut components, UiKey::Char('x')),
+            InteractionResult::Consumed
+        );
+        bar.hide(&mut components);
+        assert_eq!(
+            bar.handle_key(&mut components, UiKey::Char('x')),
+            InteractionResult::Ignored
+        );
+        bar.show(&mut components, panel);
+        assert_eq!(
+            bar.handle_key(&mut components, UiKey::Char('x')),
+            InteractionResult::Consumed
+        );
+    }
+
+    #[test]
+    fn removing_panel_state_leaves_dock_without_a_state_object() {
+        let mut components = ComponentRegistry::new();
+        let mut bar = BottomPanelBar::default();
+        let steering = bar.register(&mut components, SteeringQueuePanel::new());
+        bar.show(&mut components, steering);
+        assert!(components.remove(steering).is_some());
+        assert_eq!(bar.desired_height(&components, 80), 0);
+        assert!(bar.view(&components).is_none());
+        assert_eq!(
+            bar.handle_key(&mut components, UiKey::Char('x')),
+            InteractionResult::Ignored
+        );
     }
 }

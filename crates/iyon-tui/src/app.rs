@@ -111,6 +111,7 @@ impl App {
             &mut input_editor,
             state.pending_tool_approval.is_some(),
             &mut state.bottom_panel,
+            &mut state.components,
         )?;
         let input_dirty =
             self.controller
