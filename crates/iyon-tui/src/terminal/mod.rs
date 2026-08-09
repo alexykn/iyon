@@ -1,3 +1,4 @@
+pub(crate) mod crossterm;
 pub(crate) mod inline;
 pub(crate) mod ratatui;
 

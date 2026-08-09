@@ -11,6 +11,8 @@ mod router;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use event::{EventCx, OutputQueue};
-pub(crate) use handle::Output;
-pub(crate) use router::{OutputDispatchError, OutputRouter, RouteConflict};
+pub use event::EventCx;
+pub(crate) use event::OutputQueue;
+pub use handle::Output;
+pub(crate) use router::OutputDispatchError;
+pub use router::{OutputRouter, RouteConflict};

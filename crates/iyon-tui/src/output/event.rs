@@ -56,12 +56,12 @@ impl OutputQueue {
     }
 }
 
-pub(crate) struct EventCx<'a> {
+pub struct EventCx<'a> {
     queue: &'a mut OutputQueue,
 }
 
 impl EventCx<'_> {
-    pub(crate) fn emit<T: 'static>(&mut self, output: Output<T>, value: T) {
+    pub fn emit<T: 'static>(&mut self, output: Output<T>, value: T) {
         self.queue.push(output, value);
     }
 }

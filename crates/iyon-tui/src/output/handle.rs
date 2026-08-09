@@ -23,13 +23,13 @@ impl OutputId {
 }
 
 /// Opaque typed identity for a semantic output channel.
-pub(crate) struct Output<T: 'static> {
+pub struct Output<T: 'static> {
     id: OutputId,
     marker: PhantomData<fn() -> T>,
 }
 
 impl<T: 'static> Output<T> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             id: OutputId::allocate(),
             marker: PhantomData,

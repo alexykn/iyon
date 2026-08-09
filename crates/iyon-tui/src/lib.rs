@@ -36,6 +36,7 @@ mod app;
 mod component;
 mod geometry;
 mod input;
+mod interaction;
 mod output;
 mod physical;
 mod presentation;
@@ -48,6 +49,9 @@ mod tools;
 mod transcript;
 mod view;
 
+pub use component::{Component, ComponentCx, ComponentHandle};
+pub use interaction::{InteractionResult, Key, KeyStroke, MediaKey, ModifierKey, Modifiers};
+pub use output::{EventCx, Output, OutputRouter, RouteConflict};
 pub use presentation::api::{
     BorderSpec, BorderStyle, ColorSpec, Horizontal, HorizontalAlign, Insets, IntoView,
     OverflowIndicator, StyleSpec, Text, TextAttribute, TextAttributeSpec, TextSpan, ThemeKey,
