@@ -200,7 +200,7 @@ impl BottomPanelBar {
         let Some(panel) = self.active() else {
             return 0;
         };
-        let measured = crate::presentation::internal::view_height(&panel.view(), width);
+        let measured = crate::presentation::layout::view_height(&panel.view(), width);
         match panel.size_policy() {
             DockSizePolicy::HiddenWhenEmpty => measured,
             DockSizePolicy::Content { max_rows } => {
@@ -263,7 +263,7 @@ mod tests {
         panel.queued("first".to_string());
         panel.queued("second".to_string());
         assert_eq!(
-            crate::presentation::internal::view_height(&panel.view(), 80),
+            crate::presentation::layout::view_height(&panel.view(), 80),
             2
         );
         panel.delivered("first");

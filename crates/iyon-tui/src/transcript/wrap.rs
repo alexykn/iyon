@@ -2,7 +2,6 @@ use std::ops::Range;
 
 /// INTERNAL PRESENTATION MECHANICS.
 use ratatui::text::{Line, Span};
-use unicode_segmentation::UnicodeSegmentation;
 
 use crate::transcript::row::{TranscriptRow, compute_indent};
 
@@ -97,7 +96,11 @@ fn wrap_transcript_logical_row(
     let span_inputs = flattened.segments.iter().map(|seg| {
         let slice = &flattened.text[seg.flat_start..seg.flat_end];
         let style = row.line.spans[seg.span_index].style;
-        (slice, style, Some(seg.flat_start))
+        (
+            slice,
+            crate::terminal::ratatui::physical_style(style),
+            Some(seg.flat_start),
+        )
     });
     let hard_lines = crate::presentation::wrap::styled_hard_lines(span_inputs);
     let wrapped = crate::presentation::wrap::wrap_styled_lines(

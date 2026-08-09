@@ -385,7 +385,7 @@ mod tests {
         });
         assert_eq!(called.get(), 1);
         assert_eq!(text(&column(&view).children[0]), "x");
-        let compiler = crate::presentation::internal::ViewCompiler::default();
+        let compiler = crate::presentation::layout::ViewCompiler::default();
         let _ = compiler.compile(&view, 1);
         let _ = compiler.compile(&view, 1);
         assert_eq!(called.get(), 1);
@@ -445,7 +445,7 @@ mod tests {
             column.gap(1);
         });
 
-        let compiler = crate::presentation::internal::ViewCompiler::default();
+        let compiler = crate::presentation::layout::ViewCompiler::default();
         for width in [3, 8, 20] {
             let old = compiler.compile(&old_row, width);
             let new = compiler.compile(&new_row, width);

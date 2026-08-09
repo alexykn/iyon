@@ -10,6 +10,8 @@ use ratatui::{
 
 use crate::{
     input::{cursor_xy, wrapped_line_index_by_start},
+    physical::PhysicalRow,
+    terminal::ratatui::row_to_line,
     theme,
     view::RunningView,
 };
@@ -35,8 +37,8 @@ impl View for InputView<'_> {}
 #[derive(Debug, Clone)]
 pub(crate) struct ConversationView<'a> {
     pub(crate) transcript_rows: &'a [Line<'static>],
-    pub(crate) hosted_rows: &'a [Line<'static>],
-    pub(crate) transient_rows: &'a [Line<'static>],
+    pub(crate) hosted_rows: &'a [PhysicalRow],
+    pub(crate) transient_rows: &'a [PhysicalRow],
 }
 
 impl ConversationView<'_> {
@@ -107,7 +109,7 @@ impl Renderer {
         self.render(&view.conversation, frame, view.layout.conversation_area);
         self.render(&SpacerView, frame, view.layout.conversation_gap_area);
         if let Some(panel_view) = view.panel.view() {
-            crate::presentation::internal::render_view(
+            crate::terminal::ratatui::render_view(
                 &panel_view,
                 frame.buffer_mut(),
                 view.layout.panel_area,
@@ -156,33 +158,21 @@ impl Renderable<SpacerView> for Renderer {
 
 impl Renderable<ConversationView<'_>> for Renderer {
     fn render(&self, view: &ConversationView, frame: &mut Frame, area: Rect) {
-        // The conversation is one linear bottom-anchored sequence. Iterate the
-        // owner slices without concatenating or copying them.
+        // The conversation is one linear bottom-anchored sequence. Legacy
+        // transcript rows are already Ratatui lines; live semantic rows cross
+        // the terminal adapter here.
         let visible_rows = usize::from(area.height);
-        let mut skip = view.len().saturating_sub(visible_rows);
-        let mut row = 0usize;
+        let mut lines = Vec::with_capacity(view.len());
+        lines.extend(view.transcript_rows.iter().cloned());
+        lines.extend(view.hosted_rows.iter().map(row_to_line));
+        lines.extend(view.transient_rows.iter().map(row_to_line));
+        let skip = lines.len().saturating_sub(visible_rows);
         let buffer = frame.buffer_mut();
-
-        for lines in [view.transcript_rows, view.hosted_rows, view.transient_rows] {
-            if skip >= lines.len() {
-                skip -= lines.len();
-                continue;
-            }
-            for line in &lines[skip..] {
-                let y = area
-                    .y
-                    .saturating_add(u16::try_from(row).unwrap_or(u16::MAX));
-                let row_area = Rect {
-                    x: area.x,
-                    y,
-                    width: area.width,
-                    height: 1,
-                };
-                buffer.set_style(row_area, line.style);
-                buffer.set_line(area.x, y, line, area.width);
-                row = row.saturating_add(1);
-            }
-            skip = 0;
+        for (row, line) in lines.into_iter().skip(skip).enumerate() {
+            let y = area
+                .y
+                .saturating_add(u16::try_from(row).unwrap_or(u16::MAX));
+            buffer.set_line(area.x, y, &line, area.width);
         }
     }
 

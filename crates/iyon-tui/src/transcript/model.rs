@@ -5,8 +5,9 @@ use ratatui::{style::Style, text::Line};
 use crate::{
     presentation::{
         ColorSpec, Decoration, FlowBoundary, Insets, IntoView, LeadingBoundaryState,
-        ResidentStreamHandoff, StreamOffset, ThemeKey, View, WidthRule, internal::compile_view,
+        ResidentStreamHandoff, StreamOffset, ThemeKey, View, WidthRule, layout::compile_view,
     },
+    terminal::ratatui::rows_to_lines,
     theme,
     tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput},
     transcript::{
@@ -1218,7 +1219,7 @@ impl TranscriptState {
                     };
                     let block = compile_view(&tail.view, width);
                     let physically_complete = block.physically_complete;
-                    rows.extend(block.rows);
+                    rows.extend(rows_to_lines(&block.rows));
                     row_end_boundaries.extend(std::iter::repeat_n(
                         None,
                         rows.len().saturating_sub(content_start),
@@ -1245,15 +1246,16 @@ impl TranscriptState {
                             rows.len().saturating_sub(content_start),
                         ));
                     } else {
-                        let mut block = compile_view(view, width);
+                        let block = compile_view(view, width);
                         physically_complete = block.physically_complete;
+                        let mut block_rows = rows_to_lines(&block.rows);
                         if unit.truncation == Truncation::Call {
-                            block.rows =
-                                truncate_view_rows(block.rows, DISPLAY_CALL_MAX_LINES + 1, true);
+                            block_rows =
+                                truncate_view_rows(block_rows, DISPLAY_CALL_MAX_LINES + 1, true);
                         } else if unit.truncation == Truncation::Result {
-                            block.rows = truncate_view_rows(block.rows, DISPLAY_MAX_LINES, false);
+                            block_rows = truncate_view_rows(block_rows, DISPLAY_MAX_LINES, false);
                         }
-                        rows.extend(block.rows);
+                        rows.extend(block_rows);
                         row_end_boundaries.extend(std::iter::repeat_n(
                             None,
                             rows.len().saturating_sub(content_start),
@@ -1868,8 +1870,9 @@ mod tests {
         assert!(committed_snapshot.source_base > StreamOffset::ZERO);
 
         let handoff = stream.into_resident_handoff();
-        let expected_rows =
-            compile_stream(&committed_snapshot.view, 80, committed_snapshot.source_end).rows;
+        let expected_rows = rows_to_lines(
+            &compile_stream(&committed_snapshot.view, 80, committed_snapshot.source_end).rows,
+        );
         let source_base = handoff.source_base;
         let source_end = handoff.source_end;
         transcript.adopt_resident_stream(handoff);

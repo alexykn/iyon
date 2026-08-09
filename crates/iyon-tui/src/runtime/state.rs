@@ -1,11 +1,10 @@
 use std::collections::VecDeque;
 
-use ratatui::text::Line;
-
 use crate::{
     input::InputBuffer,
+    physical::PhysicalRow,
     presentation::{
-        ActiveContent, FlowBoundary, HostedStream, PreparedStreamFrame, internal::compile_view,
+        ActiveContent, FlowBoundary, HostedStream, PreparedStreamFrame, layout::compile_view,
     },
     runtime::{
         active::{ActiveTurnContent, ToolActiveStatus},
@@ -29,7 +28,7 @@ pub(crate) enum FinalizeResult {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedActiveContent {
-    pub(crate) rows: Vec<Line<'static>>,
+    pub(crate) rows: Vec<PhysicalRow>,
 }
 
 #[derive(Debug)]
@@ -166,7 +165,7 @@ impl AppState {
         }
     }
 
-    pub(crate) fn assistant_live_rows(&self) -> &[Line<'static>] {
+    pub(crate) fn assistant_live_rows(&self) -> &[PhysicalRow] {
         match &self.live_tail {
             LiveTail::Streaming {
                 frame: Some(frame), ..
@@ -175,7 +174,7 @@ impl AppState {
         }
     }
 
-    pub(crate) fn active_live_rows(&self) -> &[Line<'static>] {
+    pub(crate) fn active_live_rows(&self) -> &[PhysicalRow] {
         match &self.live_tail {
             LiveTail::Active(HostedActiveContent {
                 frame: Some(frame), ..
@@ -193,7 +192,7 @@ impl AppState {
         {
             let mut rows = compile_view(&content.view(), width.max(1)).rows;
             if *leading_gap {
-                rows.insert(0, Line::default());
+                rows.insert(0, PhysicalRow::empty());
             }
             *frame = Some(PreparedActiveContent { rows });
         }
@@ -754,6 +753,7 @@ pub(crate) struct InfoState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::text::Line;
 
     fn conversation_rows(state: &mut AppState, width: u16) -> Vec<Line<'static>> {
         state.transcript.ensure_render_cache(width);
@@ -762,7 +762,12 @@ mod tests {
             .uncommitted_rows()
             .iter()
             .cloned()
-            .chain(state.assistant_live_rows().iter().cloned())
+            .chain(
+                state
+                    .assistant_live_rows()
+                    .iter()
+                    .map(crate::terminal::ratatui::row_to_line),
+            )
             .collect()
     }
 
@@ -801,7 +806,8 @@ mod tests {
         state.prepare_active_frame(80);
 
         assert_eq!(before, state.active_live_rows());
-        assert_eq!(before, vec![Line::default(), Line::from("⠋ Working")]);
+        assert_eq!(before[0], PhysicalRow::empty());
+        assert_eq!(before[1].plain_text(), "⠋ Working");
     }
 
     #[test]

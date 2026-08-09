@@ -1,14 +1,15 @@
-//! Presentation boundaries for semantic construction, retained IR, and lowering.
+//! Private presentation boundaries for semantic construction and lowering.
 //!
 //! `api` is the curated semantic construction facade. `ir` is the private
-//! retained semantic tree. `internal` lowers that tree into physical layout,
-//! while `stream` owns source-provenance streaming lifecycle and `wrap` owns
-//! Unicode/layout text wrapping.
+//! retained semantic tree. `layout` owns manual semantic compilation into
+//! physical rows, `paint` resolves styles and decoration, `wrap` owns Unicode
+//! wrapping, and `stream` owns the current source-provenance stream model.
 
 pub(crate) mod api;
 pub(crate) mod host;
-pub(super) mod internal;
 pub(crate) mod ir;
+pub(crate) mod layout;
+pub(crate) mod paint;
 pub(crate) mod stream;
 pub(crate) mod wrap;
 

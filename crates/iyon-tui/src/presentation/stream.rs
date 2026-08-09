@@ -10,6 +10,7 @@
 use std::{fmt::Debug, time::Instant};
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::physical::PhysicalRow;
 use crate::presentation::{
     api::{
         IntoView,
@@ -707,7 +708,7 @@ where
         };
         let mut live_rows = live_rows;
         if self.leading_boundary == LeadingBoundaryState::Pending {
-            live_rows.insert(0, ratatui::text::Line::default());
+            live_rows.insert(0, PhysicalRow::empty());
         }
 
         // `desired_commit_rows` is measured against the complete conversation projection.
@@ -738,7 +739,7 @@ where
                 .saturating_add(usize::from(commit_leading_boundary)),
         );
         if commit_leading_boundary {
-            history_rows.push(ratatui::text::Line::default());
+            history_rows.push(PhysicalRow::empty());
         }
         history_rows.extend(semantic_rows);
 
@@ -865,7 +866,7 @@ pub(crate) struct PreparedHistoryWrite {
 /// A host-prepared live projection and its exact terminal-history transaction.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PreparedStreamFrame {
-    pub(crate) live_rows: Vec<ratatui::text::Line<'static>>,
+    pub(crate) live_rows: Vec<PhysicalRow>,
     pub(crate) history: PreparedHistoryWrite,
 }
 
@@ -892,10 +893,10 @@ pub(crate) enum StreamRowCommit {
 
 /// Renderer-owned physical rows for atomic freeze.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct FrozenPhysicalRows(pub(crate) Vec<ratatui::text::Line<'static>>);
+pub(crate) struct FrozenPhysicalRows(pub(crate) Vec<PhysicalRow>);
 
 impl FrozenPhysicalRows {
-    pub(crate) fn new(rows: Vec<ratatui::text::Line<'static>>) -> Self {
+    pub(crate) fn new(rows: Vec<PhysicalRow>) -> Self {
         Self(rows)
     }
 
@@ -907,7 +908,7 @@ impl FrozenPhysicalRows {
         self.0.is_empty()
     }
 
-    pub(crate) fn as_slice(&self) -> &[ratatui::text::Line<'static>] {
+    pub(crate) fn as_slice(&self) -> &[PhysicalRow] {
         &self.0
     }
 }
@@ -938,7 +939,7 @@ impl CommitPayload {
 /// A compiled stream layout at a specific physical width.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CompiledStream {
-    pub(crate) rows: Vec<ratatui::text::Line<'static>>,
+    pub(crate) rows: Vec<PhysicalRow>,
     pub(crate) commit: Vec<StreamRowCommit>,
     pub(crate) committable_prefix_rows: usize,
 }
@@ -1138,7 +1139,7 @@ pub(crate) fn compile_stream(
     max_width: u16,
     stable_through: StreamOffset,
 ) -> CompiledStream {
-    use crate::presentation::internal::ViewCompiler;
+    use crate::presentation::layout::ViewCompiler;
 
     let width = max_width.max(1);
     let compiler = ViewCompiler::default();
@@ -1156,7 +1157,7 @@ pub(crate) fn compile_stream(
                 let final_offset = text.owned_range().end;
                 let row_count = compiled_rows.len();
                 if row_count == 0 {
-                    rows.push(ratatui::text::Line::default());
+                    rows.push(PhysicalRow::empty());
                     if !blocked && final_offset <= stable_through {
                         commit.push(StreamRowCommit::Exact(final_offset));
                         committable_prefix_rows += 1;
@@ -1174,7 +1175,7 @@ pub(crate) fn compile_stream(
                                 text.content_range.start.saturating_add(relative as u64)
                             })
                         };
-                        rows.push(row.line);
+                        rows.push(row.row);
                         if !blocked && row.fits && offset <= stable_through {
                             commit.push(StreamRowCommit::Exact(offset));
                             committable_prefix_rows += 1;
@@ -1242,8 +1243,35 @@ pub(crate) fn append_only_text_stable_frontier(
 mod tests {
     use super::*;
     use crate::presentation::api::style::{ColorSpec, StyleSpec, ThemeKey};
-    use crate::presentation::internal::ViewCompiler;
-    use ratatui::style::Modifier;
+    use crate::presentation::layout::ViewCompiler;
+
+    fn assert_rows_equivalent(left: &[PhysicalRow], right: &[PhysicalRow]) {
+        assert_eq!(left.len(), right.len());
+        for (left, right) in left.iter().zip(right) {
+            assert_eq!(left.plain_text().trim_end(), right.plain_text().trim_end());
+            let left_text = left
+                .cells()
+                .iter()
+                .filter_map(|cell| {
+                    cell.grapheme
+                        .as_ref()
+                        .filter(|text| !text.trim().is_empty())
+                        .map(|text| (text, cell.style))
+                })
+                .collect::<Vec<_>>();
+            let right_text = right
+                .cells()
+                .iter()
+                .filter_map(|cell| {
+                    cell.grapheme
+                        .as_ref()
+                        .filter(|text| !text.trim().is_empty())
+                        .map(|text| (text, cell.style))
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(left_text, right_text);
+        }
+    }
 
     #[test]
     fn stream_offset_ordering() {
@@ -1390,12 +1418,7 @@ mod tests {
         let ordinary = ViewCompiler::default().compile(&view, 20);
 
         assert_eq!(compiled.rows, ordinary.rows);
-        assert!(
-            compiled.rows[0].spans[0]
-                .style
-                .add_modifier
-                .contains(Modifier::BOLD)
-        );
+        assert!(compiled.rows[0].cell(0).is_some_and(|cell| cell.style.bold));
     }
 
     #[test]
@@ -1468,12 +1491,10 @@ mod tests {
         assert_eq!(compiled.rows.len(), 1);
         assert_eq!(compiled.committable_prefix_rows, 1);
 
-        // Row spans preserve bold style on "world"
+        // Physical cells preserve text and bold style on "world".
         let line = &compiled.rows[0];
-        assert_eq!(line.spans.len(), 2);
-        assert_eq!(line.spans[0].content, "hello ");
-        assert_eq!(line.spans[1].content, "world");
-        assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
+        assert_eq!(line.plain_text(), "hello world");
+        assert!(line.cell(6).is_some_and(|cell| cell.style.bold));
 
         // Row commit offset is the accumulated exact end (11)
         assert_eq!(
@@ -1543,17 +1564,11 @@ mod tests {
 
         // Row 0 has thinking styling (italic & dim)
         assert!(
-            compiled.rows[0].spans[0]
-                .style
-                .add_modifier
-                .contains(Modifier::ITALIC)
+            compiled.rows[0]
+                .cell(0)
+                .is_some_and(|cell| cell.style.italic)
         );
-        assert!(
-            compiled.rows[0].spans[0]
-                .style
-                .add_modifier
-                .contains(Modifier::DIM)
-        );
+        assert!(compiled.rows[0].cell(0).is_some_and(|cell| cell.style.dim));
         assert_eq!(
             compiled.commit[0],
             StreamRowCommit::Exact(StreamOffset::new(9))
@@ -1696,35 +1711,7 @@ mod tests {
                     width
                 );
 
-                for (r_idx, (layout_row, stream_row)) in layout_block
-                    .rows
-                    .iter()
-                    .zip(&compiled_stream.rows)
-                    .enumerate()
-                {
-                    assert_eq!(
-                        layout_row.spans.len(),
-                        stream_row.spans.len(),
-                        "Span count mismatch for '{}' at width {}, row {}",
-                        label,
-                        width,
-                        r_idx
-                    );
-                    for (s_idx, (ls, ss)) in
-                        layout_row.spans.iter().zip(&stream_row.spans).enumerate()
-                    {
-                        assert_eq!(
-                            ls.content, ss.content,
-                            "Content mismatch for '{}' at width {}, row {}, span {}",
-                            label, width, r_idx, s_idx
-                        );
-                        assert_eq!(
-                            ls.style, ss.style,
-                            "Style mismatch for '{}' at width {}, row {}, span {}",
-                            label, width, r_idx, s_idx
-                        );
-                    }
-                }
+                assert_rows_equivalent(&layout_block.rows, &compiled_stream.rows);
             }
         }
     }
@@ -1745,7 +1732,7 @@ mod tests {
             let compiled = compile_stream(&snapshot.view, width, snapshot.source_end);
             let lowered =
                 ViewCompiler::default().compile(&snapshot.view.clone().into_static_view(), width);
-            assert_eq!(compiled.rows, lowered.rows, "row mismatch at width {width}");
+            assert_rows_equivalent(&compiled.rows, &lowered.rows);
         }
     }
 
@@ -1931,7 +1918,7 @@ mod tests {
         hosted.seal();
         let prepared2 = hosted.prepare_frame(80, 10);
         assert_eq!(&prepared2.live_rows[..2], &frozen_rows.as_slice()[1..]);
-        assert_eq!(prepared2.live_rows[2].spans[0].content, "suffix-after");
+        assert_eq!(prepared2.live_rows[2].plain_text(), "suffix-after");
         assert!(matches!(
             prepared2.history.semantic_plan.payload,
             CommitPayload::Frozen { .. }
@@ -1965,8 +1952,8 @@ mod tests {
 
         let prepared = hosted.prepare_frame(80, 2);
         assert_eq!(prepared.history.rows.len(), 2);
-        assert!(prepared.history.rows.as_slice()[0].spans.is_empty());
-        assert_eq!(prepared.history.rows.as_slice()[1].spans[0].content, "A0");
+        assert!(prepared.history.rows.as_slice()[0].plain_text().is_empty());
+        assert_eq!(prepared.history.rows.as_slice()[1].plain_text(), "A0");
         assert!(prepared.history.commit_leading_boundary);
         hosted.apply_commit_success(prepared.history);
 
@@ -1981,8 +1968,8 @@ mod tests {
         ));
 
         let reprepared = hosted.prepare_frame(20, 0);
-        assert_eq!(reprepared.live_rows[0].spans[0].content, "A1");
-        assert_ne!(reprepared.live_rows[0], ratatui::text::Line::default());
+        assert_eq!(reprepared.live_rows[0].plain_text(), "A1");
+        assert_ne!(reprepared.live_rows[0], PhysicalRow::empty());
         assert!(!reprepared.history.commit_leading_boundary);
     }
 
@@ -2002,10 +1989,7 @@ mod tests {
         let prepared = hosted.prepare_frame(80, 1);
         assert_eq!(prepared.history.rows.len(), 1);
         assert!(!prepared.history.commit_leading_boundary);
-        assert_ne!(
-            prepared.history.rows.as_slice()[0],
-            ratatui::text::Line::default()
-        );
+        assert_ne!(prepared.history.rows.as_slice()[0], PhysicalRow::empty());
     }
 
     #[test]
@@ -2046,12 +2030,11 @@ mod tests {
 
         let first = hosted.prepare_frame(6, 2);
         assert_eq!(first.history.rows.len(), 2);
-        assert!(first.history.rows.as_slice()[0].spans.is_empty());
+        assert!(first.history.rows.as_slice()[0].plain_text().is_empty());
         assert!(
             first.history.rows.as_slice()[1]
-                .spans
-                .iter()
-                .any(|span| span.content.contains("hello"))
+                .plain_text()
+                .contains("hello")
         );
         hosted.apply_commit_success(first.history);
         assert_eq!(hosted.leading_boundary, LeadingBoundaryState::Committed);
@@ -2064,7 +2047,7 @@ mod tests {
                 .rows
                 .as_slice()
                 .iter()
-                .all(|row| { row.spans.iter().all(|span| !span.content.is_empty()) })
+                .all(|row| !row.plain_text().is_empty())
         );
     }
 
