@@ -1,7 +1,7 @@
 //! Private semantic layout/compiler boundary.
 //!
 //! This module owns backend-neutral constraints, retained layout geometry, and
-//! the compatibility compiler facade. Physical lowering lives in painting.
+//! the compiler facade. Physical lowering lives in painting.
 
 mod engine;
 mod measure;
