@@ -2,7 +2,7 @@
 
 use super::{
     composition::{Horizontal, Vertical},
-    style::{OverflowIndicator, VerticalAlign},
+    style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, TextAttribute, VerticalAlign},
     text::{Text, TextSpan},
 };
 use crate::presentation::ir::{
@@ -82,6 +82,32 @@ impl View {
         }
     }
 
+    /// Creates a new undecorated structural boundary around this view.
+    pub(crate) fn container(self) -> Self {
+        let width = self.width;
+        Self {
+            width,
+            decoration: Decoration::default(),
+            kind: ViewKind::Container(ContainerNode {
+                child: Box::new(self),
+            }),
+        }
+    }
+
+    /// Creates a new structural truncation boundary around this view.
+    pub(crate) fn clamp_rows(self, max_rows: u16, overflow: OverflowIndicator) -> Self {
+        let width = self.width;
+        Self {
+            width,
+            decoration: Decoration::default(),
+            kind: ViewKind::ClampRows(ClampRowsView {
+                child: Box::new(self),
+                max_rows,
+                overflow,
+            }),
+        }
+    }
+
     pub(crate) fn spacer(rows: u16) -> Self {
         Self {
             width: WidthRule::Fit,
@@ -90,16 +116,57 @@ impl View {
         }
     }
 
-    pub(crate) fn clamp_rows(child: View, max_rows: u16, overflow: OverflowIndicator) -> Self {
-        Self {
-            width: child.width,
-            decoration: Decoration::default(),
-            kind: ViewKind::ClampRows(ClampRowsView {
-                child: Box::new(child),
-                max_rows,
-                overflow,
-            }),
-        }
+    /// Sets the current node's padding; repeated calls replace the prior value.
+    pub(crate) fn padding(mut self, padding: impl Into<Insets>) -> Self {
+        self.decoration.padding = padding.into();
+        self
+    }
+
+    /// Paints the current node's allocated surface, including transparent tails.
+    pub(crate) fn background(mut self, color: ColorSpec) -> Self {
+        self.decoration.surface_background = Some(color);
+        self
+    }
+
+    /// Sets inherited foreground intent for descendant text.
+    pub(crate) fn foreground(mut self, color: ColorSpec) -> Self {
+        self.decoration.text_style.foreground = Some(color);
+        self
+    }
+
+    /// Replaces the current node's complete border specification.
+    pub(crate) fn border(mut self, border: BorderSpec) -> Self {
+        self.decoration.border = Some(border);
+        self
+    }
+
+    /// Sets sparse inherited text-attribute intent, including explicit false.
+    pub(crate) fn text_attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
+        self.decoration
+            .text_style
+            .attributes
+            .set(attribute, enabled);
+        self
+    }
+
+    pub(crate) fn bold(self) -> Self {
+        self.text_attribute(TextAttribute::Bold, true)
+    }
+
+    pub(crate) fn dim(self) -> Self {
+        self.text_attribute(TextAttribute::Dim, true)
+    }
+
+    pub(crate) fn italic(self) -> Self {
+        self.text_attribute(TextAttribute::Italic, true)
+    }
+
+    pub(crate) fn underline(self) -> Self {
+        self.text_attribute(TextAttribute::Underline, true)
+    }
+
+    pub(crate) fn reversed(self) -> Self {
+        self.text_attribute(TextAttribute::Reversed, true)
     }
 
     pub(crate) fn fit_width(mut self) -> Self {
@@ -159,7 +226,10 @@ impl<'a> IntoView for &'a String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::presentation::api::style::{ColorSpec, Insets, StyleSpec};
+    use crate::presentation::api::style::{
+        BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleSpec, TextAttribute,
+    };
+    use crate::presentation::api::text::{HorizontalAlign, Text, WrapMode};
 
     #[test]
     fn into_view_conversions_are_owned_and_view_conversion_is_identity() {
@@ -226,5 +296,144 @@ mod tests {
         );
         assert!(matches!(view.kind, ViewKind::Container(_)));
         assert!(!view.decoration.padding.eq(&Insets::ZERO));
+    }
+
+    #[test]
+    fn view_properties_mutate_the_current_node_and_are_last_write_wins() {
+        let view = View::vertical(|_| {})
+            .fit_width()
+            .padding(1)
+            .padding(Insets::vertical(2))
+            .background(ColorSpec::ansi(1))
+            .background(ColorSpec::ansi(2))
+            .foreground(ColorSpec::ansi(3))
+            .foreground(ColorSpec::ansi(4))
+            .border(BorderSpec::plain())
+            .border(BorderSpec::rounded().color(ColorSpec::ansi(5)))
+            .bold()
+            .dim()
+            .italic()
+            .underline()
+            .reversed()
+            .text_attribute(TextAttribute::Bold, false);
+
+        assert!(matches!(view.kind, ViewKind::Column(_)));
+        assert_eq!(view.width, WidthRule::Fit);
+        assert_eq!(view.decoration.padding, Insets::vertical(2));
+        assert_eq!(view.decoration.surface_background, Some(ColorSpec::ansi(2)));
+        assert_eq!(
+            view.decoration.text_style.foreground,
+            Some(ColorSpec::ansi(4))
+        );
+        assert_eq!(view.decoration.text_style.attributes.bold, Some(false));
+        assert_eq!(view.decoration.text_style.attributes.dim, Some(true));
+        assert_eq!(view.decoration.text_style.attributes.italic, Some(true));
+        assert_eq!(view.decoration.text_style.attributes.underline, Some(true));
+        assert_eq!(view.decoration.text_style.attributes.reversed, Some(true));
+        assert_eq!(
+            view.decoration.border,
+            Some(BorderSpec::rounded().color(ColorSpec::ansi(5)))
+        );
+    }
+
+    #[test]
+    fn independent_properties_are_structurally_commutative() {
+        let first = View::vertical(|_| {})
+            .padding(Insets::horizontal(1))
+            .background(ColorSpec::ansi(1))
+            .foreground(ColorSpec::ansi(2))
+            .bold();
+        let second = View::vertical(|_| {})
+            .bold()
+            .foreground(ColorSpec::ansi(2))
+            .background(ColorSpec::ansi(1))
+            .padding(Insets::horizontal(1));
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn container_creates_an_outer_boundary_without_moving_child_properties() {
+        let property_before = View::text("x").padding(1).container();
+        let property_after = View::text("x").container().padding(1);
+
+        let ViewKind::Container(first) = &property_before.kind else {
+            panic!("expected container");
+        };
+        let ViewKind::Container(second) = &property_after.kind else {
+            panic!("expected container");
+        };
+        assert_eq!(first.child.decoration.padding, Insets::all(1));
+        assert_eq!(property_before.decoration, Decoration::default());
+        assert_eq!(second.child.decoration, Decoration::default());
+        assert_eq!(property_after.decoration.padding, Insets::all(1));
+    }
+
+    #[test]
+    fn structural_transforms_copy_width_and_remain_nested() {
+        let inner_fill = View::text("x").fill_width().container();
+        let outer_fill = View::text("x").container().fill_width();
+
+        let ViewKind::Container(inner_fill_node) = &inner_fill.kind else {
+            panic!("expected container");
+        };
+        let ViewKind::Container(outer_fill_node) = &outer_fill.kind else {
+            panic!("expected container");
+        };
+        assert_eq!(inner_fill.width, WidthRule::Fill);
+        assert_eq!(inner_fill_node.child.width, WidthRule::Fill);
+        assert_eq!(outer_fill.width, WidthRule::Fill);
+        assert_eq!(outer_fill_node.child.width, WidthRule::Fit);
+
+        let nested = View::text("x").container().container();
+        let ViewKind::Container(outer) = nested.kind else {
+            panic!("expected outer container");
+        };
+        assert!(matches!(outer.child.kind, ViewKind::Container(_)));
+    }
+
+    #[test]
+    fn clamp_is_a_structural_transform_with_a_copied_width() {
+        let view = View::text("x")
+            .fill_width()
+            .clamp_rows(2, OverflowIndicator::None);
+        let ViewKind::ClampRows(clamp) = &view.kind else {
+            panic!("expected clamp");
+        };
+
+        assert_eq!(view.width, WidthRule::Fill);
+        assert_eq!(clamp.child.width, WidthRule::Fill);
+        assert_eq!(view.decoration, Decoration::default());
+        assert!(matches!(clamp.child.kind, ViewKind::Text(_)));
+    }
+
+    #[test]
+    fn text_properties_keep_the_typed_boundary_until_structural_transform() {
+        fn accepts_text(_: Text) {}
+
+        let text = View::text("x")
+            .padding(1)
+            .background(ColorSpec::ansi(1))
+            .foreground(ColorSpec::ansi(2))
+            .border(BorderSpec::plain())
+            .bold()
+            .dim()
+            .italic()
+            .underline()
+            .reversed()
+            .text_attribute(TextAttribute::Bold, false)
+            .no_wrap()
+            .text_align(HorizontalAlign::End)
+            .fill_width();
+        accepts_text(text.clone());
+
+        let view = text.clone().into_view();
+        let ViewKind::Text(text_view) = &view.kind else {
+            panic!("expected text");
+        };
+        assert_eq!(text_view.wrap, WrapMode::NoWrap);
+        assert_eq!(view.width, WidthRule::Fill);
+        let view = text.container();
+        assert!(matches!(view.kind, ViewKind::Container(_)));
     }
 }

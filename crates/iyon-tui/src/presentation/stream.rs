@@ -1399,6 +1399,23 @@ mod tests {
     }
 
     #[test]
+    fn atomic_final_semantic_view_uses_the_same_ordinary_compiler() {
+        let view = View::text("atomic")
+            .bold()
+            .padding(1)
+            .container()
+            .background(ColorSpec::ansi(1));
+        let stream = StreamView::atomic(
+            StreamRange::new(StreamOffset::ZERO, StreamOffset::new(6)),
+            view.clone(),
+        );
+        let compiled = compile_stream(&stream, 20, StreamOffset::new(6));
+        let ordinary = ViewCompiler::default().compile(&view, 20);
+
+        assert_eq!(compiled.rows, ordinary.rows);
+    }
+
+    #[test]
     fn atomic_nested_wide_grapheme_propagates_incompleteness() {
         // Atomic(Box(Column(Text("before"), Text("漢")))) at width 1
         let inner = View::column(

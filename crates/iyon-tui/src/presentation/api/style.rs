@@ -103,6 +103,30 @@ impl Insets {
             ..Self::ZERO
         }
     }
+
+    pub(crate) const fn horizontal(value: u16) -> Self {
+        Self {
+            right: value,
+            left: value,
+            ..Self::ZERO
+        }
+    }
+
+    /// Creates insets in top, right, bottom, left order.
+    pub(crate) const fn new(top: u16, right: u16, bottom: u16, left: u16) -> Self {
+        Self {
+            top,
+            right,
+            bottom,
+            left,
+        }
+    }
+}
+
+impl From<u16> for Insets {
+    fn from(value: u16) -> Self {
+        Self::all(value)
+    }
 }
 /// FEATURE EXTENSION API. Theme-resolved or explicit terminal-compatible color.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,6 +136,20 @@ pub(crate) enum ColorSpec {
     Rgb { r: u8, g: u8, b: u8 },
 }
 
+impl ColorSpec {
+    pub(crate) fn theme(key: impl Into<ThemeKey>) -> Self {
+        Self::Theme(key.into())
+    }
+
+    pub(crate) const fn ansi(value: u8) -> Self {
+        Self::Ansi(value)
+    }
+
+    pub(crate) const fn rgb(r: u8, g: u8, b: u8) -> Self {
+        Self::Rgb { r, g, b }
+    }
+}
+
 /// FEATURE EXTENSION API. Opaque host theme token.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ThemeKey(pub(crate) String);
@@ -119,6 +157,12 @@ pub(crate) struct ThemeKey(pub(crate) String);
 impl From<&str> for ThemeKey {
     fn from(value: &str) -> Self {
         Self(value.to_string())
+    }
+}
+
+impl From<String> for ThemeKey {
+    fn from(value: String) -> Self {
+        Self(value)
     }
 }
 /// FEATURE EXTENSION API. Sparse text-attribute intent.
@@ -132,7 +176,7 @@ pub(crate) struct TextAttributeSpec {
 }
 
 impl TextAttributeSpec {
-    fn set(&mut self, attribute: TextAttribute, enabled: bool) {
+    pub(crate) fn set(&mut self, attribute: TextAttribute, enabled: bool) {
         match attribute {
             TextAttribute::Bold => self.bold = Some(enabled),
             TextAttribute::Dim => self.dim = Some(enabled),
@@ -178,6 +222,34 @@ pub(crate) struct BorderSpec {
     pub(crate) color: Option<ColorSpec>,
 }
 
+impl BorderSpec {
+    pub(crate) fn plain() -> Self {
+        Self {
+            style: BorderStyle::Plain,
+            color: None,
+        }
+    }
+
+    pub(crate) fn rounded() -> Self {
+        Self {
+            style: BorderStyle::Rounded,
+            color: None,
+        }
+    }
+
+    pub(crate) fn double() -> Self {
+        Self {
+            style: BorderStyle::Double,
+            color: None,
+        }
+    }
+
+    pub(crate) fn color(mut self, color: ColorSpec) -> Self {
+        self.color = Some(color);
+        self
+    }
+}
+
 /// FEATURE EXTENSION API. Terminal border families, independent of Ratatui.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum BorderStyle {
@@ -208,5 +280,43 @@ mod tests {
 
         existing.overlay(&StyleSpec::new().attribute(TextAttribute::Bold, false));
         assert_eq!(existing.attributes.bold, Some(false));
+    }
+
+    #[test]
+    fn semantic_style_primitive_constructors_lower_to_existing_values() {
+        assert_eq!(Insets::horizontal(2), Insets::new(0, 2, 0, 2));
+        assert_eq!(Insets::from(3), Insets::all(3));
+        assert_eq!(ColorSpec::ansi(3), ColorSpec::Ansi(3));
+        assert_eq!(ColorSpec::rgb(1, 2, 3), ColorSpec::Rgb { r: 1, g: 2, b: 3 });
+        assert_eq!(
+            ColorSpec::theme("text.muted"),
+            ColorSpec::Theme(ThemeKey::from("text.muted"))
+        );
+        assert_eq!(
+            ColorSpec::theme(String::from("text.muted")),
+            ColorSpec::Theme(ThemeKey::from("text.muted")),
+        );
+    }
+
+    #[test]
+    fn border_constructors_set_style_and_replaceable_color() {
+        assert_eq!(
+            BorderSpec::plain(),
+            BorderSpec {
+                style: BorderStyle::Plain,
+                color: None
+            }
+        );
+        assert_eq!(BorderSpec::rounded().style, BorderStyle::Rounded);
+        assert_eq!(BorderSpec::double().style, BorderStyle::Double);
+        assert_eq!(
+            BorderSpec::rounded()
+                .color(ColorSpec::ansi(2))
+                .color(ColorSpec::ansi(3)),
+            BorderSpec {
+                style: BorderStyle::Rounded,
+                color: Some(ColorSpec::ansi(3))
+            },
+        );
     }
 }
