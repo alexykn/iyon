@@ -27,6 +27,11 @@ fn add_details(column: &mut Vertical) {
     column.gap(1);
 }
 
+fn add_bounded_details(column: &mut Vertical) {
+    column.fixed(2, View::text("header").fill_height());
+    column.flex(View::text("body").fill_height());
+}
+
 #[test]
 fn public_semantic_composition_is_externally_usable() {
     let view = View::vertical(|column| {
@@ -79,6 +84,17 @@ fn public_text_properties_remain_typed_until_conversion() {
     let _: View = text.clone().into_view();
     let _: View = text.container();
     let _: View = View::text("x").clamp_rows(1, iyon_tui::OverflowIndicator::None);
+}
+
+#[test]
+fn public_height_composition_is_externally_usable() {
+    let view = View::vertical(add_bounded_details)
+        .fill_width()
+        .fill_height();
+    let _: View = view;
+
+    let text = View::text("x").fill_width().fill_height().bold();
+    let _: View = text.into_view();
 }
 
 #[test]

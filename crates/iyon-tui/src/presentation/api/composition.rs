@@ -5,7 +5,7 @@
 //! [`View::horizontal`] and [`View::vertical`].
 
 use super::{style::VerticalAlign, view::IntoView};
-use crate::presentation::ir::{RowChild, View};
+use crate::presentation::ir::{ColumnChild, RowChild};
 
 /// Closure-scoped capability for constructing horizontal semantic composition.
 ///
@@ -73,7 +73,7 @@ impl Horizontal {
 /// The capability is consumed by `View::vertical`; it is not a retained
 /// semantic node and cannot itself be converted into a `View`.
 pub struct Vertical {
-    children: Vec<View>,
+    children: Vec<ColumnChild>,
     gap: u16,
 }
 
@@ -86,7 +86,18 @@ impl Vertical {
     }
 
     pub fn child(&mut self, child: impl IntoView) -> &mut Self {
-        self.children.push(child.into_view());
+        self.children.push(ColumnChild::content(child.into_view()));
+        self
+    }
+
+    pub fn fixed(&mut self, height: u16, child: impl IntoView) -> &mut Self {
+        self.children
+            .push(ColumnChild::fixed(height, child.into_view()));
+        self
+    }
+
+    pub fn flex(&mut self, child: impl IntoView) -> &mut Self {
+        self.children.push(ColumnChild::flex(child.into_view()));
         self
     }
 
@@ -106,7 +117,7 @@ impl Vertical {
         self
     }
 
-    pub(super) fn into_parts(self) -> (Vec<View>, u16) {
+    pub(super) fn into_parts(self) -> (Vec<ColumnChild>, u16) {
         (self.children, self.gap)
     }
 }
@@ -118,7 +129,9 @@ mod tests {
     use super::*;
     use crate::presentation::api::style::StyleSpec;
     use crate::presentation::api::text::TextSpan;
-    use crate::presentation::ir::{ColumnView, RowView, TrackSize, ViewKind, WidthRule};
+    use crate::presentation::ir::{
+        ColumnView, HeightRule, RowView, TrackSize, ViewKind, WidthRule,
+    };
     use crate::presentation::{IntoView, View};
 
     fn row(view: &View) -> &RowView {
@@ -135,8 +148,24 @@ mod tests {
         column
     }
 
-    fn text(view: &View) -> &str {
-        let ViewKind::Text(text) = &view.kind else {
+    trait TextViewRef {
+        fn as_view(&self) -> &View;
+    }
+
+    impl TextViewRef for View {
+        fn as_view(&self) -> &View {
+            self
+        }
+    }
+
+    impl TextViewRef for ColumnChild {
+        fn as_view(&self) -> &View {
+            &self.view
+        }
+    }
+
+    fn text<T: TextViewRef>(view: &T) -> &str {
+        let ViewKind::Text(text) = &view.as_view().kind else {
             panic!("expected text view");
         };
         &text.spans[0].text
@@ -153,6 +182,7 @@ mod tests {
         ];
 
         assert!(views.iter().all(|view| view.width == WidthRule::Fit));
+        assert!(views.iter().all(|view| view.height == HeightRule::Fit));
     }
 
     #[test]
@@ -298,7 +328,7 @@ mod tests {
         assert_eq!(text(&children[3]), "view");
         assert_eq!(text(&children[4]), "custom");
         assert_eq!(
-            children[4].decoration.text_style.attributes.bold,
+            children[4].view.decoration.text_style.attributes.bold,
             Some(true)
         );
     }
@@ -417,6 +447,7 @@ mod tests {
         let old_row = View {
             component: None,
             width: WidthRule::Fit,
+            height: HeightRule::Fit,
             decoration: Default::default(),
             kind: ViewKind::Row(RowView {
                 children: vec![

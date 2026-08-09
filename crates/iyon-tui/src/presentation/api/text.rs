@@ -1,7 +1,7 @@
 //! Typed semantic text construction backed by the canonical View IR.
 
 use super::style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleSpec, TextAttribute};
-use crate::presentation::ir::{Decoration, TextView, View, ViewKind, WidthRule};
+use crate::presentation::ir::{Decoration, HeightRule, TextView, View, ViewKind, WidthRule};
 
 /// A semantic text span with optional text-cell styling.
 #[derive(Clone, Debug, PartialEq)]
@@ -71,6 +71,7 @@ impl Text {
             view: View {
                 component: None,
                 width: WidthRule::Fit,
+                height: HeightRule::Fit,
                 decoration: Decoration::default(),
                 kind: ViewKind::Text(text),
             },
@@ -189,6 +190,16 @@ impl Text {
 
     pub fn fill_width(mut self) -> Self {
         self.view.width = WidthRule::Fill;
+        self
+    }
+
+    pub fn fit_height(mut self) -> Self {
+        self.view.height = HeightRule::Fit;
+        self
+    }
+
+    pub fn fill_height(mut self) -> Self {
+        self.view.height = HeightRule::Fill;
         self
     }
 

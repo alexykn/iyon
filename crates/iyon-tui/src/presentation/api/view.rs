@@ -6,8 +6,8 @@ use super::{
     text::{Text, TextSpan},
 };
 use crate::presentation::ir::{
-    ClampRowsView, ColumnView, ContainerNode, Decoration, RowChild, RowView, View, ViewKind,
-    WidthRule,
+    ClampRowsView, ColumnChild, ColumnView, ContainerNode, Decoration, HeightRule, RowChild,
+    RowView, View, ViewKind, WidthRule,
 };
 
 impl View {
@@ -29,6 +29,7 @@ impl View {
         Self {
             component: None,
             width: WidthRule::Fit,
+            height: HeightRule::Fit,
             decoration: Decoration::default(),
             kind: ViewKind::Row(RowView {
                 children,
@@ -48,6 +49,7 @@ impl View {
         Self {
             component: None,
             width: WidthRule::Fit,
+            height: HeightRule::Fit,
             decoration: Decoration::default(),
             kind: ViewKind::Column(ColumnView { children, gap }),
         }
@@ -57,8 +59,12 @@ impl View {
         Self {
             component: None,
             width: WidthRule::Fit,
+            height: HeightRule::Fit,
             decoration: Decoration::default(),
-            kind: ViewKind::Column(ColumnView { children, gap }),
+            kind: ViewKind::Column(ColumnView {
+                children: children.into_iter().map(ColumnChild::content).collect(),
+                gap,
+            }),
         }
     }
 
@@ -66,6 +72,7 @@ impl View {
         Self {
             component: None,
             width: WidthRule::Fill,
+            height: HeightRule::Fit,
             decoration: Decoration::default(),
             kind: ViewKind::Row(RowView {
                 children,
@@ -79,9 +86,11 @@ impl View {
         let mut child = child;
         let component = child.component.take();
         let width = child.width;
+        let height = child.height;
         Self {
             component,
             width,
+            height,
             decoration,
             kind: ViewKind::Container(ContainerNode {
                 child: Box::new(child),
@@ -94,9 +103,11 @@ impl View {
         let mut child = self;
         let component = child.component.take();
         let width = child.width;
+        let height = child.height;
         Self {
             component,
             width,
+            height,
             decoration: Decoration::default(),
             kind: ViewKind::Container(ContainerNode {
                 child: Box::new(child),
@@ -109,9 +120,11 @@ impl View {
         let mut child = self;
         let component = child.component.take();
         let width = child.width;
+        let height = child.height;
         Self {
             component,
             width,
+            height,
             decoration: Decoration::default(),
             kind: ViewKind::ClampRows(ClampRowsView {
                 child: Box::new(child),
@@ -125,6 +138,7 @@ impl View {
         Self {
             component: None,
             width: WidthRule::Fit,
+            height: HeightRule::Fit,
             decoration: Decoration::default(),
             kind: ViewKind::Spacer { rows },
         }
@@ -190,6 +204,16 @@ impl View {
 
     pub fn fill_width(mut self) -> Self {
         self.width = WidthRule::Fill;
+        self
+    }
+
+    pub fn fit_height(mut self) -> Self {
+        self.height = HeightRule::Fit;
+        self
+    }
+
+    pub fn fill_height(mut self) -> Self {
+        self.height = HeightRule::Fill;
         self
     }
 
@@ -398,6 +422,25 @@ mod tests {
         assert_eq!(inner_fill_node.child.width, WidthRule::Fill);
         assert_eq!(outer_fill.width, WidthRule::Fill);
         assert_eq!(outer_fill_node.child.width, WidthRule::Fit);
+
+        let inner_fill = View::text("x").fill_height().container();
+        let outer_fill = View::text("x").container().fill_height();
+        let ViewKind::Container(inner_fill_node) = &inner_fill.kind else {
+            panic!("expected container");
+        };
+        let ViewKind::Container(outer_fill_node) = &outer_fill.kind else {
+            panic!("expected container");
+        };
+        assert_eq!(inner_fill.height, crate::presentation::ir::HeightRule::Fill);
+        assert_eq!(
+            inner_fill_node.child.height,
+            crate::presentation::ir::HeightRule::Fill
+        );
+        assert_eq!(outer_fill.height, crate::presentation::ir::HeightRule::Fill);
+        assert_eq!(
+            outer_fill_node.child.height,
+            crate::presentation::ir::HeightRule::Fit
+        );
 
         let nested = View::text("x").container().container();
         let ViewKind::Container(outer) = nested.kind else {

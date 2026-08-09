@@ -3,6 +3,7 @@ use std::{any::Any, sync::Arc};
 use crate::{
     component::{ComponentId, ComponentRegistry, MountGraph},
     interaction::MountedCapabilities,
+    presentation::layout::ComponentGeometryMap,
 };
 
 /// Host-owned semantic focus state.
@@ -11,6 +12,7 @@ pub(crate) struct FocusState {
     focused_handler: Option<Arc<dyn Fn(&mut dyn Any, bool)>>,
     active_modal: Option<ComponentId>,
     modal_restore: Vec<(Option<ComponentId>, Option<ComponentId>)>,
+    geometry: Option<ComponentGeometryMap>,
 }
 
 impl Default for FocusState {
@@ -20,6 +22,7 @@ impl Default for FocusState {
             focused_handler: None,
             active_modal: None,
             modal_restore: Vec::new(),
+            geometry: None,
         }
     }
 }
@@ -44,6 +47,17 @@ impl FocusState {
         capabilities: &MountedCapabilities,
         registry: &mut ComponentRegistry,
     ) {
+        self.reconcile_with_geometry(graph, capabilities, None, registry);
+    }
+
+    pub(crate) fn reconcile_with_geometry(
+        &mut self,
+        graph: &MountGraph,
+        capabilities: &MountedCapabilities,
+        geometry: Option<&ComponentGeometryMap>,
+        registry: &mut ComponentRegistry,
+    ) {
+        self.geometry = geometry.cloned();
         let previous_modal = self.active_modal;
         let next_modal = capabilities.modal_ids(graph.nodes.iter()).last();
         let modal_changed = next_modal != previous_modal;
@@ -69,7 +83,8 @@ impl FocusState {
         };
         self.active_modal = next_modal;
 
-        let order = eligible_focus_order(graph, capabilities, self.active_modal);
+        let order =
+            eligible_focus_order_with_geometry(graph, capabilities, self.active_modal, geometry);
         let preferred = if modal_changed {
             restored
                 .filter(|id| order.contains(id))
@@ -150,7 +165,12 @@ impl FocusState {
         registry: &mut ComponentRegistry,
         next: bool,
     ) -> bool {
-        let order = eligible_focus_order(graph, capabilities, self.active_modal);
+        let order = eligible_focus_order_with_geometry(
+            graph,
+            capabilities,
+            self.active_modal,
+            self.geometry.as_ref(),
+        );
         if order.is_empty() {
             return false;
         }
@@ -228,11 +248,27 @@ pub(crate) fn eligible_focus_order(
     capabilities: &MountedCapabilities,
     modal: Option<ComponentId>,
 ) -> Vec<ComponentId> {
+    eligible_focus_order_with_geometry(graph, capabilities, modal, None)
+}
+
+pub(crate) fn eligible_focus_order_with_geometry(
+    graph: &MountGraph,
+    capabilities: &MountedCapabilities,
+    modal: Option<ComponentId>,
+    geometry: Option<&ComponentGeometryMap>,
+) -> Vec<ComponentId> {
     graph
         .nodes
         .iter()
         .filter(|node| modal.is_none_or(|modal| is_descendant_or_self(node.id, modal, graph)))
         .filter(|node| capabilities.get(node.id).is_some_and(|caps| caps.focusable))
+        .filter(|node| {
+            geometry.is_none_or(|map| {
+                map.entries
+                    .get(&node.id)
+                    .is_some_and(|item| item.visible.is_some())
+            })
+        })
         .map(|node| node.id)
         .collect()
 }

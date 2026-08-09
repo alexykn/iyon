@@ -1,8 +1,7 @@
-//! Current manual semantic layout algorithm.
+//! Compatibility physical painter for the established width-only compiler.
 //!
-//! This module owns width resolution, recursive View traversal, and composition
-//! into backend-neutral physical surfaces. It intentionally has no terminal
-//! backend dependency.
+//! The retained geometry engine is separate; this module preserves the exact
+//! legacy physical lowering while the public application path remains width-only.
 
 use unicode_width::UnicodeWidthStr;
 
@@ -10,11 +9,11 @@ use crate::{
     physical::{PhysicalCell, PhysicalStyle, Surface},
     presentation::{
         HorizontalAlign, IntoView, OverflowIndicator, TextSpan, VerticalAlign, View, WidthRule,
-        ir::{ColumnView, ContainerNode, RowView, TextView, ViewKind},
+        ir::{ColumnView, ContainerNode, RowView, TextView, TrackSize, ViewKind},
     },
 };
 
-use super::{ViewCompiler, allocate_tracks};
+use crate::presentation::layout::{ViewCompiler, allocate_tracks};
 use crate::presentation::paint::paint_border;
 
 impl ViewCompiler {
@@ -157,7 +156,7 @@ impl ViewCompiler {
         let children = column
             .children
             .iter()
-            .map(|child| self.layout(child, max_width, inherited))
+            .map(|child| self.layout(&child.view, max_width, inherited))
             .collect::<Vec<_>>();
         let content_width = children
             .iter()
@@ -168,17 +167,32 @@ impl ViewCompiler {
             WidthRule::Fit => content_width.min(max_width),
             WidthRule::Fill => max_width,
         };
-        let gap = usize::from(column.gap);
-        let height = children
+        let tracks = column
+            .children
             .iter()
-            .map(|child| usize::from(child.height()))
+            .map(|child| match child.track {
+                TrackSize::Flex { .. } => TrackSize::Content { max: None },
+                track => track,
+            })
+            .collect::<Vec<_>>();
+        let allocation = allocate_tracks(u16::MAX, column.gap, &tracks, |index, _| {
+            children[index].height()
+        });
+        let height = allocation
+            .tracks
+            .iter()
+            .map(|track| usize::from(*track))
             .sum::<usize>()
-            .saturating_add(gap.saturating_mul(children.len().saturating_sub(1)));
+            .saturating_add(
+                usize::from(allocation.gap) * allocation.tracks.len().saturating_sub(1),
+            );
         let mut output = Surface::new(width, height.min(usize::from(u16::MAX)) as u16);
         let mut y = 0u16;
-        for child in children {
-            output.composite(&child, 0, y);
-            y = y.saturating_add(child.height()).saturating_add(column.gap);
+        for (index, child) in children.iter().enumerate() {
+            output.composite(child, 0, y);
+            y = y
+                .saturating_add(allocation.tracks[index])
+                .saturating_add(allocation.gap);
         }
         output
     }
@@ -190,7 +204,15 @@ impl ViewCompiler {
         max_width: u16,
         inherited: PhysicalStyle,
     ) -> Surface {
-        let allocation = allocate_tracks(row, max_width, self, inherited);
+        let tracks = row
+            .children
+            .iter()
+            .map(|child| child.track)
+            .collect::<Vec<_>>();
+        let allocation = allocate_tracks(max_width, row.gap, &tracks, |index, remaining| {
+            self.layout(&row.children[index].view, remaining, inherited)
+                .width()
+        });
         let children = row
             .children
             .iter()

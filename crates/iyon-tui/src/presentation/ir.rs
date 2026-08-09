@@ -18,6 +18,7 @@ use super::api::{
 pub struct View {
     pub(crate) component: Option<ComponentId>,
     pub(crate) width: WidthRule,
+    pub(crate) height: HeightRule,
     pub(crate) decoration: Decoration,
     pub(crate) kind: ViewKind,
 }
@@ -34,9 +35,11 @@ impl View {
         }
 
         let width = self.width;
+        let height = self.height;
         Self {
             component: Some(component),
             width,
+            height,
             decoration: Decoration::default(),
             kind: ViewKind::Container(ContainerNode {
                 child: Box::new(self),
@@ -56,7 +59,7 @@ impl View {
             ViewKind::Column(column) => column
                 .children
                 .iter()
-                .any(Self::contains_component_identity),
+                .any(|child| child.view.contains_component_identity()),
             ViewKind::Row(row) => row
                 .children
                 .iter()
@@ -85,6 +88,14 @@ pub(crate) struct ComponentSlotNode {
 /// RETAINED SEMANTIC IR. Width allocation requested from a parent.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum WidthRule {
+    #[default]
+    Fit,
+    Fill,
+}
+
+/// RETAINED SEMANTIC IR. Height allocation requested from a parent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum HeightRule {
     #[default]
     Fit,
     Fill,
@@ -118,8 +129,38 @@ impl TextView {
 /// RETAINED SEMANTIC IR. Vertical composition. The parent owns sibling gaps.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ColumnView {
-    pub(crate) children: Vec<View>,
+    pub(crate) children: Vec<ColumnChild>,
     pub(crate) gap: u16,
+}
+
+/// RETAINED SEMANTIC IR. One column child and its height track.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ColumnChild {
+    pub(crate) track: TrackSize,
+    pub(crate) view: View,
+}
+
+impl ColumnChild {
+    pub(crate) fn content(view: View) -> Self {
+        Self {
+            track: TrackSize::Content { max: None },
+            view,
+        }
+    }
+
+    pub(crate) fn fixed(height: u16, view: View) -> Self {
+        Self {
+            track: TrackSize::Fixed(height),
+            view,
+        }
+    }
+
+    pub(crate) fn flex(view: View) -> Self {
+        Self {
+            track: TrackSize::Flex { min: 1 },
+            view,
+        }
+    }
 }
 
 /// RETAINED SEMANTIC IR. Horizontal composition. The parent owns sibling gaps.

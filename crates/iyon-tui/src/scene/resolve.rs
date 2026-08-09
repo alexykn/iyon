@@ -5,7 +5,7 @@ use crate::{
     interaction::MountedCapabilities,
     presentation::{
         View,
-        ir::{ClampRowsView, ColumnView, ContainerNode, RowChild, RowView, ViewKind},
+        ir::{ClampRowsView, ColumnChild, ColumnView, ContainerNode, RowChild, RowView, ViewKind},
     },
 };
 
@@ -70,8 +70,13 @@ impl Resolver<'_> {
                 children: column
                     .children
                     .iter()
-                    .map(|child| self.resolve_view(child, parent))
-                    .collect::<Result<_, _>>()?,
+                    .map(|child| {
+                        Ok(ColumnChild {
+                            track: child.track,
+                            view: self.resolve_view(&child.view, parent)?,
+                        })
+                    })
+                    .collect::<Result<_, ResolveError>>()?,
                 gap: column.gap,
             }),
             ViewKind::Row(row) => ViewKind::Row(RowView {
@@ -142,6 +147,7 @@ impl Resolver<'_> {
         Ok(View {
             component: Some(id),
             width: slot.width,
+            height: slot.height,
             decoration: slot.decoration.clone(),
             kind: ViewKind::Container(ContainerNode {
                 child: Box::new(resolved),
