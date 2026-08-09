@@ -14,9 +14,9 @@ pub(crate) mod wrap;
 
 #[allow(unused_imports)]
 pub(crate) use api::{
-    BorderSpec, BorderStyle, ColorSpec, HorizontalAlign, Insets, IntoView, OverflowIndicator,
-    StyleSpec, Text, TextAttribute, TextAttributeSpec, TextSpan, ThemeKey, VerticalAlign, View,
-    WrapMode,
+    BorderSpec, BorderStyle, ColorSpec, Horizontal, HorizontalAlign, Insets, IntoView,
+    OverflowIndicator, StyleSpec, Text, TextAttribute, TextAttributeSpec, TextSpan, ThemeKey,
+    Vertical, VerticalAlign, View, WrapMode,
 };
 
 pub(crate) use host::{

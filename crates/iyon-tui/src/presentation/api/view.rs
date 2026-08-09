@@ -1,6 +1,7 @@
 //! Semantic View construction and the open conversion boundary.
 
 use super::{
+    composition::{Horizontal, Vertical},
     style::{OverflowIndicator, VerticalAlign},
     text::{Text, TextSpan},
 };
@@ -16,6 +17,38 @@ impl View {
 
     pub(crate) fn styled_text(spans: impl IntoIterator<Item = TextSpan>) -> Text {
         Text::styled(spans)
+    }
+
+    /// Constructs horizontal composition immediately with a `Fit` width.
+    /// The builder defaults to zero gap and top vertical alignment.
+    pub(crate) fn horizontal(build: impl FnOnce(&mut Horizontal)) -> Self {
+        let mut horizontal = Horizontal::new();
+        build(&mut horizontal);
+        let (children, gap, vertical_align) = horizontal.into_parts();
+
+        Self {
+            width: WidthRule::Fit,
+            decoration: Decoration::default(),
+            kind: ViewKind::Row(RowView {
+                children,
+                gap,
+                vertical_align,
+            }),
+        }
+    }
+
+    /// Constructs vertical composition immediately with a `Fit` width and
+    /// zero gap.
+    pub(crate) fn vertical(build: impl FnOnce(&mut Vertical)) -> Self {
+        let mut vertical = Vertical::new();
+        build(&mut vertical);
+        let (children, gap) = vertical.into_parts();
+
+        Self {
+            width: WidthRule::Fit,
+            decoration: Decoration::default(),
+            kind: ViewKind::Column(ColumnView { children, gap }),
+        }
     }
 
     pub(crate) fn column(children: Vec<View>, gap: u16) -> Self {
