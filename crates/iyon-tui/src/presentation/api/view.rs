@@ -102,6 +102,18 @@ impl View {
         }
     }
 
+    pub(crate) fn fit_width(mut self) -> Self {
+        self.width = WidthRule::Fit;
+        self
+    }
+
+    pub(crate) fn fill_width(mut self) -> Self {
+        self.width = WidthRule::Fill;
+        self
+    }
+
+    /// Migration-only internal sizing method. Replaced by `fit_width` and
+    /// `fill_width` in the final semantic API.
     pub(crate) fn width(mut self, width: WidthRule) -> Self {
         self.width = width;
         self

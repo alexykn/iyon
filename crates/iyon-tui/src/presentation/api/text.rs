@@ -112,8 +112,18 @@ impl Text {
         self
     }
 
-    /// Migration-only internal sizing method. Replaced by the final sizing API
-    /// in a later tranche.
+    pub(crate) fn fit_width(mut self) -> Self {
+        self.view.width = WidthRule::Fit;
+        self
+    }
+
+    pub(crate) fn fill_width(mut self) -> Self {
+        self.view.width = WidthRule::Fill;
+        self
+    }
+
+    /// Migration-only internal sizing method. Replaced by `fit_width` and
+    /// `fill_width` in the final semantic API.
     pub(crate) fn width(mut self, width: WidthRule) -> Self {
         self.view.width = width;
         self
@@ -159,7 +169,7 @@ mod tests {
             .wrap(WrapMode::Grapheme)
             .text_align(HorizontalAlign::End)
             .style(StyleSpec::new().foreground(ColorSpec::Ansi(3)))
-            .width(WidthRule::Fill);
+            .fill_width();
 
         assert_eq!(text.view.width, WidthRule::Fill);
         assert_eq!(
@@ -172,5 +182,18 @@ mod tests {
         assert_eq!(text_view.wrap, WrapMode::Grapheme);
         assert_eq!(text_view.align, HorizontalAlign::End);
         assert_eq!(text_view.spans[0].style, StyleSpec::default());
+    }
+
+    #[test]
+    fn typed_width_modifiers_preserve_text_and_last_write_wins() {
+        let text = View::text("x")
+            .fill_width()
+            .no_wrap()
+            .text_align(HorizontalAlign::End)
+            .fit_width();
+
+        assert_eq!(text.view.width, WidthRule::Fit);
+        assert!(matches!(text.view.kind, ViewKind::Text(_)));
+        assert_eq!(text.view.decoration, Decoration::default());
     }
 }

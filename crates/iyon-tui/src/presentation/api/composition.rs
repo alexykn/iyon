@@ -117,6 +117,7 @@ mod tests {
 
     use super::*;
     use crate::presentation::api::style::StyleSpec;
+    use crate::presentation::api::text::TextSpan;
     use crate::presentation::ir::{ColumnView, RowView, TrackSize, ViewKind, WidthRule};
     use crate::presentation::{IntoView, View};
 
@@ -139,6 +140,19 @@ mod tests {
             panic!("expected text view");
         };
         &text.spans[0].text
+    }
+
+    #[test]
+    fn new_semantic_constructors_default_to_fit() {
+        let views = [
+            View::text("x").into_view(),
+            View::styled_text([TextSpan::plain("x")]).into_view(),
+            View::horizontal(|_| {}),
+            View::vertical(|_| {}),
+            View::spacer(1),
+        ];
+
+        assert!(views.iter().all(|view| view.width == WidthRule::Fit));
     }
 
     #[test]
@@ -184,7 +198,7 @@ mod tests {
     #[test]
     fn parent_tracks_do_not_mutate_child_width() {
         let fit = View::text("fit");
-        let fill = View::text("fill").width(WidthRule::Fill);
+        let fill = View::text("fill").fill_width();
         let view = View::horizontal(|row| {
             row.fixed(3, fit);
             row.flex(fill);
@@ -232,6 +246,11 @@ mod tests {
         });
 
         assert_eq!(new, old);
+    }
+
+    #[test]
+    fn old_row_keeps_its_migration_fill_default() {
+        assert_eq!(View::row(Vec::new(), 0).width, WidthRule::Fill,);
     }
 
     #[test]
