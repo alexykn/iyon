@@ -1,0 +1,486 @@
+use super::*;
+
+#[test]
+fn ancestor_and_child_text_styles_cascade_to_physical_text() {
+    let mut child = View::text("x").into_view();
+    child.decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(2));
+    let mut view = View::box_(child, Decoration::default());
+    view.decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(1));
+
+    let surface = ViewCompiler::default().layout(&view, 1, PhysicalStyle::default());
+    assert_eq!(
+        surface.get(0, 0).style.foreground,
+        Some(PhysicalColor::Indexed(2))
+    );
+}
+
+#[test]
+fn span_style_overrides_node_and_explicit_false_cascades() {
+    let mut child = View::styled_text(vec![
+        TextSpan::plain("a"),
+        TextSpan::styled("b", StyleSpec::new().bold()),
+    ])
+    .into_view();
+    child.decoration.text_style = StyleSpec::new().attribute(TextAttribute::Bold, false);
+    let mut view = View::box_(child, Decoration::default());
+    view.decoration.text_style = StyleSpec::new().bold();
+
+    let surface = ViewCompiler::default().layout(&view, 2, PhysicalStyle::default());
+    assert!(!surface.get(0, 0).style.bold);
+    assert!(surface.get(1, 0).style.bold);
+}
+
+#[test]
+fn surface_background_paints_text_backing_and_transparent_tail() {
+    let mut view = View::text("x").width(WidthRule::Fill).into_view();
+    view.decoration.surface_background = Some(ColorSpec::Ansi(1));
+    let surface = ViewCompiler::default().layout(&view, 4, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(0, 0).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+    assert_eq!(
+        surface.get(3, 0).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+    assert!(surface.get(3, 0).painted);
+}
+
+#[test]
+fn final_surface_background_api_paints_text_and_tail() {
+    let view = View::text("x")
+        .fill_width()
+        .background(ColorSpec::ansi(1))
+        .into_view();
+    let surface = ViewCompiler::default().layout(&view, 4, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(0, 0).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+    assert_eq!(
+        surface.get(3, 0).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+}
+
+#[test]
+fn final_text_style_background_only_paints_text_cells() {
+    let view = View::text("x")
+        .fill_width()
+        .style(StyleSpec::new().background(ColorSpec::ansi(1)))
+        .into_view();
+    let surface = ViewCompiler::default().layout(&view, 4, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(0, 0).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+    assert_eq!(surface.get(3, 0).style.background, None);
+}
+
+#[test]
+fn final_foreground_api_inherits_to_descendant_text() {
+    let view = View::vertical(|column| {
+        column.child("hello");
+    })
+    .foreground(ColorSpec::ansi(1));
+    let surface = ViewCompiler::default().layout(&view, 5, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(0, 0).style.foreground,
+        Some(PhysicalColor::Indexed(1))
+    );
+}
+
+#[test]
+fn final_attribute_api_supports_false_and_specific_child_override() {
+    let inherited_bold_cancelled = View::vertical(|column| {
+        column.child(View::text("x").text_attribute(TextAttribute::Bold, false));
+    })
+    .bold();
+    let child_bold = View::vertical(|column| {
+        column.child(View::text("x").bold());
+    })
+    .text_attribute(TextAttribute::Bold, false);
+    let compiler = ViewCompiler::default();
+
+    let cancelled = compiler.layout(&inherited_bold_cancelled, 1, PhysicalStyle::default());
+    let overridden = compiler.layout(&child_bold, 1, PhysicalStyle::default());
+    assert!(!cancelled.get(0, 0).style.bold);
+    assert!(overridden.get(0, 0).style.bold);
+}
+
+#[test]
+fn final_span_style_remains_more_specific_than_node_foreground() {
+    let view = View::styled_text([
+        TextSpan::plain("a"),
+        TextSpan::styled("b", StyleSpec::new().foreground(ColorSpec::ansi(2))),
+    ])
+    .foreground(ColorSpec::ansi(1))
+    .into_view();
+    let surface = ViewCompiler::default().layout(&view, 2, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(0, 0).style.foreground,
+        Some(PhysicalColor::Indexed(1))
+    );
+    assert_eq!(
+        surface.get(1, 0).style.foreground,
+        Some(PhysicalColor::Indexed(2))
+    );
+}
+
+#[test]
+fn final_empty_properties_use_existing_geometry_rules() {
+    let compiler = ViewCompiler::default();
+    let empty = View::vertical(|_| {});
+    let background = empty.clone().background(ColorSpec::ansi(1));
+    let padding = empty.clone().padding(1);
+    let border = empty.clone().border(BorderSpec::plain());
+    let combined = empty
+        .padding(1)
+        .border(BorderSpec::plain())
+        .background(ColorSpec::ansi(1));
+
+    assert_block_shape(&compiler.compile(&background, 10), 0, 0);
+    assert_block_shape(&compiler.compile(&padding, 10), 2, 2);
+    assert_block_shape(&compiler.compile(&border, 10), 2, 2);
+    assert_block_shape(&compiler.compile(&combined, 10), 4, 4);
+}
+
+#[test]
+fn final_border_api_preserves_surface_background_and_border_color() {
+    let view = View::vertical(|_| {})
+        .background(ColorSpec::ansi(1))
+        .border(BorderSpec::plain().color(ColorSpec::ansi(2)));
+    let surface = ViewCompiler::default().layout(&view, 10, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(0, 0).style.foreground,
+        Some(PhysicalColor::Indexed(2))
+    );
+    assert_eq!(
+        surface.get(0, 0).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+}
+
+#[test]
+fn final_structural_order_affects_clamp_geometry() {
+    let padded_then_clamped = View::text("x")
+        .padding(1)
+        .clamp_rows(1, OverflowIndicator::None);
+    let clamped_then_padded = View::text("x")
+        .clamp_rows(1, OverflowIndicator::None)
+        .padding(1);
+    let compiler = ViewCompiler::default();
+
+    assert_eq!(compiler.compile(&padded_then_clamped, 10).rows.len(), 1);
+    assert_eq!(compiler.compile(&clamped_then_padded, 10).rows.len(), 3);
+}
+
+#[test]
+fn explicit_border_constructor_uses_rounded_glyphs() {
+    let view = View::text("x").border(BorderSpec::rounded().color(ColorSpec::ansi(2)));
+    let rows = ViewCompiler::default().compile(&view.into_view(), 5).rows;
+    assert!(text(&rows[0]).starts_with('╭'));
+    assert_eq!(
+        rows[0].style_at(0).and_then(|style| style.foreground),
+        Some(PhysicalColor::Indexed(2))
+    );
+}
+
+#[test]
+fn explicit_style_properties_merge_without_losing_fields() {
+    let view = View::text("x")
+        .foreground(ColorSpec::ansi(1))
+        .bold()
+        .style(StyleSpec::new().italic())
+        .into_view();
+
+    assert_eq!(
+        view.decoration.text_style.foreground,
+        Some(ColorSpec::ansi(1))
+    );
+    assert_eq!(view.decoration.text_style.attributes.bold, Some(true));
+    assert_eq!(view.decoration.text_style.attributes.italic, Some(true));
+}
+
+#[test]
+fn explicit_border_color_preserves_surface_background() {
+    let mut decoration = Decoration::background(ColorSpec::Ansi(1));
+    decoration.border = Some(BorderSpec {
+        style: BorderStyle::Plain,
+        color: Some(ColorSpec::Ansi(2)),
+    });
+    let view = View::box_(
+        View::text("x").width(WidthRule::Fill).into_view(),
+        decoration,
+    )
+    .width(WidthRule::Fill);
+    let surface = ViewCompiler::default().layout(&view, 5, PhysicalStyle::default());
+
+    let border = surface.get(0, 1).style;
+    assert_eq!(border.foreground, Some(PhysicalColor::Indexed(2)));
+    assert_eq!(border.background, Some(PhysicalColor::Indexed(1)));
+}
+
+#[test]
+fn implicit_border_color_preserves_surface_background_and_inherits_foreground() {
+    let mut decoration = Decoration::background(ColorSpec::Ansi(1));
+    decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(2));
+    decoration.border = Some(BorderSpec {
+        style: BorderStyle::Plain,
+        color: None,
+    });
+    let view = View::box_(
+        View::text("x").width(WidthRule::Fill).into_view(),
+        decoration,
+    )
+    .width(WidthRule::Fill);
+    let surface = ViewCompiler::default().layout(&view, 5, PhysicalStyle::default());
+
+    let border = surface.get(0, 1).style;
+    assert_eq!(border.foreground, Some(PhysicalColor::Indexed(2)));
+    assert_eq!(border.background, Some(PhysicalColor::Indexed(1)));
+}
+
+#[test]
+fn text_background_does_not_leak_into_border() {
+    let mut decoration = Decoration::default();
+    decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
+    decoration.border = Some(BorderSpec {
+        style: BorderStyle::Plain,
+        color: None,
+    });
+    let view = View::box_(
+        View::text("x").width(WidthRule::Fill).into_view(),
+        decoration,
+    )
+    .width(WidthRule::Fill);
+    let surface = ViewCompiler::default().layout(&view, 5, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(1, 1).style.background,
+        Some(PhysicalColor::Indexed(2))
+    );
+    assert_eq!(surface.get(0, 1).style.background, None);
+}
+
+#[test]
+fn surface_and_text_backgrounds_coexist_across_border_and_content() {
+    let mut decoration = Decoration::background(ColorSpec::Ansi(1));
+    decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
+    decoration.border = Some(BorderSpec {
+        style: BorderStyle::Plain,
+        color: None,
+    });
+    let view = View::box_(
+        View::text("x").width(WidthRule::Fill).into_view(),
+        decoration,
+    )
+    .width(WidthRule::Fill);
+    let surface = ViewCompiler::default().layout(&view, 5, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(1, 1).style.background,
+        Some(PhysicalColor::Indexed(2))
+    );
+    assert_eq!(
+        surface.get(0, 1).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+    assert_eq!(
+        surface.get(4, 1).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+}
+
+#[test]
+fn border_painting_preserves_tiny_width_geometry() {
+    let mut decoration = Decoration::background(ColorSpec::Ansi(1));
+    decoration.border = Some(BorderSpec {
+        style: BorderStyle::Plain,
+        color: Some(ColorSpec::Ansi(2)),
+    });
+    let view = View::box_(View::text("x").into_view(), decoration).width(WidthRule::Fill);
+
+    for width in [0, 1, 2, 3, 10] {
+        let block = compile_view(&view, width);
+        assert!(block.width <= width);
+        assert!(
+            block
+                .rows
+                .iter()
+                .all(|row| row.width() <= usize::from(width))
+        );
+    }
+}
+
+#[test]
+fn text_background_only_paints_text_cells() {
+    let mut view = View::text("x").width(WidthRule::Fill).into_view();
+    view.decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
+    let surface = ViewCompiler::default().layout(&view, 4, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(0, 0).style.background,
+        Some(PhysicalColor::Indexed(2))
+    );
+    assert!(!surface.get(3, 0).painted);
+}
+
+#[test]
+fn explicit_text_background_wins_over_surface_background() {
+    let mut view = View::text("x").width(WidthRule::Fill).into_view();
+    view.decoration.surface_background = Some(ColorSpec::Ansi(1));
+    view.decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
+    let surface = ViewCompiler::default().layout(&view, 4, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(0, 0).style.background,
+        Some(PhysicalColor::Indexed(2))
+    );
+    assert_eq!(
+        surface.get(3, 0).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+}
+
+#[test]
+fn nested_surface_backgrounds_preserve_child_region() {
+    let child = View::box_(
+        View::text("x").into_view(),
+        Decoration::background(ColorSpec::Ansi(2)),
+    );
+    let outer =
+        View::box_(child, Decoration::background(ColorSpec::Ansi(1))).width(WidthRule::Fill);
+    let surface = ViewCompiler::default().layout(&outer, 4, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(0, 0).style.background,
+        Some(PhysicalColor::Indexed(2))
+    );
+    assert_eq!(
+        surface.get(3, 0).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+}
+
+#[test]
+fn transparent_padding_shows_ancestor_surface_background() {
+    let child = View::box_(
+        View::text("x").into_view(),
+        Decoration::default().padding(Insets::all(1)),
+    );
+    let outer =
+        View::box_(child, Decoration::background(ColorSpec::Ansi(1))).width(WidthRule::Fill);
+    let surface = ViewCompiler::default().layout(&outer, 5, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(0, 0).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+}
+
+#[test]
+fn surface_background_does_not_enter_text_style_cascade() {
+    let mut view = View::text("x").into_view();
+    view.decoration.surface_background = Some(ColorSpec::Ansi(1));
+    let resolved = ViewCompiler::default()
+        .theme
+        .resolve_text_style(PhysicalStyle::default(), &view.decoration.text_style);
+    assert_eq!(resolved.background, None);
+}
+
+#[test]
+fn default_decoration_keeps_core_tails_transparent() {
+    let compiler = ViewCompiler::default();
+    let views = [
+        View::text("a").width(WidthRule::Fill).into_view(),
+        View::column(vec![View::text("a").width(WidthRule::Fill).into_view()], 0),
+        View::row(vec![RowChild::content(View::text("a").into_view())], 0),
+        View::spacer(1).width(WidthRule::Fill),
+        View::text("a")
+            .fill_width()
+            .clamp_rows(1, OverflowIndicator::None),
+    ];
+
+    for (index, view) in views.into_iter().enumerate() {
+        let surface = compiler.layout(&view, 4, PhysicalStyle::default());
+        if index == 3 {
+            assert!(surface.cells.iter().all(|cell| !cell.painted));
+        } else {
+            assert!(surface.cells.iter().any(|cell| cell.painted));
+            assert!(!surface.get(3, 0).painted);
+        }
+    }
+}
+
+#[test]
+fn decorated_shell_paints_through_transparent_core() {
+    let view = View::box_(
+        View::spacer(1).width(WidthRule::Fill),
+        Decoration::background(ColorSpec::Ansi(1)),
+    );
+    let surface = ViewCompiler::default().layout(&view, 3, PhysicalStyle::default());
+
+    assert!(surface.get(0, 0).painted);
+    assert_eq!(
+        surface.get(0, 0).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+}
+
+#[test]
+fn explicit_child_paint_wins_over_outer_background() {
+    let child = View::styled_text(vec![TextSpan::styled(
+        "x",
+        StyleSpec {
+            background: Some(ColorSpec::Ansi(2)),
+            ..StyleSpec::default()
+        },
+    )])
+    .width(WidthRule::Fill)
+    .into_view();
+    let view = View::box_(child, Decoration::background(ColorSpec::Ansi(1)));
+    let surface = ViewCompiler::default().layout(&view, 3, PhysicalStyle::default());
+
+    assert_eq!(
+        surface.get(0, 0).style.background,
+        Some(PhysicalColor::Indexed(2))
+    );
+    assert_eq!(
+        surface.get(2, 0).style.background,
+        Some(PhysicalColor::Indexed(1))
+    );
+}
+
+#[test]
+fn decoration_preserves_physical_incompleteness() {
+    let view = View::box_(
+        View::text("漢").into_view(),
+        Decoration::background(ColorSpec::Ansi(1)),
+    );
+    let compiler = ViewCompiler::default();
+
+    assert!(!compiler.compile(&view, 1).physically_complete);
+    assert!(compiler.compile(&view, 2).physically_complete);
+}
+
+#[test]
+fn box_background_covers_padding_and_row_gap() {
+    let view = View::box_(
+        tool_view("body"),
+        Decoration::background(ColorSpec::Theme(ThemeKey::from("surface.user")))
+            .padding(Insets::all(1)),
+    );
+    let rows = compile_view(&view, 12).rows;
+    assert!(rows.iter().all(|row| {
+        row.cells()
+            .iter()
+            .any(|cell| cell.style.background.is_some())
+    }));
+}

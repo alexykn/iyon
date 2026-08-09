@@ -1,10 +1,10 @@
 use super::*;
 use crate::{
     IntoView, View,
-    physical::{PhysicalCell, PhysicalColor, PhysicalRow, PhysicalStyle},
+    physical::{AnsiColor, PhysicalCell, PhysicalColor, PhysicalRow, PhysicalStyle},
     presentation::layout::compile_view,
 };
-use ratatui::style::{Color, Modifier};
+use ratatui::style::{Color, Modifier, Style};
 
 #[test]
 fn physical_style_lowers_without_quantization() {
@@ -26,6 +26,19 @@ fn physical_style_lowers_without_quantization() {
     assert!(lowered.add_modifier.contains(Modifier::ITALIC));
     assert!(lowered.add_modifier.contains(Modifier::UNDERLINED));
     assert!(lowered.add_modifier.contains(Modifier::REVERSED));
+
+    assert_eq!(
+        style::style(PhysicalStyle {
+            foreground: Some(PhysicalColor::Named(AnsiColor::Red)),
+            ..PhysicalStyle::default()
+        })
+        .fg,
+        Some(Color::Red)
+    );
+    assert_eq!(
+        style::physical_style(Style::default().fg(Color::Yellow)).foreground,
+        Some(PhysicalColor::Named(AnsiColor::Yellow))
+    );
 }
 
 #[test]

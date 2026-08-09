@@ -46,7 +46,7 @@ pub(crate) fn allocate_tracks(
             }
             TrackSize::Content { max } => {
                 let remaining = available.saturating_sub(used).min(usize::from(u16::MAX)) as u16;
-                let preferred = compiler.layout(&child.view, remaining, inherited).width as usize;
+                let preferred = compiler.layout(&child.view, remaining, inherited).width() as usize;
                 let allocation = preferred
                     .min(max.map_or(usize::MAX, usize::from))
                     .min(available.saturating_sub(used));

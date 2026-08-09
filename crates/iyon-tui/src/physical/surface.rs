@@ -35,8 +35,6 @@ impl PhysicalCell {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Surface {
     pub(crate) size: Size,
-    pub(crate) width: u16,
-    pub(crate) height: u16,
     pub(crate) cells: Vec<PhysicalCell>,
     pub(crate) physically_complete: bool,
 }
@@ -45,19 +43,17 @@ impl Surface {
     pub(crate) fn new(width: u16, height: u16) -> Self {
         Self {
             size: Size { width, height },
-            width,
-            height,
             cells: vec![PhysicalCell::transparent(); usize::from(width) * usize::from(height)],
             physically_complete: true,
         }
     }
 
     pub(crate) fn width(&self) -> u16 {
-        self.width
+        self.size.width
     }
 
     pub(crate) fn height(&self) -> u16 {
-        self.height
+        self.size.height
     }
 
     fn index(&self, x: u16, y: u16) -> usize {

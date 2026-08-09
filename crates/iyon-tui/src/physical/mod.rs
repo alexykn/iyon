@@ -12,5 +12,5 @@ mod surface;
 mod tests;
 
 pub(crate) use row::PhysicalRow;
-pub(crate) use style::{PhysicalColor, PhysicalStyle};
+pub(crate) use style::{AnsiColor, PhysicalColor, PhysicalStyle};
 pub(crate) use surface::{PhysicalCell, Surface};
