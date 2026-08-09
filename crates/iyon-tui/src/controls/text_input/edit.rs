@@ -10,15 +10,10 @@ pub(super) fn canonicalize(input: &str, multiline: bool) -> String {
             '\t' => output.push_str("    "),
             '\n' if multiline => output.push('\n'),
             '\n' => output.push(' '),
-            character if is_discarded_control(character) => {}
             character => output.push(character),
         }
     }
     output
-}
-
-fn is_discarded_control(character: char) -> bool {
-    character.is_control() && character != '\n'
 }
 
 pub(super) fn is_separator(character: char) -> bool {

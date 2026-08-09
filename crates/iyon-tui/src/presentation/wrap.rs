@@ -1,10 +1,12 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
+use textwrap::Options;
+
 use crate::physical::PhysicalStyle;
 use unicode_linebreak::{BreakOpportunity, linebreaks};
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::presentation::WrapMode;
 
@@ -327,6 +329,146 @@ fn wrap_line_word_then_grapheme<'a>(
     }
 
     output
+}
+
+/// Computes the proven composer input ranges without depending on the
+/// application input module. The one reserved caret column and textwrap
+/// behavior intentionally match the legacy input contract.
+pub(crate) fn input_wrap_ranges(text: &str, width: u16) -> Vec<Range<usize>> {
+    let wrap_width = usize::from(width.saturating_sub(1).max(1));
+    let opts = Options::new(wrap_width).break_words(true);
+    let mut visual = Vec::new();
+
+    for logical in input_logical_line_ranges(text) {
+        let slice = &text[logical.clone()];
+        if slice.is_empty() {
+            visual.push(logical.start..logical.start);
+            continue;
+        }
+
+        let mut consumed_abs = logical.start;
+        for piece in textwrap::wrap(slice, &opts) {
+            let range = match piece {
+                std::borrow::Cow::Borrowed(piece) => {
+                    // Safety: textwrap's borrowed piece is a subslice of text.
+                    let start = unsafe { piece.as_ptr().offset_from(text.as_ptr()) as usize };
+                    start..start + piece.len()
+                }
+                std::borrow::Cow::Owned(piece) => {
+                    input_map_owned_piece(text, consumed_abs, logical.end, &piece)
+                }
+            };
+
+            let piece_width = UnicodeWidthStr::width(&text[range.clone()]);
+            let mut remaining = wrap_width.saturating_sub(piece_width);
+            let mut end = range.end;
+            for character in text[range.end..logical.end].chars() {
+                if character != ' ' && character != '\t' {
+                    break;
+                }
+                let width = character.width().unwrap_or(0);
+                if width > remaining {
+                    break;
+                }
+                end += character.len_utf8();
+                remaining -= width;
+            }
+            visual.push(range.start..end);
+            consumed_abs = end;
+        }
+    }
+
+    if visual.is_empty() {
+        visual.push(0..0);
+    }
+    visual
+}
+
+pub(crate) fn wrap_input_styled_lines<'a>(
+    hard_lines: &[Vec<StyledGrapheme<'a>>],
+    source: &str,
+    width: u16,
+) -> Vec<WrappedLine<'a>> {
+    let ranges = input_wrap_ranges(source, width);
+    let target_width = usize::from(width.saturating_sub(1).max(1));
+    ranges
+        .into_iter()
+        .map(|range| {
+            let graphemes = source[range.clone()]
+                .grapheme_indices(true)
+                .map(|(offset, text)| {
+                    let start = range.start + offset;
+                    let end = start + text.len();
+                    let style = hard_lines
+                        .iter()
+                        .flatten()
+                        .find(|grapheme| {
+                            grapheme.source.as_ref().is_some_and(|source_range| {
+                                source_range.start < end && source_range.end > start
+                            })
+                        })
+                        .map_or_else(PhysicalStyle::default, |grapheme| grapheme.style);
+                    StyledGrapheme {
+                        text: Cow::Owned(text.to_owned()),
+                        width: UnicodeWidthStr::width(text),
+                        style,
+                        source: Some(start..end),
+                    }
+                })
+                .collect();
+            WrappedLine::new(graphemes, target_width)
+        })
+        .collect()
+}
+
+fn input_map_owned_piece(
+    text: &str,
+    mut start: usize,
+    max_end: usize,
+    wrapped: &str,
+) -> Range<usize> {
+    while start < max_end && !wrapped.starts_with([' ', '\t']) {
+        let Some(character) = text[start..].chars().next() else {
+            break;
+        };
+        if character == ' ' || character == '\t' {
+            start += character.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    let mut end = start;
+    let mut chars = wrapped.chars().peekable();
+    while let Some(character) = chars.next() {
+        if end < max_end {
+            let source = text[end..]
+                .chars()
+                .next()
+                .expect("input source character should exist");
+            if character == source {
+                end += source.len_utf8();
+                continue;
+            }
+        }
+        if character == '-' && chars.peek().is_none() {
+            continue;
+        }
+    }
+    start..end
+}
+
+fn input_logical_line_ranges(text: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    for (index, character) in text.char_indices() {
+        if character == '\n' {
+            ranges.push(start..index);
+            start = index + 1;
+        }
+    }
+    ranges.push(start..text.len());
+    ranges
 }
 
 #[cfg(test)]
