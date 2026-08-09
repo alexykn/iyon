@@ -15,13 +15,3 @@ pub(crate) enum HistoryUnitContent {
     Live(View),
     Stream(ErasedHistoryStream),
 }
-
-impl HistoryUnitContent {
-    pub(super) fn kind_name(&self) -> &'static str {
-        match self {
-            Self::Static(_) => "Static",
-            Self::Live(_) => "Live",
-            Self::Stream(_) => "Stream",
-        }
-    }
-}

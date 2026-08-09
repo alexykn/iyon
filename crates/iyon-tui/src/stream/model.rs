@@ -65,15 +65,6 @@ impl<S: StreamingSource> StreamModel<S> {
         &self.resident
     }
 
-    pub(crate) fn restore_semantic_state(
-        &mut self,
-        resident: ResidentPrefix,
-        current: StreamSnapshot,
-    ) {
-        self.resident = resident;
-        self.current = current;
-    }
-
     pub(crate) fn refresh(&mut self) -> Result<(), StreamModelError> {
         let observed = self.source.snapshot();
         Self::validate_transition(&self.current, &observed)?;
@@ -125,13 +116,18 @@ impl<S: StreamingSource> StreamModel<S> {
 
     pub(crate) fn seal(&mut self) -> Result<(), StreamModelError> {
         self.source.seal();
-        self.refresh()?;
+        let observed = self.source.snapshot();
+        Self::validate_transition(&self.current, &observed)?;
+        if observed.source_base > self.resident.end() {
+            return Err(StreamModelError::SourceBeforeResident);
+        }
         if !self.source.is_sealed() {
             return Err(StreamModelError::SourceNotSealed);
         }
-        if self.current.stable_through != self.current.source_end {
+        if observed.stable_through != observed.source_end {
             return Err(StreamModelError::UnstableAfterSeal);
         }
+
         self.refresh()?;
         if self.resident.end() != self.current.source_end {
             return Err(StreamModelError::UnstableAfterSeal);

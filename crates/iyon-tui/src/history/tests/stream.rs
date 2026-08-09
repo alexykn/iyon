@@ -1,18 +1,52 @@
 use super::super::*;
 use super::TestSource;
 use crate::{
-    View,
+    TextSpan, View,
     component::ComponentId,
     presentation::IntoView,
-    stream::{StreamModelError, StreamOffset, StreamRevision, StreamSnapshot, StreamingSource},
+    stream::{
+        StreamModelError, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
+        StreamSnapshotBuilder, StreamingSource,
+    },
 };
 
 struct OtherSource {
     inner: TestSource,
 }
 
+#[derive(Clone)]
 struct FailingSealSource {
     inner: TestSource,
+}
+
+impl FailingSealSource {
+    fn new() -> Self {
+        let snapshot = StreamSnapshotBuilder::new(
+            StreamRevision::ZERO,
+            StreamOffset::ZERO,
+            StreamOffset::new(1),
+            StreamOffset::new(2),
+        )
+        .exact_text(
+            StreamRange::new(StreamOffset::ZERO, StreamOffset::new(1)),
+            [TextSpan::plain("A")],
+        )
+        .exact_text(
+            StreamRange::new(StreamOffset::new(1), StreamOffset::new(2)),
+            [TextSpan::plain("B")],
+        )
+        .finish()
+        .unwrap();
+        Self {
+            inner: TestSource::from_snapshot(snapshot, false),
+        }
+    }
+
+    fn complete_seal(&self) {
+        let mut state = self.inner.state.borrow_mut();
+        state.snapshot.revision = StreamRevision::new(state.snapshot.revision().as_u64() + 1);
+        state.snapshot.stable_through = state.snapshot.source_end;
+    }
 }
 
 impl StreamingSource for FailingSealSource {
@@ -21,7 +55,17 @@ impl StreamingSource for FailingSealSource {
     }
 
     fn compact_before(&mut self, offset: StreamOffset) {
-        self.inner.compact_before(offset);
+        assert_eq!(offset, StreamOffset::new(2));
+        let mut state = self.inner.state.borrow_mut();
+        state.compact_calls += 1;
+        state.snapshot = StreamSnapshotBuilder::new(
+            StreamRevision::new(state.snapshot.revision().as_u64() + 1),
+            StreamOffset::new(2),
+            StreamOffset::new(2),
+            StreamOffset::new(2),
+        )
+        .finish()
+        .unwrap();
     }
 
     fn seal(&mut self) {
@@ -177,14 +221,11 @@ fn stream_refresh_failure_does_not_publish_source_snapshot() {
     let handle = history.push_stream(source).unwrap();
     let before = stream_snapshot(&history, handle.unit());
 
-    history
-        .update_stream(handle, |source| {
+    assert_eq!(
+        history.update_stream(handle, |source| {
             let changed = source.snapshot_with(0, 1, "AB");
             source.replace_snapshot(changed);
-        })
-        .unwrap();
-    assert_eq!(
-        history.refresh_stream(handle),
+        }),
         Err(HistoryError::Stream(
             StreamModelError::ChangedWithoutRevision,
         ))
@@ -218,12 +259,9 @@ fn sealed_stream_rejects_shared_source_mutation() {
 
 #[test]
 fn failed_stream_seal_does_not_publish_model_state() {
+    let source = FailingSealSource::new();
     let mut history = History::new();
-    let handle = history
-        .push_stream(FailingSealSource {
-            inner: TestSource::new("AB", 0, false),
-        })
-        .unwrap();
+    let handle = history.push_stream(source.clone()).unwrap();
     let before = stream_snapshot(&history, handle.unit());
 
     assert_eq!(
@@ -231,6 +269,15 @@ fn failed_stream_seal_does_not_publish_model_state() {
         Err(HistoryError::Stream(StreamModelError::UnstableAfterSeal))
     );
     assert_eq!(stream_snapshot(&history, handle.unit()), before);
+    assert_eq!(source.inner.compact_calls(), 0);
+
+    source.complete_seal();
+    history.refresh_stream(handle).unwrap();
+    assert_eq!(source.inner.compact_calls(), 1);
+    assert_eq!(
+        stream_snapshot(&history, handle.unit()).source_base(),
+        StreamOffset::new(2)
+    );
 }
 
 #[test]
@@ -250,6 +297,18 @@ fn wrong_stream_handle_type_is_rejected_without_mutation() {
 
     assert_eq!(
         history.update_stream(wrong, |_| ()),
+        Err(HistoryError::StreamTypeMismatch {
+            unit: handle.unit(),
+        })
+    );
+    assert_eq!(
+        history.refresh_stream(wrong),
+        Err(HistoryError::StreamTypeMismatch {
+            unit: handle.unit(),
+        })
+    );
+    assert_eq!(
+        history.seal_stream(wrong),
         Err(HistoryError::StreamTypeMismatch {
             unit: handle.unit(),
         })

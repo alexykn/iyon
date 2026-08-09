@@ -13,7 +13,6 @@ pub(crate) enum HistoryError {
     StreamTypeMismatch { unit: HistoryUnitId },
     StreamAlreadySealed { unit: HistoryUnitId },
     SealedStreamChanged { unit: HistoryUnitId },
-    SealedSourceUnstable { unit: HistoryUnitId },
     Stream(StreamModelError),
 }
 
