@@ -9,8 +9,8 @@ use crate::presentation::{
     layout::{LayoutNodeId, LayoutTree, ViewCompiler},
 };
 
-/// Physical lowering facade. The compatibility path supplies root bounds;
-/// bounded callers compute the retained geometry before requesting lowering.
+/// Physical lowering facade. The compiler supplies root bounds; bounded
+/// callers compute retained geometry before requesting lowering.
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct ViewPainter;
 
