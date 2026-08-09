@@ -56,6 +56,34 @@ impl Component for FocusableLabel {
 }
 
 #[derive(Debug)]
+struct FocusableMultiline;
+
+impl Component for FocusableMultiline {
+    fn view(&self) -> View {
+        View::text("top\nbottom").into_view()
+    }
+
+    fn capabilities(&self, cx: &mut crate::ComponentCx<'_, Self>) {
+        cx.focusable();
+    }
+}
+
+#[derive(Debug)]
+struct ModalHost {
+    child: crate::component::ComponentHandle<FocusableLabel>,
+}
+
+impl Component for ModalHost {
+    fn view(&self) -> View {
+        View::component(self.child)
+    }
+
+    fn capabilities(&self, cx: &mut crate::ComponentCx<'_, Self>) {
+        cx.modal_scope();
+    }
+}
+
+#[derive(Debug)]
 struct Parent {
     child: crate::component::ComponentHandle<Label>,
 }
@@ -367,6 +395,106 @@ fn focus_excludes_fully_clipped_components() {
         &mut registry,
     );
     assert_eq!(focus.focused(), Some(visible.id()));
+}
+
+#[test]
+fn partially_clipped_focusable_remains_eligible() {
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(FocusableMultiline);
+    let view = View::component(handle).clamp_rows(1, crate::presentation::OverflowIndicator::None);
+    let resolved = resolve_scene(&view, &registry).unwrap();
+    let layout = layout_resolved_scene(&resolved, Size::new(20, 4));
+    assert!(
+        layout
+            .components
+            .entries
+            .get(&handle.id())
+            .and_then(|geometry| geometry.visible)
+            .is_some()
+    );
+
+    let mut focus = FocusState::default();
+    focus.reconcile_with_geometry(
+        &resolved.mounts,
+        &resolved.capabilities,
+        Some(&layout.components),
+        &mut registry,
+    );
+    assert_eq!(focus.focused(), Some(handle.id()));
+}
+
+#[test]
+fn invisible_focus_repairs_without_stealing_focus_on_return() {
+    let mut registry = ComponentRegistry::new();
+    let first = registry.register(FocusableLabel);
+    let second = registry.register(FocusableLabel);
+    let resolved = resolve_scene(
+        &View::vertical(|column| {
+            column.child(View::component(first));
+            column.child(View::component(second));
+        }),
+        &registry,
+    )
+    .unwrap();
+    let layout = layout_resolved_scene(&resolved, Size::new(20, 4));
+    let mut focus = FocusState::default();
+    focus.reconcile_with_geometry(
+        &resolved.mounts,
+        &resolved.capabilities,
+        Some(&layout.components),
+        &mut registry,
+    );
+    assert_eq!(focus.focused(), Some(first.id()));
+
+    let mut hidden = layout.components.clone();
+    hidden.entries.get_mut(&first.id()).unwrap().visible = None;
+    focus.reconcile_with_geometry(
+        &resolved.mounts,
+        &resolved.capabilities,
+        Some(&hidden),
+        &mut registry,
+    );
+    assert_eq!(focus.focused(), Some(second.id()));
+    focus.reconcile_with_geometry(
+        &resolved.mounts,
+        &resolved.capabilities,
+        Some(&layout.components),
+        &mut registry,
+    );
+    assert_eq!(focus.focused(), Some(second.id()));
+}
+
+#[test]
+fn invisible_active_modal_does_not_expose_background_focus() {
+    let mut registry = ComponentRegistry::new();
+    let modal_child = registry.register(FocusableLabel);
+    let modal = registry.register(ModalHost { child: modal_child });
+    let background = registry.register(FocusableLabel);
+    let resolved = resolve_scene(
+        &View::vertical(|column| {
+            column.child(View::component(modal));
+            column.child(View::component(background));
+        }),
+        &registry,
+    )
+    .unwrap();
+    let layout = layout_resolved_scene(&resolved, Size::new(20, 4));
+    let mut hidden_modal = layout.components.clone();
+    hidden_modal
+        .entries
+        .get_mut(&modal_child.id())
+        .unwrap()
+        .visible = None;
+
+    let mut focus = FocusState::default();
+    focus.reconcile_with_geometry(
+        &resolved.mounts,
+        &resolved.capabilities,
+        Some(&hidden_modal),
+        &mut registry,
+    );
+    assert_eq!(focus.active_modal(), Some(modal.id()));
+    assert_eq!(focus.focused(), None);
 }
 
 #[test]

@@ -1,12 +1,10 @@
 use crate::{
     geometry::{AxisConstraint, LayoutConstraints, Rect, Size},
-    presentation::ir::{
-        ColumnView, ContainerNode, HeightRule, RowView, TrackSize, View, ViewKind, WidthRule,
-    },
+    presentation::ir::{ColumnView, ContainerNode, HeightRule, RowView, View, ViewKind, WidthRule},
 };
 
 use super::{
-    measure::intrinsic_size,
+    measure::{horizontal_decoration, intrinsic_content_size, intrinsic_size},
     tracks::allocate_tracks,
     tree::{LayoutNode, LayoutNodeId, LayoutPayload, LayoutTree},
 };
@@ -64,17 +62,15 @@ impl Builder {
         clip: Rect,
     ) -> (LayoutNodeId, Size, bool) {
         let border = u16::from(view.decoration.border.is_some());
-        let horizontal_decoration = border
-            .saturating_mul(2)
-            .saturating_add(view.decoration.padding.left)
-            .saturating_add(view.decoration.padding.right);
+        let (left_padding, _right_padding, horizontal_decoration) =
+            horizontal_decoration(view, width_bound.unwrap_or(u16::MAX));
         let vertical_decoration = border
             .saturating_mul(2)
             .saturating_add(view.decoration.padding.top)
             .saturating_add(view.decoration.padding.bottom);
         let inner_width_bound =
             width_bound.map(|value| value.saturating_sub(horizontal_decoration));
-        let intrinsic = intrinsic_size(view, inner_width_bound.unwrap_or(u16::MAX));
+        let intrinsic = intrinsic_size(view, width_bound.unwrap_or(u16::MAX));
         let intrinsic_core = Size::new(
             intrinsic.width.saturating_sub(horizontal_decoration),
             intrinsic.height.saturating_sub(vertical_decoration),
@@ -91,9 +87,7 @@ impl Builder {
             (_, Some(height)) => intrinsic_core.height.min(height),
             (_, None) => intrinsic_core.height,
         };
-        let content_x = x
-            .saturating_add(border)
-            .saturating_add(view.decoration.padding.left);
+        let content_x = x.saturating_add(border).saturating_add(left_padding);
         let content_y = y
             .saturating_add(border)
             .saturating_add(view.decoration.padding.top);
@@ -115,14 +109,20 @@ impl Builder {
             HeightRule::Fit => core_size.height.min(requested_core_height),
         };
         let size = Size::new(
-            core_width.saturating_add(horizontal_decoration),
-            core_height.saturating_add(vertical_decoration),
+            core_width
+                .saturating_add(horizontal_decoration)
+                .min(width_bound.unwrap_or(u16::MAX)),
+            core_height
+                .saturating_add(vertical_decoration)
+                .min(height_bound.unwrap_or(u16::MAX)),
         );
         let rect = Rect::new(x, y, size.width, size.height);
         let node_clip = clip
             .intersection(rect)
             .unwrap_or(Rect::new(clip.x, clip.y, 0, 0));
-        let content_rect = Rect::new(content_x, content_y, core_width, core_height);
+        let content_rect = Rect::new(content_x, content_y, core_width, core_height)
+            .intersection(rect)
+            .unwrap_or(Rect::new(rect.x, rect.y, 0, 0));
         let id = LayoutNodeId(self.nodes.len());
         self.nodes.push(LayoutNode {
             rect,
@@ -173,18 +173,15 @@ impl Builder {
     ) -> (Vec<LayoutNodeId>, Size, bool) {
         match kind {
             ViewKind::Text(_) | ViewKind::Spacer { .. } => {
-                let size = match kind {
-                    ViewKind::Text(text) => {
-                        crate::presentation::layout::measure::text_intrinsic_size(text, width)
-                    }
-                    ViewKind::Spacer { rows } => Size::new(0, (*rows).min(height)),
+                let (size, fits) = match kind {
+                    ViewKind::Text(text) => (
+                        crate::presentation::layout::measure::text_intrinsic_size(text, width),
+                        crate::presentation::layout::measure::text_fits(text, width),
+                    ),
+                    ViewKind::Spacer { rows } => (Size::new(0, (*rows).min(height)), true),
                     _ => unreachable!(),
                 };
-                (
-                    Vec::new(),
-                    size,
-                    size.height <= height || matches!(kind, ViewKind::Spacer { .. }),
-                )
+                (Vec::new(), size, fits && size.height <= height)
             }
             ViewKind::Container(ContainerNode { child }) => {
                 let (id, size, complete) = self.build(child, x, y, Some(width), Some(height), clip);
@@ -193,11 +190,10 @@ impl Builder {
             ViewKind::ClampRows(clamp) => {
                 let (id, mut size, child_complete) =
                     self.build(&clamp.child, x, y, Some(width), None, clip);
-                let truncated = size.height > clamp.max_rows;
                 size.height = size.height.min(clamp.max_rows);
                 let clamp_rect = Rect::new(x, y, width, size.height);
                 self.clip_subtree(id, clamp_rect);
-                (vec![id], size, truncated || child_complete)
+                (vec![id], size, child_complete)
             }
             ViewKind::Column(column) => {
                 self.build_column(column, x, y, width, height, fill_height, clip)
@@ -272,7 +268,7 @@ impl Builder {
             .map(|child| child.track)
             .collect::<Vec<_>>();
         let allocation = allocate_tracks(width, row.gap, &tracks, |index, remaining| {
-            intrinsic_size(&row.children[index].view, remaining).width
+            intrinsic_content_size(&row.children[index].view, remaining).width
         });
         let intrinsic_height = row
             .children

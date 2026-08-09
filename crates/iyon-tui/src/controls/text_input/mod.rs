@@ -226,7 +226,7 @@ impl TextInput {
         let visible = usize::from(size.height).max(1);
         let max_scroll = ranges.len().saturating_sub(visible);
         let cursor = self.cursor_bytes().min(self.text().len());
-        let cursor_row = crate::input::wrapped_line_index_by_start(&ranges, cursor).unwrap_or(0);
+        let cursor_row = cursor::wrapped_line_index_by_start(&ranges, cursor).unwrap_or(0);
         let mut scroll = self.scroll_row.min(max_scroll);
         if cursor_row < scroll {
             scroll = cursor_row;
