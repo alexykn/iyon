@@ -1,0 +1,67 @@
+use std::{
+    any::{Any, TypeId},
+    collections::VecDeque,
+};
+
+use super::handle::{Output, OutputId};
+
+pub(super) struct ErasedOutputEvent {
+    pub(super) output: OutputId,
+    pub(super) payload_type: TypeId,
+    pub(super) payload: Box<dyn Any>,
+}
+
+pub(crate) struct OutputQueue {
+    events: VecDeque<ErasedOutputEvent>,
+}
+
+impl OutputQueue {
+    pub(crate) fn new() -> Self {
+        Self {
+            events: VecDeque::new(),
+        }
+    }
+
+    pub(crate) fn event_cx(&mut self) -> EventCx<'_> {
+        EventCx { queue: self }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    pub(super) fn pop_front(&mut self) -> Option<ErasedOutputEvent> {
+        self.events.pop_front()
+    }
+
+    fn push<T: 'static>(&mut self, output: Output<T>, payload: T) {
+        self.events.push_back(ErasedOutputEvent {
+            output: output.id(),
+            payload_type: TypeId::of::<T>(),
+            payload: Box::new(payload),
+        });
+    }
+
+    #[cfg(test)]
+    pub(super) fn push_mismatched_for_test<T: 'static, U: 'static>(
+        &mut self,
+        output: Output<T>,
+        payload: U,
+    ) {
+        self.events.push_back(ErasedOutputEvent {
+            output: output.id(),
+            payload_type: TypeId::of::<U>(),
+            payload: Box::new(payload),
+        });
+    }
+}
+
+pub(crate) struct EventCx<'a> {
+    queue: &'a mut OutputQueue,
+}
+
+impl EventCx<'_> {
+    pub(crate) fn emit<T: 'static>(&mut self, output: Output<T>, value: T) {
+        self.queue.push(output, value);
+    }
+}
