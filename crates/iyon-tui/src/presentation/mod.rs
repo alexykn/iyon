@@ -19,7 +19,7 @@ pub(crate) use api::{
     Vertical, VerticalAlign, View, WrapMode,
 };
 
-pub(crate) use host::{ActiveContent, DockPanel, DockSizePolicy, FlowBoundary, UiKey};
+pub(crate) use host::{ActiveContent, DockPanel, DockSizePolicy, UiKey};
 
 // Migration-only crate-internal structural vocabulary. Feature code will stop
 // depending on these once the semantic construction API migration is complete.
