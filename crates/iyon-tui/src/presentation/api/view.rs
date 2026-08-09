@@ -11,17 +11,17 @@ use crate::presentation::ir::{
 };
 
 impl View {
-    pub(crate) fn text(text: impl Into<String>) -> Text {
+    pub fn text(text: impl Into<String>) -> Text {
         Text::plain(text)
     }
 
-    pub(crate) fn styled_text(spans: impl IntoIterator<Item = TextSpan>) -> Text {
+    pub fn styled_text(spans: impl IntoIterator<Item = TextSpan>) -> Text {
         Text::styled(spans)
     }
 
     /// Constructs horizontal composition immediately with a `Fit` width.
     /// The builder defaults to zero gap and top vertical alignment.
-    pub(crate) fn horizontal(build: impl FnOnce(&mut Horizontal)) -> Self {
+    pub fn horizontal(build: impl FnOnce(&mut Horizontal)) -> Self {
         let mut horizontal = Horizontal::new();
         build(&mut horizontal);
         let (children, gap, vertical_align) = horizontal.into_parts();
@@ -39,7 +39,7 @@ impl View {
 
     /// Constructs vertical composition immediately with a `Fit` width and
     /// zero gap.
-    pub(crate) fn vertical(build: impl FnOnce(&mut Vertical)) -> Self {
+    pub fn vertical(build: impl FnOnce(&mut Vertical)) -> Self {
         let mut vertical = Vertical::new();
         build(&mut vertical);
         let (children, gap) = vertical.into_parts();
@@ -83,7 +83,7 @@ impl View {
     }
 
     /// Creates a new undecorated structural boundary around this view.
-    pub(crate) fn container(self) -> Self {
+    pub fn container(self) -> Self {
         let width = self.width;
         Self {
             width,
@@ -95,7 +95,7 @@ impl View {
     }
 
     /// Creates a new structural truncation boundary around this view.
-    pub(crate) fn clamp_rows(self, max_rows: u16, overflow: OverflowIndicator) -> Self {
+    pub fn clamp_rows(self, max_rows: u16, overflow: OverflowIndicator) -> Self {
         let width = self.width;
         Self {
             width,
@@ -108,7 +108,7 @@ impl View {
         }
     }
 
-    pub(crate) fn spacer(rows: u16) -> Self {
+    pub fn spacer(rows: u16) -> Self {
         Self {
             width: WidthRule::Fit,
             decoration: Decoration::default(),
@@ -117,31 +117,31 @@ impl View {
     }
 
     /// Sets the current node's padding; repeated calls replace the prior value.
-    pub(crate) fn padding(mut self, padding: impl Into<Insets>) -> Self {
+    pub fn padding(mut self, padding: impl Into<Insets>) -> Self {
         self.decoration.padding = padding.into();
         self
     }
 
     /// Paints the current node's allocated surface, including transparent tails.
-    pub(crate) fn background(mut self, color: ColorSpec) -> Self {
+    pub fn background(mut self, color: ColorSpec) -> Self {
         self.decoration.surface_background = Some(color);
         self
     }
 
     /// Sets inherited foreground intent for descendant text.
-    pub(crate) fn foreground(mut self, color: ColorSpec) -> Self {
+    pub fn foreground(mut self, color: ColorSpec) -> Self {
         self.decoration.text_style.foreground = Some(color);
         self
     }
 
     /// Replaces the current node's complete border specification.
-    pub(crate) fn border(mut self, border: BorderSpec) -> Self {
+    pub fn border(mut self, border: BorderSpec) -> Self {
         self.decoration.border = Some(border);
         self
     }
 
     /// Sets sparse inherited text-attribute intent, including explicit false.
-    pub(crate) fn text_attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
+    pub fn text_attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
         self.decoration
             .text_style
             .attributes
@@ -149,32 +149,32 @@ impl View {
         self
     }
 
-    pub(crate) fn bold(self) -> Self {
+    pub fn bold(self) -> Self {
         self.text_attribute(TextAttribute::Bold, true)
     }
 
-    pub(crate) fn dim(self) -> Self {
+    pub fn dim(self) -> Self {
         self.text_attribute(TextAttribute::Dim, true)
     }
 
-    pub(crate) fn italic(self) -> Self {
+    pub fn italic(self) -> Self {
         self.text_attribute(TextAttribute::Italic, true)
     }
 
-    pub(crate) fn underline(self) -> Self {
+    pub fn underline(self) -> Self {
         self.text_attribute(TextAttribute::Underline, true)
     }
 
-    pub(crate) fn reversed(self) -> Self {
+    pub fn reversed(self) -> Self {
         self.text_attribute(TextAttribute::Reversed, true)
     }
 
-    pub(crate) fn fit_width(mut self) -> Self {
+    pub fn fit_width(mut self) -> Self {
         self.width = WidthRule::Fit;
         self
     }
 
-    pub(crate) fn fill_width(mut self) -> Self {
+    pub fn fill_width(mut self) -> Self {
         self.width = WidthRule::Fill;
         self
     }
@@ -189,7 +189,7 @@ impl View {
 
 /// Explicit conversion from semantic construction values into the canonical
 /// owned [`View`] representation.
-pub(crate) trait IntoView {
+pub trait IntoView {
     fn into_view(self) -> View;
 }
 

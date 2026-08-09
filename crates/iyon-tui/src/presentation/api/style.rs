@@ -1,65 +1,65 @@
 //! Backend-neutral semantic styling and decoration vocabulary.
 
-/// FEATURE EXTENSION API. Vertical alignment for row children.
+/// Vertical alignment for children in a horizontal composition.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum VerticalAlign {
+pub enum VerticalAlign {
     #[default]
     Top,
     Center,
     Bottom,
 }
-/// FEATURE EXTENSION API. Sparse semantic text-style intent, independent of
-/// Ratatui. Unspecified fields inherit from the preceding cascade layer.
+/// Sparse backend-neutral text-style intent. Unspecified fields inherit from
+/// the preceding cascade layer.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct StyleSpec {
+pub struct StyleSpec {
     pub(crate) foreground: Option<ColorSpec>,
     pub(crate) background: Option<ColorSpec>,
     pub(crate) attributes: TextAttributeSpec,
 }
 
 impl StyleSpec {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
-    pub(crate) fn foreground(mut self, color: ColorSpec) -> Self {
+    pub fn foreground(mut self, color: ColorSpec) -> Self {
         self.foreground = Some(color);
         self
     }
 
-    pub(crate) fn background(mut self, color: ColorSpec) -> Self {
+    pub fn background(mut self, color: ColorSpec) -> Self {
         self.background = Some(color);
         self
     }
 
-    pub(crate) fn bold(self) -> Self {
+    pub fn bold(self) -> Self {
         self.attribute(TextAttribute::Bold, true)
     }
 
-    pub(crate) fn dim(self) -> Self {
+    pub fn dim(self) -> Self {
         self.attribute(TextAttribute::Dim, true)
     }
 
-    pub(crate) fn italic(self) -> Self {
+    pub fn italic(self) -> Self {
         self.attribute(TextAttribute::Italic, true)
     }
 
-    pub(crate) fn underline(self) -> Self {
+    pub fn underline(self) -> Self {
         self.attribute(TextAttribute::Underline, true)
     }
 
-    pub(crate) fn reversed(self) -> Self {
+    pub fn reversed(self) -> Self {
         self.attribute(TextAttribute::Reversed, true)
     }
 
-    pub(crate) fn attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
+    pub fn attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
         self.attributes.set(attribute, enabled);
         self
     }
 
     /// Applies the explicitly specified fields from `incoming`; it is the
     /// more-specific patch and never clears unspecified fields.
-    pub(crate) fn overlay(&mut self, incoming: &Self) {
+    pub(in crate::presentation::api) fn overlay(&mut self, incoming: &Self) {
         if incoming.foreground.is_some() {
             self.foreground = incoming.foreground.clone();
         }
@@ -69,10 +69,10 @@ impl StyleSpec {
         self.attributes.overlay(incoming.attributes);
     }
 }
-/// FEATURE EXTENSION API. Node insets; padding belongs to the decorated View,
-/// not its structural child.
+/// Insets applied to a semantic view's surface. Padding belongs to the
+/// decorated view, not its structural child.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Insets {
+pub struct Insets {
     pub(crate) top: u16,
     pub(crate) right: u16,
     pub(crate) bottom: u16,
@@ -80,14 +80,14 @@ pub(crate) struct Insets {
 }
 
 impl Insets {
-    pub(crate) const ZERO: Self = Self {
+    pub const ZERO: Self = Self {
         top: 0,
         right: 0,
         bottom: 0,
         left: 0,
     };
 
-    pub(crate) const fn all(value: u16) -> Self {
+    pub const fn all(value: u16) -> Self {
         Self {
             top: value,
             right: value,
@@ -96,7 +96,7 @@ impl Insets {
         }
     }
 
-    pub(crate) const fn vertical(value: u16) -> Self {
+    pub const fn vertical(value: u16) -> Self {
         Self {
             top: value,
             bottom: value,
@@ -104,7 +104,7 @@ impl Insets {
         }
     }
 
-    pub(crate) const fn horizontal(value: u16) -> Self {
+    pub const fn horizontal(value: u16) -> Self {
         Self {
             right: value,
             left: value,
@@ -113,7 +113,7 @@ impl Insets {
     }
 
     /// Creates insets in top, right, bottom, left order.
-    pub(crate) const fn new(top: u16, right: u16, bottom: u16, left: u16) -> Self {
+    pub const fn new(top: u16, right: u16, bottom: u16, left: u16) -> Self {
         Self {
             top,
             right,
@@ -128,31 +128,31 @@ impl From<u16> for Insets {
         Self::all(value)
     }
 }
-/// FEATURE EXTENSION API. Theme-resolved or explicit terminal-compatible color.
+/// Backend-neutral theme, ANSI, or RGB color specification.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ColorSpec {
+pub enum ColorSpec {
     Theme(ThemeKey),
     Ansi(u8),
     Rgb { r: u8, g: u8, b: u8 },
 }
 
 impl ColorSpec {
-    pub(crate) fn theme(key: impl Into<ThemeKey>) -> Self {
+    pub fn theme(key: impl Into<ThemeKey>) -> Self {
         Self::Theme(key.into())
     }
 
-    pub(crate) const fn ansi(value: u8) -> Self {
+    pub const fn ansi(value: u8) -> Self {
         Self::Ansi(value)
     }
 
-    pub(crate) const fn rgb(r: u8, g: u8, b: u8) -> Self {
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self::Rgb { r, g, b }
     }
 }
 
-/// FEATURE EXTENSION API. Opaque host theme token.
+/// Opaque semantic key resolved by the host theme.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ThemeKey(pub(crate) String);
+pub struct ThemeKey(pub(crate) String);
 
 impl From<&str> for ThemeKey {
     fn from(value: &str) -> Self {
@@ -165,9 +165,9 @@ impl From<String> for ThemeKey {
         Self(value)
     }
 }
-/// FEATURE EXTENSION API. Sparse text-attribute intent.
+/// Sparse text-attribute intent used by semantic style patches.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct TextAttributeSpec {
+pub struct TextAttributeSpec {
     pub(crate) bold: Option<bool>,
     pub(crate) dim: Option<bool>,
     pub(crate) italic: Option<bool>,
@@ -176,7 +176,7 @@ pub(crate) struct TextAttributeSpec {
 }
 
 impl TextAttributeSpec {
-    pub(crate) fn set(&mut self, attribute: TextAttribute, enabled: bool) {
+    pub(in crate::presentation::api) fn set(&mut self, attribute: TextAttribute, enabled: bool) {
         match attribute {
             TextAttribute::Bold => self.bold = Some(enabled),
             TextAttribute::Dim => self.dim = Some(enabled),
@@ -205,9 +205,9 @@ impl TextAttributeSpec {
     }
 }
 
-/// FEATURE EXTENSION API. Semantic text-attribute selector.
+/// Selects a sparse semantic text attribute.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TextAttribute {
+pub enum TextAttribute {
     Bold,
     Dim,
     Italic,
@@ -215,52 +215,52 @@ pub(crate) enum TextAttribute {
     Reversed,
 }
 
-/// FEATURE EXTENSION API. Generic border description.
+/// Backend-neutral border description.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct BorderSpec {
+pub struct BorderSpec {
     pub(crate) style: BorderStyle,
     pub(crate) color: Option<ColorSpec>,
 }
 
 impl BorderSpec {
-    pub(crate) fn plain() -> Self {
+    pub fn plain() -> Self {
         Self {
             style: BorderStyle::Plain,
             color: None,
         }
     }
 
-    pub(crate) fn rounded() -> Self {
+    pub fn rounded() -> Self {
         Self {
             style: BorderStyle::Rounded,
             color: None,
         }
     }
 
-    pub(crate) fn double() -> Self {
+    pub fn double() -> Self {
         Self {
             style: BorderStyle::Double,
             color: None,
         }
     }
 
-    pub(crate) fn color(mut self, color: ColorSpec) -> Self {
+    pub fn color(mut self, color: ColorSpec) -> Self {
         self.color = Some(color);
         self
     }
 }
 
-/// FEATURE EXTENSION API. Terminal border families, independent of Ratatui.
+/// Terminal-independent border family.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum BorderStyle {
+pub enum BorderStyle {
     #[default]
     Plain,
     Rounded,
     Double,
 }
-/// FEATURE EXTENSION API. Indicator for a clamped view.
+/// Overflow treatment for a structurally clamped view.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum OverflowIndicator {
+pub enum OverflowIndicator {
     None,
     Ellipsis { style: StyleSpec },
     Footer { prefix: String, style: StyleSpec },

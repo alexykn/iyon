@@ -8,11 +8,11 @@ pub(super) mod style;
 pub(super) mod text;
 mod view;
 
-pub(crate) use super::ir::View;
-pub(crate) use composition::{Horizontal, Vertical};
-pub(crate) use style::{
+pub use super::ir::View;
+pub use composition::{Horizontal, Vertical};
+pub use style::{
     BorderSpec, BorderStyle, ColorSpec, Insets, OverflowIndicator, StyleSpec, TextAttribute,
     TextAttributeSpec, ThemeKey, VerticalAlign,
 };
-pub(crate) use text::{HorizontalAlign, Text, TextSpan, WrapMode};
-pub(crate) use view::IntoView;
+pub use text::{HorizontalAlign, Text, TextSpan, WrapMode};
+pub use view::IntoView;

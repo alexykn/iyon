@@ -11,7 +11,7 @@ use crate::presentation::ir::{RowChild, View};
 ///
 /// The capability is consumed by `View::horizontal`; it is not a retained
 /// semantic node and cannot itself be converted into a `View`.
-pub(crate) struct Horizontal {
+pub struct Horizontal {
     children: Vec<RowChild>,
     gap: u16,
     vertical_align: VerticalAlign,
@@ -26,12 +26,12 @@ impl Horizontal {
         }
     }
 
-    pub(crate) fn child(&mut self, child: impl IntoView) -> &mut Self {
+    pub fn child(&mut self, child: impl IntoView) -> &mut Self {
         self.children.push(RowChild::content(child.into_view()));
         self
     }
 
-    pub(crate) fn children<I, V>(&mut self, children: I) -> &mut Self
+    pub fn children<I, V>(&mut self, children: I) -> &mut Self
     where
         I: IntoIterator<Item = V>,
         V: IntoView,
@@ -42,23 +42,23 @@ impl Horizontal {
         self
     }
 
-    pub(crate) fn fixed(&mut self, width: u16, child: impl IntoView) -> &mut Self {
+    pub fn fixed(&mut self, width: u16, child: impl IntoView) -> &mut Self {
         self.children
             .push(RowChild::fixed(width, child.into_view()));
         self
     }
 
-    pub(crate) fn flex(&mut self, child: impl IntoView) -> &mut Self {
+    pub fn flex(&mut self, child: impl IntoView) -> &mut Self {
         self.children.push(RowChild::flex(child.into_view()));
         self
     }
 
-    pub(crate) fn gap(&mut self, gap: u16) -> &mut Self {
+    pub fn gap(&mut self, gap: u16) -> &mut Self {
         self.gap = gap;
         self
     }
 
-    pub(crate) fn vertical_align(&mut self, align: VerticalAlign) -> &mut Self {
+    pub fn vertical_align(&mut self, align: VerticalAlign) -> &mut Self {
         self.vertical_align = align;
         self
     }
@@ -72,7 +72,7 @@ impl Horizontal {
 ///
 /// The capability is consumed by `View::vertical`; it is not a retained
 /// semantic node and cannot itself be converted into a `View`.
-pub(crate) struct Vertical {
+pub struct Vertical {
     children: Vec<View>,
     gap: u16,
 }
@@ -85,12 +85,12 @@ impl Vertical {
         }
     }
 
-    pub(crate) fn child(&mut self, child: impl IntoView) -> &mut Self {
+    pub fn child(&mut self, child: impl IntoView) -> &mut Self {
         self.children.push(child.into_view());
         self
     }
 
-    pub(crate) fn children<I, V>(&mut self, children: I) -> &mut Self
+    pub fn children<I, V>(&mut self, children: I) -> &mut Self
     where
         I: IntoIterator<Item = V>,
         V: IntoView,
@@ -101,7 +101,7 @@ impl Vertical {
         self
     }
 
-    pub(crate) fn gap(&mut self, gap: u16) -> &mut Self {
+    pub fn gap(&mut self, gap: u16) -> &mut Self {
         self.gap = gap;
         self
     }

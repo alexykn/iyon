@@ -1,3 +1,37 @@
+//! Semantic terminal UI construction.
+//!
+//! [`View`] is an owned backend-neutral semantic value. Compose views with
+//! [`View::horizontal`] and [`View::vertical`], style nodes with semantic
+//! properties, and use [`IntoView`] to integrate application components.
+//! Layout internals and terminal backend types remain private.
+//!
+//! ```compile_fail
+//! use iyon_tui::presentation::ir::ViewKind;
+//! ```
+//!
+//! ```compile_fail
+//! use iyon_tui::{IntoView, View};
+//!
+//! let view = View::text("x").into_view();
+//! let _ = view.kind;
+//! ```
+//!
+//! ```compile_fail
+//! use iyon_tui::{Decoration, RowChild, WidthRule};
+//! ```
+//!
+//! ```compile_fail
+//! use iyon_tui::View;
+//!
+//! let _ = View::text("x").container().no_wrap();
+//! ```
+//!
+//! ```compile_fail
+//! use iyon_tui::Horizontal;
+//!
+//! let _ = Horizontal::new();
+//! ```
+
 mod app;
 mod input;
 mod presentation;
@@ -8,6 +42,12 @@ mod theme;
 mod tools;
 mod transcript;
 mod view;
+
+pub use presentation::api::{
+    BorderSpec, BorderStyle, ColorSpec, Horizontal, HorizontalAlign, Insets, IntoView,
+    OverflowIndicator, StyleSpec, Text, TextAttribute, TextAttributeSpec, TextSpan, ThemeKey,
+    Vertical, VerticalAlign, View, WrapMode,
+};
 
 use std::io::stdout;
 
