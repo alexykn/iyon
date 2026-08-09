@@ -1229,6 +1229,178 @@ mod tests {
     }
 
     #[test]
+    fn final_surface_background_api_paints_text_and_tail() {
+        let view = View::text("x")
+            .fill_width()
+            .background(ColorSpec::ansi(1))
+            .into_view();
+        let surface = ViewCompiler::default().layout(&view, 4, ResolvedTextStyle::default());
+
+        assert_eq!(surface.get(0, 0).style.bg, Some(Color::Indexed(1)));
+        assert_eq!(surface.get(3, 0).style.bg, Some(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn final_text_style_background_only_paints_text_cells() {
+        let view = View::text("x")
+            .fill_width()
+            .style(StyleSpec::new().background(ColorSpec::ansi(1)))
+            .into_view();
+        let surface = ViewCompiler::default().layout(&view, 4, ResolvedTextStyle::default());
+
+        assert_eq!(surface.get(0, 0).style.bg, Some(Color::Indexed(1)));
+        assert_eq!(surface.get(3, 0).style.bg, None);
+    }
+
+    #[test]
+    fn final_foreground_api_inherits_to_descendant_text() {
+        let view = View::vertical(|column| {
+            column.child("hello");
+        })
+        .foreground(ColorSpec::ansi(1));
+        let surface = ViewCompiler::default().layout(&view, 5, ResolvedTextStyle::default());
+
+        assert_eq!(surface.get(0, 0).style.fg, Some(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn final_attribute_api_supports_false_and_specific_child_override() {
+        let inherited_bold_cancelled = View::vertical(|column| {
+            column.child(View::text("x").text_attribute(TextAttribute::Bold, false));
+        })
+        .bold();
+        let child_bold = View::vertical(|column| {
+            column.child(View::text("x").bold());
+        })
+        .text_attribute(TextAttribute::Bold, false);
+        let compiler = ViewCompiler::default();
+
+        let cancelled = compiler.layout(&inherited_bold_cancelled, 1, ResolvedTextStyle::default());
+        let overridden = compiler.layout(&child_bold, 1, ResolvedTextStyle::default());
+        assert!(
+            !cancelled
+                .get(0, 0)
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert!(
+            overridden
+                .get(0, 0)
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+    }
+
+    #[test]
+    fn final_span_style_remains_more_specific_than_node_foreground() {
+        let view = View::styled_text([
+            TextSpan::plain("a"),
+            TextSpan::styled("b", StyleSpec::new().foreground(ColorSpec::ansi(2))),
+        ])
+        .foreground(ColorSpec::ansi(1))
+        .into_view();
+        let surface = ViewCompiler::default().layout(&view, 2, ResolvedTextStyle::default());
+
+        assert_eq!(surface.get(0, 0).style.fg, Some(Color::Indexed(1)));
+        assert_eq!(surface.get(1, 0).style.fg, Some(Color::Indexed(2)));
+    }
+
+    #[test]
+    fn final_empty_properties_use_existing_geometry_rules() {
+        let compiler = ViewCompiler::default();
+        let empty = View::vertical(|_| {});
+        let background = empty.clone().background(ColorSpec::ansi(1));
+        let padding = empty.clone().padding(1);
+        let border = empty.clone().border(BorderSpec::plain());
+        let combined = empty
+            .padding(1)
+            .border(BorderSpec::plain())
+            .background(ColorSpec::ansi(1));
+
+        assert_block_shape(&compiler.compile(&background, 10), 0, 0);
+        assert_block_shape(&compiler.compile(&padding, 10), 2, 2);
+        assert_block_shape(&compiler.compile(&border, 10), 2, 2);
+        assert_block_shape(&compiler.compile(&combined, 10), 4, 4);
+    }
+
+    #[test]
+    fn final_border_api_preserves_surface_background_and_border_color() {
+        let view = View::vertical(|_| {})
+            .background(ColorSpec::ansi(1))
+            .border(BorderSpec::plain().color(ColorSpec::ansi(2)));
+        let surface = ViewCompiler::default().layout(&view, 10, ResolvedTextStyle::default());
+
+        assert_eq!(surface.get(0, 0).style.fg, Some(Color::Indexed(2)));
+        assert_eq!(surface.get(0, 0).style.bg, Some(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn final_structural_order_affects_clamp_geometry() {
+        let padded_then_clamped = View::text("x")
+            .padding(1)
+            .clamp_rows(1, OverflowIndicator::None);
+        let clamped_then_padded = View::text("x")
+            .clamp_rows(1, OverflowIndicator::None)
+            .padding(1);
+        let compiler = ViewCompiler::default();
+
+        assert_eq!(compiler.compile(&padded_then_clamped, 10).rows.len(), 1);
+        assert_eq!(compiler.compile(&clamped_then_padded, 10).rows.len(), 3);
+    }
+
+    #[test]
+    fn undecorated_container_is_physical_identity_and_preserves_zero_width_height() {
+        let compiler = ViewCompiler::default();
+        for width in [0, 1, 5, 20] {
+            let plain = View::text("x").into_view();
+            let wrapped = plain.clone().container();
+            let plain_block = compiler.compile(&plain, width);
+            let wrapped_block = compiler.compile(&wrapped, width);
+            assert_eq!(wrapped_block.width, plain_block.width);
+            assert_eq!(wrapped_block.rows, plain_block.rows);
+            assert_eq!(
+                wrapped_block.physically_complete,
+                plain_block.physically_complete
+            );
+        }
+
+        let spacer = View::spacer(3).container();
+        assert_block_shape(&compiler.compile(&spacer, 10), 0, 3);
+    }
+
+    #[test]
+    fn final_clamp_preserves_zero_width_vertical_extent() {
+        let view = View::spacer(3).clamp_rows(4, OverflowIndicator::None);
+        assert_block_shape(&ViewCompiler::default().compile(&view, 10), 0, 3);
+    }
+
+    #[test]
+    fn explicit_border_constructor_uses_rounded_glyphs() {
+        let view = View::text("x").border(BorderSpec::rounded().color(ColorSpec::ansi(2)));
+        let rows = ViewCompiler::default().compile(&view.into_view(), 5).rows;
+        assert!(text(&rows[0]).starts_with('╭'));
+        assert_eq!(rows[0].spans[0].style.fg, Some(Color::Indexed(2)));
+    }
+
+    #[test]
+    fn explicit_style_properties_merge_without_losing_fields() {
+        let view = View::text("x")
+            .foreground(ColorSpec::ansi(1))
+            .bold()
+            .style(StyleSpec::new().italic())
+            .into_view();
+
+        assert_eq!(
+            view.decoration.text_style.foreground,
+            Some(ColorSpec::ansi(1))
+        );
+        assert_eq!(view.decoration.text_style.attributes.bold, Some(true));
+        assert_eq!(view.decoration.text_style.attributes.italic, Some(true));
+    }
+
+    #[test]
     fn explicit_border_color_preserves_surface_background() {
         let mut decoration = Decoration::background(ColorSpec::Ansi(1));
         decoration.border = Some(BorderSpec {
@@ -1540,11 +1712,9 @@ mod tests {
             View::column(vec![View::text("a").width(WidthRule::Fill).into_view()], 0),
             View::row(vec![RowChild::content(View::text("a").into_view())], 0),
             View::spacer(1).width(WidthRule::Fill),
-            View::clamp_rows(
-                View::text("a").width(WidthRule::Fill).into_view(),
-                1,
-                OverflowIndicator::None,
-            ),
+            View::text("a")
+                .fill_width()
+                .clamp_rows(1, OverflowIndicator::None),
         ];
 
         for (index, view) in views.into_iter().enumerate() {
@@ -1891,7 +2061,7 @@ mod tests {
         let compiler = ViewCompiler::default();
         let spacer = View::spacer(3);
         let container = View::box_(spacer.clone(), Decoration::default());
-        let clamped = View::clamp_rows(spacer, 4, OverflowIndicator::None);
+        let clamped = spacer.clamp_rows(4, OverflowIndicator::None);
 
         assert_block_shape(&compiler.compile(&container, 10), 0, 3);
         assert_block_shape(&compiler.compile(&clamped, 10), 0, 3);
@@ -1900,14 +2070,13 @@ mod tests {
     #[test]
     fn clamp_zero_rows_remains_safe_for_empty_child() {
         let compiler = ViewCompiler::default();
-        let view = View::clamp_rows(View::vertical(|_| {}), 0, OverflowIndicator::None);
+        let view = View::vertical(|_| {}).clamp_rows(0, OverflowIndicator::None);
         assert_block_shape(&compiler.compile(&view, 10), 0, 0);
     }
 
     #[test]
     fn clamp_emits_indicator() {
-        let view = View::clamp_rows(
-            View::text("one two three four").into_view(),
+        let view = View::text("one two three four").clamp_rows(
             2,
             crate::presentation::api::style::OverflowIndicator::Ellipsis {
                 style: StyleSpec::default(),

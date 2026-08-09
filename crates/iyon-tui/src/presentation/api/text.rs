@@ -1,6 +1,6 @@
 //! Typed semantic text construction backed by the canonical View IR.
 
-use super::style::StyleSpec;
+use super::style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleSpec, TextAttribute};
 use crate::presentation::ir::{Decoration, TextView, View, ViewKind, WidthRule};
 
 /// FEATURE EXTENSION API. A semantic text span.
@@ -112,6 +112,68 @@ impl Text {
         self
     }
 
+    /// Sets the current text node's padding; repeated calls replace the prior value.
+    pub(crate) fn padding(mut self, padding: impl Into<Insets>) -> Self {
+        self.view.decoration.padding = padding.into();
+        self
+    }
+
+    /// Paints the text node's allocated surface, not its text-cell style.
+    pub(crate) fn background(mut self, color: ColorSpec) -> Self {
+        self.view.decoration.surface_background = Some(color);
+        self
+    }
+
+    /// Sets inherited foreground intent for this text node.
+    pub(crate) fn foreground(mut self, color: ColorSpec) -> Self {
+        self.view.decoration.text_style.foreground = Some(color);
+        self
+    }
+
+    /// Replaces the text node's complete border specification.
+    pub(crate) fn border(mut self, border: BorderSpec) -> Self {
+        self.view.decoration.border = Some(border);
+        self
+    }
+
+    /// Sets sparse text-attribute intent, including explicit false.
+    pub(crate) fn text_attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
+        self.view
+            .decoration
+            .text_style
+            .attributes
+            .set(attribute, enabled);
+        self
+    }
+
+    pub(crate) fn bold(self) -> Self {
+        self.text_attribute(TextAttribute::Bold, true)
+    }
+
+    pub(crate) fn dim(self) -> Self {
+        self.text_attribute(TextAttribute::Dim, true)
+    }
+
+    pub(crate) fn italic(self) -> Self {
+        self.text_attribute(TextAttribute::Italic, true)
+    }
+
+    pub(crate) fn underline(self) -> Self {
+        self.text_attribute(TextAttribute::Underline, true)
+    }
+
+    pub(crate) fn reversed(self) -> Self {
+        self.text_attribute(TextAttribute::Reversed, true)
+    }
+
+    pub(crate) fn container(self) -> View {
+        self.into_canonical_view().container()
+    }
+
+    pub(crate) fn clamp_rows(self, max_rows: u16, overflow: OverflowIndicator) -> View {
+        self.into_canonical_view().clamp_rows(max_rows, overflow)
+    }
+
     pub(crate) fn fit_width(mut self) -> Self {
         self.view.width = WidthRule::Fit;
         self
@@ -134,7 +196,7 @@ impl Text {
 mod tests {
     use super::super::view::IntoView;
     use super::*;
-    use crate::presentation::api::style::ColorSpec;
+    use crate::presentation::api::style::{ColorSpec, OverflowIndicator, TextAttribute};
 
     #[test]
     fn text_style_merges_node_intent_without_rewriting_spans() {
@@ -195,5 +257,34 @@ mod tests {
         assert_eq!(text.view.width, WidthRule::Fit);
         assert!(matches!(text.view.kind, ViewKind::Text(_)));
         assert_eq!(text.view.decoration, Decoration::default());
+    }
+
+    #[test]
+    fn style_and_specific_text_properties_merge_as_sparse_patches() {
+        let text = View::text("x")
+            .bold()
+            .style(StyleSpec::new().attribute(TextAttribute::Bold, false))
+            .foreground(ColorSpec::ansi(1))
+            .style(StyleSpec::new().italic())
+            .bold();
+
+        assert_eq!(
+            text.view.decoration.text_style.foreground,
+            Some(ColorSpec::ansi(1))
+        );
+        assert_eq!(text.view.decoration.text_style.attributes.bold, Some(true));
+        assert_eq!(
+            text.view.decoration.text_style.attributes.italic,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn structural_text_transforms_return_general_views() {
+        let container = View::text("x").container();
+        let clamp = View::text("x").clamp_rows(1, OverflowIndicator::None);
+
+        assert!(matches!(container.kind, ViewKind::Container(_)));
+        assert!(matches!(clamp.kind, ViewKind::ClampRows(_)));
     }
 }
