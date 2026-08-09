@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{component::ComponentId, output::EventCx};
+use crate::{component::ComponentId, geometry::Size, output::EventCx};
 
 use super::{InteractionResult, KeyStroke};
 
@@ -20,6 +20,7 @@ type PasteHandler = dyn for<'paste, 'event> Fn(
     &mut EventCx<'event>,
 ) -> InteractionResult;
 type TickHandler = dyn for<'a> Fn(&mut dyn Any, Instant, &mut EventCx<'a>) -> bool;
+type LayoutChanged = dyn Fn(&mut dyn Any, Size);
 
 #[derive(Clone)]
 pub(crate) struct KeyCommandCapability {
@@ -41,6 +42,7 @@ pub(crate) struct ComponentCapabilities {
     pub(crate) paste: Option<Arc<PasteHandler>>,
     pub(crate) key_commands: Vec<KeyCommandCapability>,
     pub(crate) tick: Option<TickCapability>,
+    pub(crate) layout_changed: Option<Arc<LayoutChanged>>,
 }
 
 impl std::fmt::Debug for ComponentCapabilities {
@@ -52,6 +54,7 @@ impl std::fmt::Debug for ComponentCapabilities {
             .field("key_commands", &self.key_commands.len())
             .field("paste", &self.paste.is_some())
             .field("tick", &self.tick.is_some())
+            .field("layout_changed", &self.layout_changed.is_some())
             .finish()
     }
 }
@@ -109,6 +112,19 @@ impl<'a, C> ComponentCx<'a, C> {
                 .downcast_mut::<C>()
                 .expect("component paste handler type mismatch");
             handler(component, text, cx)
+        }));
+    }
+
+    /// Registers a crate-private layout-size synchronization callback.
+    pub(crate) fn on_layout_changed(&mut self, handler: fn(&mut C, Size))
+    where
+        C: 'static,
+    {
+        self.capabilities.layout_changed = Some(Arc::new(move |component, size| {
+            let component = component
+                .downcast_mut::<C>()
+                .expect("component layout handler type mismatch");
+            handler(component, size);
         }));
     }
 

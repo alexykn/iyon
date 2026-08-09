@@ -1,5 +1,7 @@
 use super::ComponentHandle;
-use crate::presentation::ir::{ComponentSlotNode, Decoration, View, ViewKind, WidthRule};
+use crate::presentation::ir::{
+    ComponentSlotNode, Decoration, HeightRule, View, ViewKind, WidthRule,
+};
 
 impl View {
     /// Creates a live semantic mount for a retained component.
@@ -7,6 +9,7 @@ impl View {
         Self {
             component: None,
             width: WidthRule::Fit,
+            height: HeightRule::Fit,
             decoration: Decoration::default(),
             kind: ViewKind::ComponentSlot(ComponentSlotNode { id: handle.id() }),
         }

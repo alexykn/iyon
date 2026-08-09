@@ -14,7 +14,16 @@ use crate::{
     },
 };
 
-use super::{CompiledTextRow, ViewCompiler};
+use crate::presentation::layout::ViewCompiler;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CompiledTextRow {
+    pub(crate) row: PhysicalRow,
+    pub(crate) source_end: Option<usize>,
+    pub(crate) cursor_column: Option<usize>,
+    pub(crate) fits: bool,
+    pub(crate) width: usize,
+}
 
 impl ViewCompiler {
     pub(crate) fn compile_text_with_metadata(

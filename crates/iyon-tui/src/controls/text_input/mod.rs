@@ -16,7 +16,10 @@ mod tests;
 
 use std::ops::Range;
 
-use crate::{Component, ComponentCx, EventCx, InteractionResult, Output, View};
+use crate::{
+    Component, ComponentCx, EventCx, InteractionResult, Output, View, geometry::Size,
+    presentation::wrap::input_wrap_ranges,
+};
 
 use self::{
     buffer::TextBuffer,
@@ -37,6 +40,8 @@ pub struct TextInput {
     focused: bool,
     submitted: Output<String>,
     change_outputs: ChangeOutputs,
+    layout_size: Option<Size>,
+    scroll_row: usize,
 }
 
 impl TextInput {
@@ -48,6 +53,8 @@ impl TextInput {
             focused: false,
             submitted: Output::new(),
             change_outputs: ChangeOutputs::default(),
+            layout_size: None,
+            scroll_row: 0,
         }
     }
 
@@ -64,6 +71,7 @@ impl TextInput {
         }
         self.multiline = enabled;
         self.buffer.recanonicalize(enabled);
+        self.repair_scroll();
     }
 
     pub fn is_multiline(&self) -> bool {
@@ -85,11 +93,13 @@ impl TextInput {
     /// Replaces the canonical text and moves the cursor to its end.
     pub fn set_text(&mut self, text: impl AsRef<str>) {
         self.buffer.set_text(text, self.multiline);
+        self.repair_scroll();
     }
 
     /// Clears text and editor-local kill state without emitting a change.
     pub fn clear(&mut self) {
         self.buffer.clear();
+        self.repair_scroll();
     }
 
     /// Returns this input's stable submission channel.
@@ -106,7 +116,11 @@ impl TextInput {
     }
 
     fn insert_text(&mut self, text: &str) -> bool {
-        self.buffer.insert_text(text, self.multiline)
+        let changed = self.buffer.insert_text(text, self.multiline);
+        if changed {
+            self.repair_scroll();
+        }
+        changed
     }
 
     fn emit_change(&self, cx: &mut EventCx<'_>) {
@@ -114,13 +128,27 @@ impl TextInput {
     }
 
     fn move_up(&mut self) -> bool {
-        let rows = self.buffer.logical_rows();
-        self.buffer.move_up_in_rows(&rows)
+        let changed = if let Some(size) = self.layout_size {
+            let rows = input_wrap_ranges(self.text(), size.width);
+            self.buffer.move_up_in_rows(&rows)
+        } else {
+            let rows = self.buffer.logical_rows();
+            self.buffer.move_up_in_rows(&rows)
+        };
+        self.repair_scroll();
+        changed
     }
 
     fn move_down(&mut self) -> bool {
-        let rows = self.buffer.logical_rows();
-        self.buffer.move_down_in_rows(&rows)
+        let changed = if let Some(size) = self.layout_size {
+            let rows = input_wrap_ranges(self.text(), size.width);
+            self.buffer.move_down_in_rows(&rows)
+        } else {
+            let rows = self.buffer.logical_rows();
+            self.buffer.move_down_in_rows(&rows)
+        };
+        self.repair_scroll();
+        changed
     }
 
     fn can_execute(&self, command: TextInputCommand) -> bool {
@@ -176,7 +204,37 @@ impl TextInput {
         command: TextInputCommand,
         cx: &mut EventCx<'_>,
     ) -> InteractionResult {
-        handle_command(input, command, cx)
+        let result = handle_command(input, command, cx);
+        input.repair_scroll();
+        result
+    }
+
+    fn layout_changed(input: &mut Self, size: Size) {
+        input.layout_size = Some(size);
+        input.repair_scroll();
+    }
+
+    fn repair_scroll(&mut self) {
+        let Some(size) = self.layout_size else {
+            return;
+        };
+        if size.width == 0 || size.height == 0 {
+            self.scroll_row = 0;
+            return;
+        }
+        let ranges = input_wrap_ranges(self.text(), size.width);
+        let visible = usize::from(size.height).max(1);
+        let max_scroll = ranges.len().saturating_sub(visible);
+        let cursor = self.cursor_bytes().min(self.text().len());
+        let cursor_row = crate::input::wrapped_line_index_by_start(&ranges, cursor).unwrap_or(0);
+        let mut scroll = self.scroll_row.min(max_scroll);
+        if cursor_row < scroll {
+            scroll = cursor_row;
+        }
+        if cursor_row >= scroll.saturating_add(visible) {
+            scroll = cursor_row + 1 - visible;
+        }
+        self.scroll_row = scroll.min(max_scroll);
     }
 
     fn focus_changed_callback(input: &mut Self, focused: bool) {
@@ -218,5 +276,6 @@ impl Component for TextInput {
         cx.on_focus_changed(Self::focus_changed_callback);
         cx.key_commands(Self::command_for_key, Self::handle_command);
         cx.on_paste(Self::paste_callback);
+        cx.on_layout_changed(Self::layout_changed);
     }
 }

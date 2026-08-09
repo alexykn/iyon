@@ -1,23 +1,30 @@
 //! Private semantic layout/compiler boundary.
 //!
-//! Manual layout and text compilation produce backend-neutral physical rows.
-//! Terminal adapters are deliberately outside this module.
+//! This module owns backend-neutral constraints, retained layout geometry, and
+//! the compatibility compiler facade. Physical lowering lives in painting.
 
-mod manual;
-mod text;
+mod engine;
+mod measure;
 mod tracks;
+mod tree;
 
 #[cfg(test)]
 mod tests;
 
 use crate::{
-    physical::{PhysicalRow, PhysicalStyle, Surface},
+    geometry::{LayoutConstraints, Size},
+    physical::{PhysicalRow, Surface},
     presentation::View,
 };
 
-use super::paint::ThemeResolver;
+pub(crate) use engine::{LayoutEngine, ManualLayoutEngine};
+pub(crate) use tree::{
+    ComponentGeometry, ComponentGeometryMap, LayoutNode, LayoutNodeId, LayoutPayload, LayoutTree,
+};
 
-pub(crate) use text::{row_from_graphemes, row_from_string};
+use super::paint::{ThemeResolver, ViewPainter};
+
+pub(crate) use super::paint::{CompiledTextRow, row_from_graphemes, row_from_string};
 pub(crate) use tracks::allocate_tracks;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,22 +39,36 @@ pub(crate) struct ViewCompiler {
     pub(crate) theme: ThemeResolver,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CompiledTextRow {
-    pub(crate) row: PhysicalRow,
-    pub(crate) source_end: Option<usize>,
-    pub(crate) cursor_column: Option<usize>,
-    pub(crate) fits: bool,
-    pub(crate) width: usize,
-}
-
 impl ViewCompiler {
     pub(crate) fn compile(&self, view: &View, max_width: u16) -> LayoutBlock {
-        let surface = self.layout(view, max_width, PhysicalStyle::default());
+        let surface = ViewPainter.paint(self, view, max_width);
         let physically_complete = surface.physically_complete;
         LayoutBlock {
             width: surface.width(),
             rows: lower_surface(surface),
+            physically_complete,
+        }
+    }
+
+    pub(crate) fn layout_tree(&self, view: &View, constraints: LayoutConstraints) -> LayoutTree {
+        ManualLayoutEngine.layout(view, constraints)
+    }
+
+    pub(crate) fn compile_bounded(&self, view: &View, size: Size) -> LayoutBlock {
+        let tree = self.layout_tree(view, LayoutConstraints::bounded(size));
+        let surface = ViewPainter.paint_tree(self, &tree);
+        let height = surface.height().min(size.height);
+        let mut bounded = Surface::new(surface.width().min(size.width), height);
+        bounded.physically_complete = tree.physically_complete && surface.physically_complete;
+        for y in 0..bounded.height() {
+            for x in 0..bounded.width() {
+                *bounded.get_mut(x, y) = surface.get(x, y).clone();
+            }
+        }
+        let physically_complete = bounded.physically_complete;
+        LayoutBlock {
+            width: bounded.width(),
+            rows: lower_surface(bounded),
             physically_complete,
         }
     }

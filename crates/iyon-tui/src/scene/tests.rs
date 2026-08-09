@@ -1,8 +1,12 @@
 use super::*;
 use crate::{
     component::{Component, ComponentRegistry, MountedComponents},
+    geometry::Size,
+    interaction::FocusState,
     presentation::{IntoView, View, layout::compile_view},
 };
+
+use super::{LayoutSynchronizer, layout_resolved_scene};
 
 #[derive(Debug)]
 struct Label {
@@ -12,6 +16,42 @@ struct Label {
 impl Component for Label {
     fn view(&self) -> View {
         View::text(self.text.clone()).into_view()
+    }
+}
+
+#[derive(Debug)]
+struct LayoutAware {
+    size: Option<Size>,
+    calls: usize,
+}
+
+impl Component for LayoutAware {
+    fn view(&self) -> View {
+        View::text("layout").into_view()
+    }
+
+    fn capabilities(&self, cx: &mut crate::ComponentCx<'_, Self>) {
+        cx.on_layout_changed(Self::layout_changed);
+    }
+}
+
+impl LayoutAware {
+    fn layout_changed(&mut self, size: Size) {
+        self.size = Some(size);
+        self.calls += 1;
+    }
+}
+
+#[derive(Debug)]
+struct FocusableLabel;
+
+impl Component for FocusableLabel {
+    fn view(&self) -> View {
+        View::text("focus").into_view()
+    }
+
+    fn capabilities(&self, cx: &mut crate::ComponentCx<'_, Self>) {
+        cx.focusable();
     }
 }
 
@@ -40,6 +80,7 @@ impl Component for CycleNode {
             .map(|id| View {
                 component: None,
                 width: crate::presentation::WidthRule::Fit,
+                height: crate::presentation::ir::HeightRule::Fit,
                 decoration: Default::default(),
                 kind: crate::presentation::ir::ViewKind::ComponentSlot(
                     crate::presentation::ir::ComponentSlotNode { id },
@@ -240,6 +281,95 @@ fn snapshot_metadata_does_not_create_a_live_mount() {
 }
 
 #[test]
+fn layout_size_delivery_is_initial_and_changes_only_when_size_changes() {
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(LayoutAware {
+        size: None,
+        calls: 0,
+    });
+    let resolved = resolve_scene(
+        &View::component(handle).fill_width().fill_height(),
+        &registry,
+    )
+    .unwrap();
+    let layout = layout_resolved_scene(&resolved, Size::new(20, 4));
+    let mut synchronizer = LayoutSynchronizer::default();
+    assert_eq!(
+        synchronizer.synchronize(
+            &resolved.mounts,
+            &resolved.capabilities,
+            &layout.components,
+            &mut registry,
+        ),
+        super::LayoutSync::Dirty
+    );
+    assert_eq!(registry.with(handle, |component| component.calls), Some(1));
+    assert_eq!(
+        synchronizer.synchronize(
+            &resolved.mounts,
+            &resolved.capabilities,
+            &layout.components,
+            &mut registry,
+        ),
+        super::LayoutSync::Stable
+    );
+    assert_eq!(registry.with(handle, |component| component.calls), Some(1));
+
+    let resized = layout_resolved_scene(&resolved, Size::new(20, 5));
+    assert_eq!(
+        synchronizer.synchronize(
+            &resolved.mounts,
+            &resolved.capabilities,
+            &resized.components,
+            &mut registry,
+        ),
+        super::LayoutSync::Dirty
+    );
+    assert_eq!(registry.with(handle, |component| component.calls), Some(2));
+}
+
+#[test]
+fn component_geometry_distinguishes_mounting_from_visibility() {
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(Label {
+        text: "hidden".into(),
+    });
+    let view = View::component(handle)
+        .padding(1)
+        .clamp_rows(0, crate::presentation::OverflowIndicator::None);
+    let resolved = resolve_scene(&view, &registry).unwrap();
+    let layout = layout_resolved_scene(&resolved, Size::new(20, 4));
+    let geometry = layout.components.entries.get(&handle.id()).unwrap();
+    assert_eq!(geometry.visible, None);
+    assert_eq!(resolved.mounts.nodes.len(), 1);
+}
+
+#[test]
+fn focus_excludes_fully_clipped_components() {
+    let mut registry = ComponentRegistry::new();
+    let hidden = registry.register(FocusableLabel);
+    let visible = registry.register(FocusableLabel);
+    let view = View::vertical(|column| {
+        column.child(
+            View::component(hidden).clamp_rows(0, crate::presentation::OverflowIndicator::None),
+        );
+        column.child(View::component(visible).fill_height());
+    })
+    .fill_width()
+    .fill_height();
+    let resolved = resolve_scene(&view, &registry).unwrap();
+    let layout = layout_resolved_scene(&resolved, Size::new(20, 4));
+    let mut focus = FocusState::default();
+    focus.reconcile_with_geometry(
+        &resolved.mounts,
+        &resolved.capabilities,
+        Some(&layout.components),
+        &mut registry,
+    );
+    assert_eq!(focus.focused(), Some(visible.id()));
+}
+
+#[test]
 fn clipped_component_remains_semantically_mounted() {
     let mut registry = ComponentRegistry::new();
     let handle = registry.register(Label {
@@ -255,9 +385,11 @@ fn clipped_component_remains_semantically_mounted() {
 fn count_slots(view: &View) -> usize {
     match &view.kind {
         crate::presentation::ir::ViewKind::ComponentSlot(_) => 1,
-        crate::presentation::ir::ViewKind::Column(column) => {
-            column.children.iter().map(count_slots).sum()
-        }
+        crate::presentation::ir::ViewKind::Column(column) => column
+            .children
+            .iter()
+            .map(|child| count_slots(&child.view))
+            .sum(),
         crate::presentation::ir::ViewKind::Row(row) => row
             .children
             .iter()
@@ -272,6 +404,12 @@ fn count_slots(view: &View) -> usize {
 
 trait PlainText {
     fn view_plain_text(&self) -> String;
+}
+
+impl PlainText for crate::presentation::ir::ColumnChild {
+    fn view_plain_text(&self) -> String {
+        self.view.view_plain_text()
+    }
 }
 
 impl PlainText for View {
