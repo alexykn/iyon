@@ -277,6 +277,7 @@ fn projected_checkpoint_never_splits_cross_run_egcs() {
         vec!["🇺", "🇸"],
         vec!["e", "\u{301}"],
     ] {
+        let checkpoint = StreamOffset::new(parts[0].len() as u64);
         let mut cursor = 0;
         let runs = parts
             .into_iter()
@@ -305,7 +306,7 @@ fn projected_checkpoint_never_splits_cross_run_egcs() {
             runs,
         };
         let view = StreamView::new(vec![StreamNode::projected_text(text)]);
-        assert!(std::panic::catch_unwind(|| view.suffix_from(StreamOffset::new(1))).is_err());
+        assert!(std::panic::catch_unwind(|| view.suffix_from(checkpoint)).is_err());
     }
 }
 

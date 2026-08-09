@@ -133,11 +133,6 @@ pub(crate) fn slice_projected_text(text: &ProjectedText, offset: StreamOffset) -
         assert!(offset >= visible.start && offset <= visible.end);
         let relative = offset.as_u64().saturating_sub(visible.start.as_u64()) as usize;
         assert!(run.display.is_char_boundary(relative));
-        assert!(
-            run.display
-                .grapheme_indices(true)
-                .any(|(start, _)| start == relative)
-        );
         let display = run.display[relative..].to_string();
         runs.push(ProjectedTextRun {
             display,
@@ -182,11 +177,10 @@ pub(crate) struct ProjectedAtom {
     pub(crate) owned: StreamRange,
     pub(crate) style: StyleSpec,
     pub(crate) run_index: Option<usize>,
-    pub(crate) barriers: Vec<StreamOffset>,
 }
 
 /// Concatenates adjacent exact-visible runs before EGC segmentation. This is
-/// the shared barrier model for compilation and source checkpoint validation.
+/// the shared atom model for compilation and source checkpoint validation.
 pub(crate) fn projected_atoms(text: &ProjectedText) -> Vec<ProjectedAtom> {
     let mut atoms = Vec::new();
     let mut exact_display = String::new();
@@ -231,11 +225,6 @@ pub(crate) fn projected_atoms(text: &ProjectedText) -> Vec<ProjectedAtom> {
                     owned: StreamRange::new(source_start, source_end),
                     style: first.5.clone(),
                     run_index: Some(first.4),
-                    barriers: contributors
-                        .iter()
-                        .take(contributors.len().saturating_sub(1))
-                        .map(|(_, fragment)| fragment.2.end)
-                        .collect(),
                 });
             }
             display.clear();
@@ -253,7 +242,6 @@ pub(crate) fn projected_atoms(text: &ProjectedText) -> Vec<ProjectedAtom> {
                 owned: run.owned,
                 style: run.style.clone(),
                 run_index: None,
-                barriers: Vec::new(),
             });
             continue;
         };
@@ -276,7 +264,13 @@ pub(crate) fn projected_checkpoint_is_legal(text: &ProjectedText, offset: Stream
     if offset <= text.content_range.start || offset >= text.content_range.end {
         return true;
     }
+    if let ProjectedTextLayout::Hanging { prefix_source, .. } = &text.layout
+        && prefix_source.start < offset
+        && offset < prefix_source.end
+    {
+        return false;
+    }
     !projected_atoms(text)
         .iter()
-        .any(|atom| atom.barriers.contains(&offset))
+        .any(|atom| atom.owned.start < offset && offset < atom.owned.end)
 }

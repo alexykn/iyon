@@ -12,6 +12,7 @@ struct FakeState {
     nodes: Vec<StreamNode>,
     stable_through: StreamOffset,
     source_base: StreamOffset,
+    source_end: StreamOffset,
     revision: StreamRevision,
     sealed: bool,
     corrupt_on_compact: bool,
@@ -28,6 +29,7 @@ impl FakeSource {
                 ],
                 stable_through: StreamOffset::new(stable_through),
                 source_base: StreamOffset::ZERO,
+                source_end: StreamOffset::new(3),
                 revision: StreamRevision::ZERO,
                 sealed: false,
                 corrupt_on_compact: false,
@@ -42,6 +44,27 @@ impl FakeSource {
     fn corrupt_on_compact(&self) {
         self.state.borrow_mut().corrupt_on_compact = true;
     }
+
+    fn set_revision(&self, revision: StreamRevision) {
+        self.state.borrow_mut().revision = revision;
+    }
+
+    fn set_source_base(&self, source_base: StreamOffset) {
+        self.state.borrow_mut().source_base = source_base;
+    }
+
+    fn set_source_end(&self, source_end: StreamOffset) {
+        let mut state = self.state.borrow_mut();
+        state.source_end = source_end;
+        state
+            .nodes
+            .retain(|node| node.owned_range().end <= source_end);
+        state.stable_through = state.stable_through.min(source_end);
+    }
+
+    fn set_stable_through(&self, stable_through: StreamOffset) {
+        self.state.borrow_mut().stable_through = stable_through;
+    }
 }
 
 impl StreamingSource for FakeSource {
@@ -51,7 +74,7 @@ impl StreamingSource for FakeSource {
         StreamSnapshot {
             revision: state.revision,
             source_base: state.source_base,
-            source_end: StreamOffset::new(3),
+            source_end: state.source_end,
             stable_through: state.stable_through,
             view,
         }
@@ -140,10 +163,55 @@ fn malicious_compaction_semantic_change_is_rejected() {
     let source = FakeSource::new(2);
     source.corrupt_on_compact();
     let mut model = StreamModel::new(source).unwrap();
+    let before_snapshot = model.snapshot().clone();
+    let before_resident_end = model.resident().end();
+    let before_view = model.semantic_view();
+
     assert_eq!(
         model.refresh(),
         Err(StreamModelError::CompactionChangedSemanticSuffix)
     );
+    assert_eq!(model.snapshot(), &before_snapshot);
+    assert_eq!(model.resident().end(), before_resident_end);
+    assert_eq!(model.semantic_view(), before_view);
+}
+
+#[test]
+fn revision_regression_is_rejected() {
+    let source = FakeSource::new(3);
+    source.set_revision(StreamRevision::new(1));
+    let mut model = StreamModel::new(source.clone()).unwrap();
+    source.set_revision(StreamRevision::ZERO);
+    assert_eq!(model.refresh(), Err(StreamModelError::RevisionRegressed));
+}
+
+#[test]
+fn source_base_regression_is_rejected() {
+    let source = FakeSource::new(3);
+    source.set_source_base(StreamOffset::new(1));
+    source.set_revision(StreamRevision::new(1));
+    let mut model = StreamModel::new(source.clone()).unwrap();
+    source.set_source_base(StreamOffset::ZERO);
+    source.set_revision(StreamRevision::new(2));
+    assert_eq!(model.refresh(), Err(StreamModelError::SourceBaseRegressed));
+}
+
+#[test]
+fn source_end_regression_is_rejected() {
+    let source = FakeSource::new(3);
+    let mut model = StreamModel::new(source.clone()).unwrap();
+    source.set_source_end(StreamOffset::new(2));
+    source.set_revision(StreamRevision::new(1));
+    assert_eq!(model.refresh(), Err(StreamModelError::SourceEndRegressed));
+}
+
+#[test]
+fn stability_regression_is_rejected() {
+    let source = FakeSource::new(3);
+    let mut model = StreamModel::new(source.clone()).unwrap();
+    source.set_stable_through(StreamOffset::new(2));
+    source.set_revision(StreamRevision::new(1));
+    assert_eq!(model.refresh(), Err(StreamModelError::StabilityRegressed));
 }
 
 #[test]

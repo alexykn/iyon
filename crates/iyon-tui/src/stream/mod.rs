@@ -24,8 +24,8 @@ pub(crate) use coord::{StreamOffset, StreamRange, StreamRevision};
 pub(crate) use model::{StreamModel, StreamModelError};
 pub(crate) use node::{StreamNode, StreamProvenance, StreamView};
 pub(crate) use projected::{
-    ExactTerminator, ProjectedAtom, ProjectedText, ProjectedTextLayout, ProjectedTextRun,
-    projected_atoms, projected_checkpoint_is_legal, slice_projected_text,
+    ExactTerminator, ProjectedText, ProjectedTextLayout, ProjectedTextRun, projected_atoms,
+    projected_checkpoint_is_legal,
 };
 pub(crate) use resident::ResidentPrefix;
 pub(crate) use snapshot::StreamSnapshot;

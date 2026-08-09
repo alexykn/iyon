@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
-    IntoView, TextSpan, View, physical::PhysicalRow, presentation::layout::ViewCompiler, stream::*,
+    IntoView, OverflowIndicator, TextSpan, View, physical::PhysicalRow,
+    presentation::layout::ViewCompiler, stream::*,
 };
 
 fn assert_rows_equivalent(left: &[PhysicalRow], right: &[PhysicalRow]) {
@@ -539,6 +540,35 @@ fn atomic_component_identity_is_rejected_at_construction() {
     let view = View::component(component);
     let result = std::panic::catch_unwind(|| StreamNode::atomic(range(0, 1), view.into_view()));
     assert!(result.is_err());
+}
+
+#[test]
+fn nested_component_atomic_is_rejected_by_snapshot_validation() {
+    let id = crate::component::ComponentId::allocate();
+    let leaf = View::text("x").into_view().with_component(id);
+    let view = View::vertical(|column| {
+        column.child(
+            View::horizontal(|row| {
+                row.child(leaf);
+            })
+            .container(),
+        );
+    })
+    .clamp_rows(1, OverflowIndicator::None);
+    let snapshot = StreamSnapshot {
+        revision: StreamRevision::ZERO,
+        source_base: StreamOffset::ZERO,
+        source_end: StreamOffset::new(1),
+        stable_through: StreamOffset::new(1),
+        view: StreamView::new(vec![StreamNode::Atomic {
+            range: range(0, 1),
+            view,
+        }]),
+    };
+    assert_eq!(
+        snapshot.validate(),
+        Err(StreamValidationError::AtomicContainsComponent)
+    );
 }
 
 #[test]
