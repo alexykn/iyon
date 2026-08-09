@@ -53,6 +53,13 @@ pub(crate) enum ViewKind {
     Container(ContainerNode),
     Spacer { rows: u16 },
     ClampRows(ClampRowsView),
+    ComponentSlot(ComponentSlotNode),
+}
+
+/// RETAINED SEMANTIC IR. Deferred placement of a retained component.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ComponentSlotNode {
+    pub(crate) id: ComponentId,
 }
 
 /// RETAINED SEMANTIC IR. Width allocation requested from a parent.
