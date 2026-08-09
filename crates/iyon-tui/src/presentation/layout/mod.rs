@@ -35,6 +35,7 @@ pub(crate) struct ViewCompiler {
 pub(crate) struct CompiledTextRow {
     pub(crate) row: PhysicalRow,
     pub(crate) source_end: Option<usize>,
+    pub(crate) cursor_column: Option<usize>,
     pub(crate) fits: bool,
     pub(crate) width: usize,
 }

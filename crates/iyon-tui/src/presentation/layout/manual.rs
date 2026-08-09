@@ -123,6 +123,26 @@ impl ViewCompiler {
                     *surface.get_mut(x as u16, y as u16) = source.clone();
                 }
             }
+            if let Some(column) = row.cursor_column {
+                let x = offset.saturating_add(column);
+                if x < usize::from(width) {
+                    let marker_style = row
+                        .row
+                        .cell(column)
+                        .or_else(|| row.row.cells().last())
+                        .map_or(inherited, |cell| cell.style);
+                    let cell = surface.get_mut(x as u16, y as u16);
+                    if !cell.painted {
+                        *cell = PhysicalCell {
+                            grapheme: Some(" ".to_owned()),
+                            style: marker_style,
+                            painted: true,
+                            continuation: false,
+                        };
+                    }
+                    cell.style.reversed = true;
+                }
+            }
         }
         surface
     }

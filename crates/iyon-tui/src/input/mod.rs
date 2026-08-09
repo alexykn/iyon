@@ -886,7 +886,7 @@ mod tests {
     #[test]
     fn generic_text_input_matches_legacy_editor_for_shared_ascii_operations() {
         use crate::{
-            component::{Component, ComponentRegistry},
+            component::ComponentRegistry,
             controls::TextInput,
             interaction::{FocusState, GlobalBindings, Key, KeyStroke, Modifiers, route_key},
             output::OutputQueue,

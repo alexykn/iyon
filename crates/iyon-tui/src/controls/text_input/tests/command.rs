@@ -57,6 +57,19 @@ fn multiline_enter_and_single_line_enter_have_distinct_meanings() {
         command_for_key(&multi, modified(Key::Enter, Modifiers::SHIFT)),
         Some(TextInputCommand::InsertNewline)
     );
+
+    for stroke in [
+        modified(Key::Char('j'), Modifiers::CONTROL),
+        modified(Key::Char('m'), Modifiers::CONTROL),
+        key(Key::Char('\n')),
+        key(Key::Char('\r')),
+    ] {
+        assert_eq!(command_for_key(&single, stroke), None);
+        assert_eq!(
+            command_for_key(&multi, stroke),
+            Some(TextInputCommand::InsertNewline)
+        );
+    }
 }
 
 #[test]

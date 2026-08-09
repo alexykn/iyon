@@ -33,10 +33,14 @@ pub(super) fn command_for_key(input: &TextInput, stroke: KeyStroke) -> Option<Te
         Key::Char('\u{0006}') if modifiers == none => TextInputCommand::MoveRight,
         Key::Char('\u{0010}') if modifiers == none => TextInputCommand::MoveUp,
         Key::Char('\u{000e}') if modifiers == none => TextInputCommand::MoveDown,
-        Key::Char('\n' | '\r') if modifiers == none || modifiers == Modifiers::CONTROL => {
+        Key::Char('\n' | '\r')
+            if input.is_multiline() && (modifiers == none || modifiers == Modifiers::CONTROL) =>
+        {
             TextInputCommand::InsertNewline
         }
-        Key::Char('j' | 'm') if modifiers == Modifiers::CONTROL => TextInputCommand::InsertNewline,
+        Key::Char('j' | 'm') if modifiers == Modifiers::CONTROL && input.is_multiline() => {
+            TextInputCommand::InsertNewline
+        }
         Key::Left if modifiers == none => TextInputCommand::MoveLeft,
         Key::Right if modifiers == none => TextInputCommand::MoveRight,
         Key::Left if is_word_modifier(modifiers) => TextInputCommand::MoveWordLeft,
