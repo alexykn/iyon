@@ -6,8 +6,9 @@
 use anyhow::Result;
 use ratatui::text::Line;
 
-use crate::presentation::{HostedStream, PreparedStreamFrame, StreamingContent};
+use crate::stream::StreamingSource;
 use crate::transcript::TranscriptState;
+use crate::transcript::{HostedStream, PreparedStreamFrame};
 use crate::{
     scrollback::committer::ScrollbackCommitter,
     terminal::{InlineTerminal, ratatui::row_to_line},
@@ -81,7 +82,7 @@ impl ScrollbackCoordinator {
         })
     }
 
-    pub(crate) fn commit_stream_frame<C: StreamingContent>(
+    pub(crate) fn commit_stream_frame<C: StreamingSource>(
         &mut self,
         terminal: &mut InlineTerminal,
         hosted: &mut HostedStream<C>,

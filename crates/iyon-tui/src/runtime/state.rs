@@ -4,9 +4,7 @@ use crate::{
     component::{Component, ComponentHandle, ComponentRegistry},
     input::InputBuffer,
     physical::PhysicalRow,
-    presentation::{
-        ActiveContent, FlowBoundary, HostedStream, PreparedStreamFrame, layout::compile_view,
-    },
+    presentation::{ActiveContent, FlowBoundary, layout::compile_view},
     runtime::{
         active::{ActiveTurnContent, ToolActiveStatus},
         backend::ToolUpdatePresentation,
@@ -16,6 +14,7 @@ use crate::{
         AssistantStream, HostedUnitRegistration, SegmentKind, TimelineItem, ToolTimelineStatus,
         TranscriptState,
     },
+    transcript::{HostedStream, PreparedStreamFrame},
 };
 use iyon_core::ReasoningLevel;
 
@@ -244,7 +243,7 @@ impl AppState {
         let handoff = hosted.into_resident_handoff();
 
         let fully_native = handoff.source_base == handoff.source_end
-            && handoff.leading_boundary != crate::presentation::LeadingBoundaryState::Pending;
+            && handoff.leading_boundary != crate::transcript::LeadingBoundaryState::Pending;
         if fully_native && self.transcript.hosted_unit_is_history_head(unit_id) {
             debug_assert!(
                 self.transcript.hosted_unit_is_history_head(unit_id),
@@ -905,7 +904,7 @@ mod tests {
         let hosted = state.streaming_ref().expect("host created");
         assert_eq!(
             hosted.leading_boundary,
-            crate::presentation::LeadingBoundaryState::Pending
+            crate::transcript::LeadingBoundaryState::Pending
         );
         assert_eq!(state.transcript.test_items().len(), 2);
         assert!(matches!(
@@ -1089,15 +1088,12 @@ mod tests {
 
         state.prepare_assistant_frame(80, 0);
         let snapshot = state.streaming_mut().expect("host created").snapshot();
-        assert_eq!(
-            snapshot.source_base,
-            crate::presentation::StreamOffset::new(6)
-        );
+        assert_eq!(snapshot.source_base, crate::stream::StreamOffset::new(6));
         assert_eq!(
             snapshot.view.nodes[0].owned_range(),
-            crate::presentation::StreamRange::new(
-                crate::presentation::StreamOffset::new(6),
-                crate::presentation::StreamOffset::new(10),
+            crate::stream::StreamRange::new(
+                crate::stream::StreamOffset::new(6),
+                crate::stream::StreamOffset::new(10),
             )
         );
 
@@ -1105,9 +1101,9 @@ mod tests {
         let snapshot = state.streaming_mut().expect("host created").snapshot();
         assert_eq!(
             snapshot.view.nodes[0].owned_range(),
-            crate::presentation::StreamRange::new(
-                crate::presentation::StreamOffset::new(6),
-                crate::presentation::StreamOffset::new(14),
+            crate::stream::StreamRange::new(
+                crate::stream::StreamOffset::new(6),
+                crate::stream::StreamOffset::new(14),
             )
         );
     }

@@ -31,7 +31,7 @@ pub(crate) struct WrappedTranscriptRows {
     pub(crate) row_end_boundaries: Vec<TranscriptCommitBoundary>,
     /// Number of leading physical rows that fit within their content track and are eligible
     /// to enter native terminal scrollback history.
-    pub(crate) committable_prefix_rows: usize,
+    pub(crate) transferable_prefix_rows: usize,
 }
 
 pub(crate) fn wrap_transcript_rows(
@@ -41,7 +41,7 @@ pub(crate) fn wrap_transcript_rows(
 ) -> WrappedTranscriptRows {
     let mut rows = Vec::new();
     let mut row_end_boundaries = Vec::new();
-    let mut committable_prefix_rows = 0;
+    let mut transferable_prefix_rows = 0;
     let mut blocked = false;
     let start_row = commit_boundary.logical_row.min(logical_rows.len());
 
@@ -62,7 +62,7 @@ pub(crate) fn wrap_transcript_rows(
             start,
             &mut rows,
             &mut row_end_boundaries,
-            &mut committable_prefix_rows,
+            &mut transferable_prefix_rows,
             &mut blocked,
         );
     }
@@ -70,7 +70,7 @@ pub(crate) fn wrap_transcript_rows(
     WrappedTranscriptRows {
         rows,
         row_end_boundaries,
-        committable_prefix_rows,
+        transferable_prefix_rows,
     }
 }
 
@@ -81,7 +81,7 @@ fn wrap_transcript_logical_row(
     start: TranscriptCommitBoundary,
     rows: &mut Vec<Line<'static>>,
     row_end_boundaries: &mut Vec<TranscriptCommitBoundary>,
-    committable_prefix_rows: &mut usize,
+    transferable_prefix_rows: &mut usize,
     blocked: &mut bool,
 ) {
     // Derive the hanging-indent geometry once. `content_width` already accounts
@@ -144,7 +144,7 @@ fn wrap_transcript_logical_row(
         push_row(rows, row_end_boundaries, physical, boundary);
 
         if !*blocked && line.fits {
-            *committable_prefix_rows += 1;
+            *transferable_prefix_rows += 1;
         } else {
             *blocked = true;
         }

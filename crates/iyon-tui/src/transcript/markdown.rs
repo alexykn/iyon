@@ -139,14 +139,14 @@ impl AssistantSourceMeta {
 
 /// Parse `segments` once into the shared width-independent document.
 pub(crate) fn parse_assistant(segments: &[AssistantSegment]) -> AssistantDocument {
-    parse_assistant_tail(segments, crate::presentation::StreamOffset::ZERO, None)
+    parse_assistant_tail(segments, crate::stream::StreamOffset::ZERO, None)
 }
 
 /// Parse `segments` into the shared document starting at `source_base`, with an optional
 /// continuation mode for the first logical row.
 pub(crate) fn parse_assistant_tail(
     segments: &[AssistantSegment],
-    _source_base: crate::presentation::StreamOffset,
+    _source_base: crate::stream::StreamOffset,
     continuation: Option<AssistantContinuation>,
 ) -> AssistantDocument {
     let raw_lines = flatten_lines(segments);
@@ -2038,7 +2038,7 @@ pub(crate) mod correctness_invariants {
         );
         // But commit eligibility correctly reports that 0 oversized rows may enter native history:
         assert_eq!(
-            wrapped.committable_prefix_rows, 0,
+            wrapped.transferable_prefix_rows, 0,
             "zero oversized physical rows are committable at width 1"
         );
     }
@@ -2226,7 +2226,7 @@ pub(crate) mod correctness_invariants {
     fn parser_continuations_apply_open_egc_safety() {
         let heading = parse_assistant_tail(
             &[AssistantSegment::Text("continued heading".to_string())],
-            crate::presentation::StreamOffset::new(5),
+            crate::stream::StreamOffset::new(5),
             Some(AssistantContinuation::Heading),
         );
         assert_eq!(
@@ -2236,7 +2236,7 @@ pub(crate) mod correctness_invariants {
 
         let paragraph = parse_assistant_tail(
             &[AssistantSegment::Text("- item".to_string())],
-            crate::presentation::StreamOffset::new(5),
+            crate::stream::StreamOffset::new(5),
             Some(AssistantContinuation::Paragraph),
         );
         assert_eq!(paragraph.rows[0].source.stable_prefix_len, "- ite".len());

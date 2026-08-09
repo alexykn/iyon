@@ -43,6 +43,26 @@ impl View {
             }),
         }
     }
+
+    pub(crate) fn contains_component_identity(&self) -> bool {
+        if self.component.is_some() {
+            return true;
+        }
+        match &self.kind {
+            ViewKind::ComponentSlot(_) => true,
+            ViewKind::Text(_) | ViewKind::Spacer { .. } => false,
+            ViewKind::Container(container) => container.child.contains_component_identity(),
+            ViewKind::ClampRows(clamp) => clamp.child.contains_component_identity(),
+            ViewKind::Column(column) => column
+                .children
+                .iter()
+                .any(Self::contains_component_identity),
+            ViewKind::Row(row) => row
+                .children
+                .iter()
+                .any(|child| child.view.contains_component_identity()),
+        }
+    }
 }
 /// RETAINED SEMANTIC IR. Generic view node kinds understood by the compiler.
 #[derive(Clone, Debug, PartialEq)]

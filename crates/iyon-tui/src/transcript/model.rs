@@ -4,12 +4,14 @@ use ratatui::{style::Style, text::Line};
 
 use crate::{
     presentation::{
-        ColorSpec, Decoration, FlowBoundary, Insets, IntoView, LeadingBoundaryState,
-        ResidentStreamHandoff, StreamOffset, ThemeKey, View, WidthRule, layout::compile_view,
+        ColorSpec, Decoration, FlowBoundary, Insets, IntoView, ThemeKey, View, WidthRule,
+        layout::compile_view,
     },
+    stream::StreamOffset,
     terminal::ratatui::rows_to_lines,
     theme,
     tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput},
+    transcript::{LeadingBoundaryState, ResidentStreamHandoff},
     transcript::{
         markdown,
         markdown::{RenderedRow, assistant_document_view, parse_assistant},
@@ -1207,7 +1209,7 @@ impl TranscriptState {
                         _ => TranscriptCommitBoundary::default(),
                     };
                     let wrapped = wrap_transcript_rows(width, &logical_rows, boundary);
-                    entry_committable_prefix = wrapped.committable_prefix_rows;
+                    entry_committable_prefix = wrapped.transferable_prefix_rows;
                     rows.extend(wrapped.rows);
                     row_end_boundaries.extend(wrapped.row_end_boundaries.into_iter().map(Some));
                     previous_legacy_range = Some(ranges.len());
@@ -1281,7 +1283,7 @@ impl TranscriptState {
                 ),
                 rows: start..rows.len(),
                 leading_flow_rows,
-                committable_prefix_rows: entry_committable_prefix,
+                transferable_prefix_rows: entry_committable_prefix,
             });
         }
 
@@ -1294,9 +1296,9 @@ impl TranscriptState {
                     let content_start = range.rows.start + range.leading_flow_rows;
                     let physical_content_len =
                         range.rows.len().saturating_sub(range.leading_flow_rows);
-                    let eligible = content_start + range.committable_prefix_rows;
+                    let eligible = content_start + range.transferable_prefix_rows;
                     committable_rows = eligible;
-                    if range.committable_prefix_rows < physical_content_len {
+                    if range.transferable_prefix_rows < physical_content_len {
                         // Impossible-fit row encountered in this unit; subsequent entries cannot leapfrog it.
                         break;
                     }
@@ -1527,7 +1529,7 @@ struct RenderedEntryRange {
     semantic: bool,
     rows: Range<usize>,
     leading_flow_rows: usize,
-    committable_prefix_rows: usize,
+    transferable_prefix_rows: usize,
 }
 
 fn trim_plain_leading_legacy(rows: &mut Vec<TranscriptRow>) {
@@ -1560,7 +1562,7 @@ fn trim_plain_trailing_physical(
     }
 
     let content_len = range.rows.len().saturating_sub(range.leading_flow_rows);
-    range.committable_prefix_rows = range.committable_prefix_rows.min(content_len);
+    range.transferable_prefix_rows = range.transferable_prefix_rows.min(content_len);
 }
 
 fn trim_plain_trailing_physical_all(
@@ -1721,9 +1723,8 @@ fn open_entry_blocks_commit_until_sealed() {
 mod tests {
     use super::*;
     use crate::{
-        presentation::stream::compile_stream,
-        presentation::{HostedStream, StreamOffset},
-        transcript::AssistantStream,
+        stream::StreamOffset, stream::compile_stream, transcript::AssistantStream,
+        transcript::HostedStream,
     };
     use ratatui::style::Modifier;
 

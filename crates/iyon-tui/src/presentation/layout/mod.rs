@@ -17,6 +17,7 @@ use crate::{
 
 use super::paint::ThemeResolver;
 
+pub(crate) use text::{row_from_graphemes, row_from_string};
 pub(crate) use tracks::allocate_tracks;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
