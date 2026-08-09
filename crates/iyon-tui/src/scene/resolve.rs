@@ -34,19 +34,39 @@ pub(crate) fn resolve_scene(
     view: &View,
     registry: &ComponentRegistry,
 ) -> Result<ResolvedScene, ResolveError> {
-    let mut resolver = Resolver {
-        registry,
-        mounts: Vec::new(),
-        capabilities: MountedCapabilities::default(),
-        seen: Vec::new(),
-        active: Vec::new(),
-    };
-    let view = resolver.resolve_view(view, None)?;
-    Ok(ResolvedScene {
-        view,
-        mounts: MountGraph::new(resolver.mounts),
-        capabilities: resolver.capabilities,
-    })
+    let mut session = ResolveSession::new(registry);
+    let view = session.resolve_root(view)?;
+    Ok(session.finish(view))
+}
+
+pub(crate) struct ResolveSession<'a> {
+    resolver: Resolver<'a>,
+}
+
+impl<'a> ResolveSession<'a> {
+    pub(crate) fn new(registry: &'a ComponentRegistry) -> Self {
+        Self {
+            resolver: Resolver {
+                registry,
+                mounts: Vec::new(),
+                capabilities: MountedCapabilities::default(),
+                seen: Vec::new(),
+                active: Vec::new(),
+            },
+        }
+    }
+
+    pub(crate) fn resolve_root(&mut self, view: &View) -> Result<View, ResolveError> {
+        self.resolver.resolve_view(view, None)
+    }
+
+    pub(crate) fn finish(self, view: View) -> ResolvedScene {
+        ResolvedScene {
+            view,
+            mounts: MountGraph::new(self.resolver.mounts),
+            capabilities: self.resolver.capabilities,
+        }
+    }
 }
 
 struct Resolver<'a> {
@@ -105,6 +125,7 @@ impl Resolver<'_> {
                 ViewKind::RowViewport(crate::presentation::ir::RowViewportView {
                     child: Box::new(self.resolve_view(&viewport.child, parent)?),
                     skip_rows: viewport.skip_rows,
+                    visible_height: viewport.visible_height,
                 })
             }
             ViewKind::ComponentSlot(slot) => return self.resolve_slot(view, slot.id, parent),

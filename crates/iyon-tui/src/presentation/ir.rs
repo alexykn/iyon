@@ -255,4 +255,7 @@ pub(crate) struct ClampRowsView {
 pub(crate) struct RowViewportView {
     pub(crate) child: Box<View>,
     pub(crate) skip_rows: u16,
+    /// When set, the viewport contributes this intrinsic height instead of
+    /// the child's remaining height. `None` lets the parent provide it.
+    pub(crate) visible_height: Option<u16>,
 }

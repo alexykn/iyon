@@ -49,6 +49,66 @@ pub(crate) struct ComponentGeometryMap {
     pub(crate) entries: HashMap<ComponentId, ComponentGeometry>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SignedRect {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+impl SignedRect {
+    fn from(rect: Rect) -> Self {
+        Self {
+            x: i32::from(rect.x),
+            y: i32::from(rect.y),
+            width: i32::from(rect.width),
+            height: i32::from(rect.height),
+        }
+    }
+
+    fn translate_y(self, offset: i32) -> Self {
+        Self {
+            y: self.y.saturating_add(offset),
+            ..self
+        }
+    }
+
+    fn right(self) -> i32 {
+        self.x.saturating_add(self.width)
+    }
+
+    fn bottom(self) -> i32 {
+        self.y.saturating_add(self.height)
+    }
+
+    fn intersection(self, other: Self) -> Option<Self> {
+        let left = self.x.max(other.x);
+        let top = self.y.max(other.y);
+        let right = self.right().min(other.right());
+        let bottom = self.bottom().min(other.bottom());
+        (left < right && top < bottom).then_some(Self {
+            x: left,
+            y: top,
+            width: right - left,
+            height: bottom - top,
+        })
+    }
+
+    fn to_rect(self) -> Rect {
+        Rect::new(
+            self.x.clamp(0, i32::from(u16::MAX)) as u16,
+            self.y.clamp(0, i32::from(u16::MAX)) as u16,
+            self.width.clamp(0, i32::from(u16::MAX)) as u16,
+            self.height.clamp(0, i32::from(u16::MAX)) as u16,
+        )
+    }
+
+    fn to_rect_opt(self) -> Option<Rect> {
+        (self.width > 0 && self.height > 0).then(|| self.to_rect())
+    }
+}
+
 fn contains(outer: Rect, inner: Rect) -> bool {
     if inner.is_empty() {
         return inner.x >= outer.x
@@ -69,20 +129,50 @@ impl LayoutTree {
 
     pub(crate) fn component_geometry(&self) -> ComponentGeometryMap {
         let mut entries = HashMap::new();
-        for node in &self.nodes {
-            let Some(id) = node.component else {
-                continue;
-            };
+        let root = SignedRect::from(Rect::new(0, 0, self.size.width, self.size.height));
+        self.collect_component_geometry(self.root, 0, root, &mut entries);
+        ComponentGeometryMap { entries }
+    }
+
+    fn collect_component_geometry(
+        &self,
+        id: LayoutNodeId,
+        offset_y: i32,
+        inherited_clip: SignedRect,
+        entries: &mut HashMap<ComponentId, ComponentGeometry>,
+    ) {
+        let node = self.node(id);
+        let rect = SignedRect::from(node.rect).translate_y(offset_y);
+        let content = SignedRect::from(node.content_rect).translate_y(offset_y);
+        let clip = SignedRect::from(node.clip_rect)
+            .translate_y(offset_y)
+            .intersection(inherited_clip)
+            .unwrap_or(SignedRect {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+            });
+        if let Some(component) = node.component {
             entries.insert(
-                id,
+                component,
                 ComponentGeometry {
-                    outer: node.rect,
-                    content: node.content_rect,
-                    visible: node.rect.intersection(node.clip_rect),
+                    outer: rect.to_rect(),
+                    content: content.to_rect(),
+                    visible: rect.intersection(clip).and_then(|rect| rect.to_rect_opt()),
                 },
             );
         }
-        ComponentGeometryMap { entries }
+
+        let child_offset = match &node.view.kind {
+            crate::presentation::ir::ViewKind::RowViewport(viewport) => {
+                offset_y.saturating_sub(i32::from(viewport.skip_rows))
+            }
+            _ => offset_y,
+        };
+        for child in &node.children {
+            self.collect_component_geometry(*child, child_offset, clip, entries);
+        }
     }
 
     pub(crate) fn validate(&self) -> bool {
@@ -90,10 +180,19 @@ impl LayoutTree {
             return false;
         }
         let root_rect = Rect::new(0, 0, self.size.width, self.size.height);
-        if !self.nodes.iter().all(|node| {
+        let mut parents = vec![None; self.nodes.len()];
+        for (parent, node) in self.nodes.iter().enumerate() {
+            for child in &node.children {
+                if child.0 < parents.len() {
+                    parents[child.0] = Some(LayoutNodeId(parent));
+                }
+            }
+        }
+        if !self.nodes.iter().enumerate().all(|(index, node)| {
             node.children.iter().all(|child| child.0 < self.nodes.len())
                 && contains(node.rect, node.content_rect)
-                && contains(root_rect, node.clip_rect)
+                && (contains(root_rect, node.clip_rect)
+                    || self.has_viewport_ancestor(LayoutNodeId(index), &parents))
         }) {
             return false;
         }
@@ -111,6 +210,20 @@ impl LayoutTree {
             return false;
         }
         states.into_iter().all(|state| state == 2)
+    }
+
+    fn has_viewport_ancestor(&self, id: LayoutNodeId, parents: &[Option<LayoutNodeId>]) -> bool {
+        let mut current = parents[id.0];
+        while let Some(parent) = current {
+            if matches!(
+                self.node(parent).view.kind,
+                crate::presentation::ir::ViewKind::RowViewport(_)
+            ) {
+                return true;
+            }
+            current = parents[parent.0];
+        }
+        false
     }
 
     fn visit(&self, id: LayoutNodeId, states: &mut [u8]) -> bool {

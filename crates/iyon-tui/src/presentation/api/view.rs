@@ -115,12 +115,19 @@ impl View {
         }
     }
 
-    /// Creates a private physical row crop around a component-free view.
+    /// Creates a private vertical viewport around a semantic view.
     pub(crate) fn row_viewport(child: View, skip_rows: u16) -> Self {
-        assert!(
-            !child.contains_component_identity(),
-            "row viewport cannot contain components"
-        );
+        Self::row_viewport_with_height(child, skip_rows, None)
+    }
+
+    /// Creates a private vertical viewport with an explicit visible height.
+    /// The child is still laid out at its full intrinsic height so component
+    /// allocation remains truthful while painting and visibility are clipped.
+    pub(crate) fn row_viewport_with_height(
+        child: View,
+        skip_rows: u16,
+        visible_height: Option<u16>,
+    ) -> Self {
         Self {
             component: None,
             width: WidthRule::Fill,
@@ -129,6 +136,7 @@ impl View {
             kind: ViewKind::RowViewport(crate::presentation::ir::RowViewportView {
                 child: Box::new(child),
                 skip_rows,
+                visible_height,
             }),
         }
     }

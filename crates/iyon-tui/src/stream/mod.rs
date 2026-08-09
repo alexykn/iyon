@@ -13,6 +13,7 @@ mod resident;
 mod snapshot;
 mod source;
 mod validate;
+mod viewport;
 
 mod pane;
 
@@ -37,3 +38,4 @@ pub(crate) use resident::ResidentPrefix;
 pub use snapshot::{StreamSnapshot, StreamSnapshotBuilder};
 pub use source::StreamingSource;
 pub use validate::{ProjectedValidationError, StreamValidationError};
+pub(crate) use viewport::{StreamRowIndex, build_index, window_view};

@@ -1,11 +1,6 @@
-use super::super::{StreamRevision, StreamRowAnchor};
+use super::super::{StreamRowAnchor, StreamRowIndex};
 use super::{StreamPaneMode, StreamViewportAnchor, anchor_matches};
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct StreamPaneRowIndex {
-    pub(super) revision: StreamRevision,
-    pub(super) width: u16,
-    pub(super) anchors: Vec<StreamRowAnchor>,
-}
+pub(super) type StreamPaneRowIndex = StreamRowIndex;
 
 pub(super) fn top_index(
     mode: &StreamPaneMode,
