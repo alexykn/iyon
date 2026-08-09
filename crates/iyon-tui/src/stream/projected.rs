@@ -1,4 +1,8 @@
 //! Width-independent projected stream text.
+//!
+//! Stream offsets in the current contract are UTF-8 byte coordinates. Exact
+//! visible mappings therefore use byte ranges and are validated against UTF-8
+//! boundaries and projected grapheme barriers.
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -24,7 +28,7 @@ impl ExactTerminator {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ProjectedText {
+pub struct ProjectedText {
     pub(crate) content_range: StreamRange,
     pub(crate) terminator: ExactTerminator,
     pub(crate) width: WidthRule,
@@ -54,8 +58,129 @@ pub(crate) struct ProjectedTextRun {
     pub(crate) exact_visible: Option<StreamRange>,
 }
 
+/// Builder for the canonical projected-text representation.
+#[derive(Debug, Clone)]
+pub struct ProjectedTextBuilder {
+    content_range: StreamRange,
+    terminator: ExactTerminator,
+    width: WidthRule,
+    wrap: WrapMode,
+    align: HorizontalAlign,
+    layout: ProjectedTextLayout,
+    runs: Vec<ProjectedTextRun>,
+}
+
+impl ProjectedTextBuilder {
+    pub fn new(content_range: StreamRange) -> Self {
+        Self {
+            content_range,
+            terminator: ExactTerminator::None,
+            width: WidthRule::Fit,
+            wrap: WrapMode::WordThenGrapheme,
+            align: HorizontalAlign::Start,
+            layout: ProjectedTextLayout::Plain,
+            runs: Vec::new(),
+        }
+    }
+
+    pub fn run(
+        mut self,
+        display: impl Into<String>,
+        owned: StreamRange,
+        exact_visible: Option<StreamRange>,
+        style: StyleSpec,
+    ) -> Self {
+        self.runs.push(ProjectedTextRun {
+            display: display.into(),
+            style,
+            owned,
+            exact_visible,
+        });
+        self
+    }
+
+    pub fn exact(self, display: impl Into<String>, range: StreamRange, style: StyleSpec) -> Self {
+        self.run(display, range, Some(range), style)
+    }
+
+    pub fn replacement(
+        self,
+        display: impl Into<String>,
+        owned: StreamRange,
+        style: StyleSpec,
+    ) -> Self {
+        self.run(display, owned, None, style)
+    }
+
+    pub fn hard_newline(mut self) -> Self {
+        self.terminator = ExactTerminator::HardNewline;
+        self
+    }
+
+    pub fn fit_width(mut self) -> Self {
+        self.width = WidthRule::Fit;
+        self
+    }
+
+    pub fn fill_width(mut self) -> Self {
+        self.width = WidthRule::Fill;
+        self
+    }
+
+    pub fn wrap(mut self, wrap: WrapMode) -> Self {
+        self.wrap = wrap;
+        self
+    }
+
+    pub fn align(mut self, align: HorizontalAlign) -> Self {
+        self.align = align;
+        self
+    }
+
+    pub fn hanging(
+        mut self,
+        body_column: u16,
+        prefix: impl Into<String>,
+        prefix_style: StyleSpec,
+        prefix_source: StreamRange,
+        show_prefix: bool,
+    ) -> Self {
+        self.layout = ProjectedTextLayout::Hanging {
+            body_column,
+            prefix: prefix.into(),
+            prefix_style,
+            prefix_source,
+            show_prefix,
+        };
+        self
+    }
+
+    pub fn finish(self) -> Result<ProjectedText, super::validate::ProjectedValidationError> {
+        let text = ProjectedText {
+            content_range: self.content_range,
+            terminator: self.terminator,
+            width: self.width,
+            wrap: self.wrap,
+            align: self.align,
+            layout: self.layout,
+            runs: self.runs,
+        };
+        super::validate::validate_projected_text(&text)?;
+        Ok(text)
+    }
+}
+
 impl ProjectedText {
-    pub(crate) fn owned_range(&self) -> StreamRange {
+    /// Starts a validated projected-text builder for this source range.
+    pub fn builder(content_range: StreamRange) -> ProjectedTextBuilder {
+        ProjectedTextBuilder::new(content_range)
+    }
+
+    pub fn content_range(&self) -> StreamRange {
+        self.content_range
+    }
+
+    pub fn owned_range(&self) -> StreamRange {
         StreamRange::new(
             self.content_range.start,
             self.content_range
@@ -64,10 +189,10 @@ impl ProjectedText {
         )
     }
 
-    pub(crate) fn identity(
+    pub(crate) fn identity_with_terminator(
         content_range: StreamRange,
         terminator: ExactTerminator,
-        spans: Vec<TextSpan>,
+        spans: impl IntoIterator<Item = TextSpan>,
     ) -> Self {
         let mut cursor = content_range.start;
         let mut runs: Vec<ProjectedTextRun> = Vec::new();
@@ -103,6 +228,53 @@ impl ProjectedText {
             runs,
         }
     }
+}
+
+pub(crate) fn slice_projected_text_to(
+    text: &ProjectedText,
+    end: StreamOffset,
+) -> Result<ProjectedText, ()> {
+    if end <= text.content_range.start || end > text.content_range.end {
+        return Err(());
+    }
+    if !projected_checkpoint_is_legal(text, end) {
+        return Err(());
+    }
+    let mut runs = Vec::new();
+    for run in &text.runs {
+        if run.owned.start >= end {
+            break;
+        }
+        if run.owned.end <= end {
+            runs.push(run.clone());
+            continue;
+        }
+        let Some(visible) = run.exact_visible else {
+            return Err(());
+        };
+        if end < visible.start || end > visible.end {
+            return Err(());
+        }
+        let relative = end.as_u64().saturating_sub(visible.start.as_u64()) as usize;
+        if !run.display.is_char_boundary(relative) {
+            return Err(());
+        }
+        runs.push(ProjectedTextRun {
+            display: run.display[..relative].to_owned(),
+            style: run.style.clone(),
+            owned: StreamRange::new(run.owned.start, end),
+            exact_visible: Some(StreamRange::new(visible.start, end)),
+        });
+    }
+    Ok(ProjectedText {
+        content_range: StreamRange::new(text.content_range.start, end),
+        terminator: ExactTerminator::None,
+        width: text.width,
+        wrap: text.wrap,
+        align: text.align,
+        layout: text.layout.clone(),
+        runs,
+    })
 }
 
 pub(crate) fn slice_projected_text(text: &ProjectedText, offset: StreamOffset) -> ProjectedText {
@@ -258,6 +430,13 @@ pub(crate) fn projected_atoms(text: &ProjectedText) -> Vec<ProjectedAtom> {
     }
     flush_exact(&mut atoms, &mut exact_display, &mut fragments);
     atoms
+}
+
+pub(crate) fn checkpoint_after_row(text: &ProjectedText, offset: StreamOffset) -> StreamOffset {
+    projected_atoms(text)
+        .into_iter()
+        .find(|atom| atom.owned.start == offset && atom.display == "\n")
+        .map_or(offset, |atom| atom.owned.end)
 }
 
 pub(crate) fn projected_checkpoint_is_legal(text: &ProjectedText, offset: StreamOffset) -> bool {

@@ -90,6 +90,7 @@ impl Text {
             | ViewKind::Container(_)
             | ViewKind::Spacer { .. }
             | ViewKind::ClampRows(_)
+            | ViewKind::RowViewport(_)
             | ViewKind::ComponentSlot(_) => {
                 unreachable!("Text wrapper must always contain ViewKind::Text")
             }

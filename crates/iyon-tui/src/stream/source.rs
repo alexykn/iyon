@@ -2,13 +2,18 @@
 
 use super::{coord::StreamOffset, snapshot::StreamSnapshot};
 
-/// Trait for append-only streaming content with explicit source coordinates and semantic stability.
-pub(crate) trait StreamingSource {
+/// Trait for synchronous append-only streaming content.
+///
+/// Implementations use UTF-8 byte offsets for source coordinates. The trait
+/// intentionally has no `Send`, `Sync`, `Debug`, `Clone`, async, or ticking
+/// requirement.
+pub trait StreamingSource: 'static {
     /// Width-independent semantic presentation of the current unacknowledged stream state.
     fn snapshot(&self) -> StreamSnapshot;
 
     /// Retention hint: source semantics before this offset no longer need to be
     /// reconstructed solely from mutable source state. It is not consumer ownership.
+    /// Retention hint only; this does not transfer ownership to terminal history.
     fn compact_before(&mut self, _offset: StreamOffset) {}
 
     /// Seals the stream against future mutations, stabilizing the final semantic content in-place.

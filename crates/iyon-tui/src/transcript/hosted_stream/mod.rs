@@ -137,7 +137,7 @@ where
                     rows.as_slice()[*committed_rows..]
                         .iter()
                         .cloned()
-                        .chain(suffix.rows.iter().cloned())
+                        .chain(suffix.rows.iter().map(|row| row.physical.clone()))
                         .collect(),
                     suffix,
                 )
@@ -145,10 +145,17 @@ where
             _ => {
                 let live_view = snapshot.view.suffix_from(self.committed_through);
                 let compiled = compile_stream(&live_view, width, snapshot.stable_through);
-                (compiled.rows.clone(), compiled)
+                (
+                    compiled
+                        .rows
+                        .iter()
+                        .map(|row| row.physical.clone())
+                        .collect(),
+                    compiled,
+                )
             }
         };
-        let mut live_rows = live_rows;
+        let mut live_rows: Vec<PhysicalRow> = live_rows;
         if self.leading_boundary == LeadingBoundaryState::Pending {
             live_rows.insert(0, PhysicalRow::empty());
         }
@@ -168,9 +175,11 @@ where
             self.committed_through,
         );
         let semantic_rows = match &semantic_plan.payload {
-            CommitPayload::Compiled { start, len } => {
-                compiled.rows[*start..start.saturating_add(*len)].to_vec()
-            }
+            CommitPayload::Compiled { start, len } => compiled.rows
+                [*start..start.saturating_add(*len)]
+                .iter()
+                .map(|row| row.physical.clone())
+                .collect(),
             CommitPayload::Frozen { rows } => rows.as_slice().to_vec(),
         };
         let commit_leading_boundary =

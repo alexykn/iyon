@@ -60,6 +60,11 @@ pub use presentation::api::{
     OverflowIndicator, StyleSpec, Text, TextAttribute, TextAttributeSpec, TextSpan, ThemeKey,
     Vertical, VerticalAlign, View, WrapMode,
 };
+pub use stream::{
+    ProjectedText, ProjectedTextBuilder, ProjectedValidationError, StreamError, StreamOffset,
+    StreamPane, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
+    StreamValidationError, StreamingSource,
+};
 
 use std::io::stdout;
 

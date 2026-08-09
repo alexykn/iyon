@@ -56,6 +56,7 @@ impl View {
             ViewKind::Text(_) | ViewKind::Spacer { .. } => false,
             ViewKind::Container(container) => container.child.contains_component_identity(),
             ViewKind::ClampRows(clamp) => clamp.child.contains_component_identity(),
+            ViewKind::RowViewport(viewport) => viewport.child.contains_component_identity(),
             ViewKind::Column(column) => column
                 .children
                 .iter()
@@ -76,6 +77,7 @@ pub(crate) enum ViewKind {
     Container(ContainerNode),
     Spacer { rows: u16 },
     ClampRows(ClampRowsView),
+    RowViewport(RowViewportView),
     ComponentSlot(ComponentSlotNode),
 }
 
@@ -246,4 +248,11 @@ pub(crate) struct ClampRowsView {
     pub(crate) child: Box<View>,
     pub(crate) max_rows: u16,
     pub(crate) overflow: OverflowIndicator,
+}
+
+/// Private physical row crop used by semantic local scroll panes.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RowViewportView {
+    pub(crate) child: Box<View>,
+    pub(crate) skip_rows: u16,
 }

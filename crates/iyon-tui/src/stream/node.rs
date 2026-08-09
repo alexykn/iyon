@@ -7,7 +7,10 @@ use crate::presentation::{
 
 use super::{
     StreamOffset, StreamRange,
-    projected::{ExactTerminator, ProjectedText, ProjectedTextLayout, slice_projected_text},
+    projected::{
+        ExactTerminator, ProjectedText, ProjectedTextLayout, slice_projected_text,
+        slice_projected_text_to,
+    },
 };
 
 /// Semantic provenance attached to stream view nodes.
@@ -38,7 +41,7 @@ impl StreamNode {
     }
 
     pub(crate) fn exact_text(text_range: StreamRange, spans: Vec<TextSpan>) -> Self {
-        Self::Text(ProjectedText::identity(
+        Self::Text(ProjectedText::identity_with_terminator(
             text_range,
             ExactTerminator::None,
             spans,
@@ -50,7 +53,7 @@ impl StreamNode {
         spans: Vec<TextSpan>,
         has_newline: bool,
     ) -> Self {
-        Self::Text(ProjectedText::identity(
+        Self::Text(ProjectedText::identity_with_terminator(
             text_range,
             if has_newline {
                 ExactTerminator::HardNewline
@@ -100,6 +103,13 @@ impl StreamNode {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct StreamView {
     pub(crate) nodes: Vec<StreamNode>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StreamSliceError {
+    InvalidRange,
+    IllegalCheckpoint,
+    AtomicBoundary,
 }
 
 impl StreamView {
@@ -161,6 +171,10 @@ impl StreamView {
         })
     }
 
+    pub(crate) fn semantic_slice(&self, range: StreamRange) -> Result<Self, StreamSliceError> {
+        semantic_slice_nodes(self.nodes.iter(), range)
+    }
+
     pub(crate) fn suffix_from(&self, offset: StreamOffset) -> Self {
         let mut nodes = Vec::new();
         for node in &self.nodes {
@@ -205,4 +219,47 @@ impl StreamView {
             nodes: vec![StreamNode::atomic(range, view)],
         }
     }
+}
+
+pub(crate) fn semantic_slice_nodes<'a>(
+    nodes: impl Iterator<Item = &'a StreamNode>,
+    range: StreamRange,
+) -> Result<StreamView, StreamSliceError> {
+    if range.start > range.end {
+        return Err(StreamSliceError::InvalidRange);
+    }
+    let mut sliced_nodes = Vec::new();
+    for node in nodes {
+        let owned = node.owned_range();
+        if owned.end <= range.start || owned.start >= range.end {
+            continue;
+        }
+        if range.start <= owned.start && owned.end <= range.end {
+            sliced_nodes.push(node.clone());
+            continue;
+        }
+        let StreamNode::Text(text) = node else {
+            return Err(StreamSliceError::AtomicBoundary);
+        };
+        let start = range.start.max(owned.start);
+        let end = range.end.min(owned.end);
+        if start > text.content_range.start
+            && !super::projected::projected_checkpoint_is_legal(text, start)
+        {
+            return Err(StreamSliceError::IllegalCheckpoint);
+        }
+        let sliced = if start > text.content_range.start {
+            slice_projected_text(text, start)
+        } else {
+            text.clone()
+        };
+        let sliced = if end < sliced.owned_range().end {
+            slice_projected_text_to(&sliced, end)
+                .map_err(|_| StreamSliceError::IllegalCheckpoint)?
+        } else {
+            sliced
+        };
+        sliced_nodes.push(StreamNode::Text(sliced));
+    }
+    Ok(StreamView::new(sliced_nodes))
 }

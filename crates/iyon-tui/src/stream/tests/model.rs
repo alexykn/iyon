@@ -114,6 +114,75 @@ fn range(start: u64, end: u64) -> StreamRange {
     StreamRange::new(StreamOffset::new(start), StreamOffset::new(end))
 }
 
+struct OverlapSource {
+    compacted: bool,
+}
+
+impl StreamingSource for OverlapSource {
+    fn snapshot(&self) -> StreamSnapshot {
+        let nodes = if self.compacted {
+            vec![StreamNode::exact_text(
+                range(0, 3),
+                vec![TextSpan::plain("ABC")],
+            )]
+        } else {
+            vec![
+                StreamNode::exact_text(range(0, 1), vec![TextSpan::plain("A")]),
+                StreamNode::exact_text(range(1, 2), vec![TextSpan::plain("B")]),
+                StreamNode::exact_text(range(2, 3), vec![TextSpan::plain("C")]),
+            ]
+        };
+        StreamSnapshot {
+            revision: if self.compacted {
+                StreamRevision::new(1)
+            } else {
+                StreamRevision::ZERO
+            },
+            source_base: StreamOffset::ZERO,
+            source_end: StreamOffset::new(3),
+            stable_through: StreamOffset::new(2),
+            view: StreamView::new(nodes),
+        }
+    }
+
+    fn compact_before(&mut self, offset: StreamOffset) {
+        assert_eq!(offset, StreamOffset::new(2));
+        self.compacted = true;
+    }
+
+    fn seal(&mut self) {}
+
+    fn is_sealed(&self) -> bool {
+        false
+    }
+}
+
+#[test]
+fn semantic_slice_respects_resident_source_frontier_overlap() {
+    let mut model = StreamModel::new(OverlapSource { compacted: false }).unwrap();
+    model.refresh().unwrap();
+
+    let combined = model.semantic_view();
+    assert_eq!(
+        combined
+            .nodes
+            .iter()
+            .map(StreamNode::owned_range)
+            .collect::<Vec<_>>(),
+        vec![range(0, 1), range(1, 2), range(2, 3)]
+    );
+
+    let sliced = model.semantic_slice(range(1, 3)).unwrap();
+    assert_eq!(
+        sliced
+            .nodes
+            .iter()
+            .map(StreamNode::owned_range)
+            .collect::<Vec<_>>(),
+        vec![range(1, 2), range(2, 3)]
+    );
+}
+
 fn semantic_text(model: &StreamModel<FakeSource>) -> String {
     model
         .semantic_view()

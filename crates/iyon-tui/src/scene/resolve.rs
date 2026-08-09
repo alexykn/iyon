@@ -101,6 +101,12 @@ impl Resolver<'_> {
                 max_rows: clamp.max_rows,
                 overflow: clamp.overflow.clone(),
             }),
+            ViewKind::RowViewport(viewport) => {
+                ViewKind::RowViewport(crate::presentation::ir::RowViewportView {
+                    child: Box::new(self.resolve_view(&viewport.child, parent)?),
+                    skip_rows: viewport.skip_rows,
+                })
+            }
             ViewKind::ComponentSlot(slot) => return self.resolve_slot(view, slot.id, parent),
         };
 

@@ -1,5 +1,7 @@
 //! Structured validation for stream snapshots and projected nodes.
 
+use std::fmt;
+
 use unicode_width::UnicodeWidthStr;
 
 use super::{
@@ -8,8 +10,10 @@ use super::{
     snapshot::StreamSnapshot,
 };
 
+/// Public validation failures for externally constructed stream snapshots.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum StreamValidationError {
+pub enum StreamValidationError {
     InvalidFrontier,
     FirstNodeDoesNotStartAtBase,
     GapOrOverlap,
@@ -19,8 +23,10 @@ pub(crate) enum StreamValidationError {
     AtomicContainsComponent,
 }
 
+/// Public failures in projected source/display mapping.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ProjectedValidationError {
+pub enum ProjectedValidationError {
     InvalidContentRange,
     InvalidHangingPrefix,
     NonContiguousRun,
@@ -31,6 +37,22 @@ pub(crate) enum ProjectedValidationError {
     IncompleteSourceCoverage,
     HangingWidthMismatch,
 }
+
+impl fmt::Display for StreamValidationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "invalid stream snapshot: {self:?}")
+    }
+}
+
+impl std::error::Error for StreamValidationError {}
+
+impl fmt::Display for ProjectedValidationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "invalid projected text: {self:?}")
+    }
+}
+
+impl std::error::Error for ProjectedValidationError {}
 
 impl StreamSnapshot {
     pub(crate) fn validate(&self) -> Result<(), StreamValidationError> {
@@ -69,7 +91,9 @@ impl StreamSnapshot {
     }
 }
 
-fn validate_projected_text(text: &ProjectedText) -> Result<(), ProjectedValidationError> {
+pub(crate) fn validate_projected_text(
+    text: &ProjectedText,
+) -> Result<(), ProjectedValidationError> {
     if text.content_range.start > text.content_range.end {
         return Err(ProjectedValidationError::InvalidContentRange);
     }
