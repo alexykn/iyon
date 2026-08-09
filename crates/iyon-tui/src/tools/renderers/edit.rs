@@ -1,11 +1,9 @@
-use crate::{
-    presentation::{ColorSpec, IntoView, StyleSpec, ThemeKey, View},
-    tools::{
-        registry::ToolRenderer,
-        renderers::{column, result_lines, result_style, text, tool_call, tool_result_line},
-        types::{ToolCallRenderInput, ToolResultRenderInput},
-    },
+use crate::tools::{
+    registry::ToolRenderer,
+    renderers::{column, result_lines, result_style, text, tool_call, tool_result_line},
+    types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use crate::{ColorSpec, IntoView, StyleSpec, View};
 
 #[derive(Debug)]
 pub(crate) struct EditRenderer;
@@ -58,22 +56,15 @@ impl ToolRenderer for EditRenderer {
 
 fn format_diff_line(line: &str) -> View {
     let color = if line.starts_with('+') && !line.starts_with("+++") {
-        ColorSpec::Ansi(2)
+        ColorSpec::ansi(2)
     } else if line.starts_with('-') && !line.starts_with("---") {
-        ColorSpec::Ansi(1)
+        ColorSpec::ansi(1)
     } else if line.starts_with("@@") {
-        ColorSpec::Ansi(3)
+        ColorSpec::ansi(3)
     } else {
-        ColorSpec::Theme(ThemeKey::from("text.muted"))
+        ColorSpec::theme("text.muted")
     };
-    text(
-        line,
-        StyleSpec {
-            foreground: Some(color),
-            ..StyleSpec::default()
-        },
-    )
-    .into_view()
+    text(line, StyleSpec::new().foreground(color)).into_view()
 }
 
 fn status_label(status: crate::transcript::ToolTimelineStatus) -> &'static str {

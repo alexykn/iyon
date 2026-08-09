@@ -1,6 +1,4 @@
-use crate::presentation::{
-    ColorSpec, IntoView, RowChild, StyleSpec, Text, ThemeKey, View, WidthRule,
-};
+use crate::{ColorSpec, StyleSpec, Text, TextAttributeSpec, TextSpan, View};
 
 pub(super) const TOOL_BODY_OFFSET: u16 = 2;
 use crate::transcript::ToolTimelineStatus;
@@ -30,56 +28,36 @@ pub(super) fn tool_style(status: ToolTimelineStatus) -> StyleSpec {
         ToolTimelineStatus::PendingApproval => "text.warning",
         ToolTimelineStatus::Running => "tool.running",
     };
-    StyleSpec {
-        foreground: Some(ColorSpec::Theme(ThemeKey::from(key))),
-        ..StyleSpec::default()
-    }
+    StyleSpec::new().foreground(ColorSpec::theme(key))
 }
 
 pub(super) fn result_style(is_error: bool) -> StyleSpec {
     if is_error {
         tool_style(ToolTimelineStatus::Failed)
     } else {
-        StyleSpec {
-            foreground: Some(ColorSpec::Theme(ThemeKey::from("text.muted"))),
-            ..StyleSpec::default()
-        }
+        StyleSpec::new().foreground(ColorSpec::theme("text.muted"))
     }
 }
 
 pub(super) fn text(text: impl Into<String>, style: StyleSpec) -> Text {
-    View::styled_text(vec![crate::presentation::TextSpan::styled(text, style)])
+    View::styled_text([TextSpan::styled(text, style)])
 }
 
 pub(super) fn tool_call(text_value: String, style: StyleSpec) -> View {
-    View::row(
-        vec![
-            RowChild::content(text("●", style.clone()).no_wrap().into_view()),
-            RowChild::flex(
-                text(text_value, style)
-                    .width(crate::presentation::WidthRule::Fill)
-                    .into_view(),
-            ),
-        ],
-        1,
-    )
+    View::horizontal(|row| {
+        row.child(text("●", style.clone()).no_wrap());
+        row.flex(text(text_value, style).fill_width());
+        row.gap(1);
+    })
+    .fill_width()
 }
 
 pub(super) fn tool_result_line(text_value: impl Into<String>, style: StyleSpec) -> View {
-    View::row(
-        vec![
-            RowChild::fixed(
-                TOOL_BODY_OFFSET,
-                View::text("").width(WidthRule::Fill).into_view(),
-            ),
-            crate::presentation::RowChild::flex(
-                text(text_value, style)
-                    .width(crate::presentation::WidthRule::Fill)
-                    .into_view(),
-            ),
-        ],
-        0,
-    )
+    View::horizontal(|row| {
+        row.fixed(TOOL_BODY_OFFSET, View::text("").fill_width());
+        row.flex(text(text_value, style).fill_width());
+    })
+    .fill_width()
 }
 
 pub(super) fn result_lines(text_value: &str, style: StyleSpec) -> Vec<View> {
@@ -90,13 +68,47 @@ pub(super) fn result_lines(text_value: &str, style: StyleSpec) -> Vec<View> {
 }
 
 pub(super) fn column(children: Vec<View>) -> View {
-    View::column(children, 0).width(crate::presentation::WidthRule::Fill)
+    View::vertical(|column| {
+        column.children(children);
+    })
+    .fill_width()
 }
 
 #[allow(dead_code)]
-pub(super) fn dim_attributes() -> crate::presentation::TextAttributeSpec {
-    crate::presentation::TextAttributeSpec {
-        dim: Some(true),
-        ..Default::default()
+pub(super) fn dim_attributes() -> TextAttributeSpec {
+    StyleSpec::new().dim().attributes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::IntoView;
+
+    #[test]
+    fn tool_layout_helpers_lower_to_final_semantic_composition() {
+        let style = StyleSpec::new().foreground(ColorSpec::ansi(1));
+        let call = tool_call("ready".to_string(), style.clone());
+        let expected_call = View::horizontal(|row| {
+            row.child(text("●", style.clone()).no_wrap());
+            row.flex(text("ready", style.clone()).fill_width());
+            row.gap(1);
+        })
+        .fill_width();
+        assert_eq!(call, expected_call);
+
+        let result = tool_result_line("result", style.clone());
+        let expected_result = View::horizontal(|row| {
+            row.fixed(TOOL_BODY_OFFSET, View::text("").fill_width());
+            row.flex(text("result", style.clone()).fill_width());
+        })
+        .fill_width();
+        assert_eq!(result, expected_result);
+
+        let children = vec![View::text("a").into_view(), View::text("b").into_view()];
+        let expected_column = View::vertical(|column| {
+            column.children(children.clone());
+        })
+        .fill_width();
+        assert_eq!(column(children), expected_column);
     }
 }
