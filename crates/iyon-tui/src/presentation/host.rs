@@ -6,15 +6,7 @@
 use std::{fmt::Debug, time::Instant};
 
 use super::ir::View;
-use crate::{component::Component, interaction::InteractionResult};
-
-/// FEATURE EXTENSION API. Generic attachment relationship decided by a feature.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum FlowBoundary {
-    #[default]
-    Default,
-    AttachToPrevious,
-}
+use crate::{component::Component, history::FlowBoundary, interaction::InteractionResult};
 
 /// FEATURE EXTENSION API. Backend-neutral key semantics for interaction surfaces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

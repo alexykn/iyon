@@ -3,9 +3,9 @@ use std::{borrow::Cow, collections::HashMap, ops::Range};
 use ratatui::{style::Style, text::Line};
 
 use crate::{
+    history::FlowBoundary,
     presentation::{
-        ColorSpec, Decoration, FlowBoundary, Insets, IntoView, ThemeKey, View, WidthRule,
-        layout::compile_view,
+        ColorSpec, Decoration, Insets, IntoView, ThemeKey, View, WidthRule, layout::compile_view,
     },
     stream::StreamOffset,
     terminal::ratatui::rows_to_lines,

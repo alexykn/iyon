@@ -65,6 +65,15 @@ impl<S: StreamingSource> StreamModel<S> {
         &self.resident
     }
 
+    pub(crate) fn restore_semantic_state(
+        &mut self,
+        resident: ResidentPrefix,
+        current: StreamSnapshot,
+    ) {
+        self.resident = resident;
+        self.current = current;
+    }
+
     pub(crate) fn refresh(&mut self) -> Result<(), StreamModelError> {
         let observed = self.source.snapshot();
         Self::validate_transition(&self.current, &observed)?;

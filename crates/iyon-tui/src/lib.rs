@@ -36,6 +36,7 @@ mod app;
 mod component;
 mod controls;
 mod geometry;
+mod history;
 mod input;
 mod interaction;
 mod output;

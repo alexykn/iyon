@@ -2,9 +2,10 @@ use std::collections::VecDeque;
 
 use crate::{
     component::{Component, ComponentHandle, ComponentRegistry},
+    history::FlowBoundary,
     input::InputBuffer,
     physical::PhysicalRow,
-    presentation::{ActiveContent, FlowBoundary, layout::compile_view},
+    presentation::{ActiveContent, layout::compile_view},
     runtime::{
         active::{ActiveTurnContent, ToolActiveStatus},
         backend::ToolUpdatePresentation,
