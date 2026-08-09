@@ -886,7 +886,7 @@ mod tests {
     #[test]
     fn generic_text_input_matches_legacy_editor_for_shared_ascii_operations() {
         use crate::{
-            component::ComponentRegistry,
+            component::{Component, ComponentRegistry},
             controls::TextInput,
             interaction::{FocusState, GlobalBindings, Key, KeyStroke, Modifiers, route_key},
             output::OutputQueue,
@@ -913,6 +913,8 @@ mod tests {
             WordRight,
             Backspace,
             WordBackspace,
+            Kill,
+            Yank,
             Home,
             End,
             Insert(char),
@@ -927,6 +929,8 @@ mod tests {
             Operation::Home,
             Operation::End,
             Operation::WordBackspace,
+            Operation::Kill,
+            Operation::Yank,
         ];
 
         for operation in operations {
@@ -939,6 +943,8 @@ mod tests {
                 Operation::WordBackspace => {
                     KeyStroke::with_modifiers(Key::Backspace, Modifiers::ALT)
                 }
+                Operation::Kill => KeyStroke::with_modifiers(Key::Char('u'), Modifiers::CONTROL),
+                Operation::Yank => KeyStroke::with_modifiers(Key::Char('y'), Modifiers::CONTROL),
                 Operation::Home => KeyStroke::new(Key::Home),
                 Operation::End => KeyStroke::new(Key::End),
                 Operation::Insert(character) => KeyStroke::new(Key::Char(character)),
@@ -950,6 +956,8 @@ mod tests {
                 Operation::WordRight => legacy.move_right_word(),
                 Operation::Backspace => legacy.delete_char(),
                 Operation::WordBackspace => legacy.delete_word(),
+                Operation::Kill => legacy.delete_line(),
+                Operation::Yank => legacy.restore(),
                 Operation::Home => legacy.move_line_start(),
                 Operation::End => legacy.move_line_end(),
                 Operation::Insert(character) => legacy.insert_char(character),
@@ -970,6 +978,144 @@ mod tests {
                 .unwrap();
             assert_eq!(text, legacy.text());
             assert_eq!(cursor, legacy.cursor_bytes());
+        }
+    }
+
+    #[test]
+    fn generic_text_input_matches_legacy_unicode_grapheme_operations() {
+        use crate::{
+            component::ComponentRegistry,
+            controls::TextInput,
+            interaction::{FocusState, GlobalBindings, Key, KeyStroke, route_key},
+            output::OutputQueue,
+            presentation::View,
+            scene::resolve_scene,
+        };
+
+        for initial in ["e\u{301}x", "界abc", "👩\u{200d}💻x", "🇺🇸x🇨🇦"] {
+            let mut legacy = InputBuffer::default();
+            legacy.insert_str(initial);
+            let mut registry = ComponentRegistry::new();
+            let handle = registry.register(TextInput::new().multiline(true));
+            registry.with_mut(handle, |input| input.set_text(initial));
+            let scene = resolve_scene(&View::component(handle), &registry).unwrap();
+            let mut focus = FocusState::default();
+            focus.reconcile(&scene.mounts, &scene.capabilities, &mut registry);
+            let globals = GlobalBindings::default();
+            let mut queue = OutputQueue::new();
+            let strokes = [
+                KeyStroke::new(Key::Left),
+                KeyStroke::new(Key::Left),
+                KeyStroke::new(Key::Right),
+                KeyStroke::new(Key::Backspace),
+                KeyStroke::new(Key::Right),
+            ];
+            for stroke in strokes {
+                match stroke.key() {
+                    Key::Left => legacy.move_left(),
+                    Key::Right => legacy.move_right(),
+                    Key::Backspace => legacy.delete_char(),
+                    _ => unreachable!(),
+                }
+                route_key(
+                    stroke,
+                    &mut focus,
+                    &scene.mounts,
+                    &scene.capabilities,
+                    &mut registry,
+                    &mut queue,
+                    &globals,
+                );
+                let (text, cursor) = registry
+                    .with(handle, |input| {
+                        (input.text().to_owned(), input.cursor_bytes())
+                    })
+                    .unwrap();
+                assert_eq!(
+                    text,
+                    legacy.text(),
+                    "initial={initial:?}, stroke={stroke:?}"
+                );
+                assert_eq!(
+                    cursor,
+                    legacy.cursor_bytes(),
+                    "initial={initial:?}, stroke={stroke:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn generic_wrap_and_visual_cursor_match_legacy_ranges_across_unicode_widths() {
+        use crate::{
+            component::{Component, ComponentRegistry},
+            controls::TextInput,
+            interaction::FocusState,
+            presentation::{View, layout::compile_view, wrap::input_wrap_ranges},
+        };
+
+        let texts = [
+            "abcdef",
+            "hello world",
+            "e\u{301}e\u{301}",
+            "界abc",
+            "👩\u{200d}💻x🇺🇸",
+            "one\ntwo\n",
+            "a b  c",
+        ];
+        for text in texts {
+            for width in [1, 2, 3, 4, 5, 8, 12] {
+                let legacy_ranges = super::wrap::compute_wrapped_ranges(text, width);
+                let generic_ranges = input_wrap_ranges(text, width);
+                assert_eq!(
+                    legacy_ranges, generic_ranges,
+                    "text={text:?}, width={width}"
+                );
+
+                let mut legacy = InputBuffer::default();
+                legacy.insert_str(text);
+                let mut generic = TextInput::new().multiline(true);
+                generic.set_text(text);
+                generic.set_cursor_for_test(text.len());
+                let ranges = legacy_ranges.as_slice();
+                legacy.move_up_visual_with_lines(ranges);
+                generic.move_up_in_rows_for_test(ranges);
+                assert_eq!(legacy.cursor_bytes(), generic.cursor_bytes());
+                legacy.move_down_visual_with_lines(ranges);
+                generic.move_down_in_rows_for_test(ranges);
+                assert_eq!(legacy.cursor_bytes(), generic.cursor_bytes());
+
+                let mut registry = ComponentRegistry::new();
+                let handle = registry.register(generic);
+                let scene = crate::scene::resolve_scene(&View::component(handle), &registry)
+                    .expect("text input should resolve");
+                let mut focus = FocusState::default();
+                focus.reconcile(&scene.mounts, &scene.capabilities, &mut registry);
+                registry.with_mut(handle, |input| input.set_focused_for_test(true));
+                let view = registry
+                    .with(handle, |input| input.view().fill_width())
+                    .unwrap();
+                let compiled = compile_view(&view, width);
+                let generic_cursor =
+                    compiled
+                        .rows
+                        .iter()
+                        .enumerate()
+                        .find_map(|(row, physical)| {
+                            physical
+                                .cells()
+                                .iter()
+                                .position(|cell| cell.style.reversed)
+                                .map(|column| (column as u16, row as u16))
+                        });
+                let legacy_cursor = cursor_xy(text, legacy.cursor_bytes(), ranges, width);
+                assert_eq!(
+                    generic_cursor,
+                    Some(legacy_cursor),
+                    "text={text:?}, width={width}, cursor={}",
+                    legacy.cursor_bytes()
+                );
+            }
         }
     }
 }

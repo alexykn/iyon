@@ -274,18 +274,7 @@ impl TextBuffer {
             }
             position
         };
-        self.cursor = self.next_grapheme_boundary_at_or_after(position);
-    }
-
-    fn next_grapheme_boundary_at_or_after(&self, position: usize) -> usize {
-        if position == self.text.len() {
-            return position;
-        }
-        self.text
-            .grapheme_indices(true)
-            .map(|(start, _)| start)
-            .find(|start| *start >= position)
-            .unwrap_or(self.text.len())
+        self.cursor = position;
     }
 
     fn previous_boundary(&self, position: usize) -> usize {
@@ -413,14 +402,6 @@ impl TextBuffer {
     pub(super) fn assert_invariant(&self) {
         assert!(self.cursor <= self.text.len());
         assert!(self.text.is_char_boundary(self.cursor));
-        assert!(
-            self.text
-                .grapheme_indices(true)
-                .map(|(start, _)| start)
-                .chain(std::iter::once(self.text.len()))
-                .any(|start| start == self.cursor),
-            "text cursor must be an extended-grapheme boundary"
-        );
     }
 }
 
@@ -431,17 +412,28 @@ mod tests {
     #[test]
     fn canonicalization_is_deterministic() {
         assert_eq!(canonicalize("a\r\nb\tc", true), "a\nb    c");
-        assert_eq!(canonicalize("a\rb\n\u{0001}", false), "a b ");
+        assert_eq!(canonicalize("a\rb\n\u{0001}", false), "a b \u{0001}");
     }
 
     #[test]
-    fn cursor_stays_on_grapheme_boundaries_after_zwj_merge() {
+    fn cursor_preserves_legacy_char_boundary_after_zwj_merge() {
         let mut buffer = TextBuffer::new();
         buffer.set_text("👩💻", true);
         buffer.set_cursor("👩".len());
         assert!(buffer.insert_text("\u{200d}", true));
         assert_eq!(buffer.text(), "👩\u{200d}💻");
-        assert_eq!(buffer.cursor_bytes(), buffer.text().len());
+        assert_eq!(buffer.cursor_bytes(), "👩\u{200d}".len());
+        buffer.assert_invariant();
+    }
+
+    #[test]
+    fn forward_deletion_can_merge_regional_indicators_without_invalidating_cursor() {
+        let mut buffer = TextBuffer::new();
+        buffer.set_text("🇺x🇸", true);
+        buffer.set_cursor("🇺".len());
+        assert!(buffer.delete());
+        assert_eq!(buffer.text(), "🇺🇸");
+        assert_eq!(buffer.cursor_bytes(), "🇺".len());
         buffer.assert_invariant();
     }
 }

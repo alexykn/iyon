@@ -163,15 +163,13 @@ impl ViewCompiler {
             WidthRule::Fit => intrinsic_width.min(usize::from(max_width)) as u16,
             WidthRule::Fill => max_width,
         };
-        // A focused input keeps the established editor contract: one cell is
-        // available for its block caret. This is a semantic cursor policy,
-        // not a backend or geometry callback.
-        let wrap_width = if text.cursor.is_some() {
-            width.saturating_sub(1).max(1)
+        let mut wrapped = if let Some(source) = source.as_deref()
+            && text.cursor.is_some()
+        {
+            crate::presentation::wrap::wrap_input_styled_lines(&hard_lines, source, width)
         } else {
-            width
+            wrap_styled_lines(&hard_lines, width, text.wrap)
         };
-        let mut wrapped = wrap_styled_lines(&hard_lines, wrap_width, text.wrap);
         if let (Some(anchor), Some(source)) = (text.cursor, source.as_deref()) {
             apply_cursor_anchor(&mut wrapped, source, anchor, inherited, usize::from(width));
         }
@@ -200,13 +198,6 @@ fn validate_cursor_anchor(text: &str, anchor: TextCursorAnchor) {
     assert!(
         text.is_char_boundary(anchor.byte_offset),
         "text cursor anchor is not a UTF-8 boundary"
-    );
-    assert!(
-        text.grapheme_indices(true)
-            .map(|(start, _)| start)
-            .chain(std::iter::once(text.len()))
-            .any(|start| start == anchor.byte_offset),
-        "text cursor anchor is not an extended-grapheme boundary"
     );
 }
 

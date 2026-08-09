@@ -25,6 +25,14 @@ fn default_keymap_preserves_framework_keys_and_application_shortcuts() {
         command_for_key(&input, modified(Key::Char('u'), Modifiers::CONTROL)),
         Some(TextInputCommand::KillToLineStart)
     );
+    assert_eq!(
+        command_for_key(&input, key(Key::Char('\u{0002}'))),
+        Some(TextInputCommand::MoveLeft)
+    );
+    assert_eq!(
+        command_for_key(&input, modified(Key::Char('j'), Modifiers::CONTROL)),
+        Some(TextInputCommand::InsertNewline)
+    );
     assert!(input.buffer.kill_to_line_start());
     assert_eq!(
         command_for_key(&input, modified(Key::Char('y'), Modifiers::CONTROL)),

@@ -14,6 +14,8 @@ mod presentation;
 #[cfg(test)]
 mod tests;
 
+use std::ops::Range;
+
 use crate::{Component, ComponentCx, EventCx, InteractionResult, Output, View};
 
 use self::{
@@ -186,13 +188,23 @@ impl TextInput {
     }
 
     #[cfg(test)]
-    pub(super) fn set_cursor_for_test(&mut self, cursor: usize) {
+    pub(crate) fn set_cursor_for_test(&mut self, cursor: usize) {
         self.buffer.set_cursor(cursor);
     }
 
     #[cfg(test)]
-    pub(super) fn is_focused_for_test(&self) -> bool {
-        self.focused
+    pub(crate) fn move_up_in_rows_for_test(&mut self, rows: &[Range<usize>]) -> bool {
+        self.buffer.move_up_in_rows(rows)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn move_down_in_rows_for_test(&mut self, rows: &[Range<usize>]) -> bool {
+        self.buffer.move_down_in_rows(rows)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_focused_for_test(&mut self, focused: bool) {
+        self.focused = focused;
     }
 }
 

@@ -78,7 +78,7 @@ pub(crate) struct TextView {
     pub(crate) cursor: Option<TextCursorAnchor>,
 }
 
-/// Private semantic caret metadata. It describes a source boundary only;
+/// Private semantic caret metadata. It describes a UTF-8 source boundary;
 /// layout resolves it to a physical cell without exposing geometry upstream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TextCursorAnchor {
