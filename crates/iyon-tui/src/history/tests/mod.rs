@@ -19,6 +19,7 @@ struct TestSource {
 struct TestSourceState {
     snapshot: StreamSnapshot,
     sealed: bool,
+    compact_calls: usize,
 }
 
 impl TestSource {
@@ -36,9 +37,21 @@ impl TestSource {
         )
         .finish()
         .unwrap();
+        Self::from_snapshot(snapshot, sealed)
+    }
+
+    fn from_snapshot(snapshot: StreamSnapshot, sealed: bool) -> Self {
         Self {
-            state: Rc::new(RefCell::new(TestSourceState { snapshot, sealed })),
+            state: Rc::new(RefCell::new(TestSourceState {
+                snapshot,
+                sealed,
+                compact_calls: 0,
+            })),
         }
+    }
+
+    fn compact_calls(&self) -> usize {
+        self.state.borrow().compact_calls
     }
 
     fn replace_snapshot(&self, snapshot: StreamSnapshot) {

@@ -26,12 +26,18 @@ impl ErasedHistoryStream {
         self.state.snapshot()
     }
 
-    pub(crate) fn refresh(&mut self, unit: HistoryUnitId) -> Result<(), HistoryError> {
-        self.state.refresh(unit)
+    pub(crate) fn refresh<S: StreamingSource>(
+        &mut self,
+        unit: HistoryUnitId,
+    ) -> Result<(), HistoryError> {
+        self.typed_mut::<S>(unit)?.refresh(unit)
     }
 
-    pub(crate) fn seal(&mut self, unit: HistoryUnitId) -> Result<(), HistoryError> {
-        self.state.seal(unit)
+    pub(crate) fn seal<S: StreamingSource>(
+        &mut self,
+        unit: HistoryUnitId,
+    ) -> Result<(), HistoryError> {
+        self.typed_mut::<S>(unit)?.seal(unit)
     }
 
     pub(crate) fn update<S: StreamingSource, R>(
@@ -39,17 +45,23 @@ impl ErasedHistoryStream {
         unit: HistoryUnitId,
         update: impl FnOnce(&mut S) -> R,
     ) -> Result<R, HistoryError> {
-        let Some(typed) = self
-            .state
-            .as_any_mut()
-            .downcast_mut::<TypedHistoryStream<S>>()
-        else {
-            return Err(HistoryError::StreamTypeMismatch { unit });
-        };
+        let typed = self.typed_mut::<S>(unit)?;
         if typed.sealed {
             return Err(HistoryError::StreamAlreadySealed { unit });
         }
-        Ok(update(typed.model.source_mut()))
+        let result = update(typed.model.source_mut());
+        typed.model.refresh().map_err(HistoryError::Stream)?;
+        Ok(result)
+    }
+
+    fn typed_mut<S: StreamingSource>(
+        &mut self,
+        unit: HistoryUnitId,
+    ) -> Result<&mut TypedHistoryStream<S>, HistoryError> {
+        self.state
+            .as_any_mut()
+            .downcast_mut::<TypedHistoryStream<S>>()
+            .ok_or(HistoryError::StreamTypeMismatch { unit })
     }
 }
 
@@ -57,8 +69,6 @@ trait ErasedHistoryStreamState: Any {
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn is_sealed(&self) -> bool;
     fn snapshot(&self) -> &StreamSnapshot;
-    fn refresh(&mut self, unit: HistoryUnitId) -> Result<(), HistoryError>;
-    fn seal(&mut self, unit: HistoryUnitId) -> Result<(), HistoryError>;
 }
 
 struct TypedHistoryStream<S: StreamingSource> {
@@ -83,19 +93,7 @@ impl<S: StreamingSource> TypedHistoryStream<S> {
     }
 }
 
-impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn is_sealed(&self) -> bool {
-        self.sealed
-    }
-
-    fn snapshot(&self) -> &StreamSnapshot {
-        self.model.snapshot()
-    }
-
+impl<S: StreamingSource> TypedHistoryStream<S> {
     fn refresh(&mut self, unit: HistoryUnitId) -> Result<(), HistoryError> {
         if self.sealed {
             let observed = self.model.source().snapshot();
@@ -115,15 +113,24 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
             }
             return Ok(());
         }
-        let resident = self.model.resident().clone();
-        let snapshot = self.model.snapshot().clone();
-        if let Err(error) = self.model.seal() {
-            self.model.restore_semantic_state(resident, snapshot);
-            return Err(HistoryError::Stream(error));
-        }
+        self.model.seal().map_err(HistoryError::Stream)?;
         self.sealed = true;
         self.published = Some(self.model.snapshot().clone());
         Ok(())
+    }
+}
+
+impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn is_sealed(&self) -> bool {
+        self.sealed
+    }
+
+    fn snapshot(&self) -> &StreamSnapshot {
+        self.model.snapshot()
     }
 }
 

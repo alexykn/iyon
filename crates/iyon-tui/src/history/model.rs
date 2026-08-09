@@ -115,7 +115,7 @@ impl History {
                 unit: handle.unit(),
             });
         };
-        stream.refresh(handle.unit())
+        stream.refresh::<S>(handle.unit())
     }
 
     pub(crate) fn seal_stream<S: StreamingSource>(
@@ -129,7 +129,7 @@ impl History {
                 unit: handle.unit(),
             });
         };
-        stream.seal(handle.unit())
+        stream.seal::<S>(handle.unit())
     }
 
     pub(super) fn units(&self) -> impl Iterator<Item = &HistoryUnit> {
