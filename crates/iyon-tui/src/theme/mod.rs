@@ -5,7 +5,7 @@
 
 mod ratatui;
 
-use crate::physical::{PhysicalColor, PhysicalStyle};
+use crate::physical::{AnsiColor, PhysicalColor, PhysicalStyle};
 
 pub(crate) use self::ratatui::{
     input_border, markdown_bold, markdown_code, markdown_header, markdown_italic, markdown_list,
@@ -34,8 +34,8 @@ pub(crate) fn physical_color(key: &str) -> PhysicalColor {
             g: 211,
             b: 145,
         },
-        "tool.error" | "text.error" => PhysicalColor::Indexed(1),
-        "text.warning" => PhysicalColor::Indexed(3),
+        "tool.error" | "text.error" => PhysicalColor::Named(AnsiColor::Red),
+        "text.warning" => PhysicalColor::Named(AnsiColor::Yellow),
         "markdown.header" => PhysicalColor::Rgb {
             r: 255,
             g: 196,

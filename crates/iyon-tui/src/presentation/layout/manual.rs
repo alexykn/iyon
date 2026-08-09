@@ -38,13 +38,13 @@ impl ViewCompiler {
             .saturating_add(border_pad);
         let inner_width = max_width.saturating_sub(horizontal);
         let core = self.layout_kind(&view.kind, view.width, inner_width, resolved);
-        let requested_width = core.width.saturating_add(horizontal).min(u16::MAX);
+        let requested_width = core.width().saturating_add(horizontal).min(u16::MAX);
         let width = match view.width {
             WidthRule::Fit => requested_width.min(max_width),
             WidthRule::Fill => max_width,
         };
         let height = core
-            .height
+            .height()
             .saturating_add(decoration.padding.top)
             .saturating_add(decoration.padding.bottom)
             .saturating_add(border.saturating_mul(2));
@@ -136,7 +136,11 @@ impl ViewCompiler {
             .iter()
             .map(|child| self.layout(child, max_width, inherited))
             .collect::<Vec<_>>();
-        let content_width = children.iter().map(|child| child.width).max().unwrap_or(0);
+        let content_width = children
+            .iter()
+            .map(|child| child.width())
+            .max()
+            .unwrap_or(0);
         let width = match width_rule {
             WidthRule::Fit => content_width.min(max_width),
             WidthRule::Fill => max_width,
@@ -144,14 +148,14 @@ impl ViewCompiler {
         let gap = usize::from(column.gap);
         let height = children
             .iter()
-            .map(|child| usize::from(child.height))
+            .map(|child| usize::from(child.height()))
             .sum::<usize>()
             .saturating_add(gap.saturating_mul(children.len().saturating_sub(1)));
         let mut output = Surface::new(width, height.min(usize::from(u16::MAX)) as u16);
         let mut y = 0u16;
         for child in children {
             output.composite(&child, 0, y);
-            y = y.saturating_add(child.height).saturating_add(column.gap);
+            y = y.saturating_add(child.height()).saturating_add(column.gap);
         }
         output
     }
@@ -175,7 +179,7 @@ impl ViewCompiler {
             .collect::<Vec<_>>();
         let content_height = children
             .iter()
-            .map(|(_, child)| child.height)
+            .map(|(_, child)| child.height())
             .max()
             .unwrap_or(0);
         let content_width = allocation
@@ -196,8 +200,8 @@ impl ViewCompiler {
         for (track, child) in children {
             let y = match row.vertical_align {
                 VerticalAlign::Top => 0,
-                VerticalAlign::Center => content_height.saturating_sub(child.height) / 2,
-                VerticalAlign::Bottom => content_height.saturating_sub(child.height),
+                VerticalAlign::Center => content_height.saturating_sub(child.height()) / 2,
+                VerticalAlign::Bottom => content_height.saturating_sub(child.height()),
             };
             output.composite(&child, x, y);
             x = x.saturating_add(track).saturating_add(allocation.gap);
@@ -212,17 +216,17 @@ impl ViewCompiler {
         inherited: PhysicalStyle,
     ) -> Surface {
         let child = self.layout(&clamp.child, max_width, inherited);
-        if child.height <= clamp.max_rows {
+        if child.height() <= clamp.max_rows {
             return child;
         }
         if clamp.max_rows == 0 {
-            return Surface::new(child.width, 0);
+            return Surface::new(child.width(), 0);
         }
 
-        let mut output = Surface::new(child.width, clamp.max_rows);
+        let mut output = Surface::new(child.width(), clamp.max_rows);
         output.physically_complete = child.physically_complete;
         for y in 0..clamp.max_rows {
-            for x in 0..child.width {
+            for x in 0..child.width() {
                 *output.get_mut(x, y) = child.get(x, y).clone();
             }
         }
@@ -236,11 +240,11 @@ impl ViewCompiler {
                 .width(WidthRule::Fill)
                 .no_wrap();
             let indicator_surface =
-                self.layout(&indicator_view.into_view(), child.width, inherited);
+                self.layout(&indicator_view.into_view(), child.width(), inherited);
             let row = clamp.max_rows - 1;
-            for x in 0..child.width {
+            for x in 0..child.width() {
                 *output.get_mut(x, row) = PhysicalCell::transparent();
-                if x < indicator_surface.width {
+                if x < indicator_surface.width() {
                     *output.get_mut(x, row) = indicator_surface.get(x, 0).clone();
                 }
             }

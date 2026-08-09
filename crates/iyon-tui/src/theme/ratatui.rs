@@ -1,41 +1,7 @@
 //! Ratatui compatibility wrappers over the shared backend-neutral palette.
 
-use crate::physical::{PhysicalColor, PhysicalStyle};
-use ratatui::style::{Color, Modifier, Style};
-
-fn color(value: PhysicalColor) -> Color {
-    match value {
-        PhysicalColor::Default => Color::Reset,
-        PhysicalColor::Indexed(value) => Color::Indexed(value),
-        PhysicalColor::Rgb { r, g, b } => Color::Rgb(r, g, b),
-    }
-}
-
-fn style(value: PhysicalStyle) -> Style {
-    let mut output = Style {
-        fg: value.foreground.map(color),
-        bg: value.background.map(color),
-        ..Style::default()
-    };
-    let mut modifiers = Modifier::empty();
-    if value.bold {
-        modifiers |= Modifier::BOLD;
-    }
-    if value.dim {
-        modifiers |= Modifier::DIM;
-    }
-    if value.italic {
-        modifiers |= Modifier::ITALIC;
-    }
-    if value.underline {
-        modifiers |= Modifier::UNDERLINED;
-    }
-    if value.reversed {
-        modifiers |= Modifier::REVERSED;
-    }
-    output.add_modifier = modifiers;
-    output
-}
+use crate::terminal::ratatui::{color, style};
+use ratatui::style::{Color, Style};
 
 pub(crate) fn thinking() -> Style {
     style(super::physical_style("thinking"))
@@ -62,8 +28,7 @@ pub(crate) fn tool_running() -> Style {
 }
 
 pub(crate) fn tool_error() -> Style {
-    // Preserve the legacy named Ratatui color for compatibility callers.
-    Style::default().fg(Color::Red)
+    style(super::physical_tool_error())
 }
 
 pub(crate) fn input_border() -> Style {

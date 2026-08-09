@@ -1,8 +1,29 @@
 //! Backend-neutral resolved colors and cell styles.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum AnsiColor {
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    Gray,
+    DarkGray,
+    LightRed,
+    LightGreen,
+    LightYellow,
+    LightBlue,
+    LightMagenta,
+    LightCyan,
+    White,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum PhysicalColor {
     Default,
+    Named(AnsiColor),
     Indexed(u8),
     Rgb { r: u8, g: u8, b: u8 },
 }

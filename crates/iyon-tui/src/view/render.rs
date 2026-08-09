@@ -158,21 +158,52 @@ impl Renderable<SpacerView> for Renderer {
 
 impl Renderable<ConversationView<'_>> for Renderer {
     fn render(&self, view: &ConversationView, frame: &mut Frame, area: Rect) {
-        // The conversation is one linear bottom-anchored sequence. Legacy
-        // transcript rows are already Ratatui lines; live semantic rows cross
-        // the terminal adapter here.
+        // The conversation is one linear bottom-anchored sequence. Preserve
+        // the owner-slice walk so only visible physical rows cross the adapter.
         let visible_rows = usize::from(area.height);
-        let mut lines = Vec::with_capacity(view.len());
-        lines.extend(view.transcript_rows.iter().cloned());
-        lines.extend(view.hosted_rows.iter().map(row_to_line));
-        lines.extend(view.transient_rows.iter().map(row_to_line));
-        let skip = lines.len().saturating_sub(visible_rows);
+        let mut skip = view.len().saturating_sub(visible_rows);
+        let mut row = 0usize;
         let buffer = frame.buffer_mut();
-        for (row, line) in lines.into_iter().skip(skip).enumerate() {
+
+        let mut draw_line = |line: &Line<'static>| {
             let y = area
                 .y
                 .saturating_add(u16::try_from(row).unwrap_or(u16::MAX));
-            buffer.set_line(area.x, y, &line, area.width);
+            let row_area = Rect {
+                x: area.x,
+                y,
+                width: area.width,
+                height: 1,
+            };
+            buffer.set_style(row_area, line.style);
+            buffer.set_line(area.x, y, line, area.width);
+            row = row.saturating_add(1);
+        };
+
+        if skip < view.transcript_rows.len() {
+            for line in &view.transcript_rows[skip..] {
+                draw_line(line);
+            }
+            skip = 0;
+        } else {
+            skip -= view.transcript_rows.len();
+        }
+
+        if skip < view.hosted_rows.len() {
+            for physical_row in &view.hosted_rows[skip..] {
+                let line = row_to_line(physical_row);
+                draw_line(&line);
+            }
+            skip = 0;
+        } else {
+            skip -= view.hosted_rows.len();
+        }
+
+        if skip < view.transient_rows.len() {
+            for physical_row in &view.transient_rows[skip..] {
+                let line = row_to_line(physical_row);
+                draw_line(&line);
+            }
         }
     }
 

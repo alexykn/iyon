@@ -1,11 +1,12 @@
 //! Ratatui lowering for backend-neutral physical styles.
 
-use crate::physical::{PhysicalColor, PhysicalStyle};
+use crate::physical::{AnsiColor, PhysicalColor, PhysicalStyle};
 use ratatui::style::{Color, Modifier, Style};
 
 pub(crate) fn color(value: PhysicalColor) -> Color {
     match value {
         PhysicalColor::Default => Color::Reset,
+        PhysicalColor::Named(value) => named_color(value),
         PhysicalColor::Indexed(value) => Color::Indexed(value),
         PhysicalColor::Rgb { r, g, b } => Color::Rgb(r, g, b),
     }
@@ -30,22 +31,43 @@ fn physical_color(value: Color) -> PhysicalColor {
         Color::Reset => PhysicalColor::Default,
         Color::Indexed(value) => PhysicalColor::Indexed(value),
         Color::Rgb(r, g, b) => PhysicalColor::Rgb { r, g, b },
-        Color::Black => PhysicalColor::Indexed(0),
-        Color::Red => PhysicalColor::Indexed(1),
-        Color::Green => PhysicalColor::Indexed(2),
-        Color::Yellow => PhysicalColor::Indexed(3),
-        Color::Blue => PhysicalColor::Indexed(4),
-        Color::Magenta => PhysicalColor::Indexed(5),
-        Color::Cyan => PhysicalColor::Indexed(6),
-        Color::Gray => PhysicalColor::Indexed(7),
-        Color::DarkGray => PhysicalColor::Indexed(8),
-        Color::LightRed => PhysicalColor::Indexed(9),
-        Color::LightGreen => PhysicalColor::Indexed(10),
-        Color::LightYellow => PhysicalColor::Indexed(11),
-        Color::LightBlue => PhysicalColor::Indexed(12),
-        Color::LightMagenta => PhysicalColor::Indexed(13),
-        Color::LightCyan => PhysicalColor::Indexed(14),
-        Color::White => PhysicalColor::Indexed(15),
+        Color::Black => PhysicalColor::Named(AnsiColor::Black),
+        Color::Red => PhysicalColor::Named(AnsiColor::Red),
+        Color::Green => PhysicalColor::Named(AnsiColor::Green),
+        Color::Yellow => PhysicalColor::Named(AnsiColor::Yellow),
+        Color::Blue => PhysicalColor::Named(AnsiColor::Blue),
+        Color::Magenta => PhysicalColor::Named(AnsiColor::Magenta),
+        Color::Cyan => PhysicalColor::Named(AnsiColor::Cyan),
+        Color::Gray => PhysicalColor::Named(AnsiColor::Gray),
+        Color::DarkGray => PhysicalColor::Named(AnsiColor::DarkGray),
+        Color::LightRed => PhysicalColor::Named(AnsiColor::LightRed),
+        Color::LightGreen => PhysicalColor::Named(AnsiColor::LightGreen),
+        Color::LightYellow => PhysicalColor::Named(AnsiColor::LightYellow),
+        Color::LightBlue => PhysicalColor::Named(AnsiColor::LightBlue),
+        Color::LightMagenta => PhysicalColor::Named(AnsiColor::LightMagenta),
+        Color::LightCyan => PhysicalColor::Named(AnsiColor::LightCyan),
+        Color::White => PhysicalColor::Named(AnsiColor::White),
+    }
+}
+
+fn named_color(value: AnsiColor) -> Color {
+    match value {
+        AnsiColor::Black => Color::Black,
+        AnsiColor::Red => Color::Red,
+        AnsiColor::Green => Color::Green,
+        AnsiColor::Yellow => Color::Yellow,
+        AnsiColor::Blue => Color::Blue,
+        AnsiColor::Magenta => Color::Magenta,
+        AnsiColor::Cyan => Color::Cyan,
+        AnsiColor::Gray => Color::Gray,
+        AnsiColor::DarkGray => Color::DarkGray,
+        AnsiColor::LightRed => Color::LightRed,
+        AnsiColor::LightGreen => Color::LightGreen,
+        AnsiColor::LightYellow => Color::LightYellow,
+        AnsiColor::LightBlue => Color::LightBlue,
+        AnsiColor::LightMagenta => Color::LightMagenta,
+        AnsiColor::LightCyan => Color::LightCyan,
+        AnsiColor::White => Color::White,
     }
 }
 

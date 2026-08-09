@@ -9,4 +9,4 @@ mod tests;
 
 pub(crate) use render::render_view;
 pub(crate) use row::{row_to_line, rows_to_lines};
-pub(crate) use style::physical_style;
+pub(crate) use style::{color, physical_style, style};

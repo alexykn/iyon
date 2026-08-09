@@ -44,7 +44,7 @@ impl ViewCompiler {
         let surface = self.layout(view, max_width, PhysicalStyle::default());
         let physically_complete = surface.physically_complete;
         LayoutBlock {
-            width: surface.width,
+            width: surface.width(),
             rows: lower_surface(surface),
             physically_complete,
         }
@@ -63,9 +63,9 @@ pub(crate) fn view_height(view: &View, width: u16) -> u16 {
 }
 
 fn lower_surface(surface: Surface) -> Vec<PhysicalRow> {
-    (0..surface.height)
+    (0..surface.height())
         .map(|y| {
-            let cells = (0..surface.width)
+            let cells = (0..surface.width())
                 .map(|x| surface.get(x, y).clone())
                 .collect();
             PhysicalRow::from_cells(cells)
