@@ -1,4 +1,4 @@
-use crate::{ColorSpec, StyleSpec, Text, TextAttributeSpec, TextSpan, View};
+use crate::{ColorSpec, StyleSpec, Text, TextSpan, View};
 
 pub(super) const TOOL_BODY_OFFSET: u16 = 2;
 use crate::transcript::ToolTimelineStatus;
@@ -72,11 +72,6 @@ pub(super) fn column(children: Vec<View>) -> View {
         column.children(children);
     })
     .fill_width()
-}
-
-#[allow(dead_code)]
-pub(super) fn dim_attributes() -> TextAttributeSpec {
-    StyleSpec::new().dim().attributes
 }
 
 #[cfg(test)]
