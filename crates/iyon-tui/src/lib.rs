@@ -33,7 +33,9 @@
 //! ```
 
 mod app;
+mod geometry;
 mod input;
+mod physical;
 mod presentation;
 mod runtime;
 mod scrollback;

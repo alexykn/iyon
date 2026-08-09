@@ -8,7 +8,10 @@ use ratatui::text::Line;
 
 use crate::presentation::{HostedStream, PreparedStreamFrame, StreamingContent};
 use crate::transcript::TranscriptState;
-use crate::{scrollback::committer::ScrollbackCommitter, terminal::InlineTerminal};
+use crate::{
+    scrollback::committer::ScrollbackCommitter,
+    terminal::{InlineTerminal, ratatui::row_to_line},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FlushResult {
@@ -84,7 +87,14 @@ impl ScrollbackCoordinator {
         hosted: &mut HostedStream<C>,
         prepared: PreparedStreamFrame,
     ) -> Result<()> {
-        self.commit_rows_checked(terminal, prepared.history.rows.as_slice())?;
+        let rows = prepared
+            .history
+            .rows
+            .as_slice()
+            .iter()
+            .map(row_to_line)
+            .collect::<Vec<_>>();
+        self.commit_rows_checked(terminal, &rows)?;
         hosted.apply_commit_success(prepared.history);
         Ok(())
     }

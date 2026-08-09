@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
-use ratatui::style::Style;
+use crate::physical::PhysicalStyle;
 use unicode_linebreak::{BreakOpportunity, linebreaks};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -13,12 +13,12 @@ use crate::presentation::WrapMode;
 pub(crate) struct StyledGrapheme<'a> {
     pub(crate) text: Cow<'a, str>,
     pub(crate) width: usize,
-    pub(crate) style: Style,
+    pub(crate) style: PhysicalStyle,
     pub(crate) source: Option<Range<usize>>,
 }
 
 impl<'a> StyledGrapheme<'a> {
-    pub(crate) fn new(text: impl Into<Cow<'a, str>>, style: Style) -> Self {
+    pub(crate) fn new(text: impl Into<Cow<'a, str>>, style: PhysicalStyle) -> Self {
         let text = text.into();
         let width = UnicodeWidthStr::width(text.as_ref());
         Self {
@@ -31,7 +31,7 @@ impl<'a> StyledGrapheme<'a> {
 
     pub(crate) fn with_source(
         text: impl Into<Cow<'a, str>>,
-        style: Style,
+        style: PhysicalStyle,
         source: Range<usize>,
     ) -> Self {
         let text = text.into();
@@ -75,7 +75,7 @@ impl<'a> WrappedLine<'a> {
 #[derive(Debug, Clone)]
 struct SpanFragment<'a> {
     slice: &'a str,
-    style: Style,
+    style: PhysicalStyle,
     source_start: Option<usize>,
 }
 
@@ -83,7 +83,7 @@ struct SpanFragment<'a> {
 /// as a unified sequence of atomic [`StyledGrapheme`] clusters across span boundaries.
 pub(crate) fn styled_hard_lines<'a, I>(spans: I) -> Vec<Vec<StyledGrapheme<'a>>>
 where
-    I: IntoIterator<Item = (&'a str, Style, Option<usize>)>,
+    I: IntoIterator<Item = (&'a str, PhysicalStyle, Option<usize>)>,
 {
     let mut hard_lines_fragments: Vec<Vec<SpanFragment<'a>>> = Vec::new();
     let mut current_fragments: Vec<SpanFragment<'a>> = Vec::new();
@@ -332,7 +332,13 @@ fn wrap_line_word_then_grapheme<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::style::Color;
+    use crate::physical::PhysicalColor;
+    fn fg(color: PhysicalColor) -> PhysicalStyle {
+        PhysicalStyle {
+            foreground: Some(color),
+            ..PhysicalStyle::default()
+        }
+    }
 
     fn to_strings(rows: &[WrappedLine]) -> Vec<String> {
         rows.iter()
@@ -347,7 +353,11 @@ mod tests {
 
     #[test]
     fn plain_words_wrap_at_spaces() {
-        let hard = styled_hard_lines(vec![("hello world whatever", Style::default(), None)]);
+        let hard = styled_hard_lines(vec![(
+            "hello world whatever",
+            PhysicalStyle::default(),
+            None,
+        )]);
         let wrapped = wrap_styled_lines(&hard, 12, WrapMode::WordThenGrapheme);
         assert_eq!(to_strings(&wrapped), vec!["hello world ", "whatever"]);
         assert!(wrapped.iter().all(|r| r.fits));
@@ -355,7 +365,7 @@ mod tests {
 
     #[test]
     fn long_word_hard_breaks_at_graphemes() {
-        let hard = styled_hard_lines(vec![("abcdefghij", Style::default(), None)]);
+        let hard = styled_hard_lines(vec![("abcdefghij", PhysicalStyle::default(), None)]);
         let wrapped = wrap_styled_lines(&hard, 4, WrapMode::WordThenGrapheme);
         assert_eq!(to_strings(&wrapped), vec!["abcd", "efgh", "ij"]);
         assert!(wrapped.iter().all(|r| r.fits));
@@ -363,7 +373,7 @@ mod tests {
 
     #[test]
     fn wide_emoji_never_split() {
-        let hard = styled_hard_lines(vec![("😀😁😂😃", Style::default(), None)]);
+        let hard = styled_hard_lines(vec![("😀😁😂😃", PhysicalStyle::default(), None)]);
         let wrapped = wrap_styled_lines(&hard, 3, WrapMode::WordThenGrapheme);
         assert_eq!(to_strings(&wrapped), vec!["😀", "😁", "😂", "😃"]);
         assert!(wrapped.iter().all(|r| r.fits));
@@ -371,7 +381,11 @@ mod tests {
 
     #[test]
     fn combining_characters_never_split() {
-        let hard = styled_hard_lines(vec![("e\u{301}e\u{301}e\u{301}", Style::default(), None)]);
+        let hard = styled_hard_lines(vec![(
+            "e\u{301}e\u{301}e\u{301}",
+            PhysicalStyle::default(),
+            None,
+        )]);
         let wrapped = wrap_styled_lines(&hard, 2, WrapMode::WordThenGrapheme);
         assert_eq!(to_strings(&wrapped), vec!["e\u{301}e\u{301}", "e\u{301}"]);
         assert!(wrapped.iter().all(|r| r.fits));
@@ -379,7 +393,11 @@ mod tests {
 
     #[test]
     fn preserve_hard_newlines() {
-        let hard = styled_hard_lines(vec![("line1\nline2\n\nline3", Style::default(), None)]);
+        let hard = styled_hard_lines(vec![(
+            "line1\nline2\n\nline3",
+            PhysicalStyle::default(),
+            None,
+        )]);
         let wrapped = wrap_styled_lines(&hard, 80, WrapMode::WordThenGrapheme);
         assert_eq!(to_strings(&wrapped), vec!["line1", "line2", "", "line3"]);
         assert!(wrapped.iter().all(|r| r.fits));
@@ -387,8 +405,8 @@ mod tests {
 
     #[test]
     fn combining_mark_across_styled_spans_merges_into_one_grapheme() {
-        let style_a = Style::default().fg(Color::Red);
-        let style_b = Style::default().fg(Color::Blue);
+        let style_a = fg(PhysicalColor::Indexed(1));
+        let style_b = fg(PhysicalColor::Indexed(4));
         let hard = styled_hard_lines(vec![("e", style_a, Some(0)), ("\u{301}", style_b, Some(1))]);
         assert_eq!(hard.len(), 1);
         assert_eq!(hard[0].len(), 1, "must become ONE StyledGrapheme");
@@ -401,9 +419,9 @@ mod tests {
 
     #[test]
     fn zwj_sequence_across_spans_merges_into_one_grapheme() {
-        let style_a = Style::default().fg(Color::Green);
-        let style_b = Style::default().fg(Color::Yellow);
-        let style_c = Style::default().fg(Color::Magenta);
+        let style_a = fg(PhysicalColor::Indexed(2));
+        let style_b = fg(PhysicalColor::Indexed(3));
+        let style_c = fg(PhysicalColor::Indexed(5));
         // Woman health worker: 👩 + ZWJ + ⚕ + variation selector 16
         let hard = styled_hard_lines(vec![
             ("👩", style_a, Some(10)),
@@ -425,7 +443,7 @@ mod tests {
 
     #[test]
     fn oversized_grapheme_marks_fits_false() {
-        let hard = styled_hard_lines(vec![("漢字", Style::default(), Some(0))]);
+        let hard = styled_hard_lines(vec![("漢字", PhysicalStyle::default(), Some(0))]);
         // Target width = 1 cell, but each CJK char is 2 cells wide.
         let wrapped = wrap_styled_lines(&hard, 1, WrapMode::WordThenGrapheme);
         assert_eq!(wrapped.len(), 2);

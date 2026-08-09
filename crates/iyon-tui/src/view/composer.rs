@@ -1,5 +1,8 @@
 use ratatui::layout::Rect;
 
+#[cfg(test)]
+use crate::physical::PhysicalRow;
+
 use crate::{
     input::WrapCache,
     runtime::{AppState, BottomPanelBar},
@@ -182,7 +185,11 @@ mod tests {
             &mut wrap_cache,
             root,
         );
-        let before_rows = state.assistant_live_rows().to_vec();
+        let before_rows = state
+            .assistant_live_rows()
+            .iter()
+            .map(crate::terminal::ratatui::row_to_line)
+            .collect::<Vec<_>>();
 
         state.finish_active_turn();
         assert_eq!(
@@ -315,14 +322,11 @@ mod tests {
         assert_eq!(before.conversation_area, after.conversation_area);
         assert_eq!(before.input_area.y, after.input_area.y);
         assert_eq!(before_transient.len(), 2);
-        assert_eq!(before_transient[0], ratatui::text::Line::default());
-        assert_eq!(before_transient[1].to_string(), "⠋ Working");
+        assert_eq!(before_transient[0], PhysicalRow::empty());
+        assert_eq!(before_transient[1].plain_text(), "⠋ Working");
         assert_eq!(state.active_live_rows().len(), 0);
         assert_eq!(state.assistant_live_rows().len(), 2);
-        assert_eq!(
-            state.assistant_live_rows()[0],
-            ratatui::text::Line::default()
-        );
+        assert_eq!(state.assistant_live_rows()[0], PhysicalRow::empty());
     }
 
     #[test]
@@ -345,7 +349,7 @@ mod tests {
         state.transcript.mark_rows_committed(committed);
 
         assert_eq!(state.active_live_rows().len(), 2);
-        assert_eq!(state.active_live_rows()[1].to_string(), "⠋ Working");
+        assert_eq!(state.active_live_rows()[1].plain_text(), "⠋ Working");
     }
 
     #[test]

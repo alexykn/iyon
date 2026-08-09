@@ -1651,7 +1651,8 @@ mod differential {
     use ratatui::buffer::{Buffer, Cell};
     use ratatui::layout::Rect;
 
-    use crate::presentation::internal::compile_view;
+    use crate::presentation::layout::compile_view;
+    use crate::terminal::ratatui::rows_to_lines;
     use crate::transcript::wrap::{TranscriptCommitBoundary, wrap_transcript_rows};
 
     fn text_segs(s: &str) -> Vec<AssistantSegment> {
@@ -1676,7 +1677,8 @@ mod differential {
         let oracle = buffer_from_lines(width, &wrapped.rows);
 
         let view = assistant_document_view(doc, false);
-        let candidate = buffer_from_lines(width, &compile_view(&view, width).rows);
+        let compiled = compile_view(&view, width);
+        let candidate = buffer_from_lines(width, &rows_to_lines(&compiled.rows));
 
         (oracle, candidate)
     }
@@ -1954,7 +1956,7 @@ mod no_panic {
 #[cfg(test)]
 pub(crate) mod correctness_invariants {
     use super::*;
-    use crate::presentation::internal::compile_view;
+    use crate::presentation::layout::compile_view;
     use crate::presentation::{RowChild, View, WidthRule};
     use crate::transcript::wrap::{TranscriptCommitBoundary, wrap_transcript_rows};
 
@@ -2045,8 +2047,8 @@ pub(crate) mod correctness_invariants {
     fn source_ranges_round_trip_across_styled_span_boundaries() {
         use ratatui::style::Color;
 
-        let style_a = Style::default().fg(Color::Red);
-        let style_b = Style::default().fg(Color::Blue);
+        let style_a = crate::terminal::ratatui::physical_style(Style::default().fg(Color::Red));
+        let style_b = crate::terminal::ratatui::physical_style(Style::default().fg(Color::Blue));
         let hard = crate::presentation::wrap::styled_hard_lines(vec![
             ("prefix e", style_a, Some(0)),
             ("\u{301} suffix", style_b, Some(8)),
@@ -2057,8 +2059,8 @@ pub(crate) mod correctness_invariants {
         assert_eq!(combined.text.as_ref(), "e\u{301}");
         assert_eq!(combined.source, Some(7..10));
 
-        let style_c = Style::default().fg(Color::Green);
-        let style_d = Style::default().fg(Color::Yellow);
+        let style_c = crate::terminal::ratatui::physical_style(Style::default().fg(Color::Green));
+        let style_d = crate::terminal::ratatui::physical_style(Style::default().fg(Color::Yellow));
         let hard_zwj = crate::presentation::wrap::styled_hard_lines(vec![
             ("family: 👩", style_c, Some(0)),
             ("\u{200D}⚕\u{FE0F} done", style_d, Some(12)),
