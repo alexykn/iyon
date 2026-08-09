@@ -10,10 +10,11 @@ mod tests;
 
 use crate::{Component, ComponentCx, View, geometry::Size};
 
-use super::{StreamError, StreamModel, StreamRowAnchor, StreamingSource, compile_stream};
+use super::viewport::build_index;
+use super::{StreamError, StreamModel, StreamRowIndex, StreamingSource};
 use anchor::{StreamPaneMode, StreamViewportAnchor, anchor_matches, anchor_to_viewport};
 use command::StreamPaneCommand;
-use index::{StreamPaneRowIndex, nearest_anchor, top_index};
+use index::{nearest_anchor, top_index};
 
 /// A generic mounted local semantic stream viewport.
 ///
@@ -23,7 +24,7 @@ pub struct StreamPane<S: StreamingSource> {
     model: StreamModel<S>,
     mode: StreamPaneMode,
     layout_size: Option<Size>,
-    row_index: Option<StreamPaneRowIndex>,
+    row_index: Option<StreamRowIndex>,
 }
 
 impl<S: StreamingSource> StreamPane<S> {
@@ -135,7 +136,7 @@ impl<S: StreamingSource> StreamPane<S> {
         true
     }
 
-    fn current_index(&mut self) -> Option<&StreamPaneRowIndex> {
+    fn current_index(&mut self) -> Option<&StreamRowIndex> {
         let width = self.layout_size?.width;
         if width == 0 {
             return None;
@@ -146,14 +147,7 @@ impl<S: StreamingSource> StreamPane<S> {
             .as_ref()
             .is_some_and(|index| index.revision == revision && index.width == width);
         if !valid {
-            let snapshot = self.model.snapshot();
-            let compiled =
-                compile_stream(&self.model.semantic_view(), width, snapshot.stable_through);
-            self.row_index = Some(StreamPaneRowIndex {
-                revision,
-                width,
-                anchors: compiled.rows.into_iter().map(|row| row.anchor).collect(),
-            });
+            self.row_index = Some(build_index(&self.model, width));
         }
         self.row_index.as_ref()
     }

@@ -9,6 +9,7 @@ use crate::{
 };
 
 mod model;
+mod projection;
 mod stream;
 
 #[derive(Clone)]

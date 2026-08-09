@@ -140,13 +140,15 @@ impl Builder {
             },
         });
         for child in children {
-            self.clip_subtree(child, node_clip);
+            if !matches!(view.kind, ViewKind::RowViewport(_)) {
+                self.clip_subtree(child, node_clip);
+            }
         }
         (id, size, complete)
     }
 
     fn clip_subtree(&mut self, id: LayoutNodeId, clip: Rect) {
-        let (node_clip, children) = {
+        let (node_clip, children, is_viewport) = {
             let Some(node) = self.nodes.get_mut(id.0) else {
                 return;
             };
@@ -154,8 +156,12 @@ impl Builder {
                 .clip_rect
                 .intersection(clip)
                 .unwrap_or(Rect::new(clip.x, clip.y, 0, 0));
-            (node.clip_rect, node.children.clone())
+            let is_viewport = matches!(node.view.kind, ViewKind::RowViewport(_));
+            (node.clip_rect, node.children.clone(), is_viewport)
         };
+        if is_viewport {
+            return;
+        }
         for child in children {
             self.clip_subtree(child, node_clip);
         }
@@ -196,11 +202,17 @@ impl Builder {
                 (vec![id], size, child_complete)
             }
             ViewKind::RowViewport(viewport) => {
+                let child_clip = Rect::new(clip.x, 0, clip.width, u16::MAX);
                 let (id, child_size, child_complete) =
-                    self.build(&viewport.child, x, y, Some(width), None, clip);
+                    self.build(&viewport.child, x, y, Some(width), None, child_clip);
                 (
                     vec![id],
-                    Size::new(width, child_size.height.saturating_sub(viewport.skip_rows)),
+                    Size::new(
+                        width,
+                        viewport.visible_height.unwrap_or_else(|| {
+                            child_size.height.saturating_sub(viewport.skip_rows)
+                        }),
+                    ),
                     child_complete,
                 )
             }

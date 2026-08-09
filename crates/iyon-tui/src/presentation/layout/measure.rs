@@ -41,7 +41,12 @@ pub(crate) fn intrinsic_size(view: &View, width: u16) -> Size {
         }
         ViewKind::RowViewport(viewport) => {
             let child = intrinsic_size(&viewport.child, inner_width);
-            Size::new(inner_width, child.height.saturating_sub(viewport.skip_rows))
+            Size::new(
+                inner_width,
+                viewport
+                    .visible_height
+                    .unwrap_or_else(|| child.height.saturating_sub(viewport.skip_rows)),
+            )
         }
         ViewKind::Column(column) => {
             let children = column

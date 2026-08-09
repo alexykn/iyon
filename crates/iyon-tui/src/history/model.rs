@@ -5,22 +5,25 @@ use std::collections::VecDeque;
 use crate::{presentation::IntoView, stream::StreamingSource};
 
 use super::{
-    ErasedHistoryStream, FlowBoundary, HistoryError, HistoryStreamHandle, HistoryUnit,
-    HistoryUnitContent, HistoryUnitId,
+    ErasedHistoryStream, FlowBoundary, HistoryError, HistoryLayout, HistoryStreamHandle,
+    HistoryUnit, HistoryUnitContent, HistoryUnitId,
 };
 
 /// Optional ordered semantic history capability.
 ///
-/// History owns unit order and semantic lifetimes only. It has no viewport,
-/// layout, physical rows, native history, or terminal-writing behavior.
+/// History owns unit order, semantic lifetime, and semantic layout settings.
+/// Projection, viewport state, physical rows, native history, and terminal
+/// writing remain outside the semantic model.
 pub(crate) struct History {
     units: VecDeque<HistoryUnit>,
+    layout: HistoryLayout,
 }
 
 impl History {
     pub(crate) fn new() -> Self {
         Self {
             units: VecDeque::new(),
+            layout: HistoryLayout::default(),
         }
     }
 
@@ -134,6 +137,14 @@ impl History {
 
     pub(super) fn units(&self) -> impl Iterator<Item = &HistoryUnit> {
         self.units.iter()
+    }
+
+    pub(crate) fn layout(&self) -> HistoryLayout {
+        self.layout
+    }
+
+    pub(crate) fn set_layout(&mut self, layout: HistoryLayout) {
+        self.layout = layout;
     }
 
     fn ensure_append_allowed(&self) -> Result<(), HistoryError> {

@@ -12,19 +12,6 @@ pub(super) enum StreamViewportAnchor {
     Atomic { range: StreamRange, row: usize },
 }
 
-pub(super) fn anchor_end(anchor: &StreamRowAnchor) -> StreamOffset {
-    match anchor {
-        StreamRowAnchor::Checkpoint(offset) => *offset,
-        StreamRowAnchor::Atomic { range, row } => {
-            if *row == 0 {
-                range.start()
-            } else {
-                range.end()
-            }
-        }
-    }
-}
-
 pub(super) fn anchor_to_viewport(anchor: &StreamRowAnchor) -> StreamViewportAnchor {
     match anchor {
         StreamRowAnchor::Checkpoint(offset) => StreamViewportAnchor::Checkpoint(*offset),
