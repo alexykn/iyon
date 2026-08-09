@@ -1,4 +1,55 @@
-use super::*;
+#[test]
+fn exact_fragments_share_one_egc_barrier() {
+    let text = ProjectedText {
+        content_range: StreamRange::new(StreamOffset::ZERO, StreamOffset::new(3)),
+        terminator: ExactTerminator::None,
+        width: WidthRule::Fit,
+        wrap: WrapMode::WordThenGrapheme,
+        align: HorizontalAlign::Start,
+        layout: ProjectedTextLayout::Plain,
+        runs: vec![
+            ProjectedTextRun {
+                display: "e".into(),
+                style: StyleSpec::default(),
+                owned: StreamRange::new(StreamOffset::ZERO, StreamOffset::new(1)),
+                exact_visible: Some(StreamRange::new(StreamOffset::ZERO, StreamOffset::new(1))),
+            },
+            ProjectedTextRun {
+                display: "\u{301}".into(),
+                style: StyleSpec::default(),
+                owned: StreamRange::new(StreamOffset::new(1), StreamOffset::new(3)),
+                exact_visible: Some(StreamRange::new(StreamOffset::new(1), StreamOffset::new(3))),
+            },
+        ],
+    };
+    assert!(
+        std::panic::catch_unwind(|| {
+            StreamView::new(vec![StreamNode::projected_text(text)])
+                .suffix_from(StreamOffset::new(1));
+        })
+        .is_err()
+    );
+}
+
+use crate::physical::PhysicalRow;
+use crate::presentation::layout::ViewCompiler;
+use crate::presentation::{HorizontalAlign, StyleSpec, ThemeKey, WidthRule, WrapMode};
+use crate::stream::*;
+
+fn range(start: u64, end: u64) -> StreamRange {
+    StreamRange::new(StreamOffset::new(start), StreamOffset::new(end))
+}
+
+fn text(row: &PhysicalRow) -> String {
+    row.plain_text()
+}
+
+fn style(color: &str) -> StyleSpec {
+    StyleSpec {
+        foreground: Some(crate::ColorSpec::Theme(ThemeKey::from(color))),
+        ..StyleSpec::default()
+    }
+}
 
 #[test]
 fn projected_egc_spans_exact_run_boundaries_and_history_ownership() {
@@ -30,14 +81,10 @@ fn projected_egc_spans_exact_run_boundaries_and_history_ownership() {
     assert_eq!(rows[0].source_end, Some(7));
 
     let view = StreamView::new(vec![StreamNode::projected_text(projected)]);
-    let compiled = crate::presentation::stream::compile_stream(
-        &view,
-        1,
-        crate::presentation::StreamOffset::new(12),
-    );
+    let compiled = crate::stream::compile_stream(&view, 1, crate::stream::StreamOffset::new(12));
     assert_eq!(
-        compiled.commit[0],
-        StreamRowCommit::Exact(StreamOffset::new(7))
+        compiled.transfer[0],
+        StreamRowTransfer::Checkpoint(StreamOffset::new(7))
     );
 }
 
@@ -132,17 +179,17 @@ fn projected_egc_boundaries_still_expose_independent_checkpoints() {
             },
         ],
     };
-    let compiled = crate::presentation::stream::compile_stream(
+    let compiled = crate::stream::compile_stream(
         &StreamView::new(vec![StreamNode::projected_text(projected)]),
         1,
-        crate::presentation::StreamOffset::new(2),
+        crate::stream::StreamOffset::new(2),
     );
     assert_eq!(
-        compiled.commit[0],
-        StreamRowCommit::Exact(StreamOffset::new(1))
+        compiled.transfer[0],
+        StreamRowTransfer::Checkpoint(StreamOffset::new(1))
     );
     assert_eq!(
-        compiled.commit[1],
-        StreamRowCommit::Exact(StreamOffset::new(2))
+        compiled.transfer[1],
+        StreamRowTransfer::Checkpoint(StreamOffset::new(2))
     );
 }

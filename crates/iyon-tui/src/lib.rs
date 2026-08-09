@@ -44,6 +44,7 @@ mod presentation;
 mod runtime;
 mod scene;
 mod scrollback;
+mod stream;
 mod terminal;
 mod theme;
 mod tools;

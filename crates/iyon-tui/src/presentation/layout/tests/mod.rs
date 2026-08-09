@@ -4,17 +4,11 @@ use super::*;
 use crate::physical::{PhysicalColor, PhysicalRow, PhysicalStyle};
 use crate::presentation::api::style::{BorderSpec, BorderStyle, OverflowIndicator, TextAttribute};
 use crate::presentation::ir::ViewKind;
-use crate::presentation::stream::StreamRowCommit;
 use crate::presentation::{
-    ColorSpec, Decoration, ExactTerminator, HorizontalAlign, Insets, IntoView, ProjectedText,
-    ProjectedTextLayout, ProjectedTextRun, RowChild, StreamNode, StreamOffset, StreamRange,
-    StreamView, StyleSpec, TextSpan, ThemeKey, View, WidthRule, WrapMode,
+    ColorSpec, Decoration, HorizontalAlign, Insets, IntoView, RowChild, StyleSpec, TextSpan,
+    ThemeKey, View, WidthRule, WrapMode,
 };
 use crate::theme;
-
-fn range(start: u64, end: u64) -> StreamRange {
-    StreamRange::new(StreamOffset::new(start), StreamOffset::new(end))
-}
 
 fn text(row: &PhysicalRow) -> String {
     row.plain_text()
@@ -57,6 +51,5 @@ fn empty_vertical() -> View {
 }
 
 mod flow;
-mod projected;
 mod style;
 mod text;
