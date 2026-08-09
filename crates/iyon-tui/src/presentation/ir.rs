@@ -8,12 +8,12 @@ use super::api::{
     text::{HorizontalAlign, TextSpan, WrapMode},
 };
 
-/// RETAINED SEMANTIC IR.
+/// An owned backend-neutral semantic view.
 ///
-/// A pure, owned declarative presentation tree. It contains no terminal state,
-/// callbacks, coordinates, or physical row calculations.
+/// Views can be composed, styled, cloned, stored, and returned without
+/// exposing terminal state or layout implementation details.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct View {
+pub struct View {
     pub(crate) width: WidthRule,
     pub(crate) decoration: Decoration,
     pub(crate) kind: ViewKind,

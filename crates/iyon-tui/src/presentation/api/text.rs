@@ -3,22 +3,22 @@
 use super::style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleSpec, TextAttribute};
 use crate::presentation::ir::{Decoration, TextView, View, ViewKind, WidthRule};
 
-/// FEATURE EXTENSION API. A semantic text span.
+/// A semantic text span with optional text-cell styling.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct TextSpan {
+pub struct TextSpan {
     pub(crate) text: String,
     pub(crate) style: StyleSpec,
 }
 
 impl TextSpan {
-    pub(crate) fn plain(text: impl Into<String>) -> Self {
+    pub fn plain(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             style: StyleSpec::default(),
         }
     }
 
-    pub(crate) fn styled(text: impl Into<String>, style: StyleSpec) -> Self {
+    pub fn styled(text: impl Into<String>, style: StyleSpec) -> Self {
         Self {
             text: text.into(),
             style,
@@ -26,29 +26,29 @@ impl TextSpan {
     }
 }
 
-/// FEATURE EXTENSION API. Generic text wrapping behavior.
+/// Text wrapping behavior for a typed text view.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum WrapMode {
+pub enum WrapMode {
     #[default]
     WordThenGrapheme,
     Grapheme,
     NoWrap,
 }
 
-/// FEATURE EXTENSION API. Horizontal alignment inside an allocated track.
+/// Horizontal alignment inside an allocated text track.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum HorizontalAlign {
+pub enum HorizontalAlign {
     #[default]
     Start,
     Center,
     End,
 }
 
-/// FEATURE EXTENSION API. Typed semantic text leaf backed by the canonical
-/// [`View`] representation. Its private field preserves the `Text` invariant:
-/// the wrapped view always contains `ViewKind::Text`.
+/// Typed backend-neutral text construction backed by the crate's owned
+/// semantic [`View`]. Ordinary properties preserve `Text`; structural
+/// transforms return a general `View`.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Text {
+pub struct Text {
     view: View,
 }
 
@@ -92,52 +92,52 @@ impl Text {
         }
     }
 
-    pub(crate) fn wrap(mut self, wrap: WrapMode) -> Self {
+    pub fn wrap(mut self, wrap: WrapMode) -> Self {
         self.text_mut().wrap = wrap;
         self
     }
 
-    pub(crate) fn no_wrap(mut self) -> Self {
+    pub fn no_wrap(mut self) -> Self {
         self.text_mut().wrap = WrapMode::NoWrap;
         self
     }
 
-    pub(crate) fn text_align(mut self, align: HorizontalAlign) -> Self {
+    pub fn text_align(mut self, align: HorizontalAlign) -> Self {
         self.text_mut().align = align;
         self
     }
 
-    pub(crate) fn style(mut self, style: StyleSpec) -> Self {
+    pub fn style(mut self, style: StyleSpec) -> Self {
         self.view.decoration.text_style.overlay(&style);
         self
     }
 
     /// Sets the current text node's padding; repeated calls replace the prior value.
-    pub(crate) fn padding(mut self, padding: impl Into<Insets>) -> Self {
+    pub fn padding(mut self, padding: impl Into<Insets>) -> Self {
         self.view.decoration.padding = padding.into();
         self
     }
 
     /// Paints the text node's allocated surface, not its text-cell style.
-    pub(crate) fn background(mut self, color: ColorSpec) -> Self {
+    pub fn background(mut self, color: ColorSpec) -> Self {
         self.view.decoration.surface_background = Some(color);
         self
     }
 
     /// Sets inherited foreground intent for this text node.
-    pub(crate) fn foreground(mut self, color: ColorSpec) -> Self {
+    pub fn foreground(mut self, color: ColorSpec) -> Self {
         self.view.decoration.text_style.foreground = Some(color);
         self
     }
 
     /// Replaces the text node's complete border specification.
-    pub(crate) fn border(mut self, border: BorderSpec) -> Self {
+    pub fn border(mut self, border: BorderSpec) -> Self {
         self.view.decoration.border = Some(border);
         self
     }
 
     /// Sets sparse text-attribute intent, including explicit false.
-    pub(crate) fn text_attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
+    pub fn text_attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
         self.view
             .decoration
             .text_style
@@ -146,40 +146,40 @@ impl Text {
         self
     }
 
-    pub(crate) fn bold(self) -> Self {
+    pub fn bold(self) -> Self {
         self.text_attribute(TextAttribute::Bold, true)
     }
 
-    pub(crate) fn dim(self) -> Self {
+    pub fn dim(self) -> Self {
         self.text_attribute(TextAttribute::Dim, true)
     }
 
-    pub(crate) fn italic(self) -> Self {
+    pub fn italic(self) -> Self {
         self.text_attribute(TextAttribute::Italic, true)
     }
 
-    pub(crate) fn underline(self) -> Self {
+    pub fn underline(self) -> Self {
         self.text_attribute(TextAttribute::Underline, true)
     }
 
-    pub(crate) fn reversed(self) -> Self {
+    pub fn reversed(self) -> Self {
         self.text_attribute(TextAttribute::Reversed, true)
     }
 
-    pub(crate) fn container(self) -> View {
+    pub fn container(self) -> View {
         self.into_canonical_view().container()
     }
 
-    pub(crate) fn clamp_rows(self, max_rows: u16, overflow: OverflowIndicator) -> View {
+    pub fn clamp_rows(self, max_rows: u16, overflow: OverflowIndicator) -> View {
         self.into_canonical_view().clamp_rows(max_rows, overflow)
     }
 
-    pub(crate) fn fit_width(mut self) -> Self {
+    pub fn fit_width(mut self) -> Self {
         self.view.width = WidthRule::Fit;
         self
     }
 
-    pub(crate) fn fill_width(mut self) -> Self {
+    pub fn fill_width(mut self) -> Self {
         self.view.width = WidthRule::Fill;
         self
     }
