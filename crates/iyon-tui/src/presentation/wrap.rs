@@ -392,29 +392,23 @@ pub(crate) fn wrap_input_styled_lines<'a>(
     let ranges = input_wrap_ranges(source, width);
     let target_width = usize::from(width.saturating_sub(1).max(1));
     ranges
-        .into_iter()
-        .map(|range| {
-            let graphemes = source[range.clone()]
-                .grapheme_indices(true)
-                .map(|(offset, text)| {
-                    let start = range.start + offset;
-                    let end = start + text.len();
-                    let style = hard_lines
-                        .iter()
-                        .flatten()
-                        .find(|grapheme| {
-                            grapheme.source.as_ref().is_some_and(|source_range| {
-                                source_range.start < end && source_range.end > start
-                            })
-                        })
-                        .map_or_else(PhysicalStyle::default, |grapheme| grapheme.style);
-                    StyledGrapheme {
-                        text: Cow::Owned(text.to_owned()),
-                        width: UnicodeWidthStr::width(text),
-                        style,
-                        source: Some(start..end),
-                    }
+        .iter()
+        .enumerate()
+        .map(|(index, range)| {
+            let graphemes = hard_lines
+                .iter()
+                .flatten()
+                .filter(|grapheme| {
+                    let Some(source_range) = grapheme.source.as_ref() else {
+                        return false;
+                    };
+                    let overlaps = source_range.start < range.end && range.start < source_range.end;
+                    overlaps
+                        && ranges.iter().position(|candidate| {
+                            candidate.start < source_range.end && source_range.start < candidate.end
+                        }) == Some(index)
                 })
+                .cloned()
                 .collect();
             WrappedLine::new(graphemes, target_width)
         })

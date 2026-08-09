@@ -106,6 +106,7 @@ impl ViewCompiler {
                     .last()
                     .and_then(|g| g.source.as_ref())
                     .map(|r| r.end),
+                cursor_column: None,
                 fits: w_line.fits,
                 width: w_line.width,
             })
@@ -153,9 +154,10 @@ impl ViewCompiler {
         });
         let cursor_needs_cell = text.cursor.is_some_and(|anchor| {
             !hard_lines.iter().flatten().any(|grapheme| {
-                grapheme.source.as_ref().is_some_and(|range| {
-                    range.start <= anchor.byte_offset && anchor.byte_offset < range.end
-                })
+                grapheme
+                    .source
+                    .as_ref()
+                    .is_some_and(|range| range.start == anchor.byte_offset)
             })
         });
         let intrinsic_width = intrinsic_width + usize::from(cursor_needs_cell);
@@ -170,18 +172,23 @@ impl ViewCompiler {
         } else {
             wrap_styled_lines(&hard_lines, width, text.wrap)
         };
-        if let (Some(anchor), Some(source)) = (text.cursor, source.as_deref()) {
-            apply_cursor_anchor(&mut wrapped, source, anchor, inherited, usize::from(width));
-        }
+        let cursor_marker = text.cursor.and_then(|anchor| {
+            source
+                .as_deref()
+                .map(|source| cursor_position(source, anchor, usize::from(width), &mut wrapped))
+        });
         let rows = wrapped
             .into_iter()
-            .map(|w_line| CompiledTextRow {
+            .enumerate()
+            .map(|(row_index, w_line)| CompiledTextRow {
                 row: row_from_graphemes(&w_line.graphemes),
                 source_end: w_line
                     .graphemes
                     .last()
                     .and_then(|g| g.source.as_ref())
                     .map(|r| r.end),
+                cursor_column: cursor_marker
+                    .and_then(|(cursor_row, column)| (cursor_row == row_index).then_some(column)),
                 fits: w_line.fits,
                 width: w_line.width,
             })
@@ -201,68 +208,35 @@ fn validate_cursor_anchor(text: &str, anchor: TextCursorAnchor) {
     );
 }
 
-fn apply_cursor_anchor(
-    rows: &mut Vec<WrappedLine<'_>>,
+fn cursor_position(
     source: &str,
     anchor: TextCursorAnchor,
-    inherited: PhysicalStyle,
-    target_width: usize,
-) {
-    for row in rows.iter_mut() {
-        if let Some(grapheme) = row.graphemes.iter_mut().find(|grapheme| {
-            grapheme.source.as_ref().is_some_and(|range| {
-                range.start <= anchor.byte_offset && anchor.byte_offset < range.end
-            })
-        }) {
-            grapheme.style.reversed = true;
-            return;
-        }
+    max_columns: usize,
+    rows: &mut Vec<WrappedLine<'_>>,
+) -> (usize, usize) {
+    let max_columns = max_columns.max(1);
+    let ranges = crate::presentation::wrap::input_wrap_ranges(source, max_columns as u16);
+    let mut row = ranges
+        .partition_point(|range| range.start <= anchor.byte_offset)
+        .saturating_sub(1);
+    let line = &ranges[row];
+    let mut column = UnicodeWidthStr::width(&source[line.start..anchor.byte_offset]);
+    if column >= max_columns {
+        row = row.saturating_add(1);
+        column = 0;
     }
 
-    let target = if anchor.byte_offset > 0 && source[..anchor.byte_offset].ends_with('\n') {
-        rows.iter()
-            .position(|row| {
-                row.graphemes.iter().any(|grapheme| {
-                    grapheme
-                        .source
-                        .as_ref()
-                        .is_some_and(|range| range.start >= anchor.byte_offset)
-                })
-            })
-            .unwrap_or_else(|| rows.len().saturating_sub(1))
-    } else {
-        rows.iter()
-            .rposition(|row| {
-                row.graphemes.iter().any(|grapheme| {
-                    grapheme
-                        .source
-                        .as_ref()
-                        .is_some_and(|range| range.end <= anchor.byte_offset)
-                })
-            })
-            .unwrap_or(0)
-    };
-    let row = rows.get_mut(target).expect("text cursor requires a row");
-    let style = row
-        .graphemes
-        .last()
-        .map_or(inherited, |grapheme| grapheme.style);
-    let cursor = StyledGrapheme {
-        text: Cow::Owned(" ".to_string()),
-        width: 1,
-        style: PhysicalStyle {
-            reversed: true,
-            ..style
-        },
-        source: None,
-    };
-    if row.width.saturating_add(1) > target_width && row.width > 0 {
-        rows.push(WrappedLine::new(vec![cursor], target_width));
-    } else {
-        row.graphemes.push(cursor);
-        row.width = row.width.saturating_add(1);
-        row.fits = row.width <= target_width;
+    while rows.len() <= row {
+        rows.push(WrappedLine::new(
+            Vec::new(),
+            max_columns.saturating_sub(1).max(1),
+        ));
     }
+    if let Some(wrapped) = rows.get_mut(row) {
+        wrapped.width = wrapped.width.max(column.saturating_add(1));
+        wrapped.fits = wrapped.width <= max_columns;
+    }
+    (row, column)
 }
 
 fn row_from_string(text: &str, style: PhysicalStyle) -> PhysicalRow {
