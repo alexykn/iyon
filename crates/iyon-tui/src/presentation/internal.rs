@@ -405,9 +405,9 @@ impl ViewCompiler {
             ViewKind::Container(ContainerNode { child }) => {
                 self.layout(child, max_width, inherited)
             }
-            // Spacer is vertical space and fills its allocated width. Its cells
-            // remain transparent so a surrounding decorated node can paint through it.
-            ViewKind::Spacer { rows } => Surface::new(max_width, *rows),
+            // Spacer is vertical space with zero intrinsic cross-axis width.
+            // The enclosing View shell applies Fill allocation uniformly.
+            ViewKind::Spacer { rows } => Surface::new(0, *rows),
             ViewKind::ClampRows(clamp) => self.layout_clamp(clamp, max_width, inherited),
         }
     }
@@ -1628,6 +1628,280 @@ mod tests {
                 assert!(!span.content.contains('漢'));
             }
         }
+    }
+
+    fn assert_block_shape(block: &LayoutBlock, width: u16, height: usize) {
+        assert_eq!(block.width, width);
+        assert_eq!(block.rows.len(), height);
+    }
+
+    fn empty_vertical() -> View {
+        View::vertical(|_| {})
+    }
+
+    #[test]
+    fn width_defaults_and_explicit_fill_are_intrinsic_and_allocated() {
+        let compiler = ViewCompiler::default();
+        let horizontal = View::horizontal(|row| {
+            row.child("ab");
+            row.child("cde");
+            row.gap(1);
+        });
+        let vertical = View::vertical(|column| {
+            column.child("ab");
+            column.child("abcde");
+        });
+
+        assert_block_shape(&compiler.compile(&horizontal, 10), 6, 1);
+        assert_block_shape(&compiler.compile(&horizontal.fill_width(), 10), 10, 1);
+        assert_block_shape(&compiler.compile(&vertical, 10), 5, 2);
+        assert_block_shape(&compiler.compile(&vertical.fill_width(), 10), 10, 2);
+    }
+
+    #[test]
+    fn nested_fill_does_not_change_fit_child_allocation() {
+        let compiler = ViewCompiler::default();
+        let mut fit_child = View::text("x").fit_width().into_view();
+        fit_child.decoration.surface_background = Some(ColorSpec::Ansi(1));
+        let mut fill_child = View::text("x").fill_width().into_view();
+        fill_child.decoration.surface_background = Some(ColorSpec::Ansi(1));
+
+        let fit_parent = View::vertical(|column| {
+            column.child(fit_child);
+        })
+        .fill_width();
+        let fill_parent = View::vertical(|column| {
+            column.child(fill_child);
+        })
+        .fill_width();
+        let fit = compiler.compile(&fit_parent, 8);
+        let fill = compiler.compile(&fill_parent, 8);
+
+        assert_eq!(fit.width, 8);
+        assert_eq!(text(&fit.rows[0]), "x");
+        assert_eq!(fill.width, 8);
+        assert_eq!(text(&fill.rows[0]), "x       ");
+    }
+
+    #[test]
+    fn spacer_has_zero_intrinsic_width_and_preserves_height() {
+        let compiler = ViewCompiler::default();
+        let fit = compiler.compile(&View::spacer(2), 10);
+        let fill = compiler.compile(&View::spacer(2).fill_width(), 10);
+
+        assert_block_shape(&fit, 0, 2);
+        assert!(fit.physically_complete);
+        assert!(fit.rows.iter().all(|row| row.spans.is_empty()));
+        assert_block_shape(&fill, 10, 2);
+        assert!(fill.physically_complete);
+        assert!(fill.rows.iter().all(|row| row.spans.is_empty()));
+
+        let zero_fit = compiler.compile(&View::spacer(0), 10);
+        let zero_fill = compiler.compile(&View::spacer(0).fill_width(), 10);
+        assert_block_shape(&zero_fit, 0, 0);
+        assert_block_shape(&zero_fill, 10, 0);
+    }
+
+    #[test]
+    fn zero_width_spacers_contribute_vertical_extent_and_horizontal_height() {
+        let compiler = ViewCompiler::default();
+        let column = View::vertical(|column| {
+            column.child("a");
+            column.child(View::spacer(2));
+            column.child("b");
+        });
+        let row = View::horizontal(|row| {
+            row.child(View::spacer(3));
+        });
+
+        assert_block_shape(&compiler.compile(&column, 10), 1, 4);
+        assert_block_shape(&compiler.compile(&row, 10), 0, 3);
+    }
+
+    #[test]
+    fn empty_flows_have_no_intrinsic_or_gap_geometry() {
+        let compiler = ViewCompiler::default();
+        let empty_horizontal = View::horizontal(|row| {
+            row.gap(50);
+        });
+        let empty_vertical = View::vertical(|column| {
+            column.gap(50);
+        });
+        let filled_horizontal = empty_horizontal.clone().fill_width();
+        let filled_vertical = empty_vertical.clone().fill_width();
+
+        assert_block_shape(&compiler.compile(&empty_horizontal, 10), 0, 0);
+        assert_block_shape(&compiler.compile(&empty_vertical, 10), 0, 0);
+        assert_block_shape(&compiler.compile(&filled_horizontal, 10), 10, 0);
+        assert_block_shape(&compiler.compile(&filled_vertical, 10), 10, 0);
+    }
+
+    #[test]
+    fn one_child_gap_has_no_geometry() {
+        let compiler = ViewCompiler::default();
+        let vertical = View::vertical(|column| {
+            column.child("x");
+        });
+        let vertical_gap = View::vertical(|column| {
+            column.child("x");
+            column.gap(50);
+        });
+        let horizontal = View::horizontal(|row| {
+            row.child("x");
+        });
+        let horizontal_gap = View::horizontal(|row| {
+            row.child("x");
+            row.gap(50);
+        });
+
+        let vertical = compiler.compile(&vertical, 10);
+        let vertical_gap = compiler.compile(&vertical_gap, 10);
+        let horizontal = compiler.compile(&horizontal, 10);
+        let horizontal_gap = compiler.compile(&horizontal_gap, 10);
+        assert_eq!(vertical.width, vertical_gap.width);
+        assert_eq!(vertical.rows, vertical_gap.rows);
+        assert_eq!(horizontal.width, horizontal_gap.width);
+        assert_eq!(horizontal.rows, horizontal_gap.rows);
+    }
+
+    #[test]
+    fn gaps_are_counted_between_all_semantic_children() {
+        let compiler = ViewCompiler::default();
+        let vertical = View::vertical(|column| {
+            column.child("a");
+            column.child("b");
+            column.child("c");
+            column.gap(2);
+        });
+        let horizontal = View::horizontal(|row| {
+            row.child("a");
+            row.child(View::spacer(1));
+            row.child("c");
+            row.gap(2);
+        });
+
+        assert_block_shape(&compiler.compile(&vertical, 10), 1, 7);
+        assert_block_shape(&compiler.compile(&horizontal, 10), 6, 1);
+    }
+
+    #[test]
+    fn empty_background_does_not_create_geometry() {
+        let compiler = ViewCompiler::default();
+        let mut view = empty_vertical();
+        view.decoration.surface_background = Some(ColorSpec::Ansi(1));
+        let surface = compiler.layout(&view, 10, ResolvedTextStyle::default());
+
+        assert_eq!((surface.width, surface.height), (0, 0));
+        assert!(surface.cells.is_empty());
+    }
+
+    #[test]
+    fn empty_padding_creates_geometry_and_background_paints_it() {
+        let compiler = ViewCompiler::default();
+        let mut view = empty_vertical();
+        view.decoration = Decoration::default().padding(Insets::all(1));
+        view.decoration.surface_background = Some(ColorSpec::Ansi(1));
+        let surface = compiler.layout(&view, 10, ResolvedTextStyle::default());
+
+        assert_eq!((surface.width, surface.height), (2, 2));
+        assert!(surface.cells.iter().all(|cell| cell.painted));
+        assert!(
+            surface
+                .cells
+                .iter()
+                .all(|cell| cell.style.bg == Some(Color::Indexed(1)))
+        );
+    }
+
+    #[test]
+    fn empty_border_geometry_is_safe_at_tiny_widths() {
+        let compiler = ViewCompiler::default();
+        let mut view = empty_vertical();
+        view.decoration.border = Some(BorderSpec {
+            style: BorderStyle::Plain,
+            color: None,
+        });
+        let surface = compiler.layout(&view, 10, ResolvedTextStyle::default());
+        assert_eq!((surface.width, surface.height), (2, 2));
+        assert!(surface.cells.iter().all(|cell| cell.painted));
+
+        for width in 0..=2 {
+            let _ = compiler.compile(&view, width);
+        }
+    }
+
+    #[test]
+    fn empty_padding_and_border_add_their_outer_geometry() {
+        let compiler = ViewCompiler::default();
+        let mut view = empty_vertical();
+        view.decoration = Decoration::default().padding(Insets::all(1));
+        view.decoration.border = Some(BorderSpec {
+            style: BorderStyle::Plain,
+            color: None,
+        });
+        let surface = compiler.layout(&view, 10, ResolvedTextStyle::default());
+
+        assert_eq!((surface.width, surface.height), (4, 4));
+    }
+
+    #[test]
+    fn empty_border_and_background_compose_without_changing_geometry() {
+        let compiler = ViewCompiler::default();
+        let mut view = empty_vertical();
+        view.decoration = Decoration::background(ColorSpec::Ansi(1));
+        view.decoration.border = Some(BorderSpec {
+            style: BorderStyle::Plain,
+            color: None,
+        });
+        let surface = compiler.layout(&view, 10, ResolvedTextStyle::default());
+
+        assert_eq!((surface.width, surface.height), (2, 2));
+        assert!(
+            surface
+                .cells
+                .iter()
+                .all(|cell| cell.style.bg == Some(Color::Indexed(1)))
+        );
+    }
+
+    #[test]
+    fn fixed_track_preserves_parent_width_and_child_sizing_intent() {
+        let compiler = ViewCompiler::default();
+        let mut fit_child = View::text("x").fit_width().into_view();
+        fit_child.decoration.surface_background = Some(ColorSpec::Ansi(1));
+        let mut fill_child = View::text("x").fill_width().into_view();
+        fill_child.decoration.surface_background = Some(ColorSpec::Ansi(1));
+        let fit = View::horizontal(|row| {
+            row.fixed(5, fit_child);
+        });
+        let fill = View::horizontal(|row| {
+            row.fixed(5, fill_child);
+        });
+
+        let fit = compiler.compile(&fit, 10);
+        let fill = compiler.compile(&fill, 10);
+        assert_eq!(fit.width, 5);
+        assert_eq!(fill.width, 5);
+        assert_eq!(text(&fit.rows[0]), "x");
+        assert_eq!(text(&fill.rows[0]), "x    ");
+    }
+
+    #[test]
+    fn clamp_and_container_preserve_zero_width_vertical_extent() {
+        let compiler = ViewCompiler::default();
+        let spacer = View::spacer(3);
+        let container = View::box_(spacer.clone(), Decoration::default());
+        let clamped = View::clamp_rows(spacer, 4, OverflowIndicator::None);
+
+        assert_block_shape(&compiler.compile(&container, 10), 0, 3);
+        assert_block_shape(&compiler.compile(&clamped, 10), 0, 3);
+    }
+
+    #[test]
+    fn clamp_zero_rows_remains_safe_for_empty_child() {
+        let compiler = ViewCompiler::default();
+        let view = View::clamp_rows(View::vertical(|_| {}), 0, OverflowIndicator::None);
+        assert_block_shape(&compiler.compile(&view, 10), 0, 0);
     }
 
     #[test]
