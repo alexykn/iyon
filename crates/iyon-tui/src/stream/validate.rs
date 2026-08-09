@@ -82,19 +82,23 @@ fn validate_projected_text(text: &ProjectedText) -> Result<(), ProjectedValidati
             show_prefix,
             ..
         } => {
-            if prefix_source.start != text.content_range.start
-                || prefix_source.end > text.content_range.end
-                || (*show_prefix
-                    && UnicodeWidthStr::width(prefix.as_str()) != usize::from(*body_column))
-            {
-                return Err(ProjectedValidationError::InvalidHangingPrefix);
-            }
-            if !*show_prefix && prefix_source.start != text.content_range.start {
+            if prefix_source.start > prefix_source.end {
                 return Err(ProjectedValidationError::InvalidHangingPrefix);
             }
             if *show_prefix {
+                if prefix_source.start != text.content_range.start
+                    || prefix_source.end > text.content_range.end
+                {
+                    return Err(ProjectedValidationError::InvalidHangingPrefix);
+                }
+                if UnicodeWidthStr::width(prefix.as_str()) != usize::from(*body_column) {
+                    return Err(ProjectedValidationError::HangingWidthMismatch);
+                }
                 prefix_source.end
             } else {
+                if prefix_source.end > text.content_range.start {
+                    return Err(ProjectedValidationError::InvalidHangingPrefix);
+                }
                 text.content_range.start
             }
         }
@@ -125,16 +129,6 @@ fn validate_projected_text(text: &ProjectedText) -> Result<(), ProjectedValidati
     }
     if expected != text.content_range.end {
         return Err(ProjectedValidationError::IncompleteSourceCoverage);
-    }
-    if let ProjectedTextLayout::Hanging {
-        body_column,
-        prefix,
-        show_prefix: true,
-        ..
-    } = &text.layout
-        && UnicodeWidthStr::width(prefix.as_str()) != usize::from(*body_column)
-    {
-        return Err(ProjectedValidationError::HangingWidthMismatch);
     }
     Ok(())
 }

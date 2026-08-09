@@ -56,34 +56,51 @@ impl<S: StreamingSource> StreamModel<S> {
     }
 
     pub(crate) fn refresh(&mut self) -> Result<(), StreamModelError> {
-        let observed = self.observe(self.source.snapshot())?;
+        let observed = self.source.snapshot();
+        self.validate_transition(&observed)?;
+        if observed.source_base > self.resident.end() {
+            return Err(StreamModelError::SourceBeforeResident);
+        }
+
         let resident_end = self.resident.end();
-        let suffix = observed.view.suffix_from(resident_end);
+        let mut staged_nodes = Vec::new();
         let mut captured_end = resident_end;
-        for node in suffix.nodes {
+        for node in observed.view.suffix_from(resident_end).nodes {
             if node.owned_range().end > observed.stable_through {
                 break;
             }
             captured_end = node.owned_range().end;
-            self.resident.push(node);
+            staged_nodes.push(node);
         }
 
-        if captured_end != resident_end {
+        let next = if captured_end == resident_end {
+            observed
+        } else {
             let before_suffix = observed.view.suffix_from(captured_end);
             let before_end = observed.source_end;
             let before_stable = observed.stable_through;
             self.source.compact_before(captured_end);
-            let compacted = self.observe(self.source.snapshot())?;
+            let compacted = self.source.snapshot();
+            self.validate_transition(&compacted)?;
+            if compacted.source_base > captured_end {
+                return Err(StreamModelError::SourceBeforeResident);
+            }
             if compacted.source_end != before_end || compacted.stable_through != before_stable {
                 return Err(StreamModelError::CompactionChangedCoordinates);
             }
             if compacted.view.suffix_from(captured_end) != before_suffix {
                 return Err(StreamModelError::CompactionChangedSemanticSuffix);
             }
-        }
-        if self.current.source_base > self.resident.end() {
+            compacted
+        };
+
+        if next.source_base > captured_end {
             return Err(StreamModelError::SourceBeforeResident);
         }
+        for node in staged_nodes {
+            self.resident.push(node);
+        }
+        self.current = next;
         Ok(())
     }
 
@@ -133,7 +150,7 @@ impl<S: StreamingSource> StreamModel<S> {
         StreamView::new(nodes)
     }
 
-    fn observe(&mut self, next: StreamSnapshot) -> Result<StreamSnapshot, StreamModelError> {
+    fn validate_transition(&self, next: &StreamSnapshot) -> Result<(), StreamModelError> {
         next.validate().map_err(StreamModelError::Validation)?;
         if next.revision < self.current.revision {
             return Err(StreamModelError::RevisionRegressed);
@@ -155,11 +172,7 @@ impl<S: StreamingSource> StreamModel<S> {
         {
             return Err(StreamModelError::ChangedWithoutRevision);
         }
-        if next.source_base > self.resident.end() {
-            return Err(StreamModelError::SourceBeforeResident);
-        }
-        self.current = next.clone();
-        Ok(next)
+        Ok(())
     }
 }
 

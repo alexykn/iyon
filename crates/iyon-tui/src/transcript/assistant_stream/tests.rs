@@ -1,5 +1,4 @@
 use super::*;
-use super::*;
 use crate::{
     stream::{StreamProvenance, StreamRowTransfer, compile_stream, projected_atoms},
     transcript::hosted_stream::{HostedStream, LeadingBoundaryState, plan_commit},
