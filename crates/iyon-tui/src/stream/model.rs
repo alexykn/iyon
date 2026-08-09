@@ -57,7 +57,7 @@ impl<S: StreamingSource> StreamModel<S> {
 
     pub(crate) fn refresh(&mut self) -> Result<(), StreamModelError> {
         let observed = self.source.snapshot();
-        self.validate_transition(&observed)?;
+        Self::validate_transition(&self.current, &observed)?;
         if observed.source_base > self.resident.end() {
             return Err(StreamModelError::SourceBeforeResident);
         }
@@ -81,7 +81,7 @@ impl<S: StreamingSource> StreamModel<S> {
             let before_stable = observed.stable_through;
             self.source.compact_before(captured_end);
             let compacted = self.source.snapshot();
-            self.validate_transition(&compacted)?;
+            Self::validate_transition(&observed, &compacted)?;
             if compacted.source_base > captured_end {
                 return Err(StreamModelError::SourceBeforeResident);
             }
@@ -150,25 +150,28 @@ impl<S: StreamingSource> StreamModel<S> {
         StreamView::new(nodes)
     }
 
-    fn validate_transition(&self, next: &StreamSnapshot) -> Result<(), StreamModelError> {
+    fn validate_transition(
+        previous: &StreamSnapshot,
+        next: &StreamSnapshot,
+    ) -> Result<(), StreamModelError> {
         next.validate().map_err(StreamModelError::Validation)?;
-        if next.revision < self.current.revision {
+        if next.revision < previous.revision {
             return Err(StreamModelError::RevisionRegressed);
         }
-        if next.source_base < self.current.source_base {
+        if next.source_base < previous.source_base {
             return Err(StreamModelError::SourceBaseRegressed);
         }
-        if next.source_end < self.current.source_end {
+        if next.source_end < previous.source_end {
             return Err(StreamModelError::SourceEndRegressed);
         }
-        if next.stable_through < self.current.stable_through {
+        if next.stable_through < previous.stable_through {
             return Err(StreamModelError::StabilityRegressed);
         }
-        if next.revision == self.current.revision
-            && (next.source_base != self.current.source_base
-                || next.source_end != self.current.source_end
-                || next.stable_through != self.current.stable_through
-                || next.view != self.current.view)
+        if next.revision == previous.revision
+            && (next.source_base != previous.source_base
+                || next.source_end != previous.source_end
+                || next.stable_through != previous.stable_through
+                || next.view != previous.view)
         {
             return Err(StreamModelError::ChangedWithoutRevision);
         }

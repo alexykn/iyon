@@ -16,6 +16,7 @@ struct FakeState {
     revision: StreamRevision,
     sealed: bool,
     corrupt_on_compact: bool,
+    compact_revision: Option<StreamRevision>,
 }
 
 impl FakeSource {
@@ -33,6 +34,7 @@ impl FakeSource {
                 revision: StreamRevision::ZERO,
                 sealed: false,
                 corrupt_on_compact: false,
+                compact_revision: None,
             })),
         }
     }
@@ -65,6 +67,10 @@ impl FakeSource {
     fn set_stable_through(&self, stable_through: StreamOffset) {
         self.state.borrow_mut().stable_through = stable_through;
     }
+
+    fn set_compact_revision(&self, revision: StreamRevision) {
+        self.state.borrow_mut().compact_revision = Some(revision);
+    }
 }
 
 impl StreamingSource for FakeSource {
@@ -86,7 +92,10 @@ impl StreamingSource for FakeSource {
         if state.corrupt_on_compact {
             state.nodes[2] = StreamNode::exact_text(range(2, 3), vec![TextSpan::plain("X")]);
         }
-        state.revision = state.revision.next();
+        state.revision = state
+            .compact_revision
+            .take()
+            .unwrap_or_else(|| state.revision.next());
     }
 
     fn seal(&mut self) {
@@ -212,6 +221,41 @@ fn stability_regression_is_rejected() {
     source.set_stable_through(StreamOffset::new(2));
     source.set_revision(StreamRevision::new(1));
     assert_eq!(model.refresh(), Err(StreamModelError::StabilityRegressed));
+}
+
+#[test]
+fn intra_refresh_changed_snapshot_without_revision_is_rejected_transactionally() {
+    let source = FakeSource::new(2);
+    let mut model = StreamModel::new(source.clone()).unwrap();
+    source.set_revision(StreamRevision::new(1));
+    source.set_compact_revision(StreamRevision::new(1));
+    let before_snapshot = model.snapshot().clone();
+    let before_resident_end = model.resident().end();
+    let before_view = model.semantic_view();
+
+    assert_eq!(
+        model.refresh(),
+        Err(StreamModelError::ChangedWithoutRevision)
+    );
+    assert_eq!(model.snapshot(), &before_snapshot);
+    assert_eq!(model.resident().end(), before_resident_end);
+    assert_eq!(model.semantic_view(), before_view);
+}
+
+#[test]
+fn intra_refresh_revision_regression_is_rejected_transactionally() {
+    let source = FakeSource::new(2);
+    let mut model = StreamModel::new(source.clone()).unwrap();
+    source.set_revision(StreamRevision::new(2));
+    source.set_compact_revision(StreamRevision::new(1));
+    let before_snapshot = model.snapshot().clone();
+    let before_resident_end = model.resident().end();
+    let before_view = model.semantic_view();
+
+    assert_eq!(model.refresh(), Err(StreamModelError::RevisionRegressed));
+    assert_eq!(model.snapshot(), &before_snapshot);
+    assert_eq!(model.resident().end(), before_resident_end);
+    assert_eq!(model.semantic_view(), before_view);
 }
 
 #[test]
