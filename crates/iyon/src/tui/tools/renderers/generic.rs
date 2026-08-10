@@ -1,9 +1,9 @@
-use crate::View;
 use crate::tools::{
     registry::ToolRenderer,
     renderers::{column, result_lines, result_style, tool_call, tool_result_line, tool_style},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use iyon_tui::View;
 
 #[derive(Debug)]
 pub(crate) struct GenericRenderer;

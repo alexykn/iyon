@@ -3,7 +3,7 @@ use crate::tools::{
     renderers::{column, result_lines, result_style, tool_call, tool_result_line, tool_style},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
-use crate::{ColorSpec, StyleSpec, View};
+use iyon_tui::{ColorSpec, StyleSpec, View};
 
 #[derive(Debug)]
 pub(crate) struct BashRenderer;

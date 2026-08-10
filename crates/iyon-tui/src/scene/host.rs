@@ -4,11 +4,12 @@
 //! and native History pressure. Application code supplies only semantic Scene
 //! state and consumes routed outputs.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::Result;
 
 use crate::{
+    Theme,
     backend::NativeHistorySink,
     component::{ComponentRegistry, MountGraph, MountedComponents, TickOutcome, TickScheduler},
     geometry::Size,
@@ -68,14 +69,11 @@ impl Default for SceneHost {
 }
 
 impl SceneHost {
-    pub(crate) fn next_wait_timeout(&self, now: Instant, idle: Duration) -> Duration {
-        self.ticker.next_timeout(now, idle)
-    }
-
     pub(crate) fn next_tick_deadline(&self) -> Option<Instant> {
         self.ticker.next_deadline()
     }
 
+    #[cfg(test)]
     pub(crate) fn focused(&self) -> Option<crate::component::ComponentId> {
         self.focus.focused()
     }
@@ -92,21 +90,6 @@ impl SceneHost {
             .values()
             .filter(|capabilities| capabilities.focusable)
             .count()
-    }
-
-    pub(crate) fn dispatch_key(
-        &mut self,
-        key: KeyStroke,
-        registry: &mut ComponentRegistry,
-    ) -> InteractionResult {
-        self.key_router.dispatch(
-            key,
-            &mut self.focus,
-            &self.graph,
-            &self.capabilities,
-            registry,
-            &mut self.outputs,
-        )
     }
 
     pub(crate) fn dispatch_key_local(
@@ -165,10 +148,12 @@ impl SceneHost {
 
     /// Resolves, synchronizes, paints, and—when necessary—promotes the generic
     /// History prefix. The viewport callback is the only terminal-size seam.
+    #[cfg(test)]
     pub(crate) fn render<S, F>(
         &mut self,
         scene: &mut Scene,
         registry: &mut ComponentRegistry,
+        theme: &Theme,
         sink: &mut S,
         viewport: F,
     ) -> Result<PreparedSceneFrame, SceneHostError<S::Error>>
@@ -176,7 +161,7 @@ impl SceneHost {
         S: NativeHistorySink,
         F: FnMut(&mut S) -> Result<Size>,
     {
-        self.render_at(Instant::now(), scene, registry, sink, viewport)
+        self.render_at(Instant::now(), scene, registry, theme, sink, viewport)
     }
 
     pub(crate) fn render_at<S, F>(
@@ -184,6 +169,7 @@ impl SceneHost {
         now: Instant,
         scene: &mut Scene,
         registry: &mut ComponentRegistry,
+        theme: &Theme,
         sink: &mut S,
         mut viewport: F,
     ) -> Result<PreparedSceneFrame, SceneHostError<S::Error>>
@@ -195,17 +181,18 @@ impl SceneHost {
             let size = viewport(sink).map_err(SceneHostError::Viewport)?;
             let resolved = self.resolve_stable_at(scene, registry, size, now)?;
             if resolved.root.history_overflow_rows == 0 {
-                return Ok(self.paint(resolved));
+                return Ok(self.paint(resolved, theme));
             }
 
             let Some(history) = scene.history_mut() else {
-                return Ok(self.paint(resolved));
+                return Ok(self.paint(resolved, theme));
             };
-            let transfer = crate::history::transfer_native_prefix(
+            let transfer = crate::history::transfer_native_prefix_with_theme(
                 history,
                 sink,
                 size.width,
                 resolved.root.history_overflow_rows,
+                theme,
             )
             .map_err(SceneHostError::Transfer)?;
             match transfer.status {
@@ -213,7 +200,7 @@ impl SceneHost {
                 crate::history::NativeTransferStatus::Idle
                 | crate::history::NativeTransferStatus::SinkBlocked
                 | crate::history::NativeTransferStatus::SemanticBlocked { .. } => {
-                    return Ok(self.paint(resolved));
+                    return Ok(self.paint(resolved, theme));
                 }
             }
         }
@@ -269,8 +256,8 @@ impl SceneHost {
         Err(SceneHostError::DidNotConverge)
     }
 
-    fn paint(&self, resolved: StableScene) -> PreparedSceneFrame {
-        let compiler = ViewCompiler::default();
+    fn paint(&self, resolved: StableScene, theme: &Theme) -> PreparedSceneFrame {
+        let compiler = ViewCompiler::new(theme);
         let surface = ViewPainter.paint_tree(&compiler, &resolved.layout.tree);
         PreparedSceneFrame {
             surface,
@@ -398,7 +385,7 @@ mod tests {
             .get(&handle.id())
             .expect("layout-aware component geometry")
             .content;
-        let frame = host.paint(stable);
+        let frame = host.paint(stable, &crate::Theme::default());
 
         assert_eq!(registry.with(handle, |component| component.calls), Some(2));
         assert_eq!(geometry.height, 2);
@@ -417,9 +404,13 @@ mod tests {
         let mut host = SceneHost::default();
         let mut sink = TestSink::default();
 
-        host.render(&mut scene, &mut registry, &mut sink, |_| {
-            Ok(Size::new(10, 3))
-        })
+        host.render(
+            &mut scene,
+            &mut registry,
+            &crate::Theme::default(),
+            &mut sink,
+            |_| Ok(Size::new(10, 3)),
+        )
         .unwrap();
 
         assert!(sink.rows.iter().any(|row| row.plain_text() == "S1"));

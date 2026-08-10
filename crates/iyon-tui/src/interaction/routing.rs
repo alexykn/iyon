@@ -14,18 +14,6 @@ impl KeyRouter {
         Self::default()
     }
 
-    pub(crate) fn dispatch(
-        &self,
-        key: KeyStroke,
-        focus: &mut FocusState,
-        graph: &MountGraph,
-        capabilities: &MountedCapabilities,
-        registry: &mut ComponentRegistry,
-        queue: &mut OutputQueue,
-    ) -> InteractionResult {
-        route_key_local(key, focus, graph, capabilities, registry, queue)
-    }
-
     pub(crate) fn dispatch_local(
         &self,
         key: KeyStroke,

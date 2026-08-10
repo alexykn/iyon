@@ -1,10 +1,11 @@
 use std::time::{Duration, Instant};
 
-use crate::{
-    Component, ComponentCx, EventCx, InteractionResult, Key, KeyStroke, Modifiers, Output, View,
-    presentation::IntoView,
-    transcript::{TimelineItem, ToolTimelineStatus, TuiFormatter},
+use iyon_tui::{
+    Component, ComponentCx, EventCx, InteractionResult, IntoView, Key, KeyStroke, Modifiers,
+    Output, View,
 };
+
+use crate::transcript::{TimelineItem, ToolTimelineStatus, TuiFormatter};
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -23,7 +24,7 @@ pub(crate) enum ActivityState {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ApprovalDecision {
+pub struct ApprovalDecision {
     pub(crate) approval_id: u64,
     pub(crate) tool_call_id: String,
     pub(crate) approved: bool,
@@ -174,7 +175,7 @@ impl ConversationActivity {
                 View::text("  ").no_wrap(),
                 View::text("  ").no_wrap(),
                 View::text(detail.clone())
-                    .foreground(crate::ColorSpec::theme("text.muted"))
+                    .foreground(iyon_tui::ColorSpec::theme("text.muted"))
                     .fill_width(),
             )
             .fill_width();

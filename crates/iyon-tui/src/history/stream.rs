@@ -41,8 +41,13 @@ impl ErasedHistoryStream {
         self.state.window_view(index, top_row, height)
     }
 
-    pub(crate) fn compile_from(&self, offset: StreamOffset, width: u16) -> CompiledStream {
-        self.state.compile_from(offset, width)
+    pub(crate) fn compile_from(
+        &self,
+        offset: StreamOffset,
+        width: u16,
+        theme: &crate::Theme,
+    ) -> CompiledStream {
+        self.state.compile_from(offset, width, theme)
     }
 
     pub(crate) fn release_resident_through(&mut self, offset: StreamOffset) {
@@ -103,7 +108,12 @@ trait ErasedHistoryStreamState: Any {
     fn is_sealed(&self) -> bool;
     fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex;
     fn window_view(&self, index: &StreamRowIndex, top_row: usize, height: u16) -> View;
-    fn compile_from(&self, offset: StreamOffset, width: u16) -> CompiledStream;
+    fn compile_from(
+        &self,
+        offset: StreamOffset,
+        width: u16,
+        theme: &crate::Theme,
+    ) -> CompiledStream;
     fn release_resident_through(&mut self, offset: StreamOffset);
     fn semantic_base(&self) -> StreamOffset;
     fn source_end(&self) -> StreamOffset;
@@ -180,8 +190,13 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
         window_view(&self.model, index, top_row, height)
     }
 
-    fn compile_from(&self, offset: StreamOffset, width: u16) -> CompiledStream {
-        self.model.compile_from(offset, width)
+    fn compile_from(
+        &self,
+        offset: StreamOffset,
+        width: u16,
+        theme: &crate::Theme,
+    ) -> CompiledStream {
+        self.model.compile_from(offset, width, theme)
     }
 
     fn release_resident_through(&mut self, offset: StreamOffset) {

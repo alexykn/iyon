@@ -30,12 +30,12 @@ pub(crate) use model::{StreamModel, StreamModelError};
 pub(crate) use node::{StreamNode, StreamView};
 
 #[cfg(test)]
-pub(crate) use node::{StreamProvenance, StreamSliceError};
+pub(crate) use node::StreamSliceError;
 pub use pane::StreamPane;
-pub(crate) use projected::{
-    ExactTerminator, ProjectedTextLayout, ProjectedTextRun, projected_atoms,
-};
+#[cfg(test)]
+pub(crate) use projected::{ExactTerminator, ProjectedTextRun};
 pub use projected::{ProjectedText, ProjectedTextBuilder};
+pub(crate) use projected::{ProjectedTextLayout, projected_atoms};
 pub use snapshot::{StreamSnapshot, StreamSnapshotBuilder};
 pub use source::StreamingSource;
 pub(crate) use transfer::{

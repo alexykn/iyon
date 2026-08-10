@@ -1,10 +1,9 @@
 use std::borrow::Cow;
 
-use crate::{
-    presentation::{ColorSpec, Insets, IntoView, OverflowIndicator, ThemeKey, View},
-    tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput},
-    transcript::markdown::{assistant_document_view, parse_assistant},
-};
+use iyon_tui::{ColorSpec, Insets, IntoView, OverflowIndicator, ThemeKey, View};
+
+use crate::tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput};
+use crate::transcript::markdown::{assistant_document_view, parse_assistant};
 
 /// The kind of an assistant-message segment. `Thinking` is streamed reasoning,
 /// kept logically distinct from answer text so it can be styled independently.
@@ -191,7 +190,7 @@ impl TuiFormatter {
         View::text(text)
             .fill_width()
             .style(
-                crate::presentation::StyleSpec::new()
+                iyon_tui::StyleSpec::new()
                     .foreground(ColorSpec::Theme(ThemeKey::from("text.error"))),
             )
             .into_view()
@@ -214,7 +213,7 @@ impl TuiFormatter {
                 17,
                 OverflowIndicator::Footer {
                     prefix: "… more argument lines".to_string(),
-                    style: truncation_footer_style_spec(),
+                    style: truncation_footer_style_spec().into(),
                 },
             )
         } else {
@@ -245,7 +244,7 @@ impl TuiFormatter {
                 16,
                 OverflowIndicator::Footer {
                     prefix: "… more lines (full result retained)".to_string(),
-                    style: truncation_footer_style_spec(),
+                    style: truncation_footer_style_spec().into(),
                 },
             )
         } else {
@@ -254,8 +253,8 @@ impl TuiFormatter {
     }
 }
 
-fn truncation_footer_style_spec() -> crate::presentation::StyleSpec {
-    crate::presentation::StyleSpec::new()
+fn truncation_footer_style_spec() -> iyon_tui::StyleSpec {
+    iyon_tui::StyleSpec::new()
         .foreground(ColorSpec::Theme(ThemeKey::from("truncation_footer")))
         .italic()
         .dim()

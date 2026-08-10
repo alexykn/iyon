@@ -1,4 +1,4 @@
-use crate::{ColorSpec, StyleSpec, Text, TextSpan, View};
+use iyon_tui::{StyleRef, Text, TextSpan, View};
 
 use crate::transcript::ToolTimelineStatus;
 
@@ -20,29 +20,30 @@ pub(crate) use ls::LsRenderer;
 pub(crate) use read::ReadRenderer;
 pub(crate) use write::WriteRenderer;
 
-pub(super) fn tool_style(status: ToolTimelineStatus) -> StyleSpec {
+pub(super) fn tool_style(status: ToolTimelineStatus) -> StyleRef {
     let key = match status {
         ToolTimelineStatus::Failed | ToolTimelineStatus::Rejected => "tool.error",
         ToolTimelineStatus::Finished | ToolTimelineStatus::Approved => "tool.finished",
         ToolTimelineStatus::PendingApproval => "text.warning",
         ToolTimelineStatus::Running => "tool.running",
     };
-    StyleSpec::new().foreground(ColorSpec::theme(key))
+    StyleRef::theme(key)
 }
 
-pub(super) fn result_style(is_error: bool) -> StyleSpec {
+pub(super) fn result_style(is_error: bool) -> StyleRef {
     if is_error {
         tool_style(ToolTimelineStatus::Failed)
     } else {
-        StyleSpec::new().foreground(ColorSpec::theme("text.muted"))
+        StyleRef::theme("text.muted")
     }
 }
 
-pub(super) fn text(text: impl Into<String>, style: StyleSpec) -> Text {
+pub(super) fn text(text: impl Into<String>, style: impl Into<StyleRef>) -> Text {
     View::styled_text([TextSpan::styled(text, style)])
 }
 
-pub(super) fn tool_call(text_value: String, style: StyleSpec) -> View {
+pub(super) fn tool_call(text_value: String, style: impl Into<StyleRef>) -> View {
+    let style = style.into();
     View::hanging(
         text("● ", style.clone()).no_wrap(),
         View::text("  ").no_wrap(),
@@ -51,7 +52,8 @@ pub(super) fn tool_call(text_value: String, style: StyleSpec) -> View {
     .fill_width()
 }
 
-pub(super) fn tool_result_line(text_value: impl Into<String>, style: StyleSpec) -> View {
+pub(super) fn tool_result_line(text_value: impl Into<String>, style: impl Into<StyleRef>) -> View {
+    let style = style.into();
     View::hanging(
         View::text("  ").no_wrap(),
         View::text("  ").no_wrap(),
@@ -60,7 +62,8 @@ pub(super) fn tool_result_line(text_value: impl Into<String>, style: StyleSpec) 
     .fill_width()
 }
 
-pub(super) fn result_lines(text_value: &str, style: StyleSpec) -> Vec<View> {
+pub(super) fn result_lines(text_value: &str, style: impl Into<StyleRef>) -> Vec<View> {
+    let style = style.into();
     text_value
         .split('\n')
         .map(|line| tool_result_line(line, style.clone()))
@@ -77,11 +80,12 @@ pub(super) fn column(children: Vec<View>) -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::IntoView;
+    use iyon_tui::IntoView;
 
     #[test]
     fn tool_layout_helpers_lower_to_final_semantic_composition() {
-        let style = StyleSpec::new().foreground(ColorSpec::ansi(1));
+        let style =
+            StyleRef::direct(iyon_tui::StyleSpec::new().foreground(iyon_tui::ColorSpec::ansi(1)));
         let call = tool_call("ready".to_string(), style.clone());
         let expected_call = View::hanging(
             text("● ", style.clone()).no_wrap(),

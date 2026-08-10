@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    Component, ComponentHandle, History, Output, OutputRouter, RouteConflict,
+    Component, ComponentHandle, History, Output, OutputRouter, RouteConflict, Theme,
     component::ComponentRegistry, scene::Scene,
 };
 
@@ -21,6 +21,7 @@ pub(crate) struct AppCxParts<'a, Action> {
     pub(crate) components: &'a mut ComponentRegistry,
     pub(crate) outputs: &'a mut OutputRouter<Action>,
     pub(crate) timers: &'a mut TimerQueue<Action>,
+    pub(crate) theme: &'a mut Theme,
     pub(crate) global_bindings: &'a mut GlobalBindings<Action>,
     pub(crate) paste_interceptors: &'a mut PasteInterceptors<Action>,
     pub(crate) deferred_pastes: &'a mut VecDeque<String>,
@@ -33,6 +34,7 @@ pub struct AppCx<'a, Action> {
     components: &'a mut ComponentRegistry,
     outputs: &'a mut OutputRouter<Action>,
     timers: &'a mut TimerQueue<Action>,
+    theme: &'a mut Theme,
     global_bindings: &'a mut GlobalBindings<Action>,
     paste_interceptors: &'a mut PasteInterceptors<Action>,
     deferred_pastes: &'a mut VecDeque<String>,
@@ -49,6 +51,7 @@ impl<'a, Action> AppCx<'a, Action> {
             outputs,
             timers,
             global_bindings,
+            theme,
             paste_interceptors,
             deferred_pastes,
             exit_requested,
@@ -59,6 +62,7 @@ impl<'a, Action> AppCx<'a, Action> {
             components,
             outputs,
             timers,
+            theme,
             global_bindings,
             paste_interceptors,
             deferred_pastes,
@@ -136,6 +140,21 @@ impl<'a, Action> AppCx<'a, Action> {
     /// Returns mutable access to the persistent root History, when configured.
     pub fn history_mut(&mut self) -> Option<&mut History> {
         self.scene.history_mut()
+    }
+
+    /// Returns the active application theme.
+    pub fn theme(&self) -> &Theme {
+        self.theme
+    }
+
+    /// Returns mutable access to the active application theme.
+    pub fn theme_mut(&mut self) -> &mut Theme {
+        self.theme
+    }
+
+    /// Returns the driver's logical time for deterministic application policy.
+    pub fn now(&self) -> Instant {
+        self.now
     }
 
     /// Returns an Action-only handle targeting this application's ingress.

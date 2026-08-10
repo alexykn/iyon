@@ -13,13 +13,13 @@ fn exact_fragments_share_one_egc_barrier() {
         runs: vec![
             ProjectedTextRun {
                 display: "e".into(),
-                style: StyleSpec::default(),
+                style: StyleSpec::default().into(),
                 owned: StreamRange::new(StreamOffset::ZERO, StreamOffset::new(1)),
                 exact_visible: Some(StreamRange::new(StreamOffset::ZERO, StreamOffset::new(1))),
             },
             ProjectedTextRun {
                 display: "\u{301}".into(),
-                style: StyleSpec::default(),
+                style: StyleSpec::default().into(),
                 owned: StreamRange::new(StreamOffset::new(1), StreamOffset::new(3)),
                 exact_visible: Some(StreamRange::new(StreamOffset::new(1), StreamOffset::new(3))),
             },
@@ -70,13 +70,13 @@ fn hanging_text(
         layout: ProjectedTextLayout::Hanging {
             body_column: 2,
             prefix: "- ".to_string(),
-            prefix_style: StyleSpec::default(),
+            prefix_style: StyleSpec::default().into(),
             prefix_source,
             show_prefix,
         },
         runs: vec![ProjectedTextRun {
             display: "item".to_string(),
-            style: StyleSpec::default(),
+            style: StyleSpec::default().into(),
             owned: StreamRange::new(prefix_source.end, content_range.end),
             exact_visible: Some(StreamRange::new(prefix_source.end, content_range.end)),
         }],
@@ -107,13 +107,13 @@ fn projected_egc_spans_exact_run_boundaries_and_history_ownership() {
         runs: vec![
             ProjectedTextRun {
                 display: "a".to_string(),
-                style: style("markdown.bold"),
+                style: style("bold").into(),
                 owned: range(0, 3),
                 exact_visible: Some(range(2, 3)),
             },
             ProjectedTextRun {
                 display: "\u{301} rest".to_string(),
-                style: style("text.default"),
+                style: style("text.default").into(),
                 owned: range(3, 12),
                 exact_visible: Some(range(5, 12)),
             },
@@ -148,13 +148,13 @@ fn projected_egc_spans_zwj_run_boundaries_without_splitting() {
         runs: vec![
             ProjectedTextRun {
                 display: first.to_string(),
-                style: style("markdown.bold"),
+                style: style("bold").into(),
                 owned: range(0, split),
                 exact_visible: Some(range(0, split)),
             },
             ProjectedTextRun {
                 display: second.to_string(),
-                style: style("markdown.italic"),
+                style: style("italic").into(),
                 owned: range(split, end),
                 exact_visible: Some(range(split, end)),
             },
@@ -249,19 +249,19 @@ fn projected_replacement_remains_one_indivisible_atom() {
         runs: vec![
             ProjectedTextRun {
                 display: "foo".to_string(),
-                style: StyleSpec::default(),
+                style: StyleSpec::default().into(),
                 owned: range(0, 3),
                 exact_visible: Some(range(0, 3)),
             },
             ProjectedTextRun {
                 display: "    ".to_string(),
-                style: StyleSpec::default(),
+                style: StyleSpec::default().into(),
                 owned: range(3, 4),
                 exact_visible: None,
             },
             ProjectedTextRun {
                 display: "bar".to_string(),
-                style: StyleSpec::default(),
+                style: StyleSpec::default().into(),
                 owned: range(4, 7),
                 exact_visible: Some(range(4, 7)),
             },
@@ -283,13 +283,13 @@ fn projected_egc_boundaries_still_expose_independent_checkpoints() {
         runs: vec![
             ProjectedTextRun {
                 display: "a".to_string(),
-                style: style("markdown.bold"),
+                style: style("bold").into(),
                 owned: range(0, 1),
                 exact_visible: Some(range(0, 1)),
             },
             ProjectedTextRun {
                 display: "b".to_string(),
-                style: style("markdown.italic"),
+                style: style("italic").into(),
                 owned: range(1, 2),
                 exact_visible: Some(range(1, 2)),
             },

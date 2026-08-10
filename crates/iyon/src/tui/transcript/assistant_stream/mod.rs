@@ -5,17 +5,16 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::presentation::{HorizontalAlign, WidthRule, WrapMode};
-use crate::stream::{
-    ExactTerminator, ProjectedText, ProjectedTextLayout, ProjectedTextRun, StreamNode,
-    StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamView, StreamingSource,
-};
 use crate::transcript::markdown::{
     AssistantContinuation, AssistantDocument, AssistantRowLayout, parse_assistant,
     parse_assistant_tail,
 };
 use crate::transcript::semantic::{
     AssistantSegment, SegmentKind, slice_segments, think_to_text_newline,
+};
+use iyon_tui::{
+    HorizontalAlign, ProjectedText, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
+    StreamSnapshotBuilder, StreamingSource, StyleRef, WrapMode,
 };
 
 #[derive(Debug)]
@@ -70,10 +69,6 @@ impl AssistantStream {
 
         self.source_end = self.source_end.saturating_add(chunk_len);
         self.revision = self.revision.next();
-    }
-
-    pub(crate) fn segments(&self) -> &[AssistantSegment] {
-        &self.segments
     }
 
     fn restart_plan_at(
@@ -159,16 +154,20 @@ impl StreamingSource for AssistantStream {
             self.source_end.as_u64() as usize,
         );
         let doc = parse_assistant_tail(&tail_segments, self.source_base, self.continuation);
-        let (view, stable_through) =
+        let (nodes, stable_through) =
             build_assistant_stream_view(&doc, self.source_base, self.source_end, self.sealed);
-
-        StreamSnapshot {
-            revision: self.revision,
-            source_base: self.source_base,
-            source_end: self.source_end,
+        let mut builder = StreamSnapshotBuilder::new(
+            self.revision,
+            self.source_base,
             stable_through,
-            view,
+            self.source_end,
+        );
+        for node in nodes {
+            builder = builder.projected_text(node);
         }
+        builder
+            .finish()
+            .expect("AssistantStream snapshot must be valid")
     }
 
     fn compact_before(&mut self, offset: StreamOffset) {
@@ -197,20 +196,18 @@ impl StreamingSource for AssistantStream {
     }
 }
 
-/// Builds the [`StreamView`] and computes the width-independent semantic stability frontier.
+/// Builds projected semantic text nodes and computes the width-independent stability frontier.
 fn build_assistant_stream_view(
     doc: &AssistantDocument,
     source_base: StreamOffset,
     source_end: StreamOffset,
     sealed: bool,
-) -> (StreamView, StreamOffset) {
+) -> (Vec<ProjectedText>, StreamOffset) {
     let mut nodes = Vec::new();
     let mut cursor = source_base;
     let mut stable_through = source_base;
 
     for row in &doc.rows {
-        let owned_end;
-
         let text_end = cursor.saturating_add(row.source.content_len as u64);
         let text_range = StreamRange::new(cursor, text_end);
         let list_layout = match &row.layout {
@@ -239,130 +236,88 @@ fn build_assistant_stream_view(
             }
             _ => None,
         };
-        if let Some((body_start, body_column, prefix, show_prefix)) = list_layout {
-            if show_prefix {
-                debug_assert_eq!(
-                    UnicodeWidthStr::width(prefix.as_str()),
-                    usize::from(body_column)
-                );
-            }
-            let runs = row
-                .projected_runs
+
+        let (body_start, layout) = list_layout.map_or(
+            (0, None),
+            |(body_start, body_column, prefix, show_prefix)| {
+                if show_prefix {
+                    debug_assert_eq!(
+                        UnicodeWidthStr::width(prefix.as_str()),
+                        usize::from(body_column)
+                    );
+                }
+                (body_start, Some((body_column, prefix, show_prefix)))
+            },
+        );
+        let mut builder = ProjectedText::builder(text_range)
+            .fill_width()
+            .wrap(WrapMode::WordThenGrapheme)
+            .align(HorizontalAlign::Start);
+        if let Some((body_column, prefix, show_prefix)) = layout {
+            builder = builder.hanging(
+                body_column,
+                prefix,
+                StyleRef::from(row.style.clone()),
+                StreamRange::new(cursor, cursor.saturating_add(body_start as u64)),
+                show_prefix,
+            );
+        }
+        for run in if row.projected_runs.is_empty() {
+            let mut run_cursor = cursor;
+            row.spans
                 .iter()
-                .map(|run| ProjectedTextRun {
-                    display: run.display.clone(),
-                    style: run.style.clone(),
-                    owned: StreamRange::new(
+                .map(|span| {
+                    let start = run_cursor;
+                    run_cursor = run_cursor.saturating_add(span.text().len() as u64);
+                    (
+                        span.text().to_owned(),
+                        span.style().clone(),
+                        StreamRange::new(start, run_cursor),
+                        Some(StreamRange::new(start, run_cursor)),
+                    )
+                })
+                .collect::<Vec<_>>()
+        } else {
+            row.projected_runs
+                .iter()
+                .map(|run| {
+                    let owned = StreamRange::new(
                         cursor.saturating_add(run.owned.start as u64),
                         cursor.saturating_add(run.owned.end as u64),
-                    ),
-                    exact_visible: run.exact_visible.as_ref().map(|visible| {
+                    );
+                    let exact = run.exact_visible.as_ref().map(|visible| {
                         StreamRange::new(
                             cursor.saturating_add(visible.start as u64),
                             cursor.saturating_add(visible.end as u64),
                         )
-                    }),
+                    });
+                    (run.display.clone(), run.style.clone().into(), owned, exact)
                 })
-                .collect();
-            let projected = ProjectedText {
-                content_range: StreamRange::new(
-                    cursor,
-                    cursor.saturating_add(row.source.content_len as u64),
-                ),
-                terminator: if row.source.has_newline {
-                    ExactTerminator::HardNewline
-                } else {
-                    ExactTerminator::None
-                },
-                width: WidthRule::Fill,
-                wrap: WrapMode::WordThenGrapheme,
-                align: HorizontalAlign::Start,
-                layout: ProjectedTextLayout::Hanging {
-                    body_column,
-                    prefix,
-                    prefix_style: row.style.clone(),
-                    prefix_source: StreamRange::new(
-                        cursor,
-                        cursor.saturating_add(body_start as u64),
-                    ),
-                    show_prefix,
-                },
-                runs,
-            };
-            let node = StreamNode::projected_text(projected);
-            owned_end = node.owned_range().end;
-            nodes.push(node);
-        } else {
-            let runs = if row.projected_runs.is_empty() {
-                let mut run_cursor = cursor;
-                row.spans
-                    .iter()
-                    .map(|span| {
-                        let start = run_cursor;
-                        run_cursor = run_cursor.saturating_add(span.text.len() as u64);
-                        ProjectedTextRun {
-                            display: span.text.clone(),
-                            style: span.style.clone(),
-                            owned: StreamRange::new(start, run_cursor),
-                            exact_visible: Some(StreamRange::new(start, run_cursor)),
-                        }
-                    })
-                    .collect()
-            } else {
-                row.projected_runs
-                    .iter()
-                    .map(|run| ProjectedTextRun {
-                        display: run.display.clone(),
-                        style: run.style.clone(),
-                        owned: StreamRange::new(
-                            cursor.saturating_add(run.owned.start as u64),
-                            cursor.saturating_add(run.owned.end as u64),
-                        ),
-                        exact_visible: run.exact_visible.as_ref().map(|visible| {
-                            StreamRange::new(
-                                cursor.saturating_add(visible.start as u64),
-                                cursor.saturating_add(visible.end as u64),
-                            )
-                        }),
-                    })
-                    .collect()
-            };
-            let projected = ProjectedText {
-                content_range: text_range,
-                terminator: if row.source.has_newline {
-                    ExactTerminator::HardNewline
-                } else {
-                    ExactTerminator::None
-                },
-                width: WidthRule::Fill,
-                wrap: WrapMode::WordThenGrapheme,
-                align: HorizontalAlign::Start,
-                layout: ProjectedTextLayout::Plain,
-                runs,
-            };
-            let node = StreamNode::projected_text(projected);
-            owned_end = node.owned_range().end;
-            nodes.push(node);
+                .collect()
+        } {
+            builder = builder.run(run.0, run.2, run.3, run.1);
         }
+        if row.source.has_newline {
+            builder = builder.hard_newline();
+        }
+        let projected = builder
+            .finish()
+            .expect("AssistantStream must build valid projected text");
+        let owned_end = projected.owned_range().end();
+        nodes.push(projected);
 
-        // The parser's stable_prefix_len is already the truthful append-safe
-        // source frontier: semantic stability intersected with source EGC
-        // append safety. Provenance only controls commit granularity below.
         if sealed || row.source.has_newline {
             stable_through = owned_end;
         } else {
             stable_through = cursor.saturating_add(row.source.stable_prefix_len as u64);
         }
-
         cursor = owned_end;
     }
 
     if sealed || nodes.is_empty() {
         stable_through = source_end;
     }
-
-    (StreamView::new(nodes), stable_through.min(source_end))
+    (nodes, stable_through.min(source_end))
 }
-
 #[cfg(test)]
 mod tests;

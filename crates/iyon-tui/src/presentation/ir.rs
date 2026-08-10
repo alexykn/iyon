@@ -6,7 +6,7 @@
 use crate::component::ComponentId;
 
 use super::api::{
-    style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleSpec, VerticalAlign},
+    style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, VerticalAlign},
     text::{HorizontalAlign, TextSpan, WrapMode},
 };
 
@@ -217,7 +217,7 @@ pub(crate) struct Decoration {
     pub(crate) surface_background: Option<ColorSpec>,
     pub(crate) border: Option<BorderSpec>,
     /// Sparse text intent inherited by descendants and text spans.
-    pub(crate) text_style: StyleSpec,
+    pub(crate) text_style: StyleRef,
 }
 
 /// RETAINED SEMANTIC IR. Truncation behavior after physical layout.

@@ -134,6 +134,8 @@ where
 
         let deadline = app.next_deadline();
         tokio::select! {
+            biased;
+            _ = wait_for_deadline(deadline) => {}
             event = session.next_event() => {
                 match event
                     .map_err(|error| RunError::Runtime(runtime_error(error)))?
@@ -153,7 +155,6 @@ where
                     None => app.close_ingress(),
                 }
             }
-            _ = wait_for_deadline(deadline) => {}
         }
     }
 

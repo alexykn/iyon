@@ -8,16 +8,30 @@ use super::super::*;
 use super::{NativeBlockReason, NativeTransferOutcome};
 use crate::history::projection::project;
 use crate::{
-    Component, ComponentCx, TextSpan,
+    Component, ComponentCx, TextSpan, Theme, ThemeColor,
     backend::NativeHistorySink,
     geometry::Size,
-    physical::PhysicalRow,
+    physical::{PhysicalColor, PhysicalRow},
     presentation::{ColorSpec, Insets, IntoView, StyleSpec, View},
     stream::{
         StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
         StreamingSource,
     },
 };
+
+#[derive(Default)]
+struct TestSink {
+    rows: Vec<PhysicalRow>,
+}
+
+impl NativeHistorySink for TestSink {
+    type Error = ();
+
+    fn insert_history_rows(&mut self, rows: &[PhysicalRow]) -> Result<usize, Self::Error> {
+        self.rows.extend(rows.iter().cloned());
+        Ok(rows.len())
+    }
+}
 
 #[derive(Clone)]
 struct NativeSource {
@@ -50,6 +64,68 @@ impl NativeSource {
         .unwrap();
         Self::from_snapshot(snapshot, sealed)
     }
+}
+
+#[test]
+fn static_native_transfer_uses_the_active_theme() {
+    let mut history = crate::History::new();
+    history
+        .push(View::text("themed").style(StyleSpec::new().foreground(ColorSpec::theme("accent"))))
+        .unwrap();
+    let mut sink = TestSink::default();
+    let theme = Theme::new().with_color("accent", ThemeColor::Indexed(42));
+    transfer_native_prefix_with_theme(&mut history, &mut sink, 20, 20, &theme).unwrap();
+    assert_eq!(
+        sink.rows[0].style_at(0).unwrap().foreground,
+        Some(PhysicalColor::Indexed(42))
+    );
+}
+
+#[test]
+fn resident_native_rows_keep_their_committed_theme() {
+    let mut history = crate::History::new();
+    history
+        .push(View::text("resident").style(StyleSpec::new().foreground(ColorSpec::theme("accent"))))
+        .unwrap();
+    let mut sink = TestSink::default();
+    let first = Theme::new().with_color("accent", ThemeColor::Indexed(44));
+    let second = Theme::new().with_color("accent", ThemeColor::Indexed(45));
+    transfer_native_prefix_with_theme(&mut history, &mut sink, 20, 20, &first).unwrap();
+    transfer_native_prefix_with_theme(&mut history, &mut sink, 20, 20, &second).unwrap();
+    assert_eq!(
+        sink.rows[0].style_at(0).unwrap().foreground,
+        Some(PhysicalColor::Indexed(44))
+    );
+}
+
+#[test]
+fn stream_native_transfer_uses_the_active_theme() {
+    let snapshot = StreamSnapshotBuilder::new(
+        StreamRevision::ZERO,
+        StreamOffset::ZERO,
+        StreamOffset::new(6),
+        StreamOffset::new(6),
+    )
+    .exact_text(
+        StreamRange::new(StreamOffset::ZERO, StreamOffset::new(6)),
+        [TextSpan::styled(
+            "themed",
+            StyleSpec::new().foreground(ColorSpec::theme("accent")),
+        )],
+    )
+    .finish()
+    .unwrap();
+    let mut history = crate::History::new();
+    history
+        .push_stream(NativeSource::from_snapshot(snapshot, true))
+        .unwrap();
+    let mut sink = TestSink::default();
+    let theme = Theme::new().with_color("accent", ThemeColor::Indexed(43));
+    transfer_native_prefix_with_theme(&mut history, &mut sink, 20, 20, &theme).unwrap();
+    assert_eq!(
+        sink.rows[0].style_at(0).unwrap().foreground,
+        Some(PhysicalColor::Indexed(43))
+    );
 }
 
 impl StreamingSource for NativeSource {

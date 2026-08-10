@@ -3,17 +3,18 @@ name = "iyon-tui"
 version.workspace = true
 edition.workspace = true
 
+[features]
+test-util = []
+
 [dependencies]
 anyhow.workspace = true
 crossterm.workspace = true
 futures-util.workspace = true
 ratatui = { workspace = true, features = ["scrolling-regions"] }
-serde_json.workspace = true
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
 unicode-linebreak.workspace = true
 tokio.workspace = true
-iyon-core.workspace = true
 textwrap = "0.16.2"
 
 [dev-dependencies]

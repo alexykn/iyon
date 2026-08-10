@@ -1,16 +1,16 @@
-use crate::View;
 use crate::tools::{
     registry::ToolRenderer,
     renderers::{column, result_lines, result_style, tool_call},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use iyon_tui::View;
 
 #[derive(Debug)]
-pub(crate) struct FindRenderer;
+pub(crate) struct GrepRenderer;
 
-impl ToolRenderer for FindRenderer {
+impl ToolRenderer for GrepRenderer {
     fn tool_name(&self) -> &'static str {
-        "find"
+        "grep"
     }
 
     fn render_call(&self, input: ToolCallRenderInput<'_>) -> View {
@@ -25,16 +25,19 @@ impl ToolRenderer for FindRenderer {
             .and_then(serde_json::Value::as_str)
             .unwrap_or(".");
         tool_call(
-            format!("find {pattern} in {path} — {}", status_label(input.status)),
+            format!(
+                "grep /{pattern}/ in {path} — {}",
+                status_label(input.status)
+            ),
             super::tool_style(input.status),
         )
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> View {
         let title = if input.is_error() {
-            "find failed"
+            "grep failed"
         } else {
-            "find result"
+            "grep result"
         };
         let mut children = vec![super::tool_result_line(
             title,

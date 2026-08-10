@@ -4,7 +4,7 @@ use super::*;
 use crate::geometry::{LayoutConstraints, Size};
 use crate::physical::{PhysicalColor, PhysicalRow, PhysicalStyle};
 use crate::presentation::api::style::{
-    BorderEdges, BorderGlyphs, BorderSpec, BorderStyle, OverflowIndicator, TextAttribute,
+    AnsiColor, BorderEdges, BorderGlyphs, BorderSpec, BorderStyle, OverflowIndicator, TextAttribute,
 };
 use crate::presentation::ir::ViewKind;
 use crate::presentation::ir::{Decoration, RowChild};
@@ -12,7 +12,6 @@ use crate::presentation::{
     ColorSpec, HorizontalAlign, Insets, IntoView, StyleSpec, TextSpan, ThemeKey, VerticalAlign,
     View, WidthRule, WrapMode,
 };
-use crate::theme;
 
 fn text(row: &PhysicalRow) -> String {
     row.plain_text()
@@ -81,12 +80,7 @@ fn style(color: &str) -> StyleSpec {
 fn tool_view(body: &str) -> View {
     row_view(
         vec![
-            RowChild::content(
-                View::text("●")
-                    .no_wrap()
-                    .style(style("tool.running"))
-                    .into_view(),
-            ),
+            RowChild::content(View::text("●").no_wrap().style(style("accent")).into_view()),
             RowChild::flex(
                 View::text(body)
                     .style(style("text.default"))
