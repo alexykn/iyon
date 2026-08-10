@@ -1,29 +1,27 @@
 //! Markdown rendering for assistant text.
 //!
 //! Turns `AssistantSegment`s into a **shared, width-independent semantic
-//! document** (`AssistantDocument`), consumed by two adapters:
+//! document** (`AssistantDocument`), consumed by the finalized View path and
+//! the specialized AssistantStream provenance path:
 //!
 //! ```text
 //!                 AssistantDocument
-//!                 /              \
-//!                /                \
-//!   finalized View adapter    streaming row adapter
-//!        assistant_document_view     stream_rows
+//!                         |
+//!                 finalized semantic View
 //! ```
 //!
 //! There is exactly **one** Markdown interpretation. Any fix to bold/italic/
 //! code/heading/list classification/nesting/Thinking styling happens in
-//! `parse_assistant` before the adapters split.
+//! `parse_assistant` before those consumers diverge.
 //!
-//! The document holds no Ratatui, `TranscriptRow`, `Rect`, wrapping, or terminal
-//! types. `AssistantLogicalRow` carries:
+//! The document holds no backend or terminal types. `AssistantLogicalRow` carries:
 //!
 //! * `spans` — semantic `TextSpan`s (appearance intent);
 //! * `layout` — plain vs list-item (structure/geometry intent);
 //! * `style` — the row-level gutter/prefix style;
 //! * `source` — source stability / streaming bookkeeping (`content_len`,
 //!   `has_newline`, `stable_prefix_len`), used only by the
-//!   still-special active + pinned source-backed assistant path.
+//!   still-special HostedStream provenance path.
 //!
 //! Streaming is *tolerant*: an unclosed marker (`**unclosed`, `*ital`, `` `code ``)
 //! renders literally rather than being suppressed. A marker only becomes styled
@@ -35,17 +33,12 @@
 
 use std::ops::Range;
 
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::presentation::{
-    ColorSpec, Decoration, Insets, IntoView, RowChild, StyleSpec, TextAttributeSpec, TextSpan,
-    ThemeKey, View, WidthRule,
+    ColorSpec, Insets, IntoView, StyleSpec, TextAttributeSpec, TextSpan, ThemeKey, View,
 };
-use crate::theme;
 use crate::transcript::model::{AssistantSegment, SegmentKind};
-use crate::transcript::row::TranscriptRow;
 
 // ---------------------------------------------------------------------------
 // Width-independent assistant document
@@ -67,9 +60,7 @@ pub(crate) struct AssistantLogicalRow {
     pub(crate) projected_runs: Vec<AssistantProjectedRun>,
     /// Structural/geometry intent (plain vs list item).
     pub(crate) layout: AssistantRowLayout,
-    /// Row-level (gutter/prefix) style. Used by the streaming adapter to style
-    /// hanging markers/margins; the finalized View ignores it (spans carry the
-    /// visible styled content and the marker is a styled `RowChild`).
+    /// Row-level style for semantic list markers and heading prefixes.
     pub(crate) style: StyleSpec,
     /// Source stability metadata for the specialized streaming path.
     pub(crate) source: AssistantSourceMeta,
@@ -161,43 +152,6 @@ pub(crate) fn parse_assistant_tail(
         rows.push(parse_line(line));
     }
     AssistantDocument { rows }
-}
-
-/// A `TranscriptRow` plus freeze metadata for the active (streaming) pane.
-#[derive(Debug, Clone)]
-pub(crate) struct RenderedRow {
-    pub(crate) row: TranscriptRow,
-    /// Source byte length of this logical row's line (excluding the trailing
-    /// `\n`). Always the full source line length, even when markdown hides or
-    /// replaces some of those bytes (e.g. `**bold**` hides the `**`).
-    pub(crate) content_len: usize,
-    /// True when this row hides/replaces source bytes (bold/italic/code, list
-    /// bullets). The active pane must freeze such rows whole-line.
-    pub(crate) restricted: bool,
-}
-
-/// Result of rendering assistant segments into logical rows.
-#[derive(Debug, Clone)]
-pub(crate) struct RenderedAssistant {
-    pub(crate) rows: Vec<RenderedRow>,
-}
-
-/// Render the text portions of `segments` into styled [`TranscriptRow`]s.
-///
-/// INTERNAL ASSISTANT STREAM SEMANTICS. This is the streaming compatibility
-/// adapter over the shared document; it exists only for the active source-backed
-/// assistant engine.
-pub(crate) fn render_assistant(segments: &[AssistantSegment]) -> RenderedAssistant {
-    RenderedAssistant {
-        rows: stream_rows(&parse_assistant(segments)),
-    }
-}
-
-/// Streaming adapter: maps the shared document back into the exact existing
-/// `RenderedRow`/`TranscriptRow` representation (marker/nesting geometry,
-/// source metadata). Behavior-identical to the historical `render_assistant`.
-pub(crate) fn stream_rows(document: &AssistantDocument) -> Vec<RenderedRow> {
-    document.rows.iter().map(logical_row_to_rendered).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -507,50 +461,6 @@ fn parse_line(line: RawLine) -> AssistantLogicalRow {
 }
 
 // ---------------------------------------------------------------------------
-// Streaming adapter: document -> RenderedRow / TranscriptRow
-// ---------------------------------------------------------------------------
-
-fn logical_row_to_rendered(row: &AssistantLogicalRow) -> RenderedRow {
-    let line = Line::from(
-        row.spans
-            .iter()
-            .map(|sp| Span::styled(sp.text.clone(), spec_to_style(&sp.style)))
-            .collect::<Vec<_>>(),
-    );
-
-    let rendered = match &row.layout {
-        AssistantRowLayout::Plain
-        | AssistantRowLayout::Heading
-        | AssistantRowLayout::ListContinuation { .. } => {
-            if row.spans.is_empty() {
-                TranscriptRow::blank()
-            } else {
-                TranscriptRow::content(line, spec_to_style(&row.style))
-            }
-        }
-        AssistantRowLayout::ListItem {
-            depth,
-            marker: AssistantMarker::Bullet,
-        } => TranscriptRow::markdown_unordered(line, spec_to_style(&row.style), *depth),
-        AssistantRowLayout::ListItem {
-            depth,
-            marker: AssistantMarker::Ordered { index },
-        } => TranscriptRow::markdown_ordered(line, spec_to_style(&row.style), *index, *depth),
-    };
-
-    RenderedRow {
-        row: rendered,
-        content_len: row.source.content_len,
-        restricted: matches!(row.layout, AssistantRowLayout::ListItem { .. })
-            || row.projected_runs.iter().any(|run| {
-                run.exact_visible
-                    .as_ref()
-                    .is_some_and(|visible| *visible != run.owned)
-            }),
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Semantic styles
 // ---------------------------------------------------------------------------
 
@@ -578,48 +488,6 @@ fn header_style() -> StyleSpec {
 }
 fn list_style() -> StyleSpec {
     themed_foreground("markdown.list", attr(false, false))
-}
-
-/// INTERNAL ASSISTANT STREAM SEMANTICS. Compatibility bridge that lowers a
-/// semantic `StyleSpec` to the Ratatui `Style` the legacy row IR needs. Mirrors
-/// the theme-key mapping in the presentation resolver so both adapters agree.
-fn spec_to_style(spec: &StyleSpec) -> Style {
-    let mut style = Style::default();
-    if let Some(foreground) = &spec.foreground {
-        style.fg = Some(match foreground {
-            ColorSpec::Theme(key) => resolve_theme_fg(&key.0),
-            ColorSpec::Ansi(value) => Color::Indexed(*value),
-            ColorSpec::Rgb { r, g, b } => Color::Rgb(*r, *g, *b),
-        });
-    }
-    if spec.attributes.bold == Some(true) {
-        style = style.add_modifier(Modifier::BOLD);
-    }
-    if spec.attributes.italic == Some(true) {
-        style = style.add_modifier(Modifier::ITALIC);
-    }
-    if spec.attributes.dim == Some(true) {
-        style = style.add_modifier(Modifier::DIM);
-    }
-    if spec.attributes.underline == Some(true) {
-        style = style.add_modifier(Modifier::UNDERLINED);
-    }
-    if spec.attributes.reversed == Some(true) {
-        style = style.add_modifier(Modifier::REVERSED);
-    }
-    style
-}
-
-fn resolve_theme_fg(key: &str) -> Color {
-    match key {
-        "text.muted" | "surface.default" => theme::muted().fg.unwrap_or(Color::Reset),
-        "markdown.header" => theme::markdown_header().fg.unwrap_or(Color::Reset),
-        "markdown.bold" => theme::markdown_bold().fg.unwrap_or(Color::Reset),
-        "markdown.italic" => theme::markdown_italic().fg.unwrap_or(Color::Reset),
-        "markdown.code" => theme::markdown_code().fg.unwrap_or(Color::Reset),
-        "markdown.list" => theme::markdown_list().fg.unwrap_or(Color::Reset),
-        _ => Color::Reset,
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -840,7 +708,7 @@ fn list_indent(line: &str) -> ListIndent<'_> {
     }
 
     ListIndent {
-        depth: columns / crate::transcript::row::LIST_INDENT,
+        depth: columns / ASSISTANT_LIST_INDENT,
         source_start,
         trimmed_source: &line[source_start..],
     }
@@ -1249,41 +1117,22 @@ fn parse_inline_projected(
 // Finalized View adapter
 // ---------------------------------------------------------------------------
 
-/// Structural horizontal inset for the assistant body (matches the historical
-/// `RowLayout::content()` outer margin of 2).
+pub(crate) const ASSISTANT_LIST_INDENT: usize = 2;
+
+/// Structural horizontal inset for the assistant body.
 pub(crate) const ASSISTANT_HORIZONTAL_INSET: u16 = 2;
 
 /// Builds the finalized semantic assistant `View` from the shared document.
-///
-/// `first_unit` is a transitional visual-compatibility flag: the historical
-/// first-assistant top blank is reproduced structurally when the assistant is the
-/// first transcript unit. (Eventually the conversation surface owns first-unit
-/// surface spacing.)
-pub(crate) fn assistant_document_view(document: &AssistantDocument, first_unit: bool) -> View {
-    let rows: Vec<View> = document.rows.iter().map(assistant_row_view).collect();
-    let body = View::column(rows, 0).width(WidthRule::Fill);
-    let body = if first_unit {
-        // TRANSITIONAL PRESENTATION COMPATIBILITY:
-        // first-unit top inset moves to ConversationSurface later.
-        View::column(vec![View::spacer(1), body], 0)
-    } else {
-        body
-    };
-
-    View::box_(
-        body,
-        Decoration::default().padding(Insets {
-            top: 0,
-            right: ASSISTANT_HORIZONTAL_INSET,
-            bottom: 0,
-            left: ASSISTANT_HORIZONTAL_INSET,
-        }),
-    )
-    .width(WidthRule::Fill)
+pub(crate) fn assistant_document_view(document: &AssistantDocument) -> View {
+    View::vertical(|column| {
+        column.children(document.rows.iter().map(assistant_row_view));
+    })
+    .fill_width()
+    .padding(Insets::horizontal(ASSISTANT_HORIZONTAL_INSET))
 }
 
 pub(crate) fn assistant_row_view(row: &AssistantLogicalRow) -> View {
-    let body = View::styled_text(row.spans.clone()).width(WidthRule::Fill);
+    let body = View::styled_text(row.spans.clone()).fill_width();
     match &row.layout {
         AssistantRowLayout::Plain
         | AssistantRowLayout::Heading
@@ -1302,21 +1151,16 @@ fn list_item_row_view(depth: usize, marker: AssistantMarker, body: View) -> View
     let marker_view = View::styled_text(vec![TextSpan::styled(marker_text, list_style())])
         .no_wrap()
         .into_view();
+    let indent = (depth as u16).saturating_mul(ASSISTANT_LIST_INDENT as u16);
 
-    let mut children: Vec<RowChild> = Vec::new();
-    if depth > 0 {
-        let indent = (depth as u16).saturating_mul(crate::transcript::row::LIST_INDENT as u16);
-        children.push(RowChild::fixed(
-            indent,
-            View::text("").width(WidthRule::Fill).into_view(),
-        ));
-    }
-    children.push(RowChild::content(marker_view));
-    children.push(RowChild::flex(body));
-
-    // gap = 0: the marker text already includes its trailing space, so the body
-    // lands immediately after the marker at the exact historical content column.
-    View::row(children, 0)
+    View::horizontal(|row| {
+        if indent > 0 {
+            row.fixed(indent, View::text("").fill_width());
+        }
+        row.child(marker_view);
+        row.flex(body);
+    })
+    .fill_width()
 }
 
 // ---------------------------------------------------------------------------
@@ -1336,1029 +1180,99 @@ fn piece_source_len(line: &RawLine) -> usize {
 }
 
 #[cfg(test)]
-fn has_hidden_projection(row: &AssistantLogicalRow) -> bool {
-    matches!(row.layout, AssistantRowLayout::ListItem { .. })
-        || row.projected_runs.iter().any(|run| {
-            run.exact_visible
-                .as_ref()
-                .is_some_and(|visible| *visible != run.owned)
-        })
-}
-
-#[cfg(test)]
 mod tests {
-    //! Streaming-compatibility tests for the source-backed row adapter.
     use super::*;
-    use crate::transcript::model::thinking_style;
-    use ratatui::style::Modifier;
+    use crate::presentation::layout::compile_view;
+    use crate::stream::StreamingSource;
+    use crate::transcript::model::{AssistantSegment, SegmentKind};
 
-    fn text_segs(s: &str) -> Vec<AssistantSegment> {
-        vec![AssistantSegment::Text(s.to_string())]
+    fn text_segs(text: &str) -> Vec<AssistantSegment> {
+        vec![AssistantSegment::Text(text.to_string())]
     }
 
-    fn row_text(row: &TranscriptRow) -> String {
-        row.line.spans.iter().map(|s| s.content.as_ref()).collect()
-    }
-
-    #[test]
-    fn header_keeps_hashes_and_accents() {
-        let out = render_assistant(&text_segs("## Hello\nworld"));
-        assert_eq!(out.rows.len(), 2);
-        assert!(!out.rows[0].restricted);
-        assert_eq!(out.rows[0].content_len, "## Hello".len());
-        let text = row_text(&out.rows[0].row);
-        assert!(text.starts_with("## Hello"));
-        for span in &out.rows[0].row.line.spans {
-            assert_eq!(span.style.fg, theme::markdown_header().fg);
-        }
-        assert_eq!(out.rows[0].row.layout.content_column(), 2);
-    }
-
-    #[test]
-    fn bold_hides_markers_and_marks_restricted() {
-        let out = render_assistant(&text_segs("a **bold** c"));
-        assert_eq!(out.rows.len(), 1);
-        assert!(out.rows[0].restricted);
-        assert_eq!(out.rows[0].content_len, "a **bold** c".len());
-        assert_eq!(row_text(&out.rows[0].row), "a bold c");
-        assert!(out.rows[0].row.line.spans.iter().any(|s| {
-            s.content.as_ref() == "bold" && s.style.add_modifier.contains(Modifier::BOLD)
-        }));
-    }
-
-    #[test]
-    fn italic_hides_markers_and_marks_restricted() {
-        // Regression: the historical renderer failed to close single-`*`/`_`
-        // italics (it searched for the content's first char as the closer).
-        let out = render_assistant(&text_segs("a *b* c"));
-        assert_eq!(out.rows.len(), 1);
-        assert!(out.rows[0].restricted);
-        assert_eq!(row_text(&out.rows[0].row), "a b c");
-        assert!(out.rows[0].row.line.spans.iter().any(|s| {
-            s.content.as_ref() == "b" && s.style.add_modifier.contains(Modifier::ITALIC)
-        }));
-    }
-
-    #[test]
-    fn unclosed_bold_renders_literally() {
-        let out = render_assistant(&text_segs("a **bold"));
-        assert_eq!(out.rows.len(), 1);
-        assert!(!out.rows[0].restricted);
-        assert_eq!(row_text(&out.rows[0].row), "a **bold");
-    }
-
-    #[test]
-    fn bullet_list_renders_marker_as_bullet() {
-        let out = render_assistant(&text_segs("- item one\n- item two"));
-        assert_eq!(out.rows.len(), 2);
-        for r in &out.rows {
-            assert!(r.restricted);
-        }
-        assert_eq!(row_text(&out.rows[0].row), "item one");
-        assert_eq!(out.rows[0].content_len, "- item one".len());
-        assert_eq!(out.rows[0].row.layout.content_column(), 4);
-    }
-
-    #[test]
-    fn ordered_list_is_marker_local() {
-        let out = render_assistant(&text_segs("9. nine\n10. ten"));
-        assert_eq!(out.rows.len(), 2);
-        assert!(out.rows[0].restricted);
-        assert_eq!(row_text(&out.rows[0].row), "nine");
-        assert_eq!(row_text(&out.rows[1].row), "ten");
-        let marker9 = out.rows[0].row.layout.marker.as_ref().unwrap();
-        let marker10 = out.rows[1].row.layout.marker.as_ref().unwrap();
-        assert_eq!(marker9.text(), "9. ");
-        assert_eq!(marker10.text(), "10. ");
-        assert_ne!(marker9.width(), marker10.width());
-    }
-
-    #[test]
-    fn nested_unordered_list_sets_depth() {
-        let out = render_assistant(&text_segs("- top\n  - nested"));
-        assert_eq!(out.rows.len(), 2);
-        assert_eq!(out.rows[0].row.layout.nesting_depth, 0);
-        assert_eq!(out.rows[1].row.layout.nesting_depth, 1);
-        assert_eq!(out.rows[1].row.layout.content_column(), 6);
-    }
-
-    #[test]
-    fn thinking_is_not_markdown() {
-        let out = render_assistant(&[
-            AssistantSegment::Thinking("## think\n".to_string()),
-            AssistantSegment::Text("answer".to_string()),
-        ]);
-        assert_eq!(out.rows.len(), 2);
-        assert!(!out.rows[0].restricted);
-        assert_eq!(row_text(&out.rows[0].row), "## think");
-        assert_eq!(out.rows[0].row.line.spans[0].style.fg, thinking_style().fg);
-    }
-}
-
-#[cfg(test)]
-mod correctness {
-    //! Correctness tests for the shared semantic `AssistantDocument`, the single
-    //! source of truth for markdown highlighting. These pin *correct* markdown
-    //! semantics (not the historical renderer's frail edge behavior).
-    use super::*;
-
-    fn text_segs(s: &str) -> Vec<AssistantSegment> {
-        vec![AssistantSegment::Text(s.to_string())]
-    }
-
-    fn tag(spec: &StyleSpec) -> String {
-        let mut s = String::new();
-        if spec.attributes.bold == Some(true) {
-            s.push('B');
-        }
-        if spec.attributes.italic == Some(true) {
-            s.push('I');
-        }
-        match &spec.foreground {
-            Some(ColorSpec::Theme(k)) => match k.0.as_str() {
-                "markdown.code" => s.push('C'),
-                "markdown.header" => s.push('H'),
-                "text.muted" => s.push('T'),
-                _ => {}
-            },
-            _ => {}
-        }
-        if s.is_empty() {
-            s.push('·');
-        }
-        s
-    }
-
-    fn row_tokens(doc: &AssistantDocument) -> Vec<Vec<(String, String)>> {
-        doc.rows
+    fn compiled_text(view: &View, width: u16) -> Vec<String> {
+        compile_view(view, width)
+            .rows
             .iter()
-            .map(|r| {
-                r.spans
-                    .iter()
-                    .map(|sp| (sp.text.clone(), tag(&sp.style)))
-                    .collect()
-            })
+            .map(|row| row.plain_text())
             .collect()
     }
 
-    fn single(s: &str) -> Vec<(String, String)> {
-        let doc = parse_assistant(&text_segs(s));
-        assert_eq!(doc.rows.len(), 1, "expected one row for {s:?}");
-        row_tokens(&doc).remove(0)
-    }
-
     #[test]
-    fn plain_text_is_plain() {
-        assert_eq!(
-            single("hello world"),
-            vec![("hello world".into(), "·".into())]
-        );
-    }
-
-    #[test]
-    fn bold() {
-        assert_eq!(
-            single("a **b** c"),
-            vec![
-                ("a ".into(), "·".into()),
-                ("b".into(), "B".into()),
-                (" c".into(), "·".into()),
-            ]
-        );
-    }
-
-    #[test]
-    fn italic_star() {
-        assert_eq!(
-            single("a *b* c"),
-            vec![
-                ("a ".into(), "·".into()),
-                ("b".into(), "I".into()),
-                (" c".into(), "·".into()),
-            ]
-        );
-    }
-
-    #[test]
-    fn italic_underscore() {
-        assert_eq!(
-            single("a _b_ c"),
-            vec![
-                ("a ".into(), "·".into()),
-                ("b".into(), "I".into()),
-                (" c".into(), "·".into()),
-            ]
-        );
-    }
-
-    #[test]
-    fn code() {
-        assert_eq!(
-            single("a `b` c"),
-            vec![
-                ("a ".into(), "·".into()),
-                ("b".into(), "C".into()),
-                (" c".into(), "·".into()),
-            ]
-        );
-    }
-
-    #[test]
-    fn bold_italic_combined_stars() {
-        assert_eq!(single("***x***"), vec![("x".into(), "BI".into())]);
-    }
-
-    #[test]
-    fn italic_inside_bold() {
-        assert_eq!(
-            single("**b _i_ b**"),
-            vec![
-                ("b ".into(), "B".into()),
-                ("i".into(), "BI".into()),
-                (" b".into(), "B".into()),
-            ]
-        );
-    }
-
-    #[test]
-    fn bold_inside_italic() {
-        assert_eq!(
-            single("*b **i** b*"),
-            vec![
-                ("b ".into(), "I".into()),
-                ("i".into(), "BI".into()),
-                (" b".into(), "I".into()),
-            ]
-        );
-    }
-
-    #[test]
-    fn multiplication_is_not_italic() {
-        assert_eq!(single("2 * 3 * 4"), vec![("2 * 3 * 4".into(), "·".into())]);
-    }
-
-    #[test]
-    fn unclosed_bold_renders_literally() {
-        assert_eq!(single("a **b"), vec![("a **b".into(), "·".into())]);
-    }
-
-    #[test]
-    fn unclosed_italic_renders_literally() {
-        assert_eq!(single("a *b"), vec![("a *b".into(), "·".into())]);
-    }
-
-    #[test]
-    fn unclosed_code_renders_literally() {
-        assert_eq!(single("a `b"), vec![("a `b".into(), "·".into())]);
-    }
-
-    #[test]
-    fn heading_styles_line() {
-        let doc = parse_assistant(&text_segs("## hello"));
-        assert_eq!(doc.rows.len(), 1);
-        assert!(!has_hidden_projection(&doc.rows[0]));
-        let text: String = doc.rows[0].spans.iter().map(|s| s.text.as_str()).collect();
-        assert_eq!(text, "## hello");
-        assert!(doc.rows[0].spans.iter().all(|s| tag(&s.style) == "H"));
-        assert!(matches!(doc.rows[0].layout, AssistantRowLayout::Heading));
-    }
-
-    #[test]
-    fn hash_without_space_is_not_heading() {
-        assert_eq!(single("#hello"), vec![("#hello".into(), "·".into())]);
-    }
-
-    #[test]
-    fn thinking_is_muted_italic_not_markdown() {
-        let doc = parse_assistant(&[AssistantSegment::Thinking("## think".to_string())]);
-        assert_eq!(doc.rows.len(), 1);
-        let text: String = doc.rows[0].spans.iter().map(|s| s.text.as_str()).collect();
-        assert_eq!(text, "## think", "thinking never parses as markdown");
-        assert_eq!(tag(&doc.rows[0].spans[0].style), "IT");
-        assert!(!has_hidden_projection(&doc.rows[0]));
-    }
-}
-
-#[cfg(test)]
-mod differential {
-    //! Differential rendering: prove the finalized `View` adapter and the
-    //! source-backed streaming adapter agree cell-for-cell on the SAME shared
-    //! document. Because the two adapters legitimately render invisible whitespace
-    //! (hanging indents, margins) with different fiducials, foreground only needs
-    //! to match on non-whitespace symbols — the visible glyphs and glyph styling
-    //! must be identical, which is what users actually see.
-    use super::*;
-    use ratatui::buffer::{Buffer, Cell};
-    use ratatui::layout::Rect;
-
-    use crate::presentation::layout::compile_view;
-    use crate::terminal::ratatui::rows_to_lines;
-    use crate::transcript::wrap::{TranscriptCommitBoundary, wrap_transcript_rows};
-
-    fn text_segs(s: &str) -> Vec<AssistantSegment> {
-        vec![AssistantSegment::Text(s.to_string())]
-    }
-
-    fn buffer_from_lines(width: u16, lines: &[Line<'static>]) -> Buffer {
-        let area = Rect::new(0, 0, width, lines.len().max(1) as u16);
-        let mut buffer = Buffer::empty(area);
-        for (y, line) in lines.iter().enumerate() {
-            let y = y as u16;
-            buffer.set_style(Rect::new(0, y, width, 1), line.style);
-            buffer.set_line(0, y, line, width);
-        }
-        buffer
-    }
-
-    fn render_pairs(doc: &AssistantDocument, width: u16) -> (Buffer, Buffer) {
-        let rendered = stream_rows(doc);
-        let rows: Vec<TranscriptRow> = rendered.iter().map(|r| r.row.clone()).collect();
-        let wrapped = wrap_transcript_rows(width, &rows, TranscriptCommitBoundary::default());
-        let oracle = buffer_from_lines(width, &wrapped.rows);
-
-        let view = assistant_document_view(doc, false);
-        let compiled = compile_view(&view, width);
-        let candidate = buffer_from_lines(width, &rows_to_lines(&compiled.rows));
-
-        (oracle, candidate)
-    }
-
-    fn is_whitespace(cell: &Cell) -> bool {
-        cell.symbol().trim().is_empty()
-    }
-
-    fn assert_same(oracle: &Buffer, candidate: &Buffer, case: &str, width: u16) {
-        assert_eq!(
-            oracle.area.height, candidate.area.height,
-            "{case} @ width {width}: row count mismatch (oracle {} vs candidate {})",
-            oracle.area.height, candidate.area.height
-        );
-        for y in 0..oracle.area.height {
-            for x in 0..oracle.area.width {
-                let o = oracle.get(x, y);
-                let c = candidate.get(x, y);
-                assert_eq!(
-                    o.symbol(),
-                    c.symbol(),
-                    "{case} @ width {width} cell({x},{y}) symbol"
-                );
-                if is_whitespace(o) {
-                    assert_eq!(
-                        o.bg, c.bg,
-                        "{case} @ width {width} cell({x},{y}) background"
-                    );
-                    continue;
-                }
-                assert_eq!(o.fg, c.fg, "{case} @ width {width} cell({x},{y}) fg");
-                assert_eq!(o.bg, c.bg, "{case} @ width {width} cell({x},{y}) bg");
-                assert_eq!(
-                    o.modifier, c.modifier,
-                    "{case} @ width {width} cell({x},{y}) modifiers"
-                );
-            }
-        }
-    }
-
-    fn differential(case: &str, source: &str) {
-        for width in [80u16, 40, 20, 12, 8, 6, 3, 2, 1] {
-            let doc = parse_assistant(&text_segs(source));
-            let (oracle, candidate) = render_pairs(&doc, width);
-            assert_same(&oracle, &candidate, case, width);
-        }
-    }
-
-    #[test]
-    fn plain_text_agrees() {
-        differential("plain", "hello world, this is some plain assistant text.");
-    }
-
-    #[test]
-    fn multiline_plain_agrees() {
-        differential("multiline", "line one\nline two\nline three");
-    }
-
-    #[test]
-    fn long_no_newline_paragraph_agrees() {
-        differential(
-            "long-paragraph",
-            "This is a very long single paragraph with no newlines at all that should wrap repeatedly across many narrow physical rows and keep the hanging alignment consistent throughout the whole span of text.",
-        );
-    }
-
-    #[test]
-    fn thinking_agrees() {
-        for width in [80u16, 40, 20, 12, 8, 6, 3, 2, 1] {
-            let doc = parse_assistant(&[AssistantSegment::Thinking("reconsider".to_string())]);
-            let (oracle, candidate) = render_pairs(&doc, width);
-            assert_same(&oracle, &candidate, "thinking", width);
-        }
-    }
-
-    #[test]
-    fn thinking_then_text_agrees() {
-        for width in [80u16, 40, 20, 12, 8, 6, 3, 2, 1] {
-            let doc = parse_assistant(&[
-                AssistantSegment::Thinking("a thought".to_string()),
-                AssistantSegment::Text("answer text".to_string()),
-            ]);
-            let (oracle, candidate) = render_pairs(&doc, width);
-            assert_same(&oracle, &candidate, "thinking-then-text", width);
-        }
-    }
-
-    #[test]
-    fn bold_agrees() {
-        differential("bold", "a **bold** word and **another** one");
-    }
-
-    #[test]
-    fn italic_agrees() {
-        differential("italic", "a *italic* and _underscored_ word");
-    }
-
-    #[test]
-    fn bold_italic_nested_agrees() {
-        differential("bold-italic-nested", "**b _i_ b** and *b **i** b*");
-    }
-
-    #[test]
-    fn inline_code_agrees() {
-        differential("code", "run `cargo build` then `cargo run`");
-    }
-
-    #[test]
-    fn unfinished_marker_agrees() {
-        differential("unfinished", "an **unclosed marker and *single");
-    }
-
-    #[test]
-    fn heading_agrees() {
-        differential("heading", "## Section Heading\nbody after the heading");
-    }
-
-    #[test]
-    fn bullet_list_agrees() {
-        for width in [80u16, 40, 20, 12, 8] {
-            let doc = parse_assistant(&text_segs("- first item\n- second item\n- third item"));
-            let (oracle, candidate) = render_pairs(&doc, width);
-            assert_same(&oracle, &candidate, "bullets", width);
-        }
-    }
-
-    #[test]
-    fn ordered_list_agrees() {
-        for width in [80u16, 40, 20, 12] {
-            let doc = parse_assistant(&text_segs("8. eight\n9. nine\n10. ten\n11. eleven"));
-            let (oracle, candidate) = render_pairs(&doc, width);
-            assert_same(&oracle, &candidate, "ordered", width);
-        }
-    }
-
-    #[test]
-    fn nested_bullet_agrees() {
-        for width in [80u16, 40, 20, 12] {
-            let doc = parse_assistant(&text_segs(
-                "- top level\n  - nested one\n  - nested two\n- back to top",
-            ));
-            let (oracle, candidate) = render_pairs(&doc, width);
-            assert_same(&oracle, &candidate, "nested-bullet", width);
-        }
-    }
-
-    #[test]
-    fn nested_ordered_agrees() {
-        for width in [80u16, 40, 20, 12] {
-            let doc = parse_assistant(&text_segs("1. one\n2. two\n  - sub bullet\n  * another"));
-            let (oracle, candidate) = render_pairs(&doc, width);
-            assert_same(&oracle, &candidate, "nested-ordered", width);
-        }
-    }
-
-    #[test]
-    fn list_wrapping_agrees() {
-        for width in [80u16, 40, 20, 12, 8] {
-            let doc = parse_assistant(&text_segs(
-                "- this is a very long list item body that wraps across several physical rows at narrow widths and keeps continuation alignment",
-            ));
-            let (oracle, candidate) = render_pairs(&doc, width);
-            assert_same(&oracle, &candidate, "list-wrap", width);
-        }
-    }
-
-    #[test]
-    fn paragraph_to_list_agrees() {
-        for width in [80u16, 40, 20, 12, 8] {
-            let doc = parse_assistant(&text_segs("intro paragraph\n- item one\n- item two"));
-            let (oracle, candidate) = render_pairs(&doc, width);
-            assert_same(&oracle, &candidate, "p-to-list", width);
-        }
-    }
-
-    #[test]
-    fn list_to_paragraph_agrees() {
-        for width in [80u16, 40, 20, 12, 8] {
-            let doc = parse_assistant(&text_segs("- item one\n- item two\nconcluding paragraph"));
-            let (oracle, candidate) = render_pairs(&doc, width);
-            assert_same(&oracle, &candidate, "list-to-p", width);
-        }
-    }
-
-    #[test]
-    fn empty_lines_agree() {
-        differential("empty-lines", "one\n\ntwo\n\n\nthree");
-    }
-
-    #[test]
-    fn wide_unicode_agrees() {
-        differential(
-            "wide-unicode",
-            "emoji 😀 and CJK 漢字 and combining e\u{301} with **bold** — em dash",
-        );
-    }
-
-    #[test]
-    fn styled_across_wrap_boundary_agrees() {
-        differential(
-            "styled-wrap",
-            "**bold text** that wraps across a boundary and *italic text* too",
-        );
-    }
-}
-
-#[cfg(test)]
-mod no_panic {
-    //! The streaming parser must never panic on any valid UTF-8 source, including
-    //! every partial prefix a live stream can produce.
-    use super::*;
-
-    fn assert_prefix_safe(source: &str) {
-        for (boundary, _) in source.char_indices() {
-            parse_assistant(&[AssistantSegment::Text(source[..boundary].to_string())]);
-        }
-        parse_assistant(&[AssistantSegment::Text(source.to_string())]);
-    }
-
-    #[test]
-    fn em_dash_prefixes_safe() {
-        assert_prefix_safe("1. a long item \u{2014} with an em dash\n2. second \u{2014} line");
-    }
-
-    #[test]
-    fn wide_prefixes_safe() {
-        assert_prefix_safe(
-            "text **bold \u{2014} \u{6F22}\u{5B57} \u{1F600}** tail and *italic* tail and `code \u{2014} \u{1F600}` then unclosed **emoji \u{1F600}",
-        );
-    }
-
-    #[test]
-    fn combining_and_zyg_prefixes_safe() {
-        assert_prefix_safe(
-            "e\u{301} + e\u{301} + family \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466} + flag \u{1F3F3}\u{FE0F}\u{200D}\u{1F308} + \u{1F44D}\u{1F3FD}",
-        );
-    }
-
-    #[test]
-    fn plain_cjk_prefixes_safe() {
-        assert_prefix_safe(
-            "\u{6F22}\u{5B57} \u{6D4B}\u{8BD5} \u{65E5}\u{672C}\u{8A9E} \u{3053}\u{3093}\u{306B}\u{3061}\u{306F} \u{2014} dash \u{2014} more",
-        );
-    }
-
-    #[test]
-    fn nested_marker_prefixes_safe() {
-        assert_prefix_safe("**b _i_ b** and *b **i** b* and ***x***");
-    }
-
-    #[test]
-    fn exhaustive_complex_prefixes_safe() {
-        let cases = [
-            "—",
-            "é",
-            "e\u{301}",
-            "漢字",
-            "😀",
-            "👨👩👧👦",
-            "🏳️🌈",
-            "text **bold — 漢字 😀** tail",
-            "text *italic 👨👩👧👦* tail",
-            "`code — 😀`",
-            "unclosed **emoji 😀",
-            "## Section 1: Emoji 😀\n### Section 2: CJK 漢字\nBody with `code` and **bold**",
-            "- bullet item 1\n  - nested 2\n    - nested 3",
-            "1. ordered item — with em-dash\n  - sub-bullet *italic*\n2. second item `code`",
-        ];
-        for case in cases {
-            assert_prefix_safe(case);
-        }
-    }
-}
-
-#[cfg(test)]
-pub(crate) mod correctness_invariants {
-    use super::*;
-    use crate::presentation::layout::compile_view;
-    use crate::presentation::{RowChild, View, WidthRule};
-    use crate::transcript::wrap::{TranscriptCommitBoundary, wrap_transcript_rows};
-
-    #[test]
-    fn tiny_widths_never_overflow_allocated_row_geometry() {
-        for width in [12u16, 8, 6, 3, 2, 1] {
-            let row = View::row(
-                vec![
-                    RowChild::fixed(2, View::text("•").into_view()),
-                    RowChild::flex(
-                        View::text("body text wrapping here")
-                            .width(WidthRule::Fill)
-                            .into_view(),
-                    ),
-                    RowChild::content(View::text("status").into_view()),
-                ],
-                1,
-            );
-            let block = compile_view(&row, width);
-            assert!(
-                block.width <= width,
-                "row surface width ({}) exceeded available width ({width})",
-                block.width
-            );
-            for r in &block.rows {
-                assert!(r.width() <= usize::from(width));
-            }
-        }
-    }
-
-    #[test]
-    fn fill_never_exceeds_available_width_at_tiny_widths() {
-        for width in [12u16, 8, 6, 3, 2, 1] {
-            let view = View::styled_text(vec![TextSpan::plain(
-                "A long paragraph of text that should wrap cleanly.",
-            )])
-            .width(WidthRule::Fill)
-            .into_view();
-            let block = compile_view(&view, width);
-            assert!(
-                block.width <= width,
-                "Fill view width ({}) exceeded available width ({width})",
-                block.width
-            );
-            for r in &block.rows {
-                assert!(r.width() <= usize::from(width));
-            }
-        }
-    }
-
-    #[test]
-    fn egcs_never_split_across_lines_at_all_widths() {
-        let text = "e\u{301} 😀 漢字 👩‍⚕️ 👨‍👩‍👧‍👦 🏳️‍🌈";
-        for width in [80u16, 40, 20, 12, 8, 6, 3, 2, 1] {
-            let doc = parse_assistant(&[AssistantSegment::Text(text.to_string())]);
-            let rows: Vec<TranscriptRow> =
-                stream_rows(&doc).iter().map(|r| r.row.clone()).collect();
-            let wrapped = wrap_transcript_rows(width, &rows, TranscriptCommitBoundary::default());
-            for row in &wrapped.rows {
-                for span in &row.spans {
-                    assert!(span.content.is_char_boundary(0));
-                    assert!(span.content.is_char_boundary(span.content.len()));
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn wide_egc_impossible_fit_preserves_uncommitted_suffix() {
-        let doc = parse_assistant(&[AssistantSegment::Text("漢字".to_string())]);
-        let rows: Vec<TranscriptRow> = stream_rows(&doc).iter().map(|r| r.row.clone()).collect();
-        let wrapped = wrap_transcript_rows(1, &rows, TranscriptCommitBoundary::default());
-        assert_eq!(wrapped.rows.len(), 2);
-        // Source boundaries accurately record where in source each row ends:
-        assert_eq!(wrapped.row_end_boundaries[0].byte_offset, 3);
-        assert_eq!(
-            wrapped.row_end_boundaries[1],
-            TranscriptCommitBoundary::next_logical_row(0)
-        );
-        // But commit eligibility correctly reports that 0 oversized rows may enter native history:
-        assert_eq!(
-            wrapped.transferable_prefix_rows, 0,
-            "zero oversized physical rows are committable at width 1"
-        );
-    }
-
-    #[test]
-    fn source_ranges_round_trip_across_styled_span_boundaries() {
-        use ratatui::style::Color;
-
-        let style_a = crate::terminal::ratatui::physical_style(Style::default().fg(Color::Red));
-        let style_b = crate::terminal::ratatui::physical_style(Style::default().fg(Color::Blue));
-        let hard = crate::presentation::wrap::styled_hard_lines(vec![
-            ("prefix e", style_a, Some(0)),
-            ("\u{301} suffix", style_b, Some(8)),
-        ]);
-        assert_eq!(hard.len(), 1);
-        let graphemes = &hard[0];
-        let combined = &graphemes[7];
-        assert_eq!(combined.text.as_ref(), "e\u{301}");
-        assert_eq!(combined.source, Some(7..10));
-
-        let style_c = crate::terminal::ratatui::physical_style(Style::default().fg(Color::Green));
-        let style_d = crate::terminal::ratatui::physical_style(Style::default().fg(Color::Yellow));
-        let hard_zwj = crate::presentation::wrap::styled_hard_lines(vec![
-            ("family: 👩", style_c, Some(0)),
-            ("\u{200D}⚕\u{FE0F} done", style_d, Some(12)),
-        ]);
-        assert_eq!(hard_zwj.len(), 1);
-        let zwj_g = &hard_zwj[0][8];
-        assert_eq!(zwj_g.text.as_ref(), "👩\u{200D}⚕\u{FE0F}");
-        assert_eq!(zwj_g.source, Some(8..21));
-    }
-
-    // --- Explicit source stability metadata tests ---
-
-    #[test]
-    fn parser_closed_bold_end_touching_is_unstable() {
-        let doc = parse_assistant(&[AssistantSegment::Text("abc **bold**".to_string())]);
-        assert_eq!(doc.rows.len(), 1);
-        let row = &doc.rows[0];
-        assert!(has_hidden_projection(row));
-        assert!(!row.source.has_newline);
-        assert_eq!(row.source.content_len, "abc **bold**".len());
-        // Closer touches EOF, so stable_prefix_len stops before opener
-        assert_eq!(row.source.stable_prefix_len, "abc ".len());
-    }
-
-    #[test]
-    fn parser_closed_bold_pinned_by_following_source() {
-        let doc = parse_assistant(&[AssistantSegment::Text("abc **bold** x".to_string())]);
-        assert_eq!(doc.rows.len(), 1);
-        let row = &doc.rows[0];
-        assert!(has_hidden_projection(row));
-        assert!(!row.source.has_newline);
-        assert_eq!(row.source.content_len, "abc **bold** x".len());
-        // The semantic transformation is pinned, but the trailing `x` EGC is
-        // still open for append purposes.
-        assert_eq!(row.source.stable_prefix_len, "abc **bold** ".len());
-    }
-
-    #[test]
-    fn parser_closed_bold_with_newline_is_stable() {
-        let doc = parse_assistant(&[AssistantSegment::Text("abc **bold**\n".to_string())]);
-        assert_eq!(doc.rows.len(), 1);
-        let row = &doc.rows[0];
-        assert!(has_hidden_projection(row));
-        assert!(row.source.has_newline);
-        assert_eq!(row.source.content_len, "abc **bold**".len());
-        assert_eq!(row.source.stable_prefix_len, row.source.content_len);
-    }
-
-    #[test]
-    fn parser_unclosed_bold_stops_stability_before_opener() {
-        let doc = parse_assistant(&[AssistantSegment::Text("abc **bold".to_string())]);
-        assert_eq!(doc.rows.len(), 1);
-        let row = &doc.rows[0];
-        assert!(!has_hidden_projection(row));
-        assert!(!row.source.has_newline);
-        assert_eq!(row.source.content_len, "abc **bold".len());
-        // Stops before the potentially active "**"
-        assert_eq!(row.source.stable_prefix_len, "abc ".len());
-        assert!(row.source.stable_prefix_len < row.source.content_len);
-    }
-
-    #[test]
-    fn parser_list_with_ordinary_body_holds_back_final_egc() {
-        let doc = parse_assistant(&[AssistantSegment::Text("- item".to_string())]);
-        assert_eq!(doc.rows.len(), 1);
-        let row = &doc.rows[0];
-        assert!(has_hidden_projection(row));
-        assert!(!row.source.has_newline);
-        assert_eq!(row.source.content_len, "- item".len());
-        // The list semantics are pinned, but the final `m` EGC is still open.
-        assert_eq!(row.source.stable_prefix_len, "- ite".len());
-    }
-
-    #[test]
-    fn parser_list_with_newline_is_stable_through_raw_content() {
-        let doc = parse_assistant(&[AssistantSegment::Text("- item\n".to_string())]);
-        let row = &doc.rows[0];
-        assert!(has_hidden_projection(row));
-        assert!(row.source.has_newline);
-        assert_eq!(row.source.content_len, "- item".len());
-        assert_eq!(row.source.stable_prefix_len, row.source.content_len);
-    }
-
-    #[test]
-    fn parser_list_with_unfinished_inline_markdown_stops_stability() {
-        let doc = parse_assistant(&[AssistantSegment::Text("- item **bo".to_string())]);
-        assert_eq!(doc.rows.len(), 1);
-        let row = &doc.rows[0];
-        assert!(has_hidden_projection(row));
-        assert!(!row.source.has_newline);
-        assert_eq!(row.source.content_len, "- item **bo".len());
-        // Stable prefix stops before "**" in body: "- item " (7 bytes)
-        assert_eq!(row.source.stable_prefix_len, "- item ".len());
-        assert!(row.source.stable_prefix_len < row.source.content_len);
-    }
-
-    #[test]
-    fn parser_completed_list_row_is_stable_through_newline() {
-        let doc = parse_assistant(&[AssistantSegment::Text("- item **bo\n".to_string())]);
-        assert_eq!(doc.rows.len(), 1);
-        let row = &doc.rows[0];
-        assert!(has_hidden_projection(row));
-        assert!(row.source.has_newline);
-        assert_eq!(row.source.content_len, "- item **bo".len());
-        assert_eq!(row.source.stable_prefix_len, row.source.content_len);
-    }
-
-    #[test]
-    fn parser_nested_completed_transformation_touches_eof_is_unstable() {
-        let doc = parse_assistant(&[AssistantSegment::Text("**b _i_ b**".to_string())]);
-        assert_eq!(doc.rows.len(), 1);
-        let row = &doc.rows[0];
-        assert!(has_hidden_projection(row));
-        assert!(!row.source.has_newline);
-        assert_eq!(row.source.content_len, "**b _i_ b**".len());
-        assert_eq!(row.source.stable_prefix_len, 0);
-    }
-
-    #[test]
-    fn parser_ambiguous_line_classifications_return_zero_stability() {
-        let cases = ["#", "##", "-", "+", "*", "1", "12", "1.", "12)"];
-        for case in cases {
-            let doc = parse_assistant(&[AssistantSegment::Text(case.to_string())]);
-            assert_eq!(doc.rows.len(), 1, "failed for {case:?}");
-            assert_eq!(
-                doc.rows[0].source.stable_prefix_len, 0,
-                "expected stable_prefix_len == 0 for ambiguous classification {case:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn parser_pinned_line_classifications_are_egc_safe() {
-        let cases = [
-            "# heading",
-            "## ",
-            "- item",
-            "+ item",
-            "1. item",
-            "12) item",
-        ];
-        for case in cases {
-            let doc = parse_assistant(&[AssistantSegment::Text(case.to_string())]);
-            assert_eq!(doc.rows.len(), 1, "failed for {case:?}");
-            assert!(
-                doc.rows[0].source.stable_prefix_len < doc.rows[0].source.content_len,
-                "open classification {case:?} must hold back its final EGC"
-            );
-        }
-    }
-
-    #[test]
-    fn parser_whitespace_only_prefixes_are_classification_ambiguous() {
-        for source in [" ", "  ", "\t", " \t", "\t "] {
-            let doc = parse_assistant(&[AssistantSegment::Text(source.to_string())]);
-            let row = &doc.rows[0];
-            assert_eq!(row.source.stable_prefix_len, 0, "source={source:?}");
-            assert_eq!(row.source.content_len, source.len(), "source={source:?}");
-        }
-    }
-
-    #[test]
-    fn parser_continuations_apply_open_egc_safety() {
-        let heading = parse_assistant_tail(
-            &[AssistantSegment::Text("continued heading".to_string())],
-            crate::stream::StreamOffset::new(5),
-            Some(AssistantContinuation::Heading),
-        );
-        assert_eq!(
-            heading.rows[0].source.stable_prefix_len,
-            "continued headin".len()
-        );
-
-        let paragraph = parse_assistant_tail(
-            &[AssistantSegment::Text("- item".to_string())],
-            crate::stream::StreamOffset::new(5),
-            Some(AssistantContinuation::Paragraph),
-        );
-        assert_eq!(paragraph.rows[0].source.stable_prefix_len, "- ite".len());
-    }
-
-    #[test]
-    fn parser_list_offsets_stay_in_raw_source_coordinates() {
-        let unordered = unordered_parts("- \t\t**bo").expect("unordered list");
-        assert_eq!(unordered.0, 0);
-        assert_eq!(unordered.1, 2);
-        assert_eq!(unordered.2, "\t\t**bo");
-
-        let ordered = ordered_parts("\t1. \t**bo").expect("ordered list");
-        assert_eq!(ordered.0, 2);
-        assert_eq!(ordered.1, 1);
-        assert_eq!(ordered.2, 4);
-        assert_eq!(ordered.3, "\t**bo");
-
-        let doc = parse_assistant(&[AssistantSegment::Text("- \t\t**bo".to_string())]);
-        let row = &doc.rows[0];
-        assert!(has_hidden_projection(row));
-        assert_eq!(row.source.content_len, 8);
-        assert_eq!(row.source.stable_prefix_len, 4);
-        assert!(row.source.stable_prefix_len <= row.source.content_len);
-    }
-
-    #[test]
-    fn nested_projection_retains_outer_restart_context() {
-        let source = "prefix **outer _inner content which wraps_ outer** suffix";
-        let doc = parse_assistant(&[AssistantSegment::Text(source.to_string())]);
-        let row = &doc.rows[0];
-
-        let inner = row
-            .projected_runs
-            .iter()
-            .find(|run| run.display.contains("inner"))
-            .expect("nested italic run");
-        assert_eq!(inner.restart_from, Some(source.find("**").unwrap()));
-        assert_eq!(inner.style.attributes.bold, Some(true));
-        assert_eq!(inner.style.attributes.italic, Some(true));
-
-        let suffix = row
-            .projected_runs
-            .iter()
-            .find(|run| run.display.contains("suffix"))
-            .expect("plain suffix run");
-        assert_eq!(suffix.restart_from, None);
-    }
-
-    #[test]
-    fn list_tab_replacements_are_local_projection_atoms() {
-        let source = "- **before\tinside** followed by a long tail";
-        let doc = parse_assistant(&[AssistantSegment::Text(source.to_string())]);
-        let row = &doc.rows[0];
-        let tab_source = source.find('\t').unwrap();
-        let tab_run = row
-            .projected_runs
-            .iter()
-            .find(|run| run.owned.start == tab_source && run.owned.end == tab_source + 1)
-            .expect("tab replacement run");
-
-        assert_eq!(tab_run.display, "    ");
-        assert_eq!(tab_run.exact_visible, None);
-        assert_eq!(tab_run.restart_from, Some(2));
-        assert!(
-            row.projected_runs
-                .iter()
-                .any(|run| run.display == "before" && run.style.attributes.bold == Some(true))
-        );
-        assert!(
-            row.projected_runs
-                .iter()
-                .any(|run| { run.display == "inside" && run.style.attributes.bold == Some(true) })
-        );
-        assert!(
-            row.projected_runs
-                .iter()
-                .any(|run| run.display.contains("followed"))
-        );
-    }
-
-    #[test]
-    fn parser_list_tabs_expand_only_for_display() {
-        let doc = parse_assistant(&[AssistantSegment::Text("- a\tb".to_string())]);
-        let row = &doc.rows[0];
-        let visible: String = row.spans.iter().map(|span| span.text.as_str()).collect();
-        assert_eq!(visible, "a    b");
-        assert_eq!(row.source.content_len, "- a\tb".len());
-        assert!(row.source.stable_prefix_len <= row.source.content_len);
-
-        let indented = parse_assistant(&[AssistantSegment::Text("\t- item".to_string())]);
+    fn parser_preserves_markdown_semantics() {
+        let document = parse_assistant(&text_segs(
+            "# heading\n- item\n  - nested\n9. nine\n10. ten",
+        ));
         assert!(matches!(
-            indented.rows[0].layout,
-            AssistantRowLayout::ListItem { depth: 2, .. }
+            document.rows[0].layout,
+            AssistantRowLayout::Heading
+        ));
+        assert!(matches!(
+            document.rows[1].layout,
+            AssistantRowLayout::ListItem {
+                depth: 0,
+                marker: AssistantMarker::Bullet
+            }
+        ));
+        assert!(matches!(
+            document.rows[2].layout,
+            AssistantRowLayout::ListItem {
+                depth: 1,
+                marker: AssistantMarker::Bullet
+            }
+        ));
+        assert!(matches!(
+            document.rows[3].layout,
+            AssistantRowLayout::ListItem {
+                marker: AssistantMarker::Ordered { index: 9 },
+                ..
+            }
+        ));
+        assert!(matches!(
+            document.rows[4].layout,
+            AssistantRowLayout::ListItem {
+                marker: AssistantMarker::Ordered { index: 10 },
+                ..
+            }
         ));
     }
 
     #[test]
-    fn every_parser_row_stability_frontier_is_raw_bounded() {
-        let corpus = [
-            "plain",
-            "# heading",
-            "  ",
-            "- item",
-            "- \t\t**bo",
-            "\t- a\tb",
-            "1. ordered",
-            "\t1. \t**bo",
-            "abc **bold** x",
+    fn finalized_view_compiles_lists_and_styles_without_row_adapter() {
+        let view = assistant_document_view(&parse_assistant(&text_segs("**bold**\n- item")));
+        let rows = compiled_text(&view, 40);
+        assert!(rows.iter().any(|row| row.contains("bold")));
+        assert!(rows.iter().any(|row| row.contains("• item")));
+    }
+
+    #[test]
+    fn thinking_to_text_has_a_real_semantic_blank_row() {
+        let segments = vec![
+            AssistantSegment::Thinking("thinking".to_string()),
+            AssistantSegment::Text("\n\nanswer".to_string()),
         ];
-        for source in corpus {
-            for with_newline in [false, true] {
-                let source = if with_newline {
-                    format!("{source}\n")
-                } else {
-                    source.to_string()
-                };
-                let doc = parse_assistant(&[AssistantSegment::Text(source)]);
-                for row in doc.rows {
-                    assert!(row.source.stable_prefix_len <= row.source.content_len);
-                }
-            }
-        }
+        let document = parse_assistant(&segments);
+        let view = assistant_document_view(&document);
+        let rows = compiled_text(&view, 40);
+        assert_eq!(rows, ["  thinking", "", "  answer"]);
+    }
+
+    #[test]
+    fn assistant_stream_and_final_view_share_semantic_rows() {
+        let mut stream = crate::transcript::AssistantStream::new();
+        stream.push_delta(SegmentKind::Text, "plain\n- list");
+        stream.seal();
+        let snapshot = stream.snapshot();
+        let final_view = assistant_document_view(&parse_assistant(stream.segments()));
+        let stream_rows = crate::stream::compile_stream(&snapshot.view, 40, snapshot.source_end)
+            .rows
+            .into_iter()
+            .map(|row| row.physical.plain_text())
+            .collect::<Vec<_>>();
+        let final_rows = compiled_text(&final_view, 40)
+            .into_iter()
+            .map(|row| row.strip_prefix("  ").unwrap_or(&row).to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(stream_rows, final_rows);
     }
 }

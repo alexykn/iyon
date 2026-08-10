@@ -2,8 +2,6 @@ pub(crate) mod assistant_stream;
 pub(crate) mod hosted_stream;
 pub(crate) mod markdown;
 pub(crate) mod model;
-pub(crate) mod row;
-pub(crate) mod wrap;
 
 pub(crate) use assistant_stream::AssistantStream;
 pub(crate) use hosted_stream::{

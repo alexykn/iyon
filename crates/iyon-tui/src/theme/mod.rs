@@ -7,10 +7,7 @@ mod ratatui;
 
 use crate::physical::{AnsiColor, PhysicalColor, PhysicalStyle};
 
-pub(crate) use self::ratatui::{
-    input_border, markdown_bold, markdown_code, markdown_header, markdown_italic, markdown_list,
-    muted, thinking, truncation_footer,
-};
+pub(crate) use self::ratatui::input_border;
 
 pub(crate) fn physical_color(key: &str) -> PhysicalColor {
     match key {
