@@ -6,8 +6,8 @@ use super::{
     text::{Text, TextSpan},
 };
 use crate::presentation::ir::{
-    ClampRowsView, ColumnChild, ColumnView, ContainerNode, Decoration, HeightRule, RowChild,
-    RowView, View, ViewKind, WidthRule,
+    ClampRowsView, ColumnChild, ColumnView, ContainerNode, Decoration, HangingView, HeightRule,
+    RowChild, RowView, View, ViewKind, WidthRule,
 };
 
 impl View {
@@ -52,6 +52,31 @@ impl View {
             height: HeightRule::Fit,
             decoration: Decoration::default(),
             kind: ViewKind::Column(ColumnView { children, gap }),
+        }
+    }
+
+    /// Constructs a semantic hanging row.
+    ///
+    /// `prefix` is painted on the first line, `continuation` is repeated at
+    /// the same body column on wrapped lines, and `body` owns wrapping. The
+    /// prefix and continuation views should be single-row, no-wrap views.
+    /// If the prefix cannot fit, the compiled view is marked incomplete rather
+    /// than silently dropping or relocating body content.
+    pub fn hanging(
+        prefix: impl IntoView,
+        continuation: impl IntoView,
+        body: impl IntoView,
+    ) -> Self {
+        Self {
+            component: None,
+            width: WidthRule::Fit,
+            height: HeightRule::Fit,
+            decoration: Decoration::default(),
+            kind: ViewKind::Hanging(HangingView {
+                prefix: Box::new(prefix.into_view()),
+                continuation: Box::new(continuation.into_view()),
+                body: Box::new(body.into_view()),
+            }),
         }
     }
 

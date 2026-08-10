@@ -55,6 +55,11 @@ impl View {
             ViewKind::ComponentSlot(_) => true,
             ViewKind::Text(_) | ViewKind::Spacer { .. } => false,
             ViewKind::Container(container) => container.child.contains_component_identity(),
+            ViewKind::Hanging(hanging) => {
+                hanging.prefix.contains_component_identity()
+                    || hanging.continuation.contains_component_identity()
+                    || hanging.body.contains_component_identity()
+            }
             ViewKind::ClampRows(clamp) => clamp.child.contains_component_identity(),
             ViewKind::RowViewport(viewport) => viewport.child.contains_component_identity(),
             ViewKind::Column(column) => column
@@ -74,6 +79,7 @@ pub(crate) enum ViewKind {
     Text(TextView),
     Column(ColumnView),
     Row(RowView),
+    Hanging(HangingView),
     Container(ContainerNode),
     Spacer { rows: u16 },
     ClampRows(ClampRowsView),
@@ -171,6 +177,14 @@ pub(crate) struct RowView {
     pub(crate) children: Vec<RowChild>,
     pub(crate) gap: u16,
     pub(crate) vertical_align: VerticalAlign,
+}
+
+/// Semantic first-line prefix plus repeated continuation prefix.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct HangingView {
+    pub(crate) prefix: Box<View>,
+    pub(crate) continuation: Box<View>,
+    pub(crate) body: Box<View>,
 }
 
 /// RETAINED SEMANTIC IR. One row child and its width track.

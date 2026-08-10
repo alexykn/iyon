@@ -63,6 +63,7 @@ impl ViewPainter {
             ViewKind::Container(ContainerNode { .. })
             | ViewKind::Column(_)
             | ViewKind::Row(_)
+            | ViewKind::Hanging(_)
             | ViewKind::ClampRows(_) => {
                 for child in &node.children {
                     let child_node = tree.node(*child);

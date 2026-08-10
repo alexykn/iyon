@@ -220,6 +220,9 @@ impl Builder {
                 self.build_column(column, x, y, width, height, fill_height, clip)
             }
             ViewKind::Row(row) => self.build_row(row, x, y, width, height, fill_height, clip),
+            ViewKind::Hanging(hanging) => {
+                self.build_hanging(hanging, x, y, width, height, fill_height, clip)
+            }
             ViewKind::ComponentSlot(_) => unreachable!("component slot reached layout"),
         }
     }
@@ -270,6 +273,56 @@ impl Builder {
             children,
             Size::new(width, used_height.min(usize::from(u16::MAX)) as u16),
             complete,
+        )
+    }
+
+    fn build_hanging(
+        &mut self,
+        hanging: &crate::presentation::ir::HangingView,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        fill_height: bool,
+        clip: Rect,
+    ) -> (Vec<LayoutNodeId>, Size, bool) {
+        if height == 0 {
+            return (Vec::new(), Size::new(width, 0), true);
+        }
+
+        let prefix_width = intrinsic_content_size(&hanging.prefix, u16::MAX).width;
+        let body_width = width.saturating_sub(prefix_width).max(1);
+        let (body_id, body_size, body_complete) = self.build(
+            &hanging.body,
+            x.saturating_add(prefix_width),
+            y,
+            Some(body_width),
+            Some(height),
+            clip,
+        );
+        let row_height = body_size.height.max(1).min(height);
+        let (prefix_id, _, prefix_complete) =
+            self.build(&hanging.prefix, x, y, Some(prefix_width), Some(1), clip);
+        let mut children = vec![prefix_id];
+        let mut complete = body_complete && prefix_complete && prefix_width < width;
+        for row in 1..row_height {
+            let (continuation_id, _, continuation_complete) = self.build(
+                &hanging.continuation,
+                x,
+                y.saturating_add(row),
+                Some(prefix_width),
+                Some(1),
+                clip,
+            );
+            children.push(continuation_id);
+            complete &= continuation_complete;
+        }
+        children.push(body_id);
+        let output_height = if fill_height { height } else { row_height };
+        (
+            children,
+            Size::new(width, output_height),
+            complete && body_size.height <= height,
         )
     }
 

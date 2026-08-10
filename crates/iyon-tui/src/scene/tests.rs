@@ -524,6 +524,11 @@ fn count_slots(view: &View) -> usize {
             .map(|child| count_slots(&child.view))
             .sum(),
         crate::presentation::ir::ViewKind::Container(container) => count_slots(&container.child),
+        crate::presentation::ir::ViewKind::Hanging(hanging) => {
+            count_slots(&hanging.prefix)
+                + count_slots(&hanging.continuation)
+                + count_slots(&hanging.body)
+        }
         crate::presentation::ir::ViewKind::ClampRows(clamp) => count_slots(&clamp.child),
         crate::presentation::ir::ViewKind::RowViewport(viewport) => count_slots(&viewport.child),
         crate::presentation::ir::ViewKind::Text(_)
@@ -556,6 +561,12 @@ impl PlainText for View {
             crate::presentation::ir::ViewKind::Container(container) => {
                 container.child.view_plain_text()
             }
+            crate::presentation::ir::ViewKind::Hanging(hanging) => format!(
+                "{}{}{}",
+                hanging.prefix.view_plain_text(),
+                hanging.continuation.view_plain_text(),
+                hanging.body.view_plain_text()
+            ),
             crate::presentation::ir::ViewKind::ComponentSlot(_) => String::new(),
             crate::presentation::ir::ViewKind::Row(row) => row
                 .children
