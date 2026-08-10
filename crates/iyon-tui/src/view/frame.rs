@@ -31,11 +31,11 @@ impl FrameCoordinator {
         root: Rect,
     ) -> Result<()> {
         let mut root = root;
-        state.transcript.ensure_render_cache(root.width.max(1));
+        state.transcript.ensure_render_cache(root.width);
         root = self.finalize_sealed_host(terminal, state, scrollback, root)?;
 
         loop {
-            state.transcript.ensure_render_cache(root.width.max(1));
+            state.transcript.ensure_render_cache(root.width);
             let layout =
                 RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
             let capacity = layout.conversation_capacity_rows;
@@ -44,7 +44,7 @@ impl FrameCoordinator {
                 break;
             }
 
-            state.transcript.ensure_render_cache(root.width.max(1));
+            state.transcript.ensure_render_cache(root.width);
             let transcript_rows = overflow.min(state.transcript.committable_len());
             if transcript_rows > 0 {
                 let inserted = scrollback.commit_transcript_prefix(
@@ -67,7 +67,7 @@ impl FrameCoordinator {
                 break;
             }
 
-            state.prepare_assistant_frame(root.width.max(1), overflow);
+            state.prepare_assistant_frame(root.width, overflow);
             let prepared = state.take_assistant_frame();
             let Some(prepared) = prepared else {
                 break;
@@ -84,7 +84,7 @@ impl FrameCoordinator {
             root = self.finalize_sealed_host(terminal, state, scrollback, root)?;
         }
 
-        state.transcript.ensure_render_cache(root.width.max(1));
+        state.transcript.ensure_render_cache(root.width);
         let layout =
             RunningFrameComposer::prepare(renderer, layout_config, state, wrap_cache, root);
         let view = RunningFrameComposer::view(layout, state, wrap_cache, root);
@@ -124,7 +124,7 @@ impl FrameCoordinator {
                         state.transcript.hosted_unit_is_history_head(unit_id),
                         "pinned HostedStream rows require the global history head"
                     );
-                    state.prepare_assistant_frame(root.width.max(1), blocking_rows);
+                    state.prepare_assistant_frame(root.width, blocking_rows);
                     let prepared = state.take_assistant_frame().ok_or_else(|| {
                         anyhow::anyhow!("sealed HostedStream produced no pinned drain frame")
                     })?;

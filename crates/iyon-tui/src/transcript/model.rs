@@ -712,11 +712,23 @@ impl TranscriptState {
                     }
                     index += 1;
                 }
+                let unit_index = self.presentation_cache.len();
+                let unit_id = self.entry_ids[start];
+                let ownership = self.ownership_for(unit_id, unit_index);
+                let view = match ownership {
+                    PresentationOwnership::Transcript => {
+                        Some(TuiFormatter::user_batch_view(&messages))
+                    }
+                    PresentationOwnership::NativeHistory => None,
+                    PresentationOwnership::Hosted | PresentationOwnership::ResidentStream => {
+                        unreachable!("user batches cannot be hosted or resident")
+                    }
+                };
                 self.presentation_cache.push(TranscriptUnit {
-                    id: self.entry_ids[start],
+                    id: unit_id,
                     source_ids: self.entry_ids[start..index].to_vec(),
-                    view: Some(TuiFormatter::user_batch_view(&messages)),
-                    ownership: PresentationOwnership::Transcript,
+                    view,
+                    ownership,
                     boundary: FlowBoundary::Default,
                     lifecycle: EntryLifecycle::Sealed,
                     commit_mode: EntryCommitMode::Sealed,
@@ -935,6 +947,10 @@ impl TranscriptState {
                     self.overrides.remove(&range.id);
                 }
                 self.commit_state.completed_prefix = range.unit_index.saturating_add(1);
+                if let Some(unit) = self.presentation_cache.get_mut(range.unit_index) {
+                    unit.ownership = PresentationOwnership::NativeHistory;
+                    unit.view = None;
+                }
                 cache.ranges.remove(0);
             } else {
                 break;
@@ -1091,6 +1107,137 @@ mod tests {
             PresentationOwnership::NativeHistory
         );
         assert!(state.presentation_cache[0].view.is_none());
+    }
+
+    fn range_rows_for_unit(state: &TranscriptState, id: TranscriptUnitId) -> usize {
+        state
+            .rendered_rows_cache
+            .as_ref()
+            .and_then(|cache| cache.ranges.iter().find(|range| range.id == id))
+            .map(|range| range.rows.len())
+            .expect("unit must have a rendered range")
+    }
+
+    #[test]
+    fn committed_units_immediately_become_native_without_views() {
+        let mut ordinary = TranscriptState::default();
+        ordinary.push_item(TimelineItem::ErrorMessage {
+            text: "error".into(),
+        });
+        ordinary.ensure_render_cache(80);
+        let rows = ordinary.committable_len();
+        ordinary.mark_rows_committed(rows);
+        assert_eq!(
+            ordinary.presentation_cache[0].ownership,
+            PresentationOwnership::NativeHistory
+        );
+        assert!(ordinary.presentation_cache[0].view.is_none());
+        ordinary.rebuild_presentation_cache();
+        assert_eq!(
+            ordinary.presentation_cache[0].ownership,
+            PresentationOwnership::NativeHistory
+        );
+        assert!(ordinary.presentation_cache[0].view.is_none());
+
+        let mut grouped = TranscriptState::default();
+        grouped.push_item(TimelineItem::UserMessage { text: "one".into() });
+        grouped.push_item(TimelineItem::UserMessage { text: "two".into() });
+        grouped.ensure_render_cache(80);
+        grouped.mark_rows_committed(grouped.committable_len());
+        assert_eq!(grouped.presentation_cache[0].source_ids.len(), 2);
+        assert_eq!(
+            grouped.presentation_cache[0].ownership,
+            PresentationOwnership::NativeHistory
+        );
+        assert!(grouped.presentation_cache[0].view.is_none());
+        grouped.rebuild_presentation_cache();
+        assert_eq!(
+            grouped.presentation_cache[0].ownership,
+            PresentationOwnership::NativeHistory
+        );
+        assert!(grouped.presentation_cache[0].view.is_none());
+    }
+
+    #[test]
+    fn grouped_user_frontier_blocks_and_then_releases_hosted_units() {
+        let mut state = TranscriptState::default();
+        state.push_item(TimelineItem::UserMessage { text: "one".into() });
+        state.push_item(TimelineItem::UserMessage { text: "two".into() });
+        let first_hosted = state.begin_hosted_assistant_unit();
+        state.seal_hosted_assistant_unit(
+            first_hosted.id,
+            vec![AssistantSegment::Text("first hosted".into())],
+        );
+        state.push_item(TimelineItem::UserMessage {
+            text: "three".into(),
+        });
+        let second_hosted = state.begin_hosted_assistant_unit();
+        state.seal_hosted_assistant_unit(
+            second_hosted.id,
+            vec![AssistantSegment::Text("second hosted".into())],
+        );
+
+        state.ensure_render_cache(80);
+        let grouped_rows = range_rows_for_unit(&state, state.presentation_cache[0].id);
+        state.mark_rows_committed(1);
+        state.ensure_render_cache(80);
+        assert!(!state.hosted_unit_is_history_head(first_hosted.id));
+        assert!(
+            state
+                .uncommitted_rows()
+                .iter()
+                .all(|row| !row.plain_text().contains("first hosted"))
+        );
+
+        state.mark_rows_committed(grouped_rows.saturating_sub(1));
+        assert!(state.hosted_unit_is_history_head(first_hosted.id));
+        state.finish_stream_unit(first_hosted.id);
+        state.ensure_render_cache(80);
+        let user_three = state
+            .presentation_cache
+            .iter()
+            .find(|unit| unit.source_ids.len() == 1 && unit.view.is_some())
+            .expect("following user unit");
+        state.mark_rows_committed(range_rows_for_unit(&state, user_three.id));
+        assert!(state.hosted_unit_is_history_head(second_hosted.id));
+    }
+
+    #[test]
+    fn partial_head_stays_frozen_while_later_unit_reflows_and_native_stays_gone() {
+        let mut state = TranscriptState::default();
+        state.push_item(TimelineItem::ErrorMessage {
+            text: "abcdefghijklmnop".into(),
+        });
+        state.ensure_render_cache(4);
+        let original = state.uncommitted_rows().to_vec();
+        state.mark_rows_committed(1);
+        let frozen_tail = original[1..].to_vec();
+        state.push_item(TimelineItem::ErrorMessage {
+            text: "later".into(),
+        });
+        state.ensure_render_cache(20);
+        assert_eq!(
+            &state.uncommitted_rows()[..frozen_tail.len()],
+            frozen_tail.as_slice()
+        );
+        assert!(
+            state
+                .uncommitted_rows()
+                .iter()
+                .any(|row| row.plain_text() == "later")
+        );
+
+        state.mark_rows_committed(state.committable_len());
+        state.push_item(TimelineItem::ErrorMessage {
+            text: "final".into(),
+        });
+        state.ensure_render_cache(20);
+        assert!(
+            state
+                .uncommitted_rows()
+                .iter()
+                .all(|row| !row.plain_text().contains("abcdefghijklmnop"))
+        );
     }
 
     #[test]
@@ -1282,11 +1429,40 @@ mod tests {
             AssistantStream::new(),
             registration.leading_boundary,
         );
-        stream.content_mut().push_delta(SegmentKind::Text, "a");
+        stream
+            .content_mut()
+            .push_delta(SegmentKind::Text, "a\nb\nc");
+        let prepared = stream.prepare_frame(80, 1);
+        assert_eq!(prepared.history.rows.len(), 1);
+        stream.apply_commit_success(prepared.history);
         stream.seal();
         state.seal_hosted_assistant_unit(registration.id, stream.content().segments().to_vec());
-        let handoff = stream.into_resident_handoff();
-        state.adopt_resident_stream(handoff);
+        assert!(stream.can_handoff());
+        state.adopt_resident_stream(stream.into_resident_handoff());
+        state.ensure_render_cache(80);
+
+        assert_eq!(
+            state.presentation_cache[0].boundary,
+            FlowBoundary::AttachToPrevious
+        );
         assert!(state.presentation_cache[0].view.is_some());
+        assert!(
+            state
+                .uncommitted_rows()
+                .iter()
+                .all(|row| row.plain_text() != "a")
+        );
+        assert!(
+            state
+                .uncommitted_rows()
+                .iter()
+                .any(|row| row.plain_text() == "b")
+        );
+        assert!(
+            state
+                .uncommitted_rows()
+                .iter()
+                .any(|row| row.plain_text() == "c")
+        );
     }
 }

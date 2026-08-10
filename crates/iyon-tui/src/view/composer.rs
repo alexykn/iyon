@@ -37,8 +37,8 @@ impl RunningFrameComposer {
             state.input.text(),
             area.width.max(1),
         );
-        state.transcript.ensure_render_cache(area.width.max(1));
-        state.prepare_assistant_frame(area.width.max(1), 0);
+        state.transcript.ensure_render_cache(area.width);
+        state.prepare_assistant_frame(area.width, 0);
         state.prepare_active_frame(area.width.max(1));
         let layout = Self::compute_layout(base_layout, renderer, area, state, input_wrap_ranges);
         state.input_view.content_width = layout.input_area.width.max(1);
@@ -169,6 +169,50 @@ impl RunningFrameComposer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_transcript_unit_has_no_implicit_surface_row() {
+        let mut state = AppState::default();
+        state.append_timeline_item(crate::transcript::TimelineItem::ErrorMessage {
+            text: "first error".into(),
+        });
+        let layout = RunningFrameComposer::prepare(
+            &Renderer,
+            &LayoutConfig::default(),
+            &mut state,
+            &mut WrapCache::default(),
+            Rect::new(0, 0, 80, 8),
+        );
+        assert_eq!(state.transcript.uncommitted_rows().len(), 1);
+        assert_eq!(
+            state.transcript.uncommitted_rows()[0].plain_text(),
+            "first error"
+        );
+        assert_eq!(layout.conversation_area.height, 1);
+    }
+
+    #[test]
+    fn zero_width_composer_preserves_zero_width_transcript_rows() {
+        let mut state = AppState::default();
+        state.append_timeline_item(crate::transcript::TimelineItem::ErrorMessage {
+            text: "content".into(),
+        });
+        RunningFrameComposer::prepare(
+            &Renderer,
+            &LayoutConfig::default(),
+            &mut state,
+            &mut WrapCache::default(),
+            Rect::new(0, 0, 0, 8),
+        );
+        assert!(
+            state
+                .transcript
+                .uncommitted_rows()
+                .iter()
+                .all(|row| row.width() == 0)
+        );
+        assert_eq!(state.transcript.committable_len(), 0);
+    }
 
     #[test]
     fn ownership_handoff_preserves_conversation_geometry_and_rows() {
