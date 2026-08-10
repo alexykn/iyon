@@ -1117,7 +1117,7 @@ fn attach_to_previous_does_not_create_frontier_gap() {
     let mut history = History::new();
     history.push("A").unwrap();
     history
-        .push_with_boundary(FlowBoundary::AttachToPrevious, "B")
+        .push_with_boundary("B", FlowBoundary::AttachToPrevious)
         .unwrap();
     let registry = crate::component::ComponentRegistry::new();
     let mut sink = FakeSink::default();

@@ -21,9 +21,9 @@ pub(crate) struct HistoryProjection {
     pub(crate) frozen_overlay: Option<HistoryPhysicalOverlay>,
 }
 
-struct SemanticProjection {
-    view: View,
-    frozen_overlay: Option<HistoryPhysicalOverlay>,
+pub(crate) struct HistoryProjectionParts {
+    pub(crate) view: View,
+    pub(crate) frozen_overlay: Option<HistoryPhysicalOverlay>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,7 +69,7 @@ pub(crate) fn project(
     size: Size,
 ) -> Result<HistoryProjection, ResolveError> {
     let mut session = ResolveSession::new(registry);
-    let projection = project_view(history, size, &mut session)?;
+    let projection = project_into_session(history, size, &mut session)?;
     let scene = session.finish(projection.view);
     Ok(HistoryProjection {
         scene,
@@ -77,11 +77,11 @@ pub(crate) fn project(
     })
 }
 
-fn project_view(
+pub(crate) fn project_into_session(
     history: &History,
     size: Size,
     session: &mut ResolveSession<'_>,
-) -> Result<SemanticProjection, ResolveError> {
+) -> Result<HistoryProjectionParts, ResolveError> {
     let layout = history.layout();
     let content_width = size
         .width
@@ -224,7 +224,7 @@ fn project_view(
         0,
         layout.padding.left,
     ));
-    Ok(SemanticProjection {
+    Ok(HistoryProjectionParts {
         view: root,
         frozen_overlay,
     })

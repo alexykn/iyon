@@ -1,8 +1,9 @@
 //! Semantic attachment relationships between ordered history units.
 
 /// Relationship between a history unit and its logical predecessor.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum FlowBoundary {
+pub enum FlowBoundary {
     /// Use the framework's default separation from the predecessor.
     #[default]
     Default,

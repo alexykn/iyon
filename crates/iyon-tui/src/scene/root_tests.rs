@@ -1,0 +1,326 @@
+use super::*;
+use crate::{
+    History, HistoryLayout, Insets, IntoView, StreamingSource, TextSpan, View,
+    backend::NativeHistorySink,
+    component::{Component, ComponentCx, ComponentRegistry},
+    geometry::Size,
+    history::transfer_native_prefix,
+    physical::PhysicalRow,
+    presentation::layout::ViewCompiler,
+    stream::{StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder},
+};
+
+#[derive(Debug)]
+struct RootComponent(&'static str);
+
+impl Component for RootComponent {
+    fn view(&self) -> View {
+        View::text(self.0).into_view()
+    }
+
+    fn capabilities(&self, _cx: &mut ComponentCx<'_, Self>) {}
+}
+
+#[derive(Default)]
+struct RootSink {
+    rows: Vec<PhysicalRow>,
+    accepted: usize,
+}
+
+impl NativeHistorySink for RootSink {
+    type Error = ();
+
+    fn insert_history_rows(&mut self, rows: &[PhysicalRow]) -> Result<usize, Self::Error> {
+        let accepted = self.accepted.min(rows.len());
+        self.rows.extend(rows[..accepted].iter().cloned());
+        Ok(accepted)
+    }
+}
+
+struct RootSource {
+    count: usize,
+    revision: u64,
+    sealed: bool,
+}
+
+impl RootSource {
+    fn new(count: usize) -> Self {
+        Self {
+            count,
+            revision: 0,
+            sealed: false,
+        }
+    }
+
+    fn set_count(&mut self, count: usize) {
+        self.count = count;
+        self.revision = self.revision.saturating_add(1);
+    }
+}
+
+impl StreamingSource for RootSource {
+    fn snapshot(&self) -> StreamSnapshot {
+        let text = (1..=self.count)
+            .map(|row| format!("S{row}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let end = text.len() as u64;
+        StreamSnapshotBuilder::new(
+            StreamRevision::new(self.revision),
+            StreamOffset::ZERO,
+            StreamOffset::new(end),
+            StreamOffset::new(end),
+        )
+        .exact_text(
+            StreamRange::new(StreamOffset::ZERO, StreamOffset::new(end)),
+            [TextSpan::plain(text)],
+        )
+        .finish()
+        .unwrap()
+    }
+
+    fn seal(&mut self) {
+        self.sealed = true;
+        self.revision = self.revision.saturating_add(1);
+    }
+
+    fn is_sealed(&self) -> bool {
+        self.sealed
+    }
+}
+
+#[test]
+fn body_only_root_has_no_history_overlay() {
+    let registry = ComponentRegistry::new();
+    let resolved = resolve_root_scene(&Scene::new("body"), &registry, Size::new(10, 6)).unwrap();
+    assert!(resolved.history_overlay.is_none());
+    assert_eq!(resolved.history_height, 0);
+    assert_eq!(resolved.body_height, 1);
+    assert!(resolved.scene.mounts.is_empty());
+}
+
+#[test]
+fn history_and_body_use_remaining_height_and_terminal_width() {
+    let mut history = History::new();
+    history.push("H1\nH2\nH3\nH4\nH5\nH6").unwrap();
+    let body = View::vertical(|column| {
+        column.child("B1");
+        column.child("B2");
+    });
+    let resolved = resolve_root_scene(
+        &Scene::with_history(history, body),
+        &ComponentRegistry::new(),
+        Size::new(10, 8),
+    )
+    .unwrap();
+    let layout = layout_resolved_scene(&resolved.scene, Size::new(10, 8));
+    let root = layout.tree.node(layout.tree.root);
+    let history_node = layout.tree.node(root.children[0]);
+    let body_node = layout.tree.node(root.children[1]);
+    assert_eq!(resolved.history_height, 6);
+    assert_eq!(resolved.body_height, 2);
+    assert_eq!(history_node.rect, crate::geometry::Rect::new(0, 0, 10, 6));
+    assert_eq!(body_node.rect, crate::geometry::Rect::new(0, 6, 10, 2));
+}
+
+#[test]
+fn history_follow_end_stays_above_body() {
+    let mut history = History::new();
+    history.push("H1\nH2\nH3\nH4\nH5\nH6").unwrap();
+    let resolved = resolve_root_scene(
+        &Scene::with_history(history, "B1\nB2"),
+        &ComponentRegistry::new(),
+        Size::new(10, 6),
+    )
+    .unwrap();
+    let rows = ViewCompiler::default()
+        .compile_bounded(&resolved.scene.view, Size::new(10, 6))
+        .rows
+        .into_iter()
+        .map(|row| row.plain_text())
+        .collect::<Vec<_>>();
+    assert_eq!(rows, ["H3", "H4", "H5", "H6", "B1", "B2"]);
+}
+
+#[test]
+fn narrow_body_does_not_narrow_history() {
+    let mut history = History::new();
+    history.push("H").unwrap();
+    let resolved = resolve_root_scene(
+        &Scene::with_history(history, View::text("B").fit_width()),
+        &ComponentRegistry::new(),
+        Size::new(20, 4),
+    )
+    .unwrap();
+    let layout = layout_resolved_scene(&resolved.scene, Size::new(20, 4));
+    let root = layout.tree.node(layout.tree.root);
+    assert_eq!(layout.tree.node(root.children[0]).rect.width, 20);
+    assert_eq!(layout.tree.node(root.children[1]).rect.width, 20);
+}
+
+#[test]
+fn body_exhaustion_gives_history_zero_height_but_keeps_live_mounted() {
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(RootComponent("live"));
+    let mut history = History::new();
+    history.push(View::component(handle)).unwrap();
+    let scene = Scene::with_history(history, "B1\nB2\nB3");
+    let resolved = resolve_root_scene(&scene, &registry, Size::new(10, 3)).unwrap();
+    assert_eq!(resolved.history_height, 0);
+    assert_eq!(
+        resolved.scene.mounts.ids().collect::<Vec<_>>(),
+        [handle.id()]
+    );
+    let layout = layout_resolved_scene(&resolved.scene, Size::new(10, 3));
+    let root = layout.tree.node(layout.tree.root);
+    assert_eq!(layout.tree.node(root.children[0]).rect.height, 0);
+}
+
+#[test]
+fn duplicate_component_across_history_and_body_uses_one_session() {
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(RootComponent("duplicate"));
+    let mut history = History::new();
+    history.push(View::component(handle)).unwrap();
+    let scene = Scene::with_history(history, View::component(handle));
+    assert_eq!(
+        resolve_root_scene(&scene, &registry, Size::new(10, 4)),
+        Err(ResolveError::DuplicateComponent { id: handle.id() })
+    );
+}
+
+#[test]
+fn root_mount_order_is_history_then_body() {
+    let mut registry = ComponentRegistry::new();
+    let a = registry.register(RootComponent("A"));
+    let b = registry.register(RootComponent("B"));
+    let c = registry.register(RootComponent("C"));
+    let mut history = History::new();
+    history.push(View::component(a)).unwrap();
+    history.push(View::component(b)).unwrap();
+    let resolved = resolve_root_scene(
+        &Scene::with_history(history, View::component(c)),
+        &registry,
+        Size::new(10, 3),
+    )
+    .unwrap();
+    assert_eq!(
+        resolved.scene.mounts.ids().collect::<Vec<_>>(),
+        [a.id(), b.id(), c.id()]
+    );
+}
+
+#[test]
+fn multi_live_stream_capacity_keeps_one_root_mount_order() {
+    let mut registry = ComponentRegistry::new();
+    let a = registry.register(RootComponent("A1\nA2"));
+    let b = registry.register(RootComponent("B1\nB2"));
+    let c = registry.register(RootComponent("C1\nC2"));
+    let mut history = History::new();
+    history.push(View::component(a)).unwrap();
+    history.push(View::component(b)).unwrap();
+    let stream = history.push_stream(RootSource::new(20)).unwrap();
+    let scene = Scene::with_history(history, View::component(c));
+
+    let mut resolved = resolve_root_scene(&scene, &registry, Size::new(10, 10)).unwrap();
+    assert_eq!(resolved.history_height, 8);
+    assert_eq!(
+        resolved.scene.mounts.ids().collect::<Vec<_>>(),
+        [a.id(), b.id(), c.id()]
+    );
+    let rows = ViewCompiler::default()
+        .compile_bounded(&resolved.scene.view, Size::new(10, 10))
+        .rows
+        .into_iter()
+        .map(|row| row.plain_text())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        [
+            "S13", "S14", "S15", "S16", "S17", "S18", "S19", "S20", "C1", "C2"
+        ]
+    );
+
+    let mut updated = scene;
+    updated
+        .history_mut()
+        .unwrap()
+        .update_stream(stream, |source| source.set_count(21))
+        .unwrap();
+    resolved = resolve_root_scene(&updated, &registry, Size::new(10, 10)).unwrap();
+    let rows = ViewCompiler::default()
+        .compile_bounded(&resolved.scene.view, Size::new(10, 10))
+        .rows
+        .into_iter()
+        .map(|row| row.plain_text())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        [
+            "S14", "S15", "S16", "S17", "S18", "S19", "S20", "S21", "C1", "C2"
+        ]
+    );
+}
+
+#[test]
+fn zero_dimensions_preserve_semantic_resolution_without_fake_rows() {
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(RootComponent("live"));
+    let mut history = History::new();
+    history.push(View::component(handle)).unwrap();
+    let scene = Scene::with_history(history, View::component(handle));
+    assert!(matches!(
+        resolve_root_scene(&scene, &registry, Size::new(0, 0)),
+        Err(ResolveError::DuplicateComponent { .. })
+    ));
+
+    let mut history = History::new();
+    history.push(View::component(handle)).unwrap();
+    let resolved = resolve_root_scene(
+        &Scene::with_history(history, "body"),
+        &registry,
+        Size::new(0, 0),
+    )
+    .unwrap();
+    assert_eq!(resolved.history_height, 0);
+    assert_eq!(
+        resolved.scene.mounts.ids().collect::<Vec<_>>(),
+        [handle.id()]
+    );
+}
+
+#[test]
+fn frozen_history_overlay_stays_inside_history_track_above_body() {
+    let mut history = History::new();
+    history.set_layout(HistoryLayout::new(Insets::ZERO, 0));
+    history.push("A\nB\nC").unwrap();
+    let expected_view = View::text("A\nB\nC").into_view();
+    let expected = ViewCompiler::default()
+        .compile_bounded(&expected_view, Size::new(10, 3))
+        .rows
+        .into_iter()
+        .map(|row| row.placed(10, 0))
+        .collect::<Vec<_>>();
+    let mut sink = RootSink {
+        accepted: 1,
+        ..RootSink::default()
+    };
+    transfer_native_prefix(&mut history, &mut sink, 10, 1).unwrap();
+
+    let resolved = resolve_root_scene(
+        &Scene::with_history(history, "body"),
+        &ComponentRegistry::new(),
+        Size::new(10, 5),
+    )
+    .unwrap();
+    let overlay = resolved.history_overlay.as_ref().unwrap();
+    assert_eq!(overlay.rows, expected[1..].to_vec());
+    assert!(usize::from(overlay.row) + overlay.rows.len() <= usize::from(resolved.history_height));
+    assert_eq!(resolved.body_height, 1);
+    let layout = layout_resolved_scene(&resolved.scene, Size::new(10, 5));
+    let root = layout.tree.node(layout.tree.root);
+    assert_eq!(
+        layout.tree.node(root.children[1]).rect.y,
+        resolved.history_height
+    );
+}

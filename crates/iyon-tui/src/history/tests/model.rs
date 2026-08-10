@@ -38,7 +38,7 @@ fn multiple_live_units_remain_independent_and_ordered() {
     let a = history.push("A").unwrap();
     let b = history.push(live_view("B")).unwrap();
     let c = history
-        .push_with_boundary(FlowBoundary::AttachToPrevious, "C")
+        .push_with_boundary("C", FlowBoundary::AttachToPrevious)
         .unwrap();
     let d = history.push(live_view("D")).unwrap();
     let e = history.push("E").unwrap();
@@ -72,7 +72,7 @@ fn freeze_preserves_id_position_and_boundary() {
     let mut history = History::new();
     let first = history.push("A").unwrap();
     let live = history
-        .push_with_boundary(FlowBoundary::AttachToPrevious, live_view("B"))
+        .push_with_boundary(live_view("B"), FlowBoundary::AttachToPrevious)
         .unwrap();
     let last = history.push("C").unwrap();
     let before = history
@@ -93,7 +93,7 @@ fn freeze_preserves_id_position_and_boundary() {
 fn freeze_rejects_component_final_view_without_mutating_live_unit() {
     let mut history = History::new();
     let live = history
-        .push_with_boundary(FlowBoundary::AttachToPrevious, live_view("live"))
+        .push_with_boundary(live_view("live"), FlowBoundary::AttachToPrevious)
         .unwrap();
     let before = history
         .units()
@@ -114,7 +114,7 @@ fn freeze_rejects_component_final_view_without_mutating_live_unit() {
 fn first_unit_boundary_is_preserved() {
     let mut history = History::new();
     let id = history
-        .push_with_boundary(FlowBoundary::AttachToPrevious, "first")
+        .push_with_boundary("first", FlowBoundary::AttachToPrevious)
         .unwrap();
     let unit = history.units().find(|unit| unit.id == id).unwrap();
     assert_eq!(unit.boundary, FlowBoundary::AttachToPrevious);

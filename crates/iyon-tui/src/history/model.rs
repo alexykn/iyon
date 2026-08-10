@@ -1,4 +1,4 @@
-//! Private ordered semantic History model.
+//! Ordered semantic History model.
 
 use std::collections::VecDeque;
 
@@ -9,19 +9,30 @@ use super::{
     HistoryUnit, HistoryUnitContent, HistoryUnitId,
 };
 
-/// Optional ordered semantic history capability.
+/// An ordered root-level historical, live, or streaming semantic flow.
 ///
-/// History owns unit order, semantic lifetime, semantic layout, and its
-/// private monotonic native-history frontier. Backend insertion remains behind
-/// the private `NativeHistorySink` seam.
-pub(crate) struct History {
+/// History owns unit order, semantic lifetime, and semantic layout. Native
+/// durability remains private behind the host-owned native sink seam.
+///
+/// ```text
+/// let mut history = History::new();
+/// let completed = history.push("completed output")?;
+/// history.freeze(completed, "final output")?;
+/// ```
+pub struct History {
     pub(super) units: VecDeque<HistoryUnit>,
     layout: HistoryLayout,
     pub(super) native: super::native::NativeFrontier,
 }
 
+impl Default for History {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl History {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             units: VecDeque::new(),
             layout: HistoryLayout::default(),
@@ -29,14 +40,14 @@ impl History {
         }
     }
 
-    pub(crate) fn push(&mut self, view: impl IntoView) -> Result<HistoryUnitId, HistoryError> {
-        self.push_with_boundary(FlowBoundary::Default, view)
+    pub fn push(&mut self, view: impl IntoView) -> Result<HistoryUnitId, HistoryError> {
+        self.push_with_boundary(view, FlowBoundary::Default)
     }
 
-    pub(crate) fn push_with_boundary(
+    pub fn push_with_boundary(
         &mut self,
-        boundary: FlowBoundary,
         view: impl IntoView,
+        boundary: FlowBoundary,
     ) -> Result<HistoryUnitId, HistoryError> {
         self.ensure_append_allowed()?;
         let view = view.into_view();
@@ -54,7 +65,7 @@ impl History {
         Ok(id)
     }
 
-    pub(crate) fn freeze(
+    pub fn freeze(
         &mut self,
         unit: HistoryUnitId,
         final_view: impl IntoView,
@@ -71,17 +82,26 @@ impl History {
         Ok(())
     }
 
-    pub(crate) fn push_stream<S: StreamingSource>(
+    /// Attaches one typed semantic Stream as the History tail.
+    ///
+    /// ```text
+    /// let stream = history.push_stream(source)?;
+    /// history.update_stream(stream, |source| { /* mutate source */ })?;
+    /// history.refresh_stream(stream)?;
+    /// history.seal_stream(stream)?;
+    /// history.push("next unit")?;
+    /// ```
+    pub fn push_stream<S: StreamingSource>(
         &mut self,
         source: S,
     ) -> Result<HistoryStreamHandle<S>, HistoryError> {
-        self.push_stream_with_boundary(FlowBoundary::Default, source)
+        self.push_stream_with_boundary(source, FlowBoundary::Default)
     }
 
-    pub(crate) fn push_stream_with_boundary<S: StreamingSource>(
+    pub fn push_stream_with_boundary<S: StreamingSource>(
         &mut self,
-        boundary: FlowBoundary,
         source: S,
+        boundary: FlowBoundary,
     ) -> Result<HistoryStreamHandle<S>, HistoryError> {
         self.ensure_append_allowed()?;
         let stream = ErasedHistoryStream::new(source).map_err(HistoryError::Stream)?;
@@ -94,7 +114,7 @@ impl History {
         Ok(HistoryStreamHandle::new(id))
     }
 
-    pub(crate) fn update_stream<S: StreamingSource, R>(
+    pub fn update_stream<S: StreamingSource, R>(
         &mut self,
         handle: HistoryStreamHandle<S>,
         update: impl FnOnce(&mut S) -> R,
@@ -109,7 +129,7 @@ impl History {
         stream.update(handle.unit(), update)
     }
 
-    pub(crate) fn refresh_stream<S: StreamingSource>(
+    pub fn refresh_stream<S: StreamingSource>(
         &mut self,
         handle: HistoryStreamHandle<S>,
     ) -> Result<(), HistoryError> {
@@ -123,7 +143,7 @@ impl History {
         stream.refresh::<S>(handle.unit())
     }
 
-    pub(crate) fn seal_stream<S: StreamingSource>(
+    pub fn seal_stream<S: StreamingSource>(
         &mut self,
         handle: HistoryStreamHandle<S>,
     ) -> Result<(), HistoryError> {
@@ -141,11 +161,11 @@ impl History {
         self.units.iter()
     }
 
-    pub(crate) fn layout(&self) -> HistoryLayout {
+    pub fn layout(&self) -> HistoryLayout {
         self.layout
     }
 
-    pub(crate) fn set_layout(&mut self, layout: HistoryLayout) {
+    pub fn set_layout(&mut self, layout: HistoryLayout) {
         self.layout = layout;
     }
 
