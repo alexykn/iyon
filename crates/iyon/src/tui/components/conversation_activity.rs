@@ -226,7 +226,25 @@ impl ConversationActivity {
     }
 
     pub(crate) fn final_view(&self) -> Option<View> {
-        self.tool_view()
+        if self.result.is_some() {
+            return self.tool_view();
+        }
+        let ActivityState::Tool {
+            tool_call_id,
+            tool_name,
+            arguments,
+            status,
+            ..
+        } = &self.state
+        else {
+            return None;
+        };
+        Some(self.formatter.format(&TimelineItem::ToolCall {
+            tool_call_id: tool_call_id.clone(),
+            tool_name: tool_name.clone(),
+            arguments: arguments.clone(),
+            status: *status,
+        }))
     }
 
     fn tick(&mut self, _now: Instant, _cx: &mut EventCx<'_>) -> bool {

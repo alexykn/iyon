@@ -86,6 +86,55 @@ fn multiline_rows_transfer_at_newline_aware_boundaries() {
 }
 
 #[test]
+fn wrapped_hard_newline_rows_transfer_at_exact_checkpoints() {
+    let source = "abcdefgh\nx";
+    let end = StreamOffset::new(source.len() as u64);
+    let view = StreamView::exact_text(
+        StreamRange::new(StreamOffset::ZERO, end),
+        vec![crate::TextSpan::plain(source)],
+    );
+    let compiled = compile_stream(&view, 4, end);
+    assert_eq!(compiled.rows.len(), 3);
+    assert_eq!(
+        compiled.rows[0].transfer,
+        StreamRowTransfer::Checkpoint(StreamOffset::new(4))
+    );
+    assert_eq!(
+        compiled.rows[1].transfer,
+        StreamRowTransfer::Checkpoint(StreamOffset::new(9))
+    );
+    assert_eq!(
+        compiled.rows[2].transfer,
+        StreamRowTransfer::Checkpoint(StreamOffset::new(10))
+    );
+}
+
+#[test]
+fn completed_rows_transfer_ahead_of_mutable_tail() {
+    let view = StreamView::new(vec![
+        StreamNode::exact_line(
+            StreamRange::new(StreamOffset::ZERO, StreamOffset::new(5)),
+            vec![crate::TextSpan::plain("done\n")],
+            true,
+        ),
+        StreamNode::exact_text(
+            StreamRange::new(StreamOffset::new(5), StreamOffset::new(12)),
+            vec![crate::TextSpan::plain("mutable")],
+        ),
+    ]);
+    let compiled = compile_stream(&view, 80, StreamOffset::new(5));
+    assert_eq!(compiled.transferable_prefix_rows, 1);
+    assert_eq!(
+        compiled.rows[0].transfer,
+        StreamRowTransfer::Checkpoint(StreamOffset::new(5))
+    );
+    assert!(matches!(
+        compiled.rows[1].transfer,
+        StreamRowTransfer::Blocked
+    ));
+}
+
+#[test]
 fn semantic_slice_respects_text_and_atomic_boundaries() {
     let text = StreamView::exact_text(
         StreamRange::new(StreamOffset::ZERO, StreamOffset::new(3)),

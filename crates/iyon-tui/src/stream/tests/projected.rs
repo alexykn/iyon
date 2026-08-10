@@ -208,6 +208,28 @@ fn hanging_initial_and_suffix_nodes_validate_and_compile() {
 }
 
 #[test]
+fn hanging_prefix_that_cannot_fit_blocks_stream_transfer() {
+    let mut projected = hanging_text(range(0, 6), range(0, 2), true);
+    let ProjectedTextLayout::Hanging { body_column, .. } = &mut projected.layout else {
+        unreachable!();
+    };
+    *body_column = 3;
+    let view = StreamView::new(vec![StreamNode::projected_text(projected)]);
+    let compiled = crate::stream::compile_stream(&view, 3, StreamOffset::new(6));
+    assert!(!compiled.rows.is_empty());
+    assert_eq!(compiled.transferable_prefix_rows, 1);
+    assert_eq!(
+        compiled.rows[0].transfer,
+        StreamRowTransfer::Checkpoint(StreamOffset::new(3))
+    );
+    assert!(
+        compiled.rows[1..]
+            .iter()
+            .all(|row| matches!(row.transfer, StreamRowTransfer::Blocked))
+    );
+}
+
+#[test]
 fn hanging_suffix_inside_prefix_source_is_rejected() {
     let text = hanging_text(range(0, 6), range(0, 2), true);
     let result = std::panic::catch_unwind(|| {

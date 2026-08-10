@@ -197,7 +197,6 @@ where
         self.collect_due_timers_front(now);
         let tick = self.scene_host.tick_due(now, &mut self.components);
         self.dirty |= tick.dirty;
-        self.body_dirty |= tick.dirty;
         self.drain_outputs_to_actions()?;
 
         for _ in 0..ACTION_BATCH_BUDGET {
