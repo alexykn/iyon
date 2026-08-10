@@ -24,7 +24,7 @@ impl Component for LabelComponent {
 fn rows(history: &History, registry: &ComponentRegistry, size: Size) -> Vec<String> {
     let scene = project(history, registry, size).unwrap();
     ViewCompiler::default()
-        .compile_bounded(&scene.view, size)
+        .compile_bounded(&scene.scene.view, size)
         .rows
         .into_iter()
         .map(|row| row.plain_text())
@@ -121,7 +121,7 @@ fn multiple_live_units_resolve_in_history_order_even_when_old() {
 
     let scene = project(&history, &registry, Size::new(8, 1)).unwrap();
     assert_eq!(
-        scene.mounts.ids().collect::<Vec<_>>(),
+        scene.scene.mounts.ids().collect::<Vec<_>>(),
         [first.id(), second.id()]
     );
     assert_eq!(rows(&history, &registry, Size::new(8, 1)), ["D"]);
@@ -160,15 +160,15 @@ fn offscreen_live_retains_width_dependent_allocation() {
     for width in [8, 13] {
         let size = Size::new(width, 1);
         let scene = project(&history, &registry, size).unwrap();
-        let layout = layout_resolved_scene(&scene, size);
+        let layout = layout_resolved_scene(&scene.scene, size);
         let geometry = layout.components.entries.get(&handle.id()).unwrap();
-        assert_eq!(scene.mounts.ids().collect::<Vec<_>>(), [handle.id()]);
+        assert_eq!(scene.scene.mounts.ids().collect::<Vec<_>>(), [handle.id()]);
         assert_eq!(geometry.visible, None);
         assert_eq!(geometry.content.size().width, width);
         assert_eq!(
             synchronizer.synchronize(
-                &scene.mounts,
-                &scene.capabilities,
+                &scene.scene.mounts,
+                &scene.scene.capabilities,
                 &layout.components,
                 &mut registry,
             ),
@@ -211,13 +211,13 @@ fn partial_live_viewport_translates_component_geometry_with_painted_rows() {
     history.push(View::component(parent)).unwrap();
 
     let scene = project(&history, &registry, Size::new(12, 3)).unwrap();
-    let layout = layout_resolved_scene(&scene, Size::new(12, 3));
+    let layout = layout_resolved_scene(&scene.scene, Size::new(12, 3));
     let child_geometry = layout.components.entries.get(&child.id()).unwrap();
     assert_eq!(child_geometry.visible.map(|rect| rect.y), Some(0));
     assert_eq!(child_geometry.visible.map(|rect| rect.height), Some(1));
     assert_eq!(
         ViewCompiler::default()
-            .compile_bounded(&scene.view, Size::new(12, 3))
+            .compile_bounded(&scene.scene.view, Size::new(12, 3))
             .rows
             .into_iter()
             .map(|row| row.plain_text())
@@ -421,6 +421,6 @@ fn zero_size_projection_still_resolves_live_units() {
     history.push(View::component(handle)).unwrap();
 
     let scene = project(&history, &registry, Size::new(0, 0)).unwrap();
-    assert_eq!(scene.mounts.ids().collect::<Vec<_>>(), [handle.id()]);
+    assert_eq!(scene.scene.mounts.ids().collect::<Vec<_>>(), [handle.id()]);
     assert!(rows(&history, &registry, Size::new(0, 0)).is_empty());
 }

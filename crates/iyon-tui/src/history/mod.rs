@@ -26,6 +26,6 @@ pub(crate) use model::History;
 pub(crate) use native::{
     NativeTransferError, NativeTransferOutcome, NativeTransferStatus, transfer_native_prefix,
 };
-pub(crate) use projection::{HistoryPhysicalOverlay, project, project_with_overlay};
+pub(crate) use projection::project;
 pub(crate) use stream::{ErasedHistoryStream, HistoryStreamHandle};
 pub(crate) use unit::{HistoryUnit, HistoryUnitContent};

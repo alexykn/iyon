@@ -50,10 +50,6 @@ pub(crate) fn transfer_native_prefix<S: NativeHistorySink>(
         return Ok(outcome(0, 0, NativeTransferStatus::Idle));
     }
 
-    if history.units.is_empty() {
-        return Ok(outcome(0, 0, NativeTransferStatus::Progress));
-    }
-
     if let Some(rows) = prepare_top_padding(history, width) {
         return transfer_spacing(&mut history.native.top_padding, sink, rows, max_rows);
     }
@@ -117,11 +113,7 @@ fn prepare_top_padding(history: &mut History, width: u16) -> Option<Vec<Physical
         SpacingTransferState::Frozen(rows) => Some(rows.as_slice().to_vec()),
         SpacingTransferState::Semantic => {
             let count = usize::from(history.layout().padding.top);
-            if count == 0 {
-                None
-            } else {
-                Some(NativeFrontier::blank_rows(width, count))
-            }
+            (count > 0).then(|| NativeFrontier::blank_rows(width, count))
         }
     }
 }
@@ -146,12 +138,7 @@ fn prepare_leading_gap(history: &mut History, width: u16) -> Option<Vec<Physical
         SpacingTransferState::Frozen(rows) => Some(rows.as_slice().to_vec()),
         SpacingTransferState::Semantic => {
             let count = usize::from(history.layout().gap);
-            if count == 0 {
-                history.native.leading_gap = Some(SpacingTransferState::Native);
-                None
-            } else {
-                Some(NativeFrontier::blank_rows(width, count))
-            }
+            (count > 0).then(|| NativeFrontier::blank_rows(width, count))
         }
     }
 }
@@ -203,8 +190,10 @@ fn transfer_static<S: NativeHistorySink>(
         return Ok(outcome(request, 0, NativeTransferStatus::SinkBlocked));
     }
     if accepted == rows.len() {
+        cross_zero_spacing(history);
         retire_front(history);
     } else {
+        cross_zero_spacing(history);
         history.native.frozen_static = Some(FrozenStaticRemainder {
             unit: history.units.front().expect("static unit").id,
             rows: FrozenPhysicalRows::new(rows[accepted..].to_vec()),
@@ -258,7 +247,7 @@ fn transfer_stream<S: NativeHistorySink>(
         .native
         .stream
         .as_ref()
-        .map_or((crate::stream::StreamOffset::ZERO, None), |state| {
+        .map_or((stream_semantic_base(history, unit_id), None), |state| {
             (state.committed_through, state.partial.clone())
         });
     let start = match starting_partial.as_ref() {
@@ -271,7 +260,16 @@ fn transfer_stream<S: NativeHistorySink>(
             _ => unreachable!("stream frontier must match stream unit"),
         };
         (
-            stream.compile_from(start, width),
+            stream.compile_from(
+                start,
+                width.saturating_sub(
+                    history
+                        .layout()
+                        .padding
+                        .left
+                        .saturating_add(history.layout().padding.right),
+                ),
+            ),
             stream.is_sealed(),
             stream.source_end(),
         )
@@ -283,6 +281,7 @@ fn transfer_stream<S: NativeHistorySink>(
             .is_some_and(|offset| offset > starting_cursor)
     {
         let next = compiled.zero_row_prefix.expect("checked zero-row prefix");
+        cross_zero_spacing(history);
         let HistoryUnitContent::Stream(stream) = &mut history.units.front_mut().unwrap().content
         else {
             unreachable!("stream frontier must match stream unit")
@@ -344,6 +343,7 @@ fn transfer_stream<S: NativeHistorySink>(
         };
         stream.release_resident_through(new_cursor);
     }
+    cross_zero_spacing(history);
     let state = history.native.stream.get_or_insert(StreamFrontierState {
         unit: unit_id,
         committed_through: starting_cursor,
@@ -369,12 +369,8 @@ fn payload_rows(compiled: &CompiledStream, payload: &StreamTransferPayload) -> V
 }
 
 fn place_stream_rows(compiled: &mut CompiledStream, width: u16, layout: super::HistoryLayout) {
-    let content_width =
-        width.saturating_sub(layout.padding.left.saturating_add(layout.padding.right));
     for row in &mut compiled.rows {
-        row.physical = row
-            .physical
-            .placed(width, layout.padding.left.min(content_width));
+        row.physical = row.physical.placed(width, layout.padding.left);
     }
 }
 
@@ -392,7 +388,41 @@ fn static_rows(
         .collect()
 }
 
+fn stream_semantic_base(history: &History, unit: HistoryUnitId) -> crate::stream::StreamOffset {
+    match &history.units.front().expect("stream unit").content {
+        HistoryUnitContent::Stream(stream) if history.units.front().unwrap().id == unit => {
+            stream.semantic_base()
+        }
+        _ => unreachable!("stream frontier must match stream unit"),
+    }
+}
+
+fn cross_zero_spacing(history: &mut History) {
+    if matches!(history.native.top_padding, SpacingTransferState::Semantic)
+        && history.layout().padding.top == 0
+    {
+        history.native.top_padding = SpacingTransferState::Native;
+    }
+    if history.native.last_native_unit.is_none() {
+        return;
+    }
+    let unit = history.units.front().expect("nonempty History");
+    if !matches!(unit.boundary, FlowBoundary::Default) {
+        return;
+    }
+    if history.layout().gap != 0 {
+        return;
+    }
+    match history.native.leading_gap {
+        None | Some(SpacingTransferState::Semantic) => {
+            history.native.leading_gap = Some(SpacingTransferState::Native)
+        }
+        Some(SpacingTransferState::Frozen(_)) | Some(SpacingTransferState::Native) => {}
+    }
+}
+
 fn retire_front(history: &mut History) {
+    cross_zero_spacing(history);
     let unit = history
         .units
         .pop_front()

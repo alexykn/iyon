@@ -6,7 +6,7 @@ use crate::{
     View,
     stream::{
         CompiledStream, StreamModel, StreamModelError, StreamOffset, StreamRowIndex,
-        StreamSnapshot, StreamingSource, build_index, build_index_from, window_view,
+        StreamSnapshot, StreamingSource, build_index_from, window_view,
     },
 };
 
@@ -32,10 +32,6 @@ impl ErasedHistoryStream {
         self.state.snapshot()
     }
 
-    pub(crate) fn prepare(&self, width: u16) -> StreamRowIndex {
-        self.state.prepare(width)
-    }
-
     pub(crate) fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex {
         self.state.prepare_from(start, width)
     }
@@ -52,12 +48,12 @@ impl ErasedHistoryStream {
         self.state.release_resident_through(offset);
     }
 
-    pub(crate) fn source_end(&self) -> StreamOffset {
-        self.state.source_end()
+    pub(crate) fn semantic_base(&self) -> StreamOffset {
+        self.state.semantic_base()
     }
 
-    pub(crate) fn stable_through(&self) -> StreamOffset {
-        self.state.stable_through()
+    pub(crate) fn source_end(&self) -> StreamOffset {
+        self.state.source_end()
     }
 
     pub(crate) fn refresh<S: StreamingSource>(
@@ -103,13 +99,12 @@ trait ErasedHistoryStreamState: Any {
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn is_sealed(&self) -> bool;
     fn snapshot(&self) -> &StreamSnapshot;
-    fn prepare(&self, width: u16) -> StreamRowIndex;
     fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex;
     fn window_view(&self, index: &StreamRowIndex, top_row: usize, height: u16) -> View;
     fn compile_from(&self, offset: StreamOffset, width: u16) -> CompiledStream;
     fn release_resident_through(&mut self, offset: StreamOffset);
+    fn semantic_base(&self) -> StreamOffset;
     fn source_end(&self) -> StreamOffset;
-    fn stable_through(&self) -> StreamOffset;
 }
 
 struct TypedHistoryStream<S: StreamingSource> {
@@ -174,10 +169,6 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
         self.model.snapshot()
     }
 
-    fn prepare(&self, width: u16) -> StreamRowIndex {
-        build_index(&self.model, width)
-    }
-
     fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex {
         build_index_from(&self.model, start, width)
     }
@@ -194,12 +185,12 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
         self.model.release_resident_through(offset);
     }
 
-    fn source_end(&self) -> StreamOffset {
-        self.model.snapshot().source_end()
+    fn semantic_base(&self) -> StreamOffset {
+        self.model.semantic_base()
     }
 
-    fn stable_through(&self) -> StreamOffset {
-        self.model.snapshot().stable_through()
+    fn source_end(&self) -> StreamOffset {
+        self.model.snapshot().source_end()
     }
 }
 
