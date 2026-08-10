@@ -32,12 +32,12 @@ impl ErasedHistoryStream {
         self.state.snapshot()
     }
 
-    pub(crate) fn row_count(&self, width: u16) -> usize {
-        self.state.row_count(width)
+    pub(crate) fn prepare(&self, width: u16) -> StreamRowIndex {
+        self.state.prepare(width)
     }
 
-    pub(crate) fn window_view(&self, width: u16, top_row: usize, height: u16) -> View {
-        self.state.window_view(width, top_row, height)
+    pub(crate) fn window_view(&self, index: &StreamRowIndex, top_row: usize, height: u16) -> View {
+        self.state.window_view(index, top_row, height)
     }
 
     pub(crate) fn refresh<S: StreamingSource>(
@@ -83,8 +83,8 @@ trait ErasedHistoryStreamState: Any {
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn is_sealed(&self) -> bool;
     fn snapshot(&self) -> &StreamSnapshot;
-    fn row_count(&self, width: u16) -> usize;
-    fn window_view(&self, width: u16, top_row: usize, height: u16) -> View;
+    fn prepare(&self, width: u16) -> StreamRowIndex;
+    fn window_view(&self, index: &StreamRowIndex, top_row: usize, height: u16) -> View;
 }
 
 struct TypedHistoryStream<S: StreamingSource> {
@@ -149,13 +149,12 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
         self.model.snapshot()
     }
 
-    fn row_count(&self, width: u16) -> usize {
-        build_index(&self.model, width).anchors.len()
+    fn prepare(&self, width: u16) -> StreamRowIndex {
+        build_index(&self.model, width)
     }
 
-    fn window_view(&self, width: u16, top_row: usize, height: u16) -> View {
-        let index: StreamRowIndex = build_index(&self.model, width);
-        window_view(&self.model, &index, top_row, height)
+    fn window_view(&self, index: &StreamRowIndex, top_row: usize, height: u16) -> View {
+        window_view(&self.model, index, top_row, height)
     }
 }
 

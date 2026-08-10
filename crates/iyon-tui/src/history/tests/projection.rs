@@ -5,7 +5,7 @@ use crate::{
     component::{ComponentHandle, ComponentId, ComponentRegistry},
     geometry::Size,
     presentation::{Insets, IntoView, layout::ViewCompiler},
-    scene::{ResolveError, layout_resolved_scene},
+    scene::{LayoutSync, LayoutSynchronizer, ResolveError, layout_resolved_scene},
 };
 
 struct LabelComponent {
@@ -44,6 +44,36 @@ fn history_is_one_bottom_anchored_flow() {
 }
 
 #[test]
+fn mixed_lifetime_append_preserves_continuous_flow() {
+    let mut registry = ComponentRegistry::new();
+    let live = registry.register(LabelComponent { label: "B" });
+    let source = TestSource::new("D", 1, false);
+    let mut history = History::new();
+    history.set_layout(HistoryLayout::new(Insets::ZERO, 1));
+    history.push("A1\nA2").unwrap();
+    history.push(View::component(live)).unwrap();
+    history.push("C").unwrap();
+    let stream = history.push_stream(source).unwrap();
+
+    assert_eq!(
+        rows(&history, &registry, Size::new(8, 7)),
+        ["A2", "", "B", "", "C", "", "D"]
+    );
+
+    history
+        .update_stream(stream, |source| {
+            let snapshot = source.snapshot_with(1, 3, "D\nE");
+            source.replace_snapshot(snapshot);
+        })
+        .unwrap();
+
+    assert_eq!(
+        rows(&history, &registry, Size::new(8, 7)),
+        ["", "B", "", "C", "", "D", "E"]
+    );
+}
+
+#[test]
 fn boundaries_and_padding_are_parent_owned_flow_geometry() {
     let mut history = History::new();
     history.set_layout(HistoryLayout::new(Insets::new(1, 1, 1, 1), 2));
@@ -65,14 +95,16 @@ fn identical_freeze_is_visually_inert() {
     let mut registry = ComponentRegistry::new();
     let handle = registry.register(LabelComponent { label: "B" });
     let mut history = History::new();
+    history.set_layout(HistoryLayout::new(Insets::new(1, 1, 1, 1), 1));
     history.push("A").unwrap();
     let live = history.push(View::component(handle)).unwrap();
     history.push("C").unwrap();
-    let before = rows(&history, &registry, Size::new(8, 3));
+    history.push_stream(TestSource::new("D", 1, false)).unwrap();
+    let before = rows(&history, &registry, Size::new(8, 9));
 
     history.freeze(live, "B").unwrap();
 
-    assert_eq!(rows(&history, &registry, Size::new(8, 3)), before);
+    assert_eq!(rows(&history, &registry, Size::new(8, 9)), before);
 }
 
 #[test]
@@ -92,6 +124,67 @@ fn multiple_live_units_resolve_in_history_order_even_when_old() {
         [first.id(), second.id()]
     );
     assert_eq!(rows(&history, &registry, Size::new(8, 1)), ["D"]);
+}
+
+#[derive(Debug)]
+struct AllocationAware {
+    sizes: Vec<Size>,
+}
+
+impl Component for AllocationAware {
+    fn view(&self) -> View {
+        View::text("allocated").fill_width().into_view()
+    }
+
+    fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+        cx.on_layout_changed(Self::layout_changed);
+    }
+}
+
+impl AllocationAware {
+    fn layout_changed(component: &mut Self, size: Size) {
+        component.sizes.push(size);
+    }
+}
+
+#[test]
+fn offscreen_live_retains_width_dependent_allocation() {
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(AllocationAware { sizes: Vec::new() });
+    let mut history = History::new();
+    history.push(View::component(handle)).unwrap();
+    history.push("visible").unwrap();
+    let mut synchronizer = LayoutSynchronizer::default();
+
+    for width in [8, 13] {
+        let size = Size::new(width, 1);
+        let scene = project(&history, &registry, size).unwrap();
+        let layout = layout_resolved_scene(&scene, size);
+        let geometry = layout.components.entries.get(&handle.id()).unwrap();
+        assert_eq!(scene.mounts.ids().collect::<Vec<_>>(), [handle.id()]);
+        assert_eq!(geometry.visible, None);
+        assert_eq!(geometry.content.size().width, width);
+        assert_eq!(
+            synchronizer.synchronize(
+                &scene.mounts,
+                &scene.capabilities,
+                &layout.components,
+                &mut registry,
+            ),
+            LayoutSync::Dirty
+        );
+    }
+
+    assert_eq!(
+        registry.with(handle, |component| {
+            component
+                .sizes
+                .iter()
+                .map(|size| size.width)
+                .collect::<Vec<_>>()
+        }),
+        Some(vec![8, 13])
+    );
 }
 
 #[test]
