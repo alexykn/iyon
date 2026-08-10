@@ -1,4 +1,9 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Duration, Instant},
+};
+
+static NEXT_TIMER_ID: AtomicU64 = AtomicU64::new(0);
 
 /// Opaque identity for one application-owned one-shot timer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -22,7 +27,6 @@ struct TimerEntry<Action> {
 
 pub(crate) struct TimerQueue<Action> {
     entries: Vec<TimerEntry<Action>>,
-    next_id: u64,
     next_sequence: u64,
 }
 
@@ -30,7 +34,6 @@ impl<Action> Default for TimerQueue<Action> {
     fn default() -> Self {
         Self {
             entries: Vec::new(),
-            next_id: 0,
             next_sequence: 0,
         }
     }
@@ -50,11 +53,12 @@ impl<Action> TimerQueue<Action> {
         delay: Duration,
         action: Action,
     ) -> TimerHandle {
-        let handle = TimerHandle { id: self.next_id };
-        self.next_id = self
-            .next_id
-            .checked_add(1)
-            .expect("application timer identity exhausted");
+        let id = NEXT_TIMER_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                current.checked_add(1)
+            })
+            .unwrap_or_else(|_| panic!("application timer identity exhausted"));
+        let handle = TimerHandle { id };
         let sequence = self.next_sequence;
         self.next_sequence = self
             .next_sequence

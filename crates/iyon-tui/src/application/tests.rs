@@ -1,5 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
+    convert::Infallible,
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -12,7 +13,7 @@ use super::{
 use crate::{
     BorderSpec, Component, ComponentCx, ComponentHandle, EventCx, History, HistoryError,
     InteractionResult, IntoView, Key, KeyStroke, Output, RouteConflict, TextInput, View,
-    geometry::Size,
+    backend::NativeHistorySink, geometry::Size, physical::PhysicalRow,
 };
 
 #[derive(Debug)]
@@ -83,15 +84,40 @@ where
     app.start(now).expect("test application starts")
 }
 
+#[derive(Default)]
+struct HeadlessSink {
+    rows: Vec<PhysicalRow>,
+}
+
+impl NativeHistorySink for HeadlessSink {
+    type Error = Infallible;
+
+    fn insert_history_rows(&mut self, rows: &[PhysicalRow]) -> Result<usize, Self::Error> {
+        self.rows.extend(rows.iter().cloned());
+        Ok(rows.len())
+    }
+}
+
 fn prepare<State, Action, Error, Update, ViewFn>(
     app: &mut RunningApp<State, Action, Error, Update, ViewFn>,
     now: Instant,
 ) where
     Update: FnMut(&mut State, Action, &mut AppCx<'_, Action>) -> Result<(), Error>,
     ViewFn: Fn(&State) -> View,
-    Error: std::fmt::Debug,
 {
-    app.prepare_frame(Size::new(40, 8), now)
+    let mut sink = HeadlessSink::default();
+    prepare_with_sink(app, &mut sink, now);
+}
+
+fn prepare_with_sink<State, Action, Error, Update, ViewFn>(
+    app: &mut RunningApp<State, Action, Error, Update, ViewFn>,
+    sink: &mut HeadlessSink,
+    now: Instant,
+) where
+    Update: FnMut(&mut State, Action, &mut AppCx<'_, Action>) -> Result<(), Error>,
+    ViewFn: Fn(&State) -> View,
+{
+    app.prepare_frame(now, sink, |_| Ok(Size::new(40, 8)))
         .expect("headless frame prepares");
 }
 
@@ -111,7 +137,9 @@ fn surface_text(frame: &crate::scene::PreparedSceneFrame) -> String {
 fn neutral_app_composes_input_output_action_timer_and_persistent_history() {
     let now = Instant::now();
     let mut history = History::new();
-    history.push("started").unwrap();
+    for index in 0..20 {
+        history.push(format!("history-{index}")).unwrap();
+    }
     let view_calls = Rc::new(Cell::new(0));
 
     let app = App::new(
@@ -152,8 +180,11 @@ fn neutral_app_composes_input_output_action_timer_and_persistent_history() {
     .with_history(history);
 
     let mut app = start(app, now);
+    let mut sink = HeadlessSink::default();
     assert_eq!(view_calls.get(), 1);
-    prepare(&mut app, now);
+    prepare_with_sink(&mut app, &mut sink, now);
+    let promoted_rows = sink.rows.len();
+    assert!(promoted_rows > 0);
     assert_eq!(app.mount_count_for_test(), 1);
     assert_eq!(app.focusable_count_for_test(), 1);
     assert!(app.focused_for_test());
@@ -176,8 +207,9 @@ fn neutral_app_composes_input_output_action_timer_and_persistent_history() {
     assert!(status.dirty);
     assert_eq!(app.state.submitted, ["hi"]);
     let before_frame = view_calls.get();
-    prepare(&mut app, now);
+    prepare_with_sink(&mut app, &mut sink, now);
     assert_eq!(view_calls.get(), before_frame + 1);
+    assert!(sink.rows.len() >= promoted_rows);
 
     let timer_status = app.advance_ready(now + Duration::from_millis(99)).unwrap();
     assert!(!timer_status.dirty);
@@ -186,11 +218,17 @@ fn neutral_app_composes_input_output_action_timer_and_persistent_history() {
     assert_eq!(app.state.count, 1);
 
     let frame = app
-        .prepare_frame(Size::new(40, 8), now + Duration::from_millis(100))
+        .prepare_frame(now + Duration::from_millis(100), &mut sink, |_| {
+            Ok(Size::new(40, 8))
+        })
         .unwrap();
     let text = surface_text(&frame);
-    assert!(text.contains("started"));
     assert!(text.contains("hi"));
+    assert!(
+        sink.rows
+            .iter()
+            .any(|row| row.plain_text().contains("history-0"))
+    );
 }
 
 #[test]
@@ -370,6 +408,23 @@ fn timers_are_ordered_cancelable_and_non_dirty_before_delivery() {
     same_deadline.schedule(now, Duration::ZERO, NonClone("b"));
     assert_eq!(same_deadline.pop_due(now).map(|value| value.0), Some("a"));
     assert_eq!(same_deadline.pop_due(now).map(|value| value.0), Some("b"));
+
+    let mut queue_a = TimerQueue::default();
+    let mut queue_b = TimerQueue::default();
+    let handle_a = queue_a.schedule(now, Duration::from_secs(1), NonClone("a"));
+    let handle_b = queue_b.schedule(now, Duration::from_secs(1), NonClone("b"));
+    assert_ne!(handle_a, handle_b);
+    assert!(!queue_b.cancel(handle_a));
+    assert!(!queue_a.cancel(handle_b));
+    assert!(queue_a.cancel(handle_a));
+    assert!(queue_b.cancel(handle_b));
+
+    let fired = queue_a.schedule(now, Duration::ZERO, NonClone("fired"));
+    assert_eq!(queue_a.pop_due(now).map(|value| value.0), Some("fired"));
+    let replacement = queue_a.schedule(now, Duration::ZERO, NonClone("replacement"));
+    assert_ne!(fired, replacement);
+    assert!(!queue_a.cancel(fired));
+    assert!(queue_a.cancel(replacement));
 }
 
 struct NonClone(&'static str);

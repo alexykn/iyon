@@ -1,4 +1,6 @@
-use std::{collections::VecDeque, convert::Infallible, marker::PhantomData, time::Instant};
+use std::{collections::VecDeque, marker::PhantomData, time::Instant};
+
+use anyhow::Result;
 
 use crate::{
     InteractionResult, OutputRouter, Scene, View,
@@ -6,7 +8,6 @@ use crate::{
     component::ComponentRegistry,
     geometry::Size,
     output::OutputDispatchError,
-    physical::PhysicalRow,
     scene::{PreparedSceneFrame, SceneHost, SceneHostError},
 };
 
@@ -32,14 +33,6 @@ const ACTION_BATCH_BUDGET: usize = 128;
 pub(crate) enum KernelError<Error> {
     Application(Error),
     Output(OutputDispatchError),
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "headless SceneHost failures are retained for runtime-driver error classification"
-        )
-    )]
-    Scene(SceneHostError<Infallible>),
 }
 
 #[cfg_attr(
@@ -229,27 +222,28 @@ where
         .min()
     }
 
-    pub(crate) fn prepare_frame(
+    pub(crate) fn prepare_frame<S, F>(
         &mut self,
-        size: Size,
         now: Instant,
-    ) -> Result<PreparedSceneFrame, KernelError<Error>> {
-        let mut sink = HeadlessSink::default();
+        sink: &mut S,
+        mut viewport: F,
+    ) -> Result<PreparedSceneFrame, SceneHostError<S::Error>>
+    where
+        S: NativeHistorySink,
+        F: FnMut(&mut S) -> Result<Size>,
+    {
         if self.body_dirty {
             let body = (self.view)(&self.state);
             self.scene.set_body(body);
             self.body_dirty = false;
         }
-        let frame = self
-            .scene_host
-            .render_at(
-                now,
-                &mut self.scene,
-                &mut self.components,
-                &mut sink,
-                |_| Ok(size),
-            )
-            .map_err(KernelError::Scene)?;
+        let frame = self.scene_host.render_at(
+            now,
+            &mut self.scene,
+            &mut self.components,
+            sink,
+            &mut viewport,
+        )?;
         self.dirty = false;
         Ok(frame)
     }
@@ -293,35 +287,8 @@ where
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "S9 headless SceneHost sink is consumed by the proof driver"
-    )
-)]
-#[derive(Default)]
-struct HeadlessSink {
-    rows: Vec<PhysicalRow>,
-}
-
-impl NativeHistorySink for HeadlessSink {
-    type Error = Infallible;
-
-    fn insert_history_rows(&mut self, rows: &[PhysicalRow]) -> Result<usize, Self::Error> {
-        self.rows.extend(rows.iter().cloned());
-        Ok(rows.len())
-    }
-}
-
 impl<Error> From<OutputDispatchError> for KernelError<Error> {
     fn from(error: OutputDispatchError) -> Self {
         Self::Output(error)
-    }
-}
-
-impl<Error> From<SceneHostError<Infallible>> for KernelError<Error> {
-    fn from(error: SceneHostError<Infallible>) -> Self {
-        Self::Scene(error)
     }
 }

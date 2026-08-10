@@ -18,14 +18,14 @@ pub struct AppCx<'a, Action> {
     now: Instant,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "S9 capability facade is consumed by application startup and action updates"
-    )
-)]
 impl<'a, Action> AppCx<'a, Action> {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "S9 private context constructor is consumed by the kernel"
+        )
+    )]
     pub(crate) fn new(
         scene: &'a mut Scene,
         components: &'a mut ComponentRegistry,
