@@ -71,8 +71,33 @@ impl SceneHost {
         self.ticker.next_timeout(now, idle)
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "S9 deadline arbiter consumes the mounted tick deadline"
+        )
+    )]
+    pub(crate) fn next_tick_deadline(&self) -> Option<Instant> {
+        self.ticker.next_deadline()
+    }
+
     pub(crate) fn focused(&self) -> Option<crate::component::ComponentId> {
         self.focus.focused()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mount_count_for_test(&self) -> usize {
+        self.graph.nodes.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn focusable_count_for_test(&self) -> usize {
+        self.capabilities
+            .entries
+            .values()
+            .filter(|capabilities| capabilities.focusable)
+            .count()
     }
 
     pub(crate) fn dispatch_key(
@@ -128,6 +153,21 @@ impl SceneHost {
         scene: &mut Scene,
         registry: &mut ComponentRegistry,
         sink: &mut S,
+        viewport: F,
+    ) -> Result<PreparedSceneFrame, SceneHostError<S::Error>>
+    where
+        S: NativeHistorySink,
+        F: FnMut(&mut S) -> Result<Size>,
+    {
+        self.render_at(Instant::now(), scene, registry, sink, viewport)
+    }
+
+    pub(crate) fn render_at<S, F>(
+        &mut self,
+        now: Instant,
+        scene: &mut Scene,
+        registry: &mut ComponentRegistry,
+        sink: &mut S,
         mut viewport: F,
     ) -> Result<PreparedSceneFrame, SceneHostError<S::Error>>
     where
@@ -136,7 +176,7 @@ impl SceneHost {
     {
         loop {
             let size = viewport(sink).map_err(SceneHostError::Viewport)?;
-            let resolved = self.resolve_stable(scene, registry, size)?;
+            let resolved = self.resolve_stable_at(scene, registry, size, now)?;
             if resolved.root.history_overflow_rows == 0 {
                 return Ok(self.paint(resolved));
             }
@@ -162,11 +202,22 @@ impl SceneHost {
         }
     }
 
+    #[cfg(test)]
     fn resolve_stable<E>(
         &mut self,
         scene: &Scene,
         registry: &mut ComponentRegistry,
         size: Size,
+    ) -> Result<StableScene, SceneHostError<E>> {
+        self.resolve_stable_at(scene, registry, size, Instant::now())
+    }
+
+    fn resolve_stable_at<E>(
+        &mut self,
+        scene: &Scene,
+        registry: &mut ComponentRegistry,
+        size: Size,
+        now: Instant,
     ) -> Result<StableScene, SceneHostError<E>> {
         for _ in 0..MAX_LAYOUT_PASSES {
             let resolved =
@@ -185,12 +236,8 @@ impl SceneHost {
             self.graph = resolved.scene.mounts.clone();
             self.capabilities = resolved.scene.capabilities.clone();
             let transitions = self.mounted.reconcile(self.graph.clone());
-            self.ticker.sync_capabilities(
-                &self.graph,
-                &self.capabilities,
-                &transitions,
-                Instant::now(),
-            );
+            self.ticker
+                .sync_capabilities(&self.graph, &self.capabilities, &transitions, now);
             self.focus.reconcile_with_geometry(
                 &self.graph,
                 &self.capabilities,

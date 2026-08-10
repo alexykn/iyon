@@ -4,7 +4,7 @@ mod resolve;
 mod resolved;
 mod root;
 
-pub(crate) use host::{PreparedSceneFrame, SceneHost};
+pub(crate) use host::{PreparedSceneFrame, SceneHost, SceneHostError};
 pub(crate) use layout::{
     LayoutSync, LayoutSynchronizer, ResolvedSceneLayout, layout_resolved_scene,
 };

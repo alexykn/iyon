@@ -178,13 +178,17 @@ impl TickScheduler {
         }
     }
 
-    pub(crate) fn next_timeout(&self, now: Instant, idle_timeout: Duration) -> Duration {
+    pub(crate) fn next_deadline(&self) -> Option<Instant> {
         self.mount_order
             .iter()
             .filter_map(|id| self.registrations.get(id))
             .filter_map(|registration| registration.next_due)
-            .map(|deadline| deadline.checked_duration_since(now).unwrap_or_default())
             .min()
+    }
+
+    pub(crate) fn next_timeout(&self, now: Instant, idle_timeout: Duration) -> Duration {
+        self.next_deadline()
+            .map(|deadline| deadline.checked_duration_since(now).unwrap_or_default())
             .unwrap_or(idle_timeout)
     }
 
