@@ -307,7 +307,7 @@ impl Builder {
         let mut complete = body_complete && prefix_complete && prefix_width < width;
         for row in 1..row_height {
             let (continuation_id, _, continuation_complete) = self.build(
-                &hanging.continuation,
+                &hanging.continuation_prefix,
                 x,
                 y.saturating_add(row),
                 Some(prefix_width),

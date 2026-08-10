@@ -1157,12 +1157,7 @@ fn list_item_row_view(depth: usize, marker: AssistantMarker, body: View) -> View
     )])
     .no_wrap()
     .into_view();
-    let continuation = View::styled_text(vec![TextSpan::styled(
-        " ".repeat(body_column),
-        list_style(),
-    )])
-    .no_wrap()
-    .into_view();
+    let continuation = View::text(" ".repeat(body_column)).no_wrap().into_view();
 
     View::hanging(prefix, continuation, body).fill_width()
 }
@@ -1293,6 +1288,40 @@ mod tests {
                 .collect::<Vec<_>>();
         let final_rows = compile_view(&final_view, 40).rows;
         assert_eq!(stream_rows, final_rows);
+    }
+
+    #[test]
+    fn wrapped_list_stream_and_final_view_match_full_physical_rows() {
+        let cases = [
+            "10. one two three four five",
+            "- one two three four five",
+            "  - nested one two three four five",
+            "9. one two three\n10. one two three",
+        ];
+        for source in cases {
+            let mut stream = crate::transcript::AssistantStream::new();
+            stream.push_delta(SegmentKind::Text, source);
+            stream.seal();
+            let snapshot = stream.snapshot();
+            for width in [12u16, 16, 24] {
+                let content_width = width.saturating_sub(ASSISTANT_HORIZONTAL_INSET * 2);
+                let stream_rows = crate::stream::compile_stream(
+                    &snapshot.view,
+                    content_width,
+                    snapshot.source_end,
+                )
+                .rows
+                .into_iter()
+                .map(|row| row.physical.placed(width, ASSISTANT_HORIZONTAL_INSET))
+                .collect::<Vec<_>>();
+                let final_rows = compile_view(
+                    &assistant_document_view(&parse_assistant(&text_segs(source))),
+                    width,
+                )
+                .rows;
+                assert_eq!(stream_rows, final_rows, "width={width}, source={source:?}");
+            }
+        }
     }
 
     #[test]

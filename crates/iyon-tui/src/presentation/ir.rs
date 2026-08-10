@@ -57,7 +57,7 @@ impl View {
             ViewKind::Container(container) => container.child.contains_component_identity(),
             ViewKind::Hanging(hanging) => {
                 hanging.prefix.contains_component_identity()
-                    || hanging.continuation.contains_component_identity()
+                    || hanging.continuation_prefix.contains_component_identity()
                     || hanging.body.contains_component_identity()
             }
             ViewKind::ClampRows(clamp) => clamp.child.contains_component_identity(),
@@ -183,7 +183,7 @@ pub(crate) struct RowView {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct HangingView {
     pub(crate) prefix: Box<View>,
-    pub(crate) continuation: Box<View>,
+    pub(crate) continuation_prefix: Box<View>,
     pub(crate) body: Box<View>,
 }
 

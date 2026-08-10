@@ -118,7 +118,9 @@ impl Resolver<'_> {
             }),
             ViewKind::Hanging(hanging) => ViewKind::Hanging(HangingView {
                 prefix: Box::new(self.resolve_view(&hanging.prefix, parent)?),
-                continuation: Box::new(self.resolve_view(&hanging.continuation, parent)?),
+                continuation_prefix: Box::new(
+                    self.resolve_view(&hanging.continuation_prefix, parent)?,
+                ),
                 body: Box::new(self.resolve_view(&hanging.body, parent)?),
             }),
             ViewKind::Container(container) => ViewKind::Container(ContainerNode {

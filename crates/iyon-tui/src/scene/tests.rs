@@ -43,6 +43,29 @@ impl LayoutAware {
 }
 
 #[derive(Debug)]
+struct HangingBody {
+    size: Option<Size>,
+    calls: usize,
+}
+
+impl Component for HangingBody {
+    fn view(&self) -> View {
+        View::text("A1 long content\nA2").into_view()
+    }
+
+    fn capabilities(&self, cx: &mut crate::ComponentCx<'_, Self>) {
+        cx.on_layout_changed(Self::layout_changed);
+    }
+}
+
+impl HangingBody {
+    fn layout_changed(&mut self, size: Size) {
+        self.size = Some(size);
+        self.calls += 1;
+    }
+}
+
+#[derive(Debug)]
 struct FocusableLabel;
 
 impl Component for FocusableLabel {
@@ -129,6 +152,145 @@ fn static_scene_resolves_identically_with_no_mounts() {
     let resolved = resolve_scene(&original, &registry).unwrap();
     assert_eq!(resolved.view, original);
     assert!(resolved.mounts.is_empty());
+}
+
+#[test]
+fn hanging_body_component_is_mounted_once_and_owns_one_body_geometry() {
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(HangingBody {
+        size: None,
+        calls: 0,
+    });
+    let view = View::hanging(
+        View::text("• ").no_wrap(),
+        View::text("  ").no_wrap(),
+        View::component(handle),
+    )
+    .fill_width();
+    let resolved = resolve_scene(&view, &registry).unwrap();
+    let rows = compile_view(&resolved.view, 10).rows;
+
+    assert_eq!(
+        resolved
+            .mounts
+            .nodes
+            .iter()
+            .filter(|node| node.id == handle.id())
+            .count(),
+        1
+    );
+    assert_eq!(
+        rows.iter().map(|row| row.plain_text()).collect::<Vec<_>>(),
+        ["• A1 long ", "  content", "  A2"]
+    );
+
+    let layout = layout_resolved_scene(&resolved, Size::new(10, 3));
+    let geometry = layout.components.entries.get(&handle.id()).unwrap();
+    assert_eq!(geometry.content, crate::geometry::Rect::new(2, 0, 8, 3));
+    assert_eq!(layout.components.entries.len(), 1);
+}
+
+#[test]
+fn hanging_body_component_reflows_without_mount_duplication() {
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(HangingBody {
+        size: None,
+        calls: 0,
+    });
+    let view = View::hanging(
+        View::text("• ").no_wrap(),
+        View::text("  ").no_wrap(),
+        View::component(handle),
+    )
+    .fill_width();
+    let resolved = resolve_scene(&view, &registry).unwrap();
+    let mut synchronizer = LayoutSynchronizer::default();
+
+    let wide = layout_resolved_scene(&resolved, Size::new(20, 10));
+    let wide_rows = compile_view(&resolved.view, 20).rows;
+    assert_eq!(wide_rows.len(), 2);
+    assert_eq!(
+        synchronizer.synchronize(
+            &resolved.mounts,
+            &resolved.capabilities,
+            &wide.components,
+            &mut registry,
+        ),
+        super::LayoutSync::Dirty
+    );
+    let wide_size = wide.components.entries[&handle.id()].content.size();
+
+    let narrow = layout_resolved_scene(&resolved, Size::new(8, 10));
+    let narrow_rows = compile_view(&resolved.view, 8).rows;
+    assert_eq!(narrow_rows.len(), 5);
+    assert_eq!(
+        synchronizer.synchronize(
+            &resolved.mounts,
+            &resolved.capabilities,
+            &narrow.components,
+            &mut registry,
+        ),
+        super::LayoutSync::Dirty
+    );
+    let narrow_size = narrow.components.entries[&handle.id()].content.size();
+
+    assert_eq!(
+        resolved
+            .mounts
+            .nodes
+            .iter()
+            .filter(|node| node.id == handle.id())
+            .count(),
+        1
+    );
+    assert_eq!(wide_size.width, 18);
+    assert_eq!(narrow_size.width, 6);
+    assert!(narrow_size.height > wide_size.height);
+    assert_eq!(
+        registry.with(handle, |body| body.size),
+        Some(Some(narrow_size))
+    );
+    assert_eq!(registry.with(handle, |body| body.calls), Some(2));
+}
+
+#[test]
+fn hanging_prefix_component_is_mounted_once_when_body_wraps() {
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(Label {
+        text: "• ".into()
+    });
+    let view = View::hanging(
+        View::component(handle),
+        View::text("  ").no_wrap(),
+        View::text("body that wraps").fill_width(),
+    )
+    .fill_width();
+    let resolved = resolve_scene(&view, &registry).unwrap();
+    let layout = layout_resolved_scene(&resolved, Size::new(8, 4));
+
+    assert_eq!(
+        resolved
+            .mounts
+            .nodes
+            .iter()
+            .filter(|node| node.id == handle.id())
+            .count(),
+        1
+    );
+    assert_eq!(layout.components.entries.len(), 1);
+    assert!(compile_view(&resolved.view, 8).rows.len() > 1);
+}
+
+#[test]
+#[should_panic(expected = "hanging continuation_prefix cannot contain component identity")]
+fn hanging_continuation_component_is_rejected_before_resolution() {
+    let mut registry = ComponentRegistry::new();
+    let repeated = registry.register(Label { text: "  ".into() });
+    let _ = View::hanging(
+        View::text("• "),
+        View::component(repeated),
+        View::text("body long enough to wrap"),
+    );
 }
 
 #[test]
@@ -526,7 +688,7 @@ fn count_slots(view: &View) -> usize {
         crate::presentation::ir::ViewKind::Container(container) => count_slots(&container.child),
         crate::presentation::ir::ViewKind::Hanging(hanging) => {
             count_slots(&hanging.prefix)
-                + count_slots(&hanging.continuation)
+                + count_slots(&hanging.continuation_prefix)
                 + count_slots(&hanging.body)
         }
         crate::presentation::ir::ViewKind::ClampRows(clamp) => count_slots(&clamp.child),
@@ -564,7 +726,7 @@ impl PlainText for View {
             crate::presentation::ir::ViewKind::Hanging(hanging) => format!(
                 "{}{}{}",
                 hanging.prefix.view_plain_text(),
-                hanging.continuation.view_plain_text(),
+                hanging.continuation_prefix.view_plain_text(),
                 hanging.body.view_plain_text()
             ),
             crate::presentation::ir::ViewKind::ComponentSlot(_) => String::new(),
