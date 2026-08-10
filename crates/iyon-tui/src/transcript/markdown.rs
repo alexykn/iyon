@@ -34,6 +34,7 @@
 use std::ops::Range;
 
 use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 use crate::presentation::{
     ColorSpec, Insets, IntoView, StyleSpec, TextAttributeSpec, TextSpan, ThemeKey, View,
@@ -1148,27 +1149,22 @@ fn list_item_row_view(depth: usize, marker: AssistantMarker, body: View) -> View
         AssistantMarker::Bullet => "• ".to_string(),
         AssistantMarker::Ordered { index } => format!("{index}. "),
     };
-    let marker_view = View::styled_text(vec![TextSpan::styled(marker_text, list_style())])
-        .no_wrap()
-        .into_view();
-    let indent = (depth as u16).saturating_mul(ASSISTANT_LIST_INDENT as u16);
+    let indent = depth.saturating_mul(ASSISTANT_LIST_INDENT);
+    let body_column = indent.saturating_add(UnicodeWidthStr::width(marker_text.as_str()));
+    let prefix = View::styled_text(vec![TextSpan::styled(
+        format!("{}{}", " ".repeat(indent), marker_text),
+        list_style(),
+    )])
+    .no_wrap()
+    .into_view();
+    let continuation = View::styled_text(vec![TextSpan::styled(
+        " ".repeat(body_column),
+        list_style(),
+    )])
+    .no_wrap()
+    .into_view();
 
-    View::horizontal(|row| {
-        if indent > 0 {
-            row.fixed(
-                indent,
-                View::styled_text(vec![TextSpan::styled(
-                    " ".repeat(indent as usize),
-                    list_style(),
-                )])
-                .no_wrap()
-                .into_view(),
-            );
-        }
-        row.child(marker_view);
-        row.child(body);
-    })
-    .fill_width()
+    View::hanging(prefix, continuation, body).fill_width()
 }
 
 // ---------------------------------------------------------------------------
@@ -1257,7 +1253,13 @@ mod tests {
     fn narrow_list_layout_remains_constructible_when_markers_consume_width() {
         let view =
             assistant_document_view(&parse_assistant(&text_segs("9. nine\n10. ten\n  - nested")));
-        let rows = compiled_text(&view, 7);
+        let block = compile_view(&view, 7);
+        assert!(!block.physically_complete);
+        let rows = block
+            .rows
+            .iter()
+            .map(|row| row.plain_text())
+            .collect::<Vec<_>>();
         assert!(rows.iter().any(|row| row.contains("9.")));
         assert!(rows.iter().any(|row| row.contains("10.")));
         assert!(rows.iter().any(|row| row.contains("•")));
@@ -1350,11 +1352,9 @@ mod tests {
             }
             stream.seal();
             let snapshot = stream.snapshot();
-            // The current generic Row API cannot express the old physical
-            // hanging-continuation prefix when the marker consumes the entire
-            // available width. Keep that narrow-width case covered separately
-            // by the semantic layout tests; parity here covers constructible
-            // surface widths.
+            // A prefix-too-small surface is intentionally incomplete and is
+            // rejected by the future terminal-size policy. Compare stream and
+            // finalized Views only at widths where the hanging prefix fits.
             let widths: &[u16] = if segments
                 .iter()
                 .any(|segment| segment.text().contains("  - nested"))

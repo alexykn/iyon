@@ -87,6 +87,7 @@ impl Text {
             ViewKind::Text(text) => text,
             ViewKind::Column(_)
             | ViewKind::Row(_)
+            | ViewKind::Hanging(_)
             | ViewKind::Container(_)
             | ViewKind::Spacer { .. }
             | ViewKind::ClampRows(_)

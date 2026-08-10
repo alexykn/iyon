@@ -34,6 +34,12 @@ pub(crate) fn intrinsic_size(view: &View, width: u16) -> Size {
         ViewKind::Text(text) => text_intrinsic_size(text, inner_width),
         ViewKind::Spacer { rows } => Size::new(0, *rows),
         ViewKind::Container(container) => intrinsic_size(&container.child, inner_width),
+        ViewKind::Hanging(hanging) => {
+            let prefix_width = intrinsic_content_size(&hanging.prefix, u16::MAX).width;
+            let body_width = inner_width.saturating_sub(prefix_width).max(1);
+            let body = intrinsic_size(&hanging.body, body_width);
+            Size::new(prefix_width.saturating_add(body.width), body.height.max(1))
+        }
         ViewKind::ClampRows(clamp) => {
             let mut size = intrinsic_size(&clamp.child, inner_width);
             size.height = size.height.min(clamp.max_rows);

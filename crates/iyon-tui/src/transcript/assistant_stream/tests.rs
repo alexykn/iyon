@@ -217,6 +217,18 @@ fn list_tab_restart_retains_inline_context_after_replacement() {
 }
 
 #[test]
+fn hanging_prefix_that_cannot_fit_blocks_stream_transfer() {
+    let mut stream = AssistantStream::new();
+    stream.push_delta(SegmentKind::Text, "9. nine");
+    stream.seal();
+    let snapshot = stream.snapshot();
+    let compiled = compile_stream(&snapshot.view, 3, snapshot.source_end);
+
+    assert!(!compiled.rows.is_empty());
+    assert_eq!(compiled.transferable_prefix_rows, 0);
+}
+
+#[test]
 fn projected_list_item_spills_and_retains_hanging_context() {
     let mut hosted = HostedStream::new(
         crate::transcript::model::TranscriptId(3),

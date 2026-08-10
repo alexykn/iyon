@@ -52,6 +52,54 @@ fn empty_vertical() -> View {
 }
 
 #[test]
+fn hanging_view_repeats_continuation_prefix_while_body_wraps() {
+    let view = View::hanging(
+        View::text("10. ").no_wrap(),
+        View::text("    ").no_wrap(),
+        View::text("one two three").fill_width(),
+    )
+    .fill_width();
+    let block = ViewCompiler::default().compile(&view, 12);
+
+    assert_eq!(
+        block
+            .rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["10. one two ", "    three"]
+    );
+    assert!(block.rows.iter().all(|row| row.width() == 12));
+    assert!(block.physically_complete);
+}
+
+#[test]
+fn hanging_view_marks_prefix_too_wide_as_incomplete_without_panicking() {
+    let view = View::hanging(
+        View::text("10. ").no_wrap(),
+        View::text("    ").no_wrap(),
+        View::text("body").fill_width(),
+    )
+    .fill_width();
+    let block = ViewCompiler::default().compile(&view, 3);
+
+    assert!(!block.physically_complete);
+    assert!(!block.rows.is_empty());
+}
+
+#[test]
+fn hanging_view_preserves_prefix_and_continuation_styles() {
+    let marker = View::text("* ").no_wrap().foreground(ColorSpec::ansi(3));
+    let continuation = View::text("  ").no_wrap().foreground(ColorSpec::ansi(3));
+    let view = View::hanging(marker, continuation, View::text("one two").fill_width()).fill_width();
+    let rows = ViewCompiler::default().compile(&view, 6).rows;
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].style_at(0), rows[1].style_at(0));
+    assert_eq!(rows[0].style_at(1), rows[1].style_at(1));
+}
+
+#[test]
 fn bounded_vertical_tracks_allocate_multiple_flex_children() {
     let view = View::vertical(|column| {
         column.fixed(2, View::text("header").fill_height());

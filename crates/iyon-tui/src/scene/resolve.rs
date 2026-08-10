@@ -5,7 +5,10 @@ use crate::{
     interaction::MountedCapabilities,
     presentation::{
         View,
-        ir::{ClampRowsView, ColumnChild, ColumnView, ContainerNode, RowChild, RowView, ViewKind},
+        ir::{
+            ClampRowsView, ColumnChild, ColumnView, ContainerNode, HangingView, RowChild, RowView,
+            ViewKind,
+        },
     },
 };
 
@@ -112,6 +115,11 @@ impl Resolver<'_> {
                     .collect::<Result<_, ResolveError>>()?,
                 gap: row.gap,
                 vertical_align: row.vertical_align,
+            }),
+            ViewKind::Hanging(hanging) => ViewKind::Hanging(HangingView {
+                prefix: Box::new(self.resolve_view(&hanging.prefix, parent)?),
+                continuation: Box::new(self.resolve_view(&hanging.continuation, parent)?),
+                body: Box::new(self.resolve_view(&hanging.body, parent)?),
             }),
             ViewKind::Container(container) => ViewKind::Container(ContainerNode {
                 child: Box::new(self.resolve_view(&container.child, parent)?),
