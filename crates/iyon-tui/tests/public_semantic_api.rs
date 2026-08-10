@@ -32,6 +32,15 @@ fn add_bounded_details(column: &mut Vertical) {
     column.flex(View::text("body").fill_height());
 }
 
+fn hanging_component_view<C: Component>(handle: ComponentHandle<C>) -> View {
+    View::hanging(
+        View::text("> ").no_wrap(),
+        View::text("  ").no_wrap(),
+        View::component(handle),
+    )
+    .fill_width()
+}
+
 #[test]
 fn public_semantic_composition_is_externally_usable() {
     let view = View::vertical(|column| {
@@ -84,6 +93,18 @@ fn public_text_properties_remain_typed_until_conversion() {
     let _: View = text.clone().into_view();
     let _: View = text.container();
     let _: View = View::text("x").clamp_rows(1, iyon_tui::OverflowIndicator::None);
+}
+
+#[test]
+fn public_hanging_composition_is_externally_usable() {
+    let view = View::hanging(
+        View::text("> ").no_wrap(),
+        View::text("  ").no_wrap(),
+        View::text("body that wraps").fill_width(),
+    )
+    .fill_width();
+    let _: View = view;
+    let _: fn(ComponentHandle<Counter>) -> View = hanging_component_view::<Counter>;
 }
 
 #[test]

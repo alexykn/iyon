@@ -1203,41 +1203,78 @@ mod tests {
     }
 
     #[test]
-    fn partial_head_stays_frozen_while_later_unit_reflows_and_native_stays_gone() {
+    fn partial_head_stays_frozen_while_existing_later_unit_reflows() {
         let mut state = TranscriptState::default();
         state.push_item(TimelineItem::ErrorMessage {
             text: "abcdefghijklmnop".into(),
         });
+        state.push_item(TimelineItem::ErrorMessage {
+            text: "qrstuvwxyzabcdef".into(),
+        });
+        let a_id = state.presentation_cache[0].id;
+        let b_id = state.presentation_cache[1].id;
+
         state.ensure_render_cache(4);
         let original = state.uncommitted_rows().to_vec();
+        let initial_cache = state.rendered_rows_cache.as_ref().unwrap();
+        let a_range = initial_cache
+            .ranges
+            .iter()
+            .find(|range| range.id == a_id)
+            .unwrap()
+            .rows
+            .clone();
+        let b_range = initial_cache
+            .ranges
+            .iter()
+            .find(|range| range.id == b_id)
+            .unwrap()
+            .rows
+            .clone();
+        let frozen_tail = original[1..a_range.end].to_vec();
+        let narrow_b = original[b_range].to_vec();
+
         state.mark_rows_committed(1);
-        let frozen_tail = original[1..].to_vec();
-        state.push_item(TimelineItem::ErrorMessage {
-            text: "later".into(),
-        });
         state.ensure_render_cache(20);
+        let wide_cache = state.rendered_rows_cache.as_ref().unwrap();
+        let wide_a_range = wide_cache
+            .ranges
+            .iter()
+            .find(|range| range.id == a_id)
+            .unwrap()
+            .rows
+            .clone();
+        let wide_b_range = wide_cache
+            .ranges
+            .iter()
+            .find(|range| range.id == b_id)
+            .unwrap()
+            .rows
+            .clone();
         assert_eq!(
-            &state.uncommitted_rows()[..frozen_tail.len()],
+            &state.uncommitted_rows()[wide_a_range],
             frozen_tail.as_slice()
         );
-        assert!(
-            state
-                .uncommitted_rows()
-                .iter()
-                .any(|row| row.plain_text() == "later")
-        );
+        let wide_b = state.uncommitted_rows()[wide_b_range].to_vec();
+        assert_ne!(wide_b, narrow_b);
+        let expected_b = compile_view(
+            &TranscriptState::semantic_view_for(&state.presentation_cache[1], true).unwrap(),
+            20,
+        )
+        .rows;
+        assert_eq!(wide_b, expected_b);
 
         state.mark_rows_committed(state.committable_len());
-        state.push_item(TimelineItem::ErrorMessage {
-            text: "final".into(),
-        });
-        state.ensure_render_cache(20);
-        assert!(
-            state
-                .uncommitted_rows()
+        state.rebuild_presentation_cache();
+        for id in [a_id, b_id] {
+            let unit = state
+                .presentation_cache
                 .iter()
-                .all(|row| !row.plain_text().contains("abcdefghijklmnop"))
-        );
+                .find(|unit| unit.id == id)
+                .unwrap();
+            assert_eq!(unit.ownership, PresentationOwnership::NativeHistory);
+            assert!(unit.view.is_none());
+        }
     }
 
     #[test]

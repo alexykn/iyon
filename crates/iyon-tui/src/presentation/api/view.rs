@@ -57,25 +57,48 @@ impl View {
 
     /// Constructs a semantic hanging row.
     ///
-    /// `prefix` is painted on the first line, `continuation` is repeated at
-    /// the same body column on wrapped lines, and `body` owns wrapping. The
-    /// prefix and continuation views should be single-row, no-wrap views.
-    /// If the prefix cannot fit, the compiled view is marked incomplete rather
-    /// than silently dropping or relocating body content.
+    /// Constructs `prefix + hanging body + repeated continuation indentation`.
+    ///
+    /// The `prefix` is rendered once on the first body row. The
+    /// `continuation_prefix` is repeated beside subsequent body rows. The
+    /// `body` is an ordinary semantic view, resolved and mounted once, and
+    /// may contain Components. Hanging lays the body out once; repetition is
+    /// presentation of the continuation prefix rather than repeated content.
+    ///
+    /// The continuation prefix cannot contain component identity because it
+    /// is physically repeated under the current one-placement component
+    /// model. Prefix and body Components are supported normally.
+    ///
+    /// If the prefix leaves no body capacity, the compiled view is marked
+    /// physically incomplete rather than silently dropping or relocating body
+    /// content. Rendering remains panic-free; terminal-size rejection is a
+    /// separate policy.
     pub fn hanging(
         prefix: impl IntoView,
-        continuation: impl IntoView,
+        continuation_prefix: impl IntoView,
         body: impl IntoView,
     ) -> Self {
+        let prefix = prefix.into_view();
+        let continuation_prefix = continuation_prefix.into_view();
+        let mut body = body.into_view();
+        assert!(
+            !continuation_prefix.contains_component_identity(),
+            "hanging continuation_prefix cannot contain component identity: it is repeated"
+        );
+        // The body owns the entire region to the right of the prefix. Make
+        // that region available to a component even when its slot was created
+        // without an explicit fill-width rule.
+        body.width = WidthRule::Fill;
+
         Self {
             component: None,
             width: WidthRule::Fit,
             height: HeightRule::Fit,
             decoration: Decoration::default(),
             kind: ViewKind::Hanging(HangingView {
-                prefix: Box::new(prefix.into_view()),
-                continuation: Box::new(continuation.into_view()),
-                body: Box::new(body.into_view()),
+                prefix: Box::new(prefix),
+                continuation_prefix: Box::new(continuation_prefix),
+                body: Box::new(body),
             }),
         }
     }
