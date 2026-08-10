@@ -7,8 +7,8 @@ use crate::{
     scene::resolve_scene,
 };
 
-use super::route_key;
-use super::{FocusState, GlobalBindings, InteractionResult, Key, KeyStroke, Modifiers};
+use super::route_key_local;
+use super::{FocusState, InteractionResult, Key, KeyStroke, Modifiers};
 
 struct FocusProbe {
     focused: bool,
@@ -284,14 +284,13 @@ fn typed_local_command_mutates_and_emits_only_before_later_drain() {
 
     let mut queue = OutputQueue::new();
     assert_eq!(
-        route_key(
+        route_key_local(
             KeyStroke::new(Key::Char('+')),
             &mut focus,
             mounted.current(),
             &scene.capabilities,
             &mut registry,
             &mut queue,
-            &GlobalBindings::default(),
         ),
         InteractionResult::Consumed
     );
@@ -318,14 +317,13 @@ fn ignored_handler_can_emit_before_ancestor_consumes() {
 
     let mut queue = OutputQueue::new();
     assert_eq!(
-        route_key(
+        route_key_local(
             KeyStroke::new(Key::Char('i')),
             &mut focus,
             mounted.current(),
             &scene.capabilities,
             &mut registry,
             &mut queue,
-            &GlobalBindings::default(),
         ),
         InteractionResult::Consumed
     );
@@ -352,14 +350,13 @@ fn ignored_focused_component_bubbles_to_ancestor_but_not_sibling() {
 
     let mut queue = OutputQueue::new();
     assert_eq!(
-        route_key(
+        route_key_local(
             KeyStroke::new(Key::Char('p')),
             &mut focus,
             mounted.current(),
             &scene.capabilities,
             &mut registry,
             &mut queue,
-            &GlobalBindings::default(),
         ),
         InteractionResult::Consumed
     );

@@ -16,13 +16,27 @@ where
     Update: FnMut(&mut State, Action, &mut super::context::AppCx<'_, Action>) -> Result<(), Error>,
     ViewFn: Fn(&State) -> crate::View,
 {
+    run_with_factory(app, || crate::terminal::enter_default()).await
+}
+
+async fn run_with_factory<State, Action, Error, Init, Update, ViewFn, Backend, Factory>(
+    app: App<State, Action, Error, Init, Update, ViewFn>,
+    factory: Factory,
+) -> Result<(), RunError<Error>>
+where
+    Init: FnOnce(&mut super::context::AppCx<'_, Action>) -> Result<State, Error>,
+    Update: FnMut(&mut State, Action, &mut super::context::AppCx<'_, Action>) -> Result<(), Error>,
+    ViewFn: Fn(&State) -> crate::View,
+    Backend: TerminalBackend,
+    Factory: FnOnce() -> anyhow::Result<Backend>,
+{
     let now = Instant::now();
     let mut app = app.start(now).map_err(map_kernel_error)?;
     if app.is_exiting() {
         app.close_ingress();
         return Ok(());
     }
-    let backend = crate::terminal::enter_default().map_err(runtime_error)?;
+    let backend = factory().map_err(runtime_error)?;
     run_running(app, backend).await
 }
 
@@ -37,27 +51,31 @@ where
     ViewFn: Fn(&State) -> crate::View,
     Backend: TerminalBackend,
 {
-    run_with_backend_started(app, backend).await
+    run_with_factory(app, || Ok(backend)).await
 }
 
 #[cfg(test)]
-async fn run_with_backend_started<State, Action, Error, Init, Update, ViewFn, Backend>(
+pub(crate) async fn run_with_backend_factory<
+    State,
+    Action,
+    Error,
+    Init,
+    Update,
+    ViewFn,
+    Backend,
+    Factory,
+>(
     app: App<State, Action, Error, Init, Update, ViewFn>,
-    backend: Backend,
+    factory: Factory,
 ) -> Result<(), RunError<Error>>
 where
     Init: FnOnce(&mut super::context::AppCx<'_, Action>) -> Result<State, Error>,
     Update: FnMut(&mut State, Action, &mut super::context::AppCx<'_, Action>) -> Result<(), Error>,
     ViewFn: Fn(&State) -> crate::View,
     Backend: TerminalBackend,
+    Factory: FnOnce() -> anyhow::Result<Backend>,
 {
-    let now = Instant::now();
-    let mut app = app.start(now).map_err(map_kernel_error)?;
-    if app.is_exiting() {
-        app.close_ingress();
-        return Ok(());
-    }
-    run_running(app, backend).await
+    run_with_factory(app, factory).await
 }
 
 async fn run_running<State, Action, Error, Update, ViewFn, Backend>(
@@ -97,6 +115,7 @@ where
     Backend: TerminalBackend,
 {
     prepare_and_draw(app, session, Instant::now()).await?;
+    app.drain_deferred_pastes().map_err(map_kernel_error)?;
     app.collect_external_pending();
 
     loop {
@@ -153,7 +172,7 @@ where
 {
     let frame = app
         .prepare_frame(now, session.backend_mut(), |backend| backend.viewport())
-        .map_err(|error| RunError::Runtime(RuntimeError::message(format!("{error:?}"))))?;
+        .map_err(|error| RunError::Runtime(runtime_error(error)))?;
     session
         .draw_frame(&frame)
         .map_err(|error| RunError::Runtime(runtime_error(error)))
@@ -229,6 +248,6 @@ fn runtime_error(error: impl Into<anyhow::Error>) -> RuntimeError {
 fn map_kernel_error<Error>(error: KernelError<Error>) -> RunError<Error> {
     match error {
         KernelError::Application(error) => RunError::Application(error),
-        KernelError::Output(error) => RunError::Runtime(RuntimeError::message(error.to_string())),
+        KernelError::Output(error) => RunError::Runtime(runtime_error(error)),
     }
 }

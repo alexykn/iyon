@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use crate::component::ComponentRegistry;
-use crate::interaction::route_key;
-use crate::interaction::{FocusState, GlobalBindings, route_paste};
+use crate::interaction::route_key_local;
+use crate::interaction::{FocusState, route_paste};
 use crate::output::{OutputQueue, OutputRouter};
 use crate::presentation::IntoView;
 use crate::scene::resolve_scene;
@@ -154,17 +154,15 @@ fn mounted_command_emits_deferred_output_after_key_dispatch() {
     let scene = resolve_scene(&View::component(handle), &registry).unwrap();
     let mut focus = FocusState::default();
     focus.reconcile_with_geometry(&scene.mounts, &scene.capabilities, None, &mut registry);
-    let globals = GlobalBindings::default();
     let mut queue = OutputQueue::new();
     assert_eq!(
-        route_key(
+        route_key_local(
             key(Key::Char('x')),
             &mut focus,
             &scene.mounts,
             &scene.capabilities,
             &mut registry,
             &mut queue,
-            &globals,
         ),
         InteractionResult::Consumed
     );
