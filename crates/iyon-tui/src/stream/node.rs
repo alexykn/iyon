@@ -14,6 +14,7 @@ use super::{
 };
 
 /// Semantic provenance attached to stream view nodes.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum StreamProvenance {
     /// A source-mapped text flow whose physical rows can expose monotonic source

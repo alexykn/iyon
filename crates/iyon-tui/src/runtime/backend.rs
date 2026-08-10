@@ -236,6 +236,10 @@ impl BackendEventHandler {
 
     // S11 migration seam: permits transferring CoreEventReceiver to the
     // application-side external-action bridge once Iyon leaves iyon-tui.
+    #[expect(
+        dead_code,
+        reason = "S11 migration seam for transferring CoreEventReceiver to the application-side external-action bridge"
+    )]
     pub(crate) fn take_event_receiver(&mut self) -> Option<CoreEventReceiver> {
         self.event_rx.take()
     }

@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::component::ComponentRegistry;
-use crate::interaction::routing::route_key;
+use crate::interaction::route_key;
 use crate::interaction::{FocusState, GlobalBindings, route_paste};
 use crate::output::{OutputQueue, OutputRouter};
 use crate::presentation::IntoView;
