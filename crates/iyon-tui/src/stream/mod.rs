@@ -12,6 +12,7 @@ mod projected;
 mod resident;
 mod snapshot;
 mod source;
+mod transfer;
 mod validate;
 mod viewport;
 
@@ -37,8 +38,12 @@ pub use projected::{ProjectedText, ProjectedTextBuilder};
 pub(crate) use resident::ResidentPrefix;
 pub use snapshot::{StreamSnapshot, StreamSnapshotBuilder};
 pub use source::StreamingSource;
+pub(crate) use transfer::{
+    FrozenPhysicalRows, StreamPartialCommit, StreamTransferPayload, StreamTransferPlan,
+    plan_stream_transfer,
+};
 pub use validate::{ProjectedValidationError, StreamValidationError};
-pub(crate) use viewport::{StreamRowIndex, build_index, window_view};
+pub(crate) use viewport::{StreamRowIndex, build_index, build_index_from, window_view};
 
 #[cfg(test)]
 pub(crate) use viewport::{build_index_call_count, reset_build_index_call_count};

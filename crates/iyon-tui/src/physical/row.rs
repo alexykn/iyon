@@ -12,6 +12,14 @@ impl PhysicalRow {
         Self { cells }
     }
 
+    pub(crate) fn placed(&self, width: u16, left: u16) -> Self {
+        let mut cells = vec![PhysicalCell::transparent(); usize::from(width)];
+        let start = usize::from(left).min(cells.len());
+        let copy_len = self.width().min(cells.len().saturating_sub(start));
+        cells[start..start + copy_len].clone_from_slice(&self.cells[..copy_len]);
+        Self::from_cells(cells)
+    }
+
     pub(crate) fn empty() -> Self {
         Self::from_cells(Vec::new())
     }

@@ -1,19 +1,18 @@
 //! Transitional conversation/native-history stream host.
 
-mod commit;
-
 #[cfg(test)]
 mod tests;
 
 use crate::{
     physical::PhysicalRow,
     presentation::View,
-    stream::{StreamOffset, StreamRevision, StreamSnapshot, StreamingSource, compile_stream},
+    stream::{
+        StreamOffset, StreamRevision, StreamSnapshot, StreamTransferPayload, StreamingSource,
+        compile_stream, plan_stream_transfer,
+    },
 };
 
-pub(crate) use self::commit::{
-    CommitPayload, CommitPlan, FrozenPhysicalRows, StreamPartialCommit, plan_commit,
-};
+use crate::stream::{FrozenPhysicalRows, StreamPartialCommit, StreamTransferPlan};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LeadingBoundaryState {
@@ -168,19 +167,19 @@ where
             0
         };
         let semantic_desired_rows = desired_commit_rows.saturating_sub(pending_boundary_rows);
-        let semantic_plan = plan_commit(
+        let semantic_plan = plan_stream_transfer(
             &compiled,
             semantic_desired_rows,
             self.partial.as_ref(),
             self.committed_through,
         );
         let semantic_rows = match &semantic_plan.payload {
-            CommitPayload::Compiled { start, len } => compiled.rows
+            StreamTransferPayload::Compiled { start, len } => compiled.rows
                 [*start..start.saturating_add(*len)]
                 .iter()
                 .map(|row| row.physical.clone())
                 .collect(),
-            CommitPayload::Frozen { rows } => rows.as_slice().to_vec(),
+            StreamTransferPayload::Frozen { rows } => rows.as_slice().to_vec(),
         };
         let commit_leading_boundary =
             self.leading_boundary == LeadingBoundaryState::Pending && !semantic_rows.is_empty();
@@ -297,7 +296,7 @@ where
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PreparedHistoryWrite {
     pub(crate) rows: FrozenPhysicalRows,
-    pub(crate) semantic_plan: CommitPlan,
+    pub(crate) semantic_plan: StreamTransferPlan,
     pub(crate) commit_leading_boundary: bool,
 }
 

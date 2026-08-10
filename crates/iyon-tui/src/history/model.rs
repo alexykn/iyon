@@ -11,12 +11,13 @@ use super::{
 
 /// Optional ordered semantic history capability.
 ///
-/// History owns unit order, semantic lifetime, and semantic layout settings.
-/// Projection, viewport state, physical rows, native history, and terminal
-/// writing remain outside the semantic model.
+/// History owns unit order, semantic lifetime, semantic layout, and its
+/// private monotonic native-history frontier. Backend insertion remains behind
+/// the private `NativeHistorySink` seam.
 pub(crate) struct History {
-    units: VecDeque<HistoryUnit>,
+    pub(super) units: VecDeque<HistoryUnit>,
     layout: HistoryLayout,
+    pub(super) native: super::native::NativeFrontier,
 }
 
 impl History {
@@ -24,6 +25,7 @@ impl History {
         Self {
             units: VecDeque::new(),
             layout: HistoryLayout::default(),
+            native: super::native::NativeFrontier::default(),
         }
     }
 
@@ -145,6 +147,10 @@ impl History {
 
     pub(crate) fn set_layout(&mut self, layout: HistoryLayout) {
         self.layout = layout;
+    }
+
+    pub(super) fn units_mut(&mut self) -> &mut VecDeque<HistoryUnit> {
+        &mut self.units
     }
 
     fn ensure_append_allowed(&self) -> Result<(), HistoryError> {
