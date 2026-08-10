@@ -96,6 +96,17 @@ impl Vertical {
         self
     }
 
+    /// Adds an intrinsic-height child capped at `max_rows`.
+    pub fn content_max(&mut self, max_rows: u16, child: impl IntoView) -> &mut Self {
+        self.children.push(ColumnChild {
+            track: crate::presentation::ir::TrackSize::Content {
+                max: Some(max_rows),
+            },
+            view: child.into_view(),
+        });
+        self
+    }
+
     pub fn flex(&mut self, child: impl IntoView) -> &mut Self {
         self.children.push(ColumnChild::flex(child.into_view()));
         self
@@ -206,6 +217,17 @@ mod tests {
         assert_eq!(view.decoration, Default::default());
         assert!(vertical.children.is_empty());
         assert_eq!(vertical.gap, 0);
+    }
+
+    #[test]
+    fn content_max_lowers_to_bounded_content_track() {
+        let view = View::vertical(|column| {
+            column.content_max(13, "body");
+        });
+        assert_eq!(
+            column(&view).children[0].track,
+            TrackSize::Content { max: Some(13) }
+        );
     }
 
     #[test]

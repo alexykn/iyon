@@ -1,6 +1,6 @@
 use crate::{
     physical::PhysicalRow,
-    stream::{FrozenPhysicalRows, StreamOffset, StreamPartialCommit},
+    stream::{FrozenPhysicalRows, StreamOffset, StreamPartialTransfer},
 };
 
 use super::super::HistoryUnitId;
@@ -28,7 +28,7 @@ pub(crate) struct FrozenStaticRemainder {
 pub(crate) struct StreamFrontierState {
     pub(crate) unit: HistoryUnitId,
     pub(crate) committed_through: StreamOffset,
-    pub(crate) partial: Option<StreamPartialCommit>,
+    pub(crate) partial: Option<StreamPartialTransfer>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]

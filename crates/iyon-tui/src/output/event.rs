@@ -30,6 +30,10 @@ impl OutputQueue {
         self.events.is_empty()
     }
 
+    pub(crate) fn append(&mut self, mut other: Self) {
+        self.events.append(&mut other.events);
+    }
+
     pub(super) fn pop_front(&mut self) -> Option<ErasedOutputEvent> {
         self.events.pop_front()
     }

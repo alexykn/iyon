@@ -822,7 +822,7 @@ fn atomic_partial_ack_freezes_and_drains_exact_physical_rows() {
     assert_eq!(transfer(&mut history, &mut first, 8, 1).inserted, 1);
     assert!(matches!(
         history.native.stream.as_ref().unwrap().partial,
-        Some(crate::stream::StreamPartialCommit::FrozenAtomic {
+        Some(crate::stream::StreamPartialTransfer::FrozenAtomic {
             committed_rows: 1,
             ..
         })
@@ -859,7 +859,7 @@ fn frozen_atomic_remainder_survives_resize_and_layout_change_without_reflow() {
     let mut first = FakeSink::accepting([Ok(1)]);
     transfer(&mut history, &mut first, 8, 8);
     let frozen = match &history.native.stream.as_ref().unwrap().partial {
-        Some(crate::stream::StreamPartialCommit::FrozenAtomic { rows, .. }) => rows.clone(),
+        Some(crate::stream::StreamPartialTransfer::FrozenAtomic { rows, .. }) => rows.clone(),
         _ => panic!("expected FrozenAtomic remainder"),
     };
     assert_eq!(frozen.as_slice().len(), 3);
@@ -867,7 +867,7 @@ fn frozen_atomic_remainder_survives_resize_and_layout_change_without_reflow() {
     history.set_layout(HistoryLayout::new(Insets::horizontal(2), 0));
     assert!(matches!(
         &history.native.stream.as_ref().unwrap().partial,
-        Some(crate::stream::StreamPartialCommit::FrozenAtomic { rows, .. })
+        Some(crate::stream::StreamPartialTransfer::FrozenAtomic { rows, .. })
             if rows == &frozen
     ));
     let mut second = FakeSink::default();

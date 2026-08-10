@@ -71,6 +71,39 @@ impl History {
         Ok(id)
     }
 
+    /// Replaces a tail Live unit with a typed open Stream without changing its
+    /// identity or flow boundary.
+    pub fn replace_live_with_stream<S: StreamingSource>(
+        &mut self,
+        unit: HistoryUnitId,
+        source: S,
+    ) -> Result<HistoryStreamHandle<S>, HistoryError> {
+        let index = self.index_of(unit)?;
+        if index + 1 != self.units.len() {
+            return Err(HistoryError::LiveMustRemainTail { unit });
+        }
+        if !matches!(self.units[index].content, HistoryUnitContent::Live(_)) {
+            return Err(HistoryError::UnitNotLive { unit });
+        }
+        let stream = ErasedHistoryStream::new(source).map_err(HistoryError::Stream)?;
+        self.units[index].content = HistoryUnitContent::Stream(stream);
+        Ok(HistoryStreamHandle::new(unit))
+    }
+
+    /// Discards a transient tail Live unit without creating spacing or native
+    /// history rows.
+    pub fn discard_live(&mut self, unit: HistoryUnitId) -> Result<(), HistoryError> {
+        let index = self.index_of(unit)?;
+        if index + 1 != self.units.len() {
+            return Err(HistoryError::LiveMustRemainTail { unit });
+        }
+        if !matches!(self.units[index].content, HistoryUnitContent::Live(_)) {
+            return Err(HistoryError::UnitNotLive { unit });
+        }
+        self.units.remove(index);
+        Ok(())
+    }
+
     pub fn freeze(
         &mut self,
         unit: HistoryUnitId,

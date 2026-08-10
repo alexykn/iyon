@@ -14,7 +14,7 @@ use crate::transcript::markdown::{
     AssistantContinuation, AssistantDocument, AssistantRowLayout, parse_assistant,
     parse_assistant_tail,
 };
-use crate::transcript::model::{
+use crate::transcript::semantic::{
     AssistantSegment, SegmentKind, slice_segments, think_to_text_newline,
 };
 

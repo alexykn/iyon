@@ -24,6 +24,7 @@ pub(crate) struct HistoryProjection {
 pub(crate) struct HistoryProjectionParts {
     pub(crate) view: View,
     pub(crate) frozen_overlay: Option<HistoryPhysicalOverlay>,
+    pub(crate) overflow_rows: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,6 +131,23 @@ pub(crate) fn project_into_session(
             plan.content = PlannedContent::Frozen(rows);
         }
     }
+
+    let (total_flow_height, has_unmeasured_stream) = items
+        .iter()
+        .copied()
+        .map(|item| {
+            item_height_for_overflow(history, &plans, &units, item, content_width, top_padding)
+        })
+        .fold(
+            (0usize, false),
+            |(height, unknown), (item_height, item_unknown)| {
+                (height.saturating_add(item_height), unknown || item_unknown)
+            },
+        );
+    let capacity = usize::from(size.height);
+    let overflow_rows = total_flow_height.saturating_sub(capacity).max(usize::from(
+        has_unmeasured_stream && total_flow_height >= capacity,
+    ));
 
     // An open Stream tail follows its semantic end, but resident blockers
     // before it form a protected band. Reserve that real flow geometry first;
@@ -294,6 +312,7 @@ pub(crate) fn project_into_session(
     Ok(HistoryProjectionParts {
         view: root,
         frozen_overlay,
+        overflow_rows,
     })
 }
 
@@ -348,6 +367,34 @@ fn protected_band_height(
         .filter(|item| protected_band_item(*item, blocker, stream))
         .map(|item| item_height(history, plans, units, item, width, 0))
         .sum()
+}
+
+fn item_height_for_overflow(
+    history: &History,
+    plans: &[UnitPlan],
+    units: &[&super::HistoryUnit],
+    item: FlowItem,
+    width: u16,
+    top_padding: usize,
+) -> (usize, bool) {
+    match item {
+        FlowItem::TopPadding => (top_padding, false),
+        FlowItem::BottomPadding => (usize::from(history.layout().padding.bottom), false),
+        FlowItem::Gap(index) => (resident_gap(history, index, &plans[index]), false),
+        FlowItem::Unit(index) => match (&plans[index].content, &units[index].content) {
+            (PlannedContent::Static, HistoryUnitContent::Static(view)) => {
+                (view_height(view, width), false)
+            }
+            (PlannedContent::Frozen(rows), _) => (rows.len(), false),
+            (PlannedContent::Live(view), _) => (view_height(view, width), false),
+            (PlannedContent::Stream { index, prefix, .. }, _) => {
+                let prefix_height = prefix.as_ref().map_or(0, |rows| rows.as_slice().len());
+                let known = index.as_ref().map_or(0, |index| index.anchors.len());
+                (prefix_height.saturating_add(known), index.is_none())
+            }
+            _ => unreachable!("History overflow plan does not match its unit"),
+        },
+    }
 }
 
 fn item_height(
@@ -446,7 +493,7 @@ fn stream_projection_state(
         return (semantic_base, None);
     };
     match &state.partial {
-        Some(crate::stream::StreamPartialCommit::FrozenAtomic {
+        Some(crate::stream::StreamPartialTransfer::FrozenAtomic {
             source_end,
             rows,
             committed_rows,

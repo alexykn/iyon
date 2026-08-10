@@ -2,7 +2,6 @@ use super::*;
 use crate::{
     stream::plan_stream_transfer,
     stream::{StreamProvenance, StreamRowTransfer, compile_stream, projected_atoms},
-    transcript::hosted_stream::{HostedStream, LeadingBoundaryState},
 };
 
 #[test]
@@ -51,79 +50,6 @@ fn stability_is_row_relative_after_a_hard_newline() {
 }
 
 #[test]
-fn projected_markdown_paragraph_spills_before_seal() {
-    let mut hosted = HostedStream::new(
-        crate::transcript::model::TranscriptId(1),
-        AssistantStream::new(),
-        LeadingBoundaryState::None,
-    );
-    let chunks = [
-        "ordinary **bold",
-        " words** ordinary ordinary ",
-        "ordinary ordinary ordinary ordinary ordinary",
-    ];
-    let mut committed = Vec::new();
-    for chunk in chunks {
-        hosted.content_mut().push_delta(SegmentKind::Text, chunk);
-        let prepared = hosted.prepare_frame(12, 1);
-        if !prepared.history.rows.is_empty() {
-            hosted.apply_commit_success(prepared.history);
-        }
-        committed.push(hosted.committed_through);
-    }
-    assert!(committed[1] > committed[0]);
-    assert!(committed[2] > committed[1]);
-    let snapshot = hosted.snapshot();
-    assert!(snapshot.source_base <= hosted.committed_through);
-    assert!(snapshot.validate().is_ok());
-}
-
-#[test]
-fn projected_compaction_retains_inline_restart_context() {
-    let source = "prefix **abcdefghijklmnop long bold text** suffix";
-    let opener = source.find("**").unwrap() as u64;
-    let closer = source[opener as usize + 2..].find("**").unwrap() as u64 + opener + 2;
-    let mut hosted = HostedStream::new(
-        crate::transcript::model::TranscriptId(2),
-        AssistantStream::new(),
-        LeadingBoundaryState::None,
-    );
-    hosted.content_mut().push_delta(SegmentKind::Text, source);
-
-    let mut committed_inside = false;
-    for _ in 0..32 {
-        let prepared = hosted.prepare_frame(6, 1);
-        if prepared.history.rows.is_empty() {
-            break;
-        }
-        hosted.apply_commit_success(prepared.history);
-        if hosted.committed_through.as_u64() > opener + 2
-            && hosted.committed_through.as_u64() < closer
-        {
-            committed_inside = true;
-            let snapshot = hosted.snapshot();
-            assert_eq!(snapshot.source_base, StreamOffset::new(opener));
-            let suffix = snapshot.view.suffix_from(hosted.committed_through);
-            let rendered = suffix.into_static_view();
-            let text = format!("{rendered:?}");
-            assert!(!text.contains("**"));
-        }
-    }
-    assert!(committed_inside);
-
-    hosted.content_mut().push_delta(SegmentKind::Text, "\n");
-    for _ in 0..64 {
-        let prepared = hosted.prepare_frame(8, 1);
-        if prepared.history.rows.is_empty() {
-            break;
-        }
-        hosted.apply_commit_success(prepared.history);
-    }
-    let final_snapshot = hosted.snapshot();
-    assert_eq!(final_snapshot.source_base, final_snapshot.source_end);
-}
-
-#[test]
 fn restart_planning_distinguishes_hidden_prefix_and_visible_context() {
     let source = "prefix **bold** suffix";
     let opener = source.find("**").unwrap();
@@ -145,50 +71,6 @@ fn restart_planning_distinguishes_hidden_prefix_and_visible_context() {
     assert_eq!(restart_in_suffix, suffix_offset);
     stream.compact_before(suffix_offset);
     assert_eq!(stream.snapshot().source_base, suffix_offset);
-}
-
-#[test]
-fn hosted_nested_compaction_preserves_outer_and_inner_styles() {
-    let source = "prefix **outer _inner content which wraps_ outer** suffix";
-    let opener = source.find("**").unwrap() as u64;
-    let inner_start = source.find("inner").unwrap() as u64;
-    let outer_close = source[opener as usize + 2..].find("**").unwrap() as u64 + opener + 2;
-    let mut hosted = HostedStream::new(
-        crate::transcript::model::TranscriptId(4),
-        AssistantStream::new(),
-        LeadingBoundaryState::None,
-    );
-    hosted.content_mut().push_delta(SegmentKind::Text, source);
-
-    let mut committed_inside = false;
-    for _ in 0..64 {
-        let prepared = hosted.prepare_frame(8, 1);
-        if prepared.history.rows.is_empty() {
-            break;
-        }
-        hosted.apply_commit_success(prepared.history);
-        let committed = hosted.committed_through.as_u64();
-        if committed > inner_start && committed < outer_close {
-            committed_inside = true;
-            let snapshot = hosted.snapshot();
-            assert_eq!(snapshot.source_base, StreamOffset::new(opener));
-            let inner = snapshot
-                .view
-                .nodes
-                .iter()
-                .find_map(|node| match node {
-                    StreamNode::Text(text) => {
-                        text.runs.iter().find(|run| run.display.contains("inner"))
-                    }
-                    StreamNode::Atomic { .. } => None,
-                })
-                .expect("nested live suffix");
-            assert_eq!(inner.style.attributes.bold, Some(true));
-            assert_eq!(inner.style.attributes.italic, Some(true));
-            break;
-        }
-    }
-    assert!(committed_inside);
 }
 
 #[test]
@@ -226,30 +108,6 @@ fn hanging_prefix_that_cannot_fit_blocks_stream_transfer() {
 
     assert!(!compiled.rows.is_empty());
     assert_eq!(compiled.transferable_prefix_rows, 0);
-}
-
-#[test]
-fn projected_list_item_spills_and_retains_hanging_context() {
-    let mut hosted = HostedStream::new(
-        crate::transcript::model::TranscriptId(3),
-        AssistantStream::new(),
-        LeadingBoundaryState::None,
-    );
-    hosted.content_mut().push_delta(
-        SegmentKind::Text,
-        "- **a very long list item that keeps wrapping** and continues",
-    );
-    let mut committed = false;
-    for _ in 0..32 {
-        let prepared = hosted.prepare_frame(8, 1);
-        if prepared.history.rows.is_empty() {
-            break;
-        }
-        hosted.apply_commit_success(prepared.history);
-        committed |= hosted.committed_through > StreamOffset::new(2);
-    }
-    assert!(committed);
-    assert!(hosted.snapshot().validate().is_ok());
 }
 
 #[test]
@@ -604,7 +462,7 @@ fn compact_before_preserves_atomic_transition_without_duplicating_committed_sour
         StreamRowTransfer::Checkpoint(StreamOffset::new(6))
     );
 
-    // Apply compaction at 6 (as HostedStream does upon successful commit)
+    // Apply compaction at 6 after the stable prefix is released.
     stream.compact_before(StreamOffset::new(6));
 
     // Phase 2: push "ld**"

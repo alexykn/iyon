@@ -29,7 +29,8 @@ fn add_details(column: &mut Vertical) {
 
 fn add_bounded_details(column: &mut Vertical) {
     column.fixed(2, View::text("header").fill_height());
-    column.flex(View::text("body").fill_height());
+    column.content_max(13, View::text("body").fill_width());
+    column.flex(View::text("tail").fill_height());
 }
 
 fn hanging_component_view<C: Component>(handle: ComponentHandle<C>) -> View {
