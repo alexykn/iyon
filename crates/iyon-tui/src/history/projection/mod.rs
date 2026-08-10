@@ -136,7 +136,14 @@ pub(crate) fn project_into_session(
         .iter()
         .copied()
         .map(|item| {
-            item_height_for_overflow(history, &plans, &units, item, content_width, top_padding)
+            item_height_for_overflow(
+                history,
+                &mut plans,
+                &units,
+                item,
+                content_width,
+                top_padding,
+            )
         })
         .fold(
             (0usize, false),
@@ -371,7 +378,7 @@ fn protected_band_height(
 
 fn item_height_for_overflow(
     history: &History,
-    plans: &[UnitPlan],
+    plans: &mut [UnitPlan],
     units: &[&super::HistoryUnit],
     item: FlowItem,
     width: u16,
@@ -387,6 +394,11 @@ fn item_height_for_overflow(
             }
             (PlannedContent::Frozen(rows), _) => (rows.len(), false),
             (PlannedContent::Live(view), _) => (view_height(view, width), false),
+            (PlannedContent::Stream { .. }, HistoryUnitContent::Stream(stream))
+                if !stream.is_sealed() =>
+            {
+                (ensure_height(&mut plans[index], units[index], width), false)
+            }
             (PlannedContent::Stream { index, prefix, .. }, _) => {
                 let prefix_height = prefix.as_ref().map_or(0, |rows| rows.as_slice().len());
                 let known = index.as_ref().map_or(0, |index| index.anchors.len());

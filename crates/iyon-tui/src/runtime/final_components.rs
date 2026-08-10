@@ -30,22 +30,36 @@ pub(crate) struct ApprovalDecision {
 }
 
 #[derive(Debug)]
+struct ToolResultState {
+    text: String,
+    details: serde_json::Value,
+    is_error: bool,
+}
+
+#[derive(Debug)]
 pub(crate) struct ConversationActivity {
     pub(crate) state: ActivityState,
     approval_id: Option<u64>,
     approval: Output<ApprovalDecision>,
+    formatter: TuiFormatter,
+    result: Option<ToolResultState>,
+    finished: bool,
 }
 
 impl ConversationActivity {
-    pub(crate) fn working() -> Self {
+    pub(crate) fn working(formatter: TuiFormatter) -> Self {
         Self {
             state: ActivityState::Working { frame: 0 },
             approval_id: None,
             approval: Output::new(),
+            formatter,
+            result: None,
+            finished: false,
         }
     }
 
     pub(crate) fn tool(
+        formatter: TuiFormatter,
         tool_call_id: String,
         tool_name: String,
         arguments: serde_json::Value,
@@ -62,6 +76,9 @@ impl ConversationActivity {
             },
             approval_id,
             approval: Output::new(),
+            formatter,
+            result: None,
+            finished: false,
         }
     }
 
@@ -85,6 +102,8 @@ impl ConversationActivity {
             detail: None,
         };
         self.approval_id = approval_id;
+        self.result = None;
+        self.finished = false;
     }
 
     pub(crate) fn update_tool(&mut self, update: Option<String>) {
@@ -103,26 +122,89 @@ impl ConversationActivity {
         }
     }
 
-    pub(crate) fn final_item(&self, is_error: bool) -> Option<TimelineItem> {
+    pub(crate) fn set_result(&mut self, text: String, details: serde_json::Value, is_error: bool) {
+        self.result = Some(ToolResultState {
+            text,
+            details,
+            is_error,
+        });
+    }
+
+    pub(crate) fn complete(&mut self, is_error: bool) {
+        if let ActivityState::Tool { status, .. } = &mut self.state {
+            *status = if is_error {
+                ToolTimelineStatus::Failed
+            } else {
+                ToolTimelineStatus::Finished
+            };
+        }
+        self.finished = true;
+    }
+
+    pub(crate) fn is_finished(&self) -> bool {
+        self.finished
+    }
+
+    pub(crate) fn has_result(&self) -> bool {
+        self.result.is_some()
+    }
+
+    fn tool_view(&self) -> Option<View> {
         let ActivityState::Tool {
             tool_call_id,
             tool_name,
             arguments,
-            ..
+            status,
+            detail,
         } = &self.state
         else {
             return None;
         };
-        Some(TimelineItem::ToolCall {
+        let call = self.formatter.format(&TimelineItem::ToolCall {
             tool_call_id: tool_call_id.clone(),
             tool_name: tool_name.clone(),
             arguments: arguments.clone(),
-            status: if is_error {
-                ToolTimelineStatus::Failed
-            } else {
-                ToolTimelineStatus::Finished
-            },
-        })
+            status: *status,
+        });
+        let Some(result) = &self.result else {
+            let Some(detail) = detail else {
+                return Some(call);
+            };
+            let detail = View::hanging(
+                View::text("  ").no_wrap(),
+                View::text("  ").no_wrap(),
+                View::text(detail.clone())
+                    .foreground(crate::ColorSpec::theme("text.muted"))
+                    .fill_width(),
+            )
+            .fill_width();
+            return Some(
+                View::vertical(|column| {
+                    column.child(call);
+                    column.child(detail);
+                })
+                .fill_width(),
+            );
+        };
+        let result = self.formatter.format(&TimelineItem::ToolResult {
+            tool_call_id: tool_call_id.clone(),
+            tool_name: tool_name.clone(),
+            text: result.text.clone(),
+            details: result.details.clone(),
+            is_error: result.is_error,
+            collapsed: true,
+        });
+        Some(
+            View::vertical(|column| {
+                column.child(call);
+                column.child(result);
+            })
+            .fill_width(),
+        )
+    }
+
+    pub(crate) fn final_view(&self) -> Option<View> {
+        self.tool_view()
     }
 
     fn tick(&mut self, _now: Instant, _cx: &mut EventCx<'_>) -> bool {
@@ -199,28 +281,7 @@ impl Component for ConversationActivity {
             ))
             .fill_width()
             .into_view(),
-            ActivityState::Tool {
-                tool_name,
-                status,
-                detail,
-                ..
-            } => {
-                let status = match status {
-                    ToolTimelineStatus::PendingApproval => "approval required",
-                    ToolTimelineStatus::Running => "running",
-                    ToolTimelineStatus::Approved => "approved",
-                    ToolTimelineStatus::Rejected => "rejected",
-                    ToolTimelineStatus::Finished => "finished",
-                    ToolTimelineStatus::Failed => "failed",
-                };
-                View::vertical(|column| {
-                    column.child(format!("tool {tool_name}: {status}"));
-                    if let Some(detail) = detail {
-                        column.child(detail.clone());
-                    }
-                })
-                .fill_width()
-            }
+            ActivityState::Tool { .. } => self.tool_view().unwrap_or_else(|| View::spacer(0)),
         }
     }
 

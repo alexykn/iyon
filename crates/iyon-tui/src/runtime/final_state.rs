@@ -91,6 +91,7 @@ pub(crate) struct InfoState {
     pub(crate) reasoning_effort: ReasoningLevel,
 }
 
+#[derive(Clone, Copy)]
 struct LiveTool {
     unit: HistoryUnitId,
     component: ComponentHandle<ConversationActivity>,
@@ -153,8 +154,10 @@ impl Default for AppState {
         outputs
             .route(submitted, AppAction::SubmitTurn)
             .expect("composer output route must be unique");
+        let mut history = History::new();
+        history.set_layout(crate::HistoryLayout::new(crate::Insets::new(0, 0, 1, 0), 1));
         let mut state = Self {
-            scene: Scene::with_history(History::new(), View::spacer(0)),
+            scene: Scene::with_history(history, View::spacer(0)),
             components,
             composer,
             steering,
@@ -264,7 +267,9 @@ impl AppState {
         if self.conversation.working.is_some() || self.conversation.stream.is_some() {
             return Ok(());
         }
-        let component = self.components.register(ConversationActivity::working());
+        let component = self.components.register(ConversationActivity::working(
+            self.conversation.formatter.clone(),
+        ));
         let unit = self
             .history_mut()
             .push(View::component(component).fill_width())?;
@@ -368,6 +373,11 @@ impl AppState {
         self.seal_stream()?;
         self.conversation.turn_started = false;
         self.remove_working()?;
+        let tools = self.conversation.tools.keys().cloned().collect::<Vec<_>>();
+        for tool_call_id in tools {
+            self.finish_tool_call(tool_call_id.clone(), false)?;
+            self.freeze_completed_tool(&tool_call_id, true)?;
+        }
         Ok(())
     }
 
@@ -378,7 +388,8 @@ impl AppState {
         self.remove_working()?;
         let tools = self.conversation.tools.keys().cloned().collect::<Vec<_>>();
         for tool_call_id in tools {
-            self.finish_tool_call(tool_call_id, false)?;
+            self.finish_tool_call(tool_call_id.clone(), false)?;
+            self.freeze_completed_tool(&tool_call_id, true)?;
         }
         Ok(())
     }
@@ -429,6 +440,7 @@ impl AppState {
             (unit, component)
         } else {
             let component = self.components.register(ConversationActivity::tool(
+                self.conversation.formatter.clone(),
                 tool_call_id.clone(),
                 tool_name.clone(),
                 arguments.clone(),
@@ -532,19 +544,43 @@ impl AppState {
         Ok(())
     }
 
-    pub(crate) fn finish_tool_call(&mut self, tool_call_id: String, is_error: bool) -> Result<()> {
-        let Some(tool) = self.conversation.tools.remove(&tool_call_id) else {
-            return Ok(());
+    fn freeze_completed_tool(
+        &mut self,
+        tool_call_id: &str,
+        allow_missing_result: bool,
+    ) -> Result<bool> {
+        let Some(tool) = self.conversation.tools.get(tool_call_id).copied() else {
+            return Ok(false);
         };
-        let item = self
+        let ready = self
             .components
-            .with(tool.component, |activity| activity.final_item(is_error))
+            .with(tool.component, |activity| {
+                activity.is_finished() && (allow_missing_result || activity.has_result())
+            })
+            .ok_or_else(|| anyhow::anyhow!("tool component disappeared"))?;
+        if !ready {
+            return Ok(false);
+        }
+        let view = self
+            .components
+            .with(tool.component, ConversationActivity::final_view)
             .flatten()
             .ok_or_else(|| anyhow::anyhow!("tool component disappeared"))?;
-        let view = self.conversation.formatter.format(&item);
         self.history_mut().freeze(tool.unit, view)?;
         self.components.remove(tool.component);
-        self.conversation.last_completed_tool = Some(tool_call_id);
+        self.conversation.tools.remove(tool_call_id);
+        self.conversation.last_completed_tool = Some(tool_call_id.to_string());
+        Ok(true)
+    }
+
+    pub(crate) fn finish_tool_call(&mut self, tool_call_id: String, is_error: bool) -> Result<()> {
+        let Some(tool) = self.conversation.tools.get(&tool_call_id).copied() else {
+            return Ok(());
+        };
+        self.components
+            .with_mut(tool.component, |activity| activity.complete(is_error))
+            .ok_or_else(|| anyhow::anyhow!("tool component disappeared"))?;
+        self.freeze_completed_tool(&tool_call_id, false)?;
         Ok(())
     }
 
@@ -556,6 +592,17 @@ impl AppState {
         details: serde_json::Value,
         is_error: bool,
     ) -> Result<()> {
+        if let Some(tool) = self.conversation.tools.get(&tool_call_id).copied() {
+            self.components
+                .with_mut(tool.component, |activity| {
+                    activity.set_result(text, details, is_error);
+                    activity.complete(is_error);
+                })
+                .ok_or_else(|| anyhow::anyhow!("tool component disappeared"))?;
+            self.freeze_completed_tool(&tool_call_id, true)?;
+            return Ok(());
+        }
+
         let boundary = (self.conversation.last_completed_tool.as_ref() == Some(&tool_call_id))
             .then_some(FlowBoundary::AttachToPrevious)
             .unwrap_or(FlowBoundary::Default);
@@ -568,7 +615,7 @@ impl AppState {
                 text,
                 details,
                 is_error,
-                collapsed: false,
+                collapsed: true,
             });
         self.history_mut().push_with_boundary(view, boundary)?;
         Ok(())
