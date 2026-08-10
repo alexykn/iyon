@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use iyon_tui::{
-    Component, ComponentCx, EventCx, InteractionResult, IntoView, Key, KeyStroke, Modifiers,
-    Output, View,
+    Component, ComponentCx, ComponentHandle, EventCx, InteractionResult, IntoView, Key, KeyStroke,
+    Modifiers, Output, OverflowIndicator, StyleRef, View,
 };
 
 use crate::transcript::{TimelineItem, ToolTimelineStatus, TuiFormatter};
@@ -19,7 +19,7 @@ pub(crate) enum ActivityState {
         tool_name: String,
         arguments: serde_json::Value,
         status: ToolTimelineStatus,
-        detail: Option<String>,
+        output: ComponentHandle<ToolOutput>,
     },
 }
 
@@ -35,6 +35,42 @@ struct ToolResultState {
     text: String,
     details: serde_json::Value,
     is_error: bool,
+}
+
+const MAX_TOOL_OUTPUT_ROWS: u16 = 16;
+
+#[derive(Debug, Default)]
+pub(crate) struct ToolOutput {
+    text: Option<String>,
+}
+
+impl ToolOutput {
+    pub(crate) fn set_text(&mut self, text: Option<String>) {
+        self.text = text;
+    }
+}
+
+impl Component for ToolOutput {
+    fn view(&self) -> View {
+        let Some(text) = &self.text else {
+            return View::spacer(0);
+        };
+        View::hanging(
+            View::text("  ").no_wrap(),
+            View::text("  ").no_wrap(),
+            View::text(text.clone())
+                .foreground(iyon_tui::ColorSpec::theme("text.muted"))
+                .fill_width(),
+        )
+        .fill_width()
+        .clamp_rows(
+            MAX_TOOL_OUTPUT_ROWS,
+            OverflowIndicator::Footer {
+                prefix: "… more lines (full result retained)".to_string(),
+                style: StyleRef::theme("truncation_footer"),
+            },
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -66,6 +102,7 @@ impl ConversationActivity {
         arguments: serde_json::Value,
         status: ToolTimelineStatus,
         approval_id: Option<u64>,
+        output: ComponentHandle<ToolOutput>,
     ) -> Self {
         Self {
             state: ActivityState::Tool {
@@ -73,7 +110,7 @@ impl ConversationActivity {
                 tool_name,
                 arguments,
                 status,
-                detail: None,
+                output,
             },
             approval_id,
             approval: Output::new(),
@@ -94,23 +131,18 @@ impl ConversationActivity {
         arguments: serde_json::Value,
         status: ToolTimelineStatus,
         approval_id: Option<u64>,
+        output: ComponentHandle<ToolOutput>,
     ) {
         self.state = ActivityState::Tool {
             tool_call_id,
             tool_name,
             arguments,
             status,
-            detail: None,
+            output,
         };
         self.approval_id = approval_id;
         self.result = None;
         self.finished = false;
-    }
-
-    pub(crate) fn update_tool(&mut self, update: Option<String>) {
-        if let ActivityState::Tool { detail, .. } = &mut self.state {
-            *detail = update;
-        }
     }
 
     pub(crate) fn set_status(&mut self, status: ToolTimelineStatus, approval_id: Option<u64>) {
@@ -156,7 +188,7 @@ impl ConversationActivity {
             tool_name,
             arguments,
             status,
-            detail,
+            output,
         } = &self.state
         else {
             return None;
@@ -168,21 +200,10 @@ impl ConversationActivity {
             status: *status,
         });
         let Some(result) = &self.result else {
-            let Some(detail) = detail else {
-                return Some(call);
-            };
-            let detail = View::hanging(
-                View::text("  ").no_wrap(),
-                View::text("  ").no_wrap(),
-                View::text(detail.clone())
-                    .foreground(iyon_tui::ColorSpec::theme("text.muted"))
-                    .fill_width(),
-            )
-            .fill_width();
             return Some(
                 View::vertical(|column| {
                     column.child(call);
-                    column.child(detail);
+                    column.child(View::component(*output).fill_width());
                 })
                 .fill_width(),
             );
