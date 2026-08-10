@@ -215,11 +215,106 @@ pub enum TextAttribute {
     Reversed,
 }
 
-/// Backend-neutral border description.
+/// Which sides of a semantic border are painted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BorderEdges {
+    pub(crate) top: bool,
+    pub(crate) right: bool,
+    pub(crate) bottom: bool,
+    pub(crate) left: bool,
+}
+
+impl BorderEdges {
+    pub const NONE: Self = Self {
+        top: false,
+        right: false,
+        bottom: false,
+        left: false,
+    };
+
+    pub const ALL: Self = Self {
+        top: true,
+        right: true,
+        bottom: true,
+        left: true,
+    };
+
+    pub const TOP_BOTTOM: Self = Self {
+        top: true,
+        right: false,
+        bottom: true,
+        left: false,
+    };
+
+    pub const fn new(top: bool, right: bool, bottom: bool, left: bool) -> Self {
+        Self {
+            top,
+            right,
+            bottom,
+            left,
+        }
+    }
+}
+
+/// Custom one-cell border glyphs. Applications can use ASCII, Unicode box
+/// drawing, or another backend-supported pattern.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BorderGlyphs {
+    pub(crate) top: String,
+    pub(crate) right: String,
+    pub(crate) bottom: String,
+    pub(crate) left: String,
+    pub(crate) top_left: String,
+    pub(crate) top_right: String,
+    pub(crate) bottom_left: String,
+    pub(crate) bottom_right: String,
+}
+
+impl BorderGlyphs {
+    pub fn new(
+        top: impl Into<String>,
+        right: impl Into<String>,
+        bottom: impl Into<String>,
+        left: impl Into<String>,
+        top_left: impl Into<String>,
+        top_right: impl Into<String>,
+        bottom_left: impl Into<String>,
+        bottom_right: impl Into<String>,
+    ) -> Self {
+        Self {
+            top: top.into(),
+            right: right.into(),
+            bottom: bottom.into(),
+            left: left.into(),
+            top_left: top_left.into(),
+            top_right: top_right.into(),
+            bottom_left: bottom_left.into(),
+            bottom_right: bottom_right.into(),
+        }
+    }
+
+    pub(crate) fn plain() -> Self {
+        Self::new("─", "│", "─", "│", "┌", "┐", "└", "┘")
+    }
+
+    pub(crate) fn rounded() -> Self {
+        Self::new("─", "│", "─", "│", "╭", "╮", "╰", "╯")
+    }
+
+    pub(crate) fn double() -> Self {
+        Self::new("═", "║", "═", "║", "╔", "╗", "╚", "╝")
+    }
+}
+
+/// Backend-neutral border description. Edges are independently optional;
+/// corners are painted only when both adjacent edges are enabled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BorderSpec {
     pub(crate) style: BorderStyle,
     pub(crate) color: Option<ColorSpec>,
+    pub(crate) edges: BorderEdges,
+    pub(crate) glyphs: BorderGlyphs,
+    pub(crate) top_label: Option<String>,
 }
 
 impl BorderSpec {
@@ -227,6 +322,9 @@ impl BorderSpec {
         Self {
             style: BorderStyle::Plain,
             color: None,
+            edges: BorderEdges::ALL,
+            glyphs: BorderGlyphs::plain(),
+            top_label: None,
         }
     }
 
@@ -234,6 +332,9 @@ impl BorderSpec {
         Self {
             style: BorderStyle::Rounded,
             color: None,
+            edges: BorderEdges::ALL,
+            glyphs: BorderGlyphs::rounded(),
+            top_label: None,
         }
     }
 
@@ -241,16 +342,56 @@ impl BorderSpec {
         Self {
             style: BorderStyle::Double,
             color: None,
+            edges: BorderEdges::ALL,
+            glyphs: BorderGlyphs::double(),
+            top_label: None,
         }
+    }
+
+    pub fn custom(glyphs: BorderGlyphs) -> Self {
+        Self {
+            style: BorderStyle::Plain,
+            color: None,
+            edges: BorderEdges::ALL,
+            glyphs,
+            top_label: None,
+        }
+    }
+
+    pub fn edges(mut self, edges: BorderEdges) -> Self {
+        self.edges = edges;
+        self
     }
 
     pub fn color(mut self, color: ColorSpec) -> Self {
         self.color = Some(color);
         self
     }
+
+    /// Places a semantic label over the top edge without changing geometry.
+    pub fn top_label(mut self, label: impl Into<String>) -> Self {
+        self.top_label = Some(label.into());
+        self
+    }
+
+    pub(crate) fn left_width(&self) -> u16 {
+        u16::from(self.edges.left)
+    }
+
+    pub(crate) fn right_width(&self) -> u16 {
+        u16::from(self.edges.right)
+    }
+
+    pub(crate) fn top_height(&self) -> u16 {
+        u16::from(self.edges.top)
+    }
+
+    pub(crate) fn bottom_height(&self) -> u16 {
+        u16::from(self.edges.bottom)
+    }
 }
 
-/// Terminal-independent border family.
+/// Terminal-independent border family used by the convenience constructors.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BorderStyle {
     #[default]
@@ -304,7 +445,10 @@ mod tests {
             BorderSpec::plain(),
             BorderSpec {
                 style: BorderStyle::Plain,
-                color: None
+                color: None,
+                edges: BorderEdges::ALL,
+                glyphs: BorderGlyphs::plain(),
+                top_label: None,
             }
         );
         assert_eq!(BorderSpec::rounded().style, BorderStyle::Rounded);
@@ -315,7 +459,10 @@ mod tests {
                 .color(ColorSpec::ansi(3)),
             BorderSpec {
                 style: BorderStyle::Rounded,
-                color: Some(ColorSpec::ansi(3))
+                color: Some(ColorSpec::ansi(3)),
+                edges: BorderEdges::ALL,
+                glyphs: BorderGlyphs::rounded(),
+                top_label: None,
             },
         );
     }

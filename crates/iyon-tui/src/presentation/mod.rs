@@ -13,9 +13,9 @@ pub(crate) mod wrap;
 
 #[allow(unused_imports)]
 pub(crate) use api::{
-    BorderSpec, BorderStyle, ColorSpec, Horizontal, HorizontalAlign, Insets, IntoView,
-    OverflowIndicator, StyleSpec, Text, TextAttribute, TextAttributeSpec, TextSpan, ThemeKey,
-    Vertical, VerticalAlign, View, WrapMode,
+    BorderEdges, BorderGlyphs, BorderSpec, BorderStyle, ColorSpec, Horizontal, HorizontalAlign,
+    Insets, IntoView, OverflowIndicator, StyleSpec, Text, TextAttribute, TextAttributeSpec,
+    TextSpan, ThemeKey, Vertical, VerticalAlign, View, WrapMode,
 };
 
 // Retained IR types remain private implementation details of the semantic

@@ -274,6 +274,9 @@ fn empty_border_geometry_is_safe_at_tiny_widths() {
     view.decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: None,
+        edges: BorderEdges::ALL,
+        glyphs: BorderGlyphs::plain(),
+        top_label: None,
     });
     let surface = compiler.layout(&view, 10, PhysicalStyle::default());
     assert_eq!((surface.width(), surface.height()), (2, 2));
@@ -292,6 +295,9 @@ fn empty_padding_and_border_add_their_outer_geometry() {
     view.decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: None,
+        edges: BorderEdges::ALL,
+        glyphs: BorderGlyphs::plain(),
+        top_label: None,
     });
     let surface = compiler.layout(&view, 10, PhysicalStyle::default());
 
@@ -306,6 +312,9 @@ fn empty_border_and_background_compose_without_changing_geometry() {
     view.decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: None,
+        edges: BorderEdges::ALL,
+        glyphs: BorderGlyphs::plain(),
+        top_label: None,
     });
     let surface = compiler.layout(&view, 10, PhysicalStyle::default());
 

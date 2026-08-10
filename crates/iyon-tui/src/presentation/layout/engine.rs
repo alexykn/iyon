@@ -61,11 +61,22 @@ impl Builder {
         height_bound: Option<u16>,
         clip: Rect,
     ) -> (LayoutNodeId, Size, bool) {
-        let border = u16::from(view.decoration.border.is_some());
+        let (left_border, _right_border, top_border, bottom_border) = view
+            .decoration
+            .border
+            .as_ref()
+            .map_or((0, 0, 0, 0), |border| {
+                (
+                    border.left_width(),
+                    border.right_width(),
+                    border.top_height(),
+                    border.bottom_height(),
+                )
+            });
         let (left_padding, _right_padding, horizontal_decoration) =
             horizontal_decoration(view, width_bound.unwrap_or(u16::MAX));
-        let vertical_decoration = border
-            .saturating_mul(2)
+        let vertical_decoration = top_border
+            .saturating_add(bottom_border)
             .saturating_add(view.decoration.padding.top)
             .saturating_add(view.decoration.padding.bottom);
         let inner_width_bound =
@@ -87,9 +98,9 @@ impl Builder {
             (_, Some(height)) => intrinsic_core.height.min(height),
             (_, None) => intrinsic_core.height,
         };
-        let content_x = x.saturating_add(border).saturating_add(left_padding);
+        let content_x = x.saturating_add(left_border).saturating_add(left_padding);
         let content_y = y
-            .saturating_add(border)
+            .saturating_add(top_border)
             .saturating_add(view.decoration.padding.top);
         let (children, core_size, complete) = self.build_kind(
             &view.kind,

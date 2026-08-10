@@ -208,19 +208,17 @@ impl App {
         for event in events {
             match event {
                 FrontendEvent::TurnStarted => {
-                    state.start_working()?;
+                    state.turn_started()?;
                 }
                 FrontendEvent::SteerQueued { text } => state.enqueue_steer(text),
                 FrontendEvent::UserMessage { text } => state.submit_user_message(text)?,
                 FrontendEvent::AssistantDelta { text } => {
                     self.stream_smoother
                         .push(crate::transcript::SegmentKind::Text, &text);
-                    state.start_working()?;
                 }
                 FrontendEvent::ThinkingDelta { text } => {
                     self.stream_smoother
                         .push(crate::transcript::SegmentKind::Thinking, &text);
-                    state.start_working()?;
                 }
                 FrontendEvent::TurnFinished => {
                     self.flush_stream(state)?;
