@@ -47,13 +47,4 @@ impl Rect {
         }
         Some(Self::new(left, top, right - left, bottom - top))
     }
-
-    pub(crate) fn translate(self, point: super::Point) -> Self {
-        Self::new(
-            point.x.saturating_add(self.x),
-            point.y.saturating_add(self.y),
-            self.width,
-            self.height,
-        )
-    }
 }

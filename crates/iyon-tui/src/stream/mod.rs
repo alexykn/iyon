@@ -7,7 +7,7 @@ mod append;
 mod compile;
 mod coord;
 mod model;
-mod node;
+pub(crate) mod node;
 mod projected;
 mod resident;
 mod snapshot;
@@ -21,26 +21,22 @@ mod pane;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use append::append_only_text_stable_frontier;
 pub(crate) use compile::{
     CompiledStream, StreamAtomicId, StreamRowAnchor, StreamRowTransfer, compile_stream,
 };
 pub use coord::{StreamOffset, StreamRange, StreamRevision};
 pub use model::StreamModelError as StreamError;
 pub(crate) use model::{StreamModel, StreamModelError};
-pub(crate) use node::{StreamNode, StreamProvenance, StreamSliceError, StreamView};
+pub(crate) use node::{StreamNode, StreamView};
 pub use pane::StreamPane;
 pub(crate) use projected::{
     ExactTerminator, ProjectedTextLayout, ProjectedTextRun, projected_atoms,
-    projected_checkpoint_is_legal,
 };
 pub use projected::{ProjectedText, ProjectedTextBuilder};
-pub(crate) use resident::ResidentPrefix;
 pub use snapshot::{StreamSnapshot, StreamSnapshotBuilder};
 pub use source::StreamingSource;
 pub(crate) use transfer::{
-    FrozenPhysicalRows, StreamPartialTransfer, StreamTransferPayload, StreamTransferPlan,
-    plan_stream_transfer,
+    FrozenPhysicalRows, StreamPartialTransfer, StreamTransferPayload, plan_stream_transfer,
 };
 pub use validate::{ProjectedValidationError, StreamValidationError};
 pub(crate) use viewport::{StreamRowIndex, build_index_from, window_view};

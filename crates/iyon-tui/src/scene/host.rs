@@ -32,7 +32,6 @@ const MAX_LAYOUT_PASSES: usize = 8;
 pub(crate) struct PreparedSceneFrame {
     pub(crate) surface: Surface,
     pub(crate) history_overlay: Option<crate::history::HistoryPhysicalOverlay>,
-    pub(crate) physically_complete: bool,
 }
 
 /// Generic runtime host for one semantic Scene.
@@ -209,11 +208,9 @@ impl SceneHost {
     fn paint(&self, resolved: StableScene) -> PreparedSceneFrame {
         let compiler = ViewCompiler::default();
         let surface = ViewPainter.paint_tree(&compiler, &resolved.layout.tree);
-        let complete = surface.physically_complete;
         PreparedSceneFrame {
             surface,
             history_overlay: resolved.root.history_overlay,
-            physically_complete: complete,
         }
     }
 }

@@ -22,6 +22,7 @@ impl PhysicalCell {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn blank(style: PhysicalStyle) -> Self {
         Self {
             grapheme: None,

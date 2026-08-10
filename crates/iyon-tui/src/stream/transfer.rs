@@ -21,10 +21,6 @@ impl FrozenPhysicalRows {
     pub(crate) fn as_slice(&self) -> &[PhysicalRow] {
         &self.0
     }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
 }
 
 /// Exact physical rows selected by the stream transfer planner.
@@ -34,6 +30,7 @@ pub(crate) enum StreamTransferPayload {
     Frozen { rows: FrozenPhysicalRows },
 }
 
+#[cfg(test)]
 impl StreamTransferPayload {
     pub(crate) fn rows_to_write(&self) -> usize {
         match self {

@@ -6,7 +6,6 @@ use crate::{
     geometry::Size,
     history::transfer_native_prefix,
     physical::PhysicalRow,
-    presentation::layout::ViewCompiler,
     stream::{StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder},
 };
 
@@ -96,7 +95,7 @@ fn body_only_root_has_no_history_overlay() {
     assert!(resolved.history_overlay.is_none());
     assert_eq!(resolved.history_height, 0);
     assert_eq!(resolved.body_height, 1);
-    assert!(resolved.scene.mounts.is_empty());
+    assert!(resolved.scene.mounts.nodes.is_empty());
 }
 
 #[test]
@@ -133,12 +132,12 @@ fn history_follow_end_stays_above_body() {
         Size::new(10, 6),
     )
     .unwrap();
-    let rows = ViewCompiler::default()
-        .compile_bounded(&resolved.scene.view, Size::new(10, 6))
-        .rows
-        .into_iter()
-        .map(|row| row.plain_text())
-        .collect::<Vec<_>>();
+    let rows =
+        crate::presentation::layout::compile_bounded_view(&resolved.scene.view, Size::new(10, 6))
+            .rows
+            .into_iter()
+            .map(|row| row.plain_text())
+            .collect::<Vec<_>>();
     assert_eq!(rows, ["H3", "H4", "H5", "H6", "B1", "B2"]);
 }
 
@@ -228,12 +227,12 @@ fn multi_live_stream_capacity_keeps_one_root_mount_order() {
         resolved.scene.mounts.ids().collect::<Vec<_>>(),
         [a.id(), b.id(), c.id()]
     );
-    let rows = ViewCompiler::default()
-        .compile_bounded(&resolved.scene.view, Size::new(10, 10))
-        .rows
-        .into_iter()
-        .map(|row| row.plain_text())
-        .collect::<Vec<_>>();
+    let rows =
+        crate::presentation::layout::compile_bounded_view(&resolved.scene.view, Size::new(10, 10))
+            .rows
+            .into_iter()
+            .map(|row| row.plain_text())
+            .collect::<Vec<_>>();
     assert_eq!(
         rows,
         [
@@ -248,12 +247,12 @@ fn multi_live_stream_capacity_keeps_one_root_mount_order() {
         .update_stream(stream, |source| source.set_count(21))
         .unwrap();
     resolved = resolve_root_scene(&updated, &registry, Size::new(10, 10)).unwrap();
-    let rows = ViewCompiler::default()
-        .compile_bounded(&resolved.scene.view, Size::new(10, 10))
-        .rows
-        .into_iter()
-        .map(|row| row.plain_text())
-        .collect::<Vec<_>>();
+    let rows =
+        crate::presentation::layout::compile_bounded_view(&resolved.scene.view, Size::new(10, 10))
+            .rows
+            .into_iter()
+            .map(|row| row.plain_text())
+            .collect::<Vec<_>>();
     assert_eq!(
         rows,
         [
@@ -295,12 +294,12 @@ fn frozen_history_overlay_stays_inside_history_track_above_body() {
     history.set_layout(HistoryLayout::new(Insets::ZERO, 0));
     history.push("A\nB\nC").unwrap();
     let expected_view = View::text("A\nB\nC").into_view();
-    let expected = ViewCompiler::default()
-        .compile_bounded(&expected_view, Size::new(10, 3))
-        .rows
-        .into_iter()
-        .map(|row| row.placed(10, 0))
-        .collect::<Vec<_>>();
+    let expected =
+        crate::presentation::layout::compile_bounded_view(&expected_view, Size::new(10, 3))
+            .rows
+            .into_iter()
+            .map(|row| row.placed(10, 0))
+            .collect::<Vec<_>>();
     let mut sink = RootSink {
         accepted: 1,
         ..RootSink::default()

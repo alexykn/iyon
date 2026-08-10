@@ -1,5 +1,5 @@
 use crate::stream::StreamOffset;
-use crate::stream::append_only_text_stable_frontier;
+use crate::stream::append::append_only_text_stable_frontier;
 
 #[test]
 fn open_append_frontier_withholds_trailing_egc() {

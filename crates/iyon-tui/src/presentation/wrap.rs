@@ -22,34 +22,6 @@ pub(crate) struct StyledGrapheme<'a> {
     pub(crate) source: Option<Range<usize>>,
 }
 
-impl<'a> StyledGrapheme<'a> {
-    pub(crate) fn new(text: impl Into<Cow<'a, str>>, style: PhysicalStyle) -> Self {
-        let text = text.into();
-        let width = UnicodeWidthStr::width(text.as_ref());
-        Self {
-            text,
-            width,
-            style,
-            source: None,
-        }
-    }
-
-    pub(crate) fn with_source(
-        text: impl Into<Cow<'a, str>>,
-        style: PhysicalStyle,
-        source: Range<usize>,
-    ) -> Self {
-        let text = text.into();
-        let width = UnicodeWidthStr::width(text.as_ref());
-        Self {
-            text,
-            width,
-            style,
-            source: Some(source),
-        }
-    }
-}
-
 /// A physical line of wrapped graphemes along with its display width and fit indicator.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WrappedLine<'a> {

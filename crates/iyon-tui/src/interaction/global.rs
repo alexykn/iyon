@@ -10,6 +10,7 @@ pub(crate) struct GlobalBindings {
 }
 
 impl GlobalBindings {
+    /// S9 seam: AppCx will populate application-owned global actions.
     pub(crate) fn push(&mut self, binding: GlobalBinding) {
         self.bindings.push(binding);
     }

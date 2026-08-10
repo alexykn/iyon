@@ -1,9 +1,7 @@
 use super::*;
 use crate::{
-    StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
-    StreamValidationError, TextSpan,
-    geometry::Size,
-    presentation::{IntoView, layout::ViewCompiler},
+    Component, StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
+    StreamValidationError, TextSpan, geometry::Size, presentation::IntoView,
 };
 
 struct TestSource {
@@ -71,8 +69,7 @@ fn rows<S: StreamingSource>(pane: &StreamPane<S>) -> Vec<String> {
 }
 
 fn rows_at<S: StreamingSource>(pane: &StreamPane<S>, width: u16, height: u16) -> Vec<String> {
-    ViewCompiler::default()
-        .compile_bounded(&pane.view(), Size::new(width, height))
+    crate::presentation::layout::compile_bounded_view(&pane.view(), Size::new(width, height))
         .rows
         .iter()
         .map(|row| row.plain_text())
@@ -293,7 +290,7 @@ fn private_row_viewport_crops_rows_without_overflow_content() {
         }),
         1,
     );
-    let compiled = ViewCompiler::default().compile_bounded(&view, Size::new(8, 1));
+    let compiled = crate::presentation::layout::compile_bounded_view(&view, Size::new(8, 1));
     assert_eq!(compiled.rows.len(), 1);
     assert_eq!(compiled.rows[0].plain_text(), "two");
 }
@@ -398,9 +395,18 @@ fn detached_checkpoint_survives_width_reflow() {
 
 #[test]
 fn public_atomic_builder_rejects_component_identity() {
-    let view = View::text("x")
-        .into_view()
-        .with_component(crate::component::ComponentId::allocate());
+    #[derive(Debug)]
+    struct Identity;
+
+    impl Component for Identity {
+        fn view(&self) -> View {
+            View::text("identity").into_view()
+        }
+    }
+
+    let mut registry = crate::component::ComponentRegistry::new();
+    let handle = registry.register(Identity);
+    let view = View::component(handle);
     let result = StreamSnapshotBuilder::new(
         StreamRevision::ZERO,
         StreamOffset::ZERO,

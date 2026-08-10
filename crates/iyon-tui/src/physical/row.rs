@@ -1,6 +1,8 @@
 //! Immutable final physical rows.
 
-use super::{PhysicalCell, PhysicalStyle};
+use super::PhysicalCell;
+#[cfg(test)]
+use super::PhysicalStyle;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PhysicalRow {
@@ -36,6 +38,7 @@ impl PhysicalRow {
         self.cells.get(index)
     }
 
+    #[cfg(test)]
     pub(crate) fn plain_text(&self) -> String {
         let last_painted = self
             .cells
@@ -57,15 +60,7 @@ impl PhysicalRow {
             .collect()
     }
 
-    pub(crate) fn has_painted_background(&self) -> bool {
-        self.cells.iter().any(|cell| {
-            cell.painted
-                && cell.style.background.is_some()
-                && cell.grapheme.is_none()
-                && !cell.continuation
-        })
-    }
-
+    #[cfg(test)]
     pub(crate) fn style_at(&self, index: usize) -> Option<PhysicalStyle> {
         self.cell(index).map(|cell| cell.style)
     }

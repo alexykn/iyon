@@ -3,7 +3,7 @@
 //! Panels own semantic state and rendering. Placement, sizing, focus, and
 //! visibility are decided by the containing Scene View and generic host.
 
-use crate::{Component, IntoView, View};
+use crate::{Component, View};
 
 const MAX_PENDING_ROWS: usize = 4;
 

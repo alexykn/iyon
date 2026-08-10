@@ -6,6 +6,7 @@ pub(crate) struct MountedComponents {
 }
 
 impl MountedComponents {
+    #[cfg(test)]
     pub(crate) fn current(&self) -> &MountGraph {
         &self.current
     }
@@ -49,6 +50,7 @@ pub(crate) struct MountTransitions {
     pub(crate) transitions: Vec<MountTransition>,
 }
 
+#[cfg(test)]
 impl MountTransitions {
     pub(crate) fn is_empty(&self) -> bool {
         self.transitions.is_empty()

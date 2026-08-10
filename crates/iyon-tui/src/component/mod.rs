@@ -23,7 +23,7 @@ pub(crate) use id::ComponentId;
 pub(crate) use mount::{MountTransition, MountTransitions, MountedComponents};
 pub(crate) use registry::ComponentRegistry;
 pub(crate) use revision::ComponentRevision;
-pub(crate) use tick::{TickOutcome, TickRegistrationError, TickScheduler};
+pub(crate) use tick::{TickOutcome, TickScheduler};
 
 /// Public retained-state rendering and capability declaration contract.
 pub trait Component: 'static {

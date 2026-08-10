@@ -22,16 +22,13 @@ impl OutputQueue {
         }
     }
 
-    pub(crate) fn event_cx(&mut self) -> EventCx<'_> {
-        EventCx { queue: self }
-    }
-
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.events.is_empty()
     }
 
-    pub(crate) fn append(&mut self, mut other: Self) {
-        self.events.append(&mut other.events);
+    pub(crate) fn event_cx(&mut self) -> EventCx<'_> {
+        EventCx { queue: self }
     }
 
     pub(super) fn pop_front(&mut self) -> Option<ErasedOutputEvent> {

@@ -15,7 +15,6 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct InlineTerminal {
     terminal: DefaultTerminal,
-    invalidate_next_draw: bool,
     last_drawn_cursor: Option<(u16, u16)>,
 }
 
@@ -47,7 +46,6 @@ impl InlineTerminal {
     pub(crate) fn new(terminal: DefaultTerminal) -> Self {
         Self {
             terminal,
-            invalidate_next_draw: false,
             last_drawn_cursor: None,
         }
     }
@@ -56,11 +54,6 @@ impl InlineTerminal {
     where
         F: FnOnce(&mut Frame),
     {
-        if self.invalidate_next_draw {
-            self.terminal.clear()?;
-            self.invalidate_next_draw = false;
-        }
-
         self.terminal.draw(|frame| {
             draw_fn(frame);
         })?;
@@ -108,15 +101,6 @@ impl InlineTerminal {
     pub(crate) fn current_viewport_area(&mut self) -> Result<Rect> {
         self.terminal.autoresize()?;
         Ok(self.terminal.get_frame().area())
-    }
-
-    pub(crate) fn invalidate_next_draw(&mut self) {
-        self.invalidate_next_draw = true;
-    }
-
-    pub(crate) fn size(&mut self) -> Result<Rect> {
-        let size = self.terminal.size()?;
-        Ok(Rect::new(0, 0, size.width, size.height))
     }
 
     pub(crate) fn set_cursor_position(&mut self, position: (u16, u16)) -> Result<()> {

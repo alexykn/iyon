@@ -2,12 +2,12 @@
 
 use super::{
     composition::{Horizontal, Vertical},
-    style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, TextAttribute, VerticalAlign},
+    style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, TextAttribute},
     text::{Text, TextSpan},
 };
 use crate::presentation::ir::{
     ClampRowsView, ColumnChild, ColumnView, ContainerNode, Decoration, HangingView, HeightRule,
-    RowChild, RowView, View, ViewKind, WidthRule,
+    RowView, View, ViewKind, WidthRule,
 };
 
 impl View {
@@ -108,36 +108,6 @@ impl View {
             kind: ViewKind::Column(ColumnView {
                 children: children.into_iter().map(ColumnChild::content).collect(),
                 gap,
-            }),
-        }
-    }
-
-    pub(crate) fn row(children: Vec<RowChild>, gap: u16) -> Self {
-        Self {
-            component: None,
-            width: WidthRule::Fill,
-            height: HeightRule::Fit,
-            decoration: Decoration::default(),
-            kind: ViewKind::Row(RowView {
-                children,
-                gap,
-                vertical_align: VerticalAlign::Top,
-            }),
-        }
-    }
-
-    pub(crate) fn box_(child: View, decoration: Decoration) -> Self {
-        let mut child = child;
-        let component = child.component.take();
-        let width = child.width;
-        let height = child.height;
-        Self {
-            component,
-            width,
-            height,
-            decoration,
-            kind: ViewKind::Container(ContainerNode {
-                child: Box::new(child),
             }),
         }
     }
@@ -286,13 +256,6 @@ impl View {
         self.height = HeightRule::Fill;
         self
     }
-
-    /// Migration-only internal sizing method. Replaced by `fit_width` and
-    /// `fill_width` in the final semantic API.
-    pub(crate) fn width(mut self, width: WidthRule) -> Self {
-        self.width = width;
-        self
-    }
 }
 
 /// Explicit conversion from semantic construction values into the canonical
@@ -387,22 +350,15 @@ mod tests {
     }
 
     #[test]
-    fn row_and_container_are_owned_data() {
-        let view = View::box_(
-            View::row(
-                vec![
-                    RowChild::content(View::text("●").no_wrap().into_view()),
-                    RowChild::flex(
-                        View::text("long command")
-                            .width(WidthRule::Fill)
-                            .into_view(),
-                    ),
-                ],
-                1,
-            ),
-            Decoration::background(ColorSpec::Theme("tool.running".into())).padding(Insets::all(1)),
-        );
-        assert!(matches!(view.kind, ViewKind::Container(_)));
+    fn semantic_composition_is_owned_data() {
+        let view = View::horizontal(|row| {
+            row.child(View::text("●").no_wrap());
+            row.flex(View::text("long command").fill_width());
+            row.gap(1);
+        })
+        .background(ColorSpec::Theme("tool.running".into()))
+        .padding(Insets::all(1));
+        assert!(matches!(view.kind, ViewKind::Row(_)));
         assert!(!view.decoration.padding.eq(&Insets::ZERO));
     }
 

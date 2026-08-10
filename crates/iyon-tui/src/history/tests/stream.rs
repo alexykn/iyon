@@ -1,8 +1,8 @@
 use super::super::*;
 use super::TestSource;
 use crate::{
-    TextSpan, View,
-    component::ComponentId,
+    Component, TextSpan, View,
+    component::ComponentRegistry,
     presentation::IntoView,
     stream::{
         StreamModelError, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
@@ -97,10 +97,19 @@ impl StreamingSource for OtherSource {
     }
 }
 
+#[derive(Debug)]
+struct LiveComponent;
+
+impl Component for LiveComponent {
+    fn view(&self) -> View {
+        View::text("live").into_view()
+    }
+}
+
 fn live_view() -> View {
-    View::text("live")
-        .into_view()
-        .with_component(ComponentId::allocate())
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(LiveComponent);
+    View::component(handle)
 }
 
 fn stream_snapshot(history: &History, id: HistoryUnitId) -> StreamSnapshot {

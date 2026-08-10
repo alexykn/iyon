@@ -7,7 +7,8 @@ use crate::{
     scene::resolve_scene,
 };
 
-use super::{FocusState, GlobalBindings, InteractionResult, Key, KeyStroke, Modifiers, route_key};
+use super::routing::route_key;
+use super::{FocusState, GlobalBindings, InteractionResult, Key, KeyStroke, Modifiers};
 
 struct FocusProbe {
     focused: bool,
@@ -258,7 +259,7 @@ fn focus_traversal_is_cyclic_and_not_index_owned() {
     let scene = scene_for(view, &registry);
     let mounted = mount(&scene);
     let mut focus = FocusState::default();
-    focus.reconcile(&scene.mounts, &scene.capabilities, &mut registry);
+    focus.reconcile_with_geometry(&scene.mounts, &scene.capabilities, None, &mut registry);
     assert_eq!(focus.focused(), Some(a.id()));
     assert!(focus.focus_next(mounted.current(), &scene.capabilities, &mut registry));
     assert_eq!(focus.focused(), Some(b.id()));
@@ -279,7 +280,7 @@ fn typed_local_command_mutates_and_emits_only_before_later_drain() {
     let scene = scene_for(View::component(counter), &registry);
     let mounted = mount(&scene);
     let mut focus = FocusState::default();
-    focus.reconcile(&scene.mounts, &scene.capabilities, &mut registry);
+    focus.reconcile_with_geometry(&scene.mounts, &scene.capabilities, None, &mut registry);
 
     let mut queue = OutputQueue::new();
     assert_eq!(
@@ -313,7 +314,7 @@ fn ignored_handler_can_emit_before_ancestor_consumes() {
     let scene = scene_for(View::component(parent), &registry);
     let mounted = mount(&scene);
     let mut focus = FocusState::default();
-    focus.reconcile(&scene.mounts, &scene.capabilities, &mut registry);
+    focus.reconcile_with_geometry(&scene.mounts, &scene.capabilities, None, &mut registry);
 
     let mut queue = OutputQueue::new();
     assert_eq!(
@@ -345,7 +346,7 @@ fn ignored_focused_component_bubbles_to_ancestor_but_not_sibling() {
     let scene = scene_for(View::component(parent), &registry);
     let mounted = mount(&scene);
     let mut focus = FocusState::default();
-    focus.reconcile(&scene.mounts, &scene.capabilities, &mut registry);
+    focus.reconcile_with_geometry(&scene.mounts, &scene.capabilities, None, &mut registry);
     // The child is the only focusable node and therefore receives the focus.
     assert_eq!(focus.focused(), Some(child.id()));
 
@@ -378,7 +379,7 @@ fn focus_change_callbacks_advance_component_revision() {
         &registry,
     );
     let mut focus = FocusState::default();
-    focus.reconcile(&scene.mounts, &scene.capabilities, &mut registry);
+    focus.reconcile_with_geometry(&scene.mounts, &scene.capabilities, None, &mut registry);
     assert_eq!(registry.revision(a).unwrap().value(), 1);
     focus.focus_next(&scene.mounts, &scene.capabilities, &mut registry);
     assert_eq!(registry.revision(a).unwrap().value(), 2);
@@ -397,9 +398,10 @@ fn removed_focused_component_receives_blur_from_retained_handler() {
         &registry,
     );
     let mut focus = FocusState::default();
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &first_scene.mounts,
         &first_scene.capabilities,
+        None,
         &mut registry,
     );
     assert_eq!(registry.revision(first).unwrap().value(), 1);
@@ -410,9 +412,10 @@ fn removed_focused_component_receives_blur_from_retained_handler() {
         }),
         &registry,
     );
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &second_scene.mounts,
         &second_scene.capabilities,
+        None,
         &mut registry,
     );
 
@@ -431,9 +434,10 @@ fn losing_focusability_blurs_using_the_previous_capability() {
     let second = registry.register(FocusProbe { focused: false });
     let first_scene = scene_for(View::component(first), &registry);
     let mut focus = FocusState::default();
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &first_scene.mounts,
         &first_scene.capabilities,
+        None,
         &mut registry,
     );
     assert_eq!(registry.revision(first).unwrap().value(), 1);
@@ -446,9 +450,10 @@ fn losing_focusability_blurs_using_the_previous_capability() {
         }),
         &registry,
     );
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &second_scene.mounts,
         &second_scene.capabilities,
+        None,
         &mut registry,
     );
 
@@ -526,9 +531,10 @@ fn modal_focus_is_contained_and_restored_in_nested_order() {
         &registry,
     );
     let mut focus = FocusState::default();
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &first_scene.mounts,
         &first_scene.capabilities,
+        None,
         &mut registry,
     );
     assert_eq!(focus.focused(), Some(first_child.id()));
@@ -547,9 +553,10 @@ fn modal_focus_is_contained_and_restored_in_nested_order() {
         }),
         &registry,
     );
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &nested_scene.mounts,
         &nested_scene.capabilities,
+        None,
         &mut registry,
     );
     assert_eq!(focus.active_modal(), Some(second.id()));
@@ -563,18 +570,20 @@ fn modal_focus_is_contained_and_restored_in_nested_order() {
         }),
         &registry,
     );
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &restored_scene.mounts,
         &restored_scene.capabilities,
+        None,
         &mut registry,
     );
     assert_eq!(focus.active_modal(), Some(first.id()));
     assert_eq!(focus.focused(), Some(second_child.id()));
 
     let background_scene = scene_for(View::component(underlying), &registry);
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &background_scene.mounts,
         &background_scene.capabilities,
+        None,
         &mut registry,
     );
     assert_eq!(focus.focused(), Some(underlying.id()));
@@ -604,9 +613,10 @@ fn removing_a_modal_hierarchy_unwinds_to_background_focus() {
         &registry,
     );
     let mut focus = FocusState::default();
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &background_scene.mounts,
         &background_scene.capabilities,
+        None,
         &mut registry,
     );
     focus.focus_next(
@@ -624,9 +634,10 @@ fn removing_a_modal_hierarchy_unwinds_to_background_focus() {
         }),
         &registry,
     );
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &first_scene.mounts,
         &first_scene.capabilities,
+        None,
         &mut registry,
     );
     registry.with_mut(first, |modal| modal.nested = Some(nested));
@@ -639,9 +650,10 @@ fn removing_a_modal_hierarchy_unwinds_to_background_focus() {
         }),
         &registry,
     );
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &nested_scene.mounts,
         &nested_scene.capabilities,
+        None,
         &mut registry,
     );
     assert_eq!(focus.focused(), Some(nested_child.id()));
@@ -653,9 +665,10 @@ fn removing_a_modal_hierarchy_unwinds_to_background_focus() {
         }),
         &registry,
     );
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &removed_scene.mounts,
         &removed_scene.capabilities,
+        None,
         &mut registry,
     );
     assert_eq!(focus.focused(), Some(background_b.id()));
@@ -686,9 +699,10 @@ fn replacing_a_modal_does_not_leave_stale_restore_frames() {
         &registry,
     );
     let mut focus = FocusState::default();
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &first_scene.mounts,
         &first_scene.capabilities,
+        None,
         &mut registry,
     );
     focus.focus_next(
@@ -705,17 +719,19 @@ fn replacing_a_modal_does_not_leave_stale_restore_frames() {
         }),
         &registry,
     );
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &replacement_scene.mounts,
         &replacement_scene.capabilities,
+        None,
         &mut registry,
     );
     assert_eq!(focus.focused(), Some(second_child.id()));
 
     let background_scene = scene_for(View::component(underlying), &registry);
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &background_scene.mounts,
         &background_scene.capabilities,
+        None,
         &mut registry,
     );
     assert_eq!(focus.focused(), Some(underlying.id()));
@@ -727,9 +743,10 @@ fn replacing_a_modal_does_not_leave_stale_restore_frames() {
         }),
         &registry,
     );
-    focus.reconcile(
+    focus.reconcile_with_geometry(
         &reopened_scene.mounts,
         &reopened_scene.capabilities,
+        None,
         &mut registry,
     );
     assert_eq!(focus.focused(), Some(first_child.id()));

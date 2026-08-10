@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{Component, ComponentHandle, ComponentId, MountGraph, MountTransitions};
+use super::{ComponentId, MountGraph, MountTransitions};
 use crate::{
     component::ComponentRegistry,
     interaction::MountedCapabilities,
@@ -19,31 +19,6 @@ trait TickDriver {
         registry: &mut ComponentRegistry,
         cx: &mut EventCx<'_>,
     ) -> bool;
-}
-
-struct TypedTickDriver<C, F> {
-    callback: F,
-    marker: std::marker::PhantomData<fn() -> C>,
-}
-
-impl<C, F> TickDriver for TypedTickDriver<C, F>
-where
-    C: Component,
-    F: FnMut(&mut C, Instant) -> bool,
-{
-    fn tick(
-        &mut self,
-        handle: ComponentId,
-        now: Instant,
-        registry: &mut ComponentRegistry,
-        _cx: &mut EventCx<'_>,
-    ) -> bool {
-        registry
-            .with_mut(ComponentHandle::<C>::from_id(handle), |component| {
-                (self.callback)(component, now)
-            })
-            .unwrap_or(false)
-    }
 }
 
 struct CapabilityTickDriver {
@@ -68,19 +43,6 @@ struct TickRegistration {
     interval: Duration,
     next_due: Option<Instant>,
     driver: Box<dyn TickDriver>,
-    source: TickSource,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TickSource {
-    Legacy,
-    Capability,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TickRegistrationError {
-    ZeroInterval,
-    AlreadyRegistered,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,38 +71,6 @@ impl TickScheduler {
             mounted: HashSet::new(),
             mount_order: Vec::new(),
         }
-    }
-
-    pub(crate) fn register<C, F>(
-        &mut self,
-        handle: ComponentHandle<C>,
-        interval: Duration,
-        callback: F,
-    ) -> Result<(), TickRegistrationError>
-    where
-        C: Component,
-        F: FnMut(&mut C, Instant) -> bool + 'static,
-    {
-        if interval.is_zero() {
-            return Err(TickRegistrationError::ZeroInterval);
-        }
-        if self.registrations.contains_key(&handle.id()) {
-            return Err(TickRegistrationError::AlreadyRegistered);
-        }
-
-        self.registrations.insert(
-            handle.id(),
-            TickRegistration {
-                interval,
-                next_due: None,
-                driver: Box::new(TypedTickDriver {
-                    callback,
-                    marker: std::marker::PhantomData,
-                }),
-                source: TickSource::Legacy,
-            },
-        );
-        Ok(())
     }
 
     /// Synchronizes activation from the semantic mount graph.
@@ -212,7 +142,7 @@ impl TickScheduler {
                 callback: tick.handler.clone(),
             });
             match self.registrations.get_mut(id) {
-                Some(registration) if registration.source == TickSource::Capability => {
+                Some(registration) => {
                     let interval_changed = registration.interval != tick.interval;
                     registration.interval = tick.interval;
                     registration.driver = driver;
@@ -223,13 +153,6 @@ impl TickScheduler {
                         self.activate(*id, now);
                     }
                 }
-                Some(registration) => {
-                    registration.interval = tick.interval;
-                    registration.next_due = None;
-                    registration.driver = driver;
-                    registration.source = TickSource::Capability;
-                    self.activate(*id, now);
-                }
                 None => {
                     self.registrations.insert(
                         *id,
@@ -237,7 +160,6 @@ impl TickScheduler {
                             interval: tick.interval,
                             next_due: None,
                             driver,
-                            source: TickSource::Capability,
                         },
                     );
                     self.activate(*id, now);
@@ -248,9 +170,7 @@ impl TickScheduler {
         let stale: Vec<_> = self
             .registrations
             .iter()
-            .filter(|(id, registration)| {
-                registration.source == TickSource::Capability && !desired.contains_key(id)
-            })
+            .filter(|(id, _)| !desired.contains_key(id))
             .map(|(id, _)| *id)
             .collect();
         for id in stale {
@@ -266,15 +186,6 @@ impl TickScheduler {
             .map(|deadline| deadline.checked_duration_since(now).unwrap_or_default())
             .min()
             .unwrap_or(idle_timeout)
-    }
-
-    pub(crate) fn tick_due(
-        &mut self,
-        now: Instant,
-        registry: &mut ComponentRegistry,
-    ) -> TickOutcome {
-        let mut queue = OutputQueue::new();
-        self.tick_due_with_events(now, registry, &mut queue)
     }
 
     pub(crate) fn tick_due_with_events(

@@ -24,29 +24,6 @@ pub struct View {
 }
 
 impl View {
-    pub(crate) fn with_component(mut self, component: ComponentId) -> Self {
-        self.component = Some(component);
-        self
-    }
-
-    pub(crate) fn attach_component(self, component: ComponentId) -> Self {
-        if self.component.is_none() || self.component == Some(component) {
-            return self.with_component(component);
-        }
-
-        let width = self.width;
-        let height = self.height;
-        Self {
-            component: Some(component),
-            width,
-            height,
-            decoration: Decoration::default(),
-            kind: ViewKind::Container(ContainerNode {
-                child: Box::new(self),
-            }),
-        }
-    }
-
     pub(crate) fn contains_component_identity(&self) -> bool {
         if self.component.is_some() {
             return true;
@@ -243,19 +220,6 @@ pub(crate) struct Decoration {
     pub(crate) text_style: StyleSpec,
 }
 
-impl Decoration {
-    pub(crate) fn background(color: ColorSpec) -> Self {
-        Self {
-            surface_background: Some(color),
-            ..Self::default()
-        }
-    }
-
-    pub(crate) fn padding(mut self, padding: Insets) -> Self {
-        self.padding = padding;
-        self
-    }
-}
 /// RETAINED SEMANTIC IR. Truncation behavior after physical layout.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ClampRowsView {

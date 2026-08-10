@@ -14,6 +14,7 @@ mod presentation;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
 use std::ops::Range;
 
 use crate::{
@@ -261,16 +262,6 @@ impl TextInput {
     #[cfg(test)]
     pub(crate) fn move_up_in_rows_for_test(&mut self, rows: &[Range<usize>]) -> bool {
         self.buffer.move_up_in_rows(rows)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn move_down_in_rows_for_test(&mut self, rows: &[Range<usize>]) -> bool {
-        self.buffer.move_down_in_rows(rows)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_focused_for_test(&mut self, focused: bool) {
-        self.focused = focused;
     }
 }
 

@@ -1,13 +1,8 @@
 //! Single source of truth for the application's semantic palette.
 //!
-//! The palette is stored as backend-neutral physical values. The `ratatui`
-//! module exposes compatibility constructors for legacy application code.
+//! The palette is stored as backend-neutral physical values.
 
-mod ratatui;
-
-use crate::physical::{AnsiColor, PhysicalColor, PhysicalStyle};
-
-pub(crate) use self::ratatui::input_border;
+use crate::physical::{AnsiColor, PhysicalColor};
 
 pub(crate) fn physical_color(key: &str) -> PhysicalColor {
     match key {
@@ -70,66 +65,4 @@ pub(crate) fn physical_color(key: &str) -> PhysicalColor {
         },
         _ => PhysicalColor::Default,
     }
-}
-
-pub(crate) fn physical_style(key: &str) -> PhysicalStyle {
-    let foreground = Some(physical_color(key));
-    let mut style = PhysicalStyle {
-        foreground,
-        ..PhysicalStyle::default()
-    };
-    match key {
-        "thinking" => {
-            style.foreground = Some(physical_color("text.muted"));
-            style.italic = true;
-        }
-        "truncation_footer" => {
-            style.italic = true;
-            style.dim = true;
-        }
-        "markdown.bold" => style.bold = true,
-        "markdown.italic" => style.italic = true,
-        _ => {}
-    }
-    style
-}
-
-pub(crate) fn physical_user_bubble_bg() -> PhysicalColor {
-    physical_color("surface.user")
-}
-
-pub(crate) fn physical_muted() -> PhysicalStyle {
-    physical_style("text.muted")
-}
-
-pub(crate) fn physical_tool_running() -> PhysicalStyle {
-    physical_style("tool.running")
-}
-
-pub(crate) fn physical_tool_finished() -> PhysicalStyle {
-    physical_style("tool.finished")
-}
-
-pub(crate) fn physical_tool_error() -> PhysicalStyle {
-    physical_style("tool.error")
-}
-
-pub(crate) fn physical_markdown_header() -> PhysicalStyle {
-    physical_style("markdown.header")
-}
-
-pub(crate) fn physical_markdown_bold() -> PhysicalStyle {
-    physical_style("markdown.bold")
-}
-
-pub(crate) fn physical_markdown_italic() -> PhysicalStyle {
-    physical_style("markdown.italic")
-}
-
-pub(crate) fn physical_markdown_code() -> PhysicalStyle {
-    physical_style("markdown.code")
-}
-
-pub(crate) fn physical_markdown_list() -> PhysicalStyle {
-    physical_style("markdown.list")
 }

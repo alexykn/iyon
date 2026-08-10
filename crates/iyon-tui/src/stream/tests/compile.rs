@@ -1,6 +1,7 @@
+use crate::stream::node::StreamSliceError;
 use crate::stream::{
-    StreamNode, StreamOffset, StreamRange, StreamRowAnchor, StreamRowTransfer, StreamSliceError,
-    StreamView, compile_stream,
+    StreamNode, StreamOffset, StreamRange, StreamRowAnchor, StreamRowTransfer, StreamView,
+    compile_stream,
 };
 use crate::{IntoView, View};
 

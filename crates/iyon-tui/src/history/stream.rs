@@ -24,12 +24,13 @@ impl ErasedHistoryStream {
         })
     }
 
-    pub(crate) fn is_sealed(&self) -> bool {
-        self.state.is_sealed()
-    }
-
+    #[cfg(test)]
     pub(crate) fn snapshot(&self) -> &StreamSnapshot {
         self.state.snapshot()
+    }
+
+    pub(crate) fn is_sealed(&self) -> bool {
+        self.state.is_sealed()
     }
 
     pub(crate) fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex {
@@ -97,8 +98,9 @@ impl ErasedHistoryStream {
 
 trait ErasedHistoryStreamState: Any {
     fn as_any_mut(&mut self) -> &mut dyn Any;
-    fn is_sealed(&self) -> bool;
+    #[cfg(test)]
     fn snapshot(&self) -> &StreamSnapshot;
+    fn is_sealed(&self) -> bool;
     fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex;
     fn window_view(&self, index: &StreamRowIndex, top_row: usize, height: u16) -> View;
     fn compile_from(&self, offset: StreamOffset, width: u16) -> CompiledStream;
@@ -157,16 +159,17 @@ impl<S: StreamingSource> TypedHistoryStream<S> {
 }
 
 impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
+    #[cfg(test)]
+    fn snapshot(&self) -> &StreamSnapshot {
+        self.model.snapshot()
+    }
+
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 
     fn is_sealed(&self) -> bool {
         self.sealed
-    }
-
-    fn snapshot(&self) -> &StreamSnapshot {
-        self.model.snapshot()
     }
 
     fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex {

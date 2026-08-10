@@ -68,9 +68,4 @@ impl ChangeOutputs {
             projector.emit(buffer, cx);
         }
     }
-
-    #[cfg(test)]
-    pub(super) fn len(&self) -> usize {
-        self.projectors.len()
-    }
 }

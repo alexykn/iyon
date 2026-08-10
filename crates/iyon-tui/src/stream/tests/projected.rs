@@ -1,4 +1,7 @@
+use crate::stream::projected::projected_checkpoint_is_legal;
+
 #[test]
+
 fn exact_fragments_share_one_egc_barrier() {
     let text = ProjectedText {
         content_range: StreamRange::new(StreamOffset::ZERO, StreamOffset::new(3)),

@@ -279,47 +279,6 @@ mod tests {
         assert_eq!(column(&vertical).gap, 3);
     }
 
-    #[test]
-    fn old_and_new_horizontal_construction_have_equal_ir() {
-        let old = View::row(
-            vec![
-                RowChild::content(View::text("a").into_view()),
-                RowChild::fixed(4, View::text("b").into_view()),
-                RowChild::flex(View::text("c").into_view()),
-            ],
-            1,
-        )
-        .width(WidthRule::Fit);
-        let new = View::horizontal(|row| {
-            row.child("a");
-            row.fixed(4, "b");
-            row.flex("c");
-            row.gap(1);
-        });
-
-        assert_eq!(new, old);
-    }
-
-    #[test]
-    fn old_row_keeps_its_migration_fill_default() {
-        assert_eq!(View::row(Vec::new(), 0).width, WidthRule::Fill,);
-    }
-
-    #[test]
-    fn old_and_new_vertical_construction_have_equal_ir() {
-        let old = View::column(
-            vec![View::text("a").into_view(), View::text("b").into_view()],
-            1,
-        );
-        let new = View::vertical(|column| {
-            column.child("a");
-            column.child("b");
-            column.gap(1);
-        });
-
-        assert_eq!(new, old);
-    }
-
     #[derive(Debug)]
     struct CustomStatus(String);
 

@@ -13,7 +13,6 @@ use crate::{Component, ComponentCx, View, geometry::Size};
 use super::viewport::build_index;
 use super::{StreamError, StreamModel, StreamRowIndex, StreamingSource};
 use anchor::{StreamPaneMode, StreamViewportAnchor, anchor_matches, anchor_to_viewport};
-use command::StreamPaneCommand;
 use index::{nearest_anchor, top_index};
 
 /// A generic mounted local semantic stream viewport.

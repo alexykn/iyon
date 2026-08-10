@@ -1,20 +1,74 @@
 //! Manual layout and text compiler regressions.
 
 use super::*;
-use crate::geometry::Size;
+use crate::geometry::{LayoutConstraints, Size};
 use crate::physical::{PhysicalColor, PhysicalRow, PhysicalStyle};
 use crate::presentation::api::style::{
     BorderEdges, BorderGlyphs, BorderSpec, BorderStyle, OverflowIndicator, TextAttribute,
 };
 use crate::presentation::ir::ViewKind;
+use crate::presentation::ir::{Decoration, RowChild};
 use crate::presentation::{
-    ColorSpec, Decoration, HorizontalAlign, Insets, IntoView, RowChild, StyleSpec, TextSpan,
-    ThemeKey, View, WidthRule, WrapMode,
+    ColorSpec, HorizontalAlign, Insets, IntoView, StyleSpec, TextSpan, ThemeKey, VerticalAlign,
+    View, WidthRule, WrapMode,
 };
 use crate::theme;
 
 fn text(row: &PhysicalRow) -> String {
     row.plain_text()
+}
+
+fn layout_view(view: &View, width: u16, inherited: PhysicalStyle) -> Surface {
+    let compiler = ViewCompiler::default();
+    let tree = compiler.layout_tree(view, LayoutConstraints::width_only(width));
+    ViewPainter.paint_tree_with_style(&compiler, &tree, inherited)
+}
+
+fn row_view(children: Vec<RowChild>, gap: u16) -> View {
+    View {
+        component: None,
+        width: WidthRule::Fill,
+        height: crate::presentation::ir::HeightRule::Fit,
+        decoration: Decoration::default(),
+        kind: crate::presentation::ir::ViewKind::Row(crate::presentation::ir::RowView {
+            children,
+            gap,
+            vertical_align: VerticalAlign::Top,
+        }),
+    }
+}
+
+fn box_view(child: View, decoration: Decoration) -> View {
+    let mut child = child;
+    let component = child.component.take();
+    let width = child.width;
+    let height = child.height;
+    View {
+        component,
+        width,
+        height,
+        decoration,
+        kind: crate::presentation::ir::ViewKind::Container(
+            crate::presentation::ir::ContainerNode {
+                child: Box::new(child),
+            },
+        ),
+    }
+}
+
+fn background_decoration(color: ColorSpec) -> Decoration {
+    Decoration {
+        surface_background: Some(color),
+        ..Decoration::default()
+    }
+}
+
+fn background_with_padding(color: ColorSpec, padding: Insets) -> Decoration {
+    Decoration {
+        surface_background: Some(color),
+        padding,
+        ..Decoration::default()
+    }
 }
 
 fn style(color: &str) -> StyleSpec {
@@ -25,7 +79,7 @@ fn style(color: &str) -> StyleSpec {
 }
 
 fn tool_view(body: &str) -> View {
-    View::row(
+    row_view(
         vec![
             RowChild::content(
                 View::text("●")
@@ -36,7 +90,7 @@ fn tool_view(body: &str) -> View {
             RowChild::flex(
                 View::text(body)
                     .style(style("text.default"))
-                    .width(WidthRule::Fill)
+                    .fill_width()
                     .into_view(),
             ),
         ],
@@ -148,7 +202,7 @@ fn unbounded_column_treats_flex_as_intrinsic_after_fixed_tracks() {
 
 #[test]
 fn fit_row_respects_fixed_track_and_fill_width_content() {
-    let view = View::row(
+    let view = row_view(
         vec![
             RowChild::fixed(5, View::text("fixed").fill_width().into_view()),
             RowChild::content(View::text("x").fill_width().into_view()),
@@ -172,7 +226,7 @@ fn bounded_row_vertical_alignment_uses_extra_height() {
     })
     .fill_width()
     .fill_height();
-    let block = ViewCompiler::default().compile_bounded(&view, Size::new(5, 3));
+    let block = crate::presentation::layout::compile_bounded_view(&view, Size::new(5, 3));
     assert!(block.rows[0].plain_text().is_empty());
     assert!(block.rows[1].plain_text().is_empty());
     assert_eq!(block.rows[2].plain_text(), "x");
@@ -196,7 +250,7 @@ fn bounded_compiler_preserves_fit_height_inside_fixed_track() {
         column.fixed(3, View::text("x"));
     })
     .fill_height();
-    let block = ViewCompiler::default().compile_bounded(&view, Size::new(10, 3));
+    let block = crate::presentation::layout::compile_bounded_view(&view, Size::new(10, 3));
     assert_eq!(block.rows.len(), 3);
     assert_eq!(block.rows[0].plain_text(), "x");
     assert!(block.rows[1].plain_text().is_empty());

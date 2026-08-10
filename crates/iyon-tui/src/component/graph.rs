@@ -18,10 +18,6 @@ impl MountGraph {
         Self { nodes }
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
-    }
-
     pub(crate) fn contains(&self, id: ComponentId) -> bool {
         self.nodes.iter().any(|node| node.id == id)
     }

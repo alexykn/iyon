@@ -1,10 +1,11 @@
+use super::row::row_to_line;
 use super::*;
 use crate::{
     IntoView, View,
     physical::{AnsiColor, PhysicalCell, PhysicalColor, PhysicalRow, PhysicalStyle},
     presentation::layout::compile_view,
 };
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Modifier};
 
 #[test]
 fn physical_style_lowers_without_quantization() {
@@ -34,10 +35,6 @@ fn physical_style_lowers_without_quantization() {
         })
         .fg,
         Some(Color::Red)
-    );
-    assert_eq!(
-        style::physical_style(Style::default().fg(Color::Yellow)).foreground,
-        Some(PhysicalColor::Named(AnsiColor::Yellow))
     );
 }
 

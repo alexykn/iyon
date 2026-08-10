@@ -10,10 +10,10 @@ fn row_uses_track_width_for_continuations() {
 #[test]
 fn narrow_rows_never_overflow_the_surface() {
     for width in 0..=4 {
-        let view = View::row(
+        let view = row_view(
             vec![
                 RowChild::fixed(3, View::text("abc").into_view()),
-                RowChild::flex(View::text("body").width(WidthRule::Fill).into_view()),
+                RowChild::flex(View::text("body").fill_width().into_view()),
                 RowChild::content(View::text("status").into_view()),
             ],
             2,
@@ -240,10 +240,9 @@ fn gaps_are_counted_between_all_semantic_children() {
 
 #[test]
 fn empty_background_does_not_create_geometry() {
-    let compiler = ViewCompiler::default();
     let mut view = empty_vertical();
     view.decoration.surface_background = Some(ColorSpec::Ansi(1));
-    let surface = compiler.layout(&view, 10, PhysicalStyle::default());
+    let surface = layout_view(&view, 10, PhysicalStyle::default());
 
     assert_eq!((surface.width(), surface.height()), (0, 0));
     assert!(surface.cells.is_empty());
@@ -251,11 +250,10 @@ fn empty_background_does_not_create_geometry() {
 
 #[test]
 fn empty_padding_creates_geometry_and_background_paints_it() {
-    let compiler = ViewCompiler::default();
     let mut view = empty_vertical();
-    view.decoration = Decoration::default().padding(Insets::all(1));
+    view.decoration.padding = Insets::all(1);
     view.decoration.surface_background = Some(ColorSpec::Ansi(1));
-    let surface = compiler.layout(&view, 10, PhysicalStyle::default());
+    let surface = layout_view(&view, 10, PhysicalStyle::default());
 
     assert_eq!((surface.width(), surface.height()), (2, 2));
     assert!(surface.cells.iter().all(|cell| cell.painted));
@@ -278,7 +276,7 @@ fn empty_border_geometry_is_safe_at_tiny_widths() {
         glyphs: BorderGlyphs::plain(),
         top_label: None,
     });
-    let surface = compiler.layout(&view, 10, PhysicalStyle::default());
+    let surface = layout_view(&view, 10, PhysicalStyle::default());
     assert_eq!((surface.width(), surface.height()), (2, 2));
     assert!(surface.cells.iter().all(|cell| cell.painted));
 
@@ -289,9 +287,8 @@ fn empty_border_geometry_is_safe_at_tiny_widths() {
 
 #[test]
 fn empty_padding_and_border_add_their_outer_geometry() {
-    let compiler = ViewCompiler::default();
     let mut view = empty_vertical();
-    view.decoration = Decoration::default().padding(Insets::all(1));
+    view.decoration.padding = Insets::all(1);
     view.decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: None,
@@ -299,16 +296,15 @@ fn empty_padding_and_border_add_their_outer_geometry() {
         glyphs: BorderGlyphs::plain(),
         top_label: None,
     });
-    let surface = compiler.layout(&view, 10, PhysicalStyle::default());
+    let surface = layout_view(&view, 10, PhysicalStyle::default());
 
     assert_eq!((surface.width(), surface.height()), (4, 4));
 }
 
 #[test]
 fn empty_border_and_background_compose_without_changing_geometry() {
-    let compiler = ViewCompiler::default();
     let mut view = empty_vertical();
-    view.decoration = Decoration::background(ColorSpec::Ansi(1));
+    view.decoration = background_decoration(ColorSpec::Ansi(1));
     view.decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: None,
@@ -316,7 +312,7 @@ fn empty_border_and_background_compose_without_changing_geometry() {
         glyphs: BorderGlyphs::plain(),
         top_label: None,
     });
-    let surface = compiler.layout(&view, 10, PhysicalStyle::default());
+    let surface = layout_view(&view, 10, PhysicalStyle::default());
 
     assert_eq!((surface.width(), surface.height()), (2, 2));
     assert!(
@@ -353,7 +349,7 @@ fn fixed_track_preserves_parent_width_and_child_sizing_intent() {
 fn clamp_and_container_preserve_zero_width_vertical_extent() {
     let compiler = ViewCompiler::default();
     let spacer = View::spacer(3);
-    let container = View::box_(spacer.clone(), Decoration::default());
+    let container = box_view(spacer.clone(), Decoration::default());
     let clamped = spacer.clamp_rows(4, OverflowIndicator::None);
 
     assert_block_shape(&compiler.compile(&container, 10), 0, 3);

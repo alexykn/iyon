@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ops::Range};
+use std::borrow::Cow;
 
 use crate::{
     presentation::{ColorSpec, Insets, IntoView, OverflowIndicator, ThemeKey, View},

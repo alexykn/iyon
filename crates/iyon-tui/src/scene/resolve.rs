@@ -33,6 +33,7 @@ impl fmt::Display for ResolveError {
 
 impl std::error::Error for ResolveError {}
 
+#[cfg(test)]
 pub(crate) fn resolve_scene(
     view: &View,
     registry: &ComponentRegistry,

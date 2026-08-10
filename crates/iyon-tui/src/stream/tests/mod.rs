@@ -8,6 +8,7 @@ mod coord;
 mod model;
 mod projected;
 mod snapshot;
+use crate::stream::append::append_only_text_stable_frontier;
 use crate::stream::*;
 use crate::{ColorSpec, HorizontalAlign, IntoView, StyleSpec, TextSpan, ThemeKey, View, WrapMode};
 
@@ -236,7 +237,7 @@ fn atomic_nested_wide_grapheme_propagates_incompleteness() {
         ],
         0,
     );
-    let boxed = View::box_(inner, crate::presentation::ir::Decoration::default());
+    let boxed = inner.container();
     let view = StreamView::atomic(
         StreamRange::new(StreamOffset::ZERO, StreamOffset::new(10)),
         boxed,

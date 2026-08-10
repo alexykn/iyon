@@ -4,6 +4,4 @@ pub(crate) mod semantic;
 
 pub(crate) use assistant_stream::AssistantStream;
 
-pub(crate) use semantic::{
-    AssistantSegment, SegmentKind, TimelineItem, ToolTimelineStatus, TuiFormatter,
-};
+pub(crate) use semantic::{SegmentKind, TimelineItem, ToolTimelineStatus, TuiFormatter};

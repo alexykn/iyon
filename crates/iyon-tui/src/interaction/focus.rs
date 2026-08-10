@@ -41,15 +41,6 @@ impl FocusState {
         self.modal_restore.is_empty()
     }
 
-    pub(crate) fn reconcile(
-        &mut self,
-        graph: &MountGraph,
-        capabilities: &MountedCapabilities,
-        registry: &mut ComponentRegistry,
-    ) {
-        self.reconcile_with_geometry(graph, capabilities, None, registry);
-    }
-
     pub(crate) fn reconcile_with_geometry(
         &mut self,
         graph: &MountGraph,
@@ -241,14 +232,6 @@ fn modal_parent(
             .and_then(|node| node.parent);
     }
     None
-}
-
-pub(crate) fn eligible_focus_order(
-    graph: &MountGraph,
-    capabilities: &MountedCapabilities,
-    modal: Option<ComponentId>,
-) -> Vec<ComponentId> {
-    eligible_focus_order_with_geometry(graph, capabilities, modal, None)
 }
 
 pub(crate) fn eligible_focus_order_with_geometry(
