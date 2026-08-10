@@ -85,6 +85,7 @@ impl ComponentRegistry {
         ComponentHandle::new(id)
     }
 
+    #[cfg(test)]
     pub(crate) fn contains<C>(&self, handle: ComponentHandle<C>) -> bool
     where
         C: Component,
@@ -144,17 +145,6 @@ impl ComponentRegistry {
         Some(result)
     }
 
-    pub(crate) fn render<C>(&self, handle: ComponentHandle<C>) -> Option<View>
-    where
-        C: Component,
-    {
-        let entry = self.slots.get(&handle.id())?;
-        if !entry.component.as_any().is::<C>() {
-            return None;
-        }
-        Some(entry.component.view().attach_component(handle.id()))
-    }
-
     pub(crate) fn remove<C>(&mut self, handle: ComponentHandle<C>) -> Option<C>
     where
         C: Component,
@@ -172,6 +162,7 @@ impl ComponentRegistry {
             .map(|component| *component)
     }
 
+    #[cfg(test)]
     pub(crate) fn revision<C>(&self, handle: ComponentHandle<C>) -> Option<ComponentRevision>
     where
         C: Component,
@@ -185,12 +176,5 @@ impl ComponentRegistry {
     pub(crate) fn view_for_resolution(&self, id: ComponentId) -> Option<(View, ComponentRevision)> {
         let entry = self.slots.get(&id)?;
         Some((entry.component.view(), entry.revision))
-    }
-
-    /// Internal host operation for resolving a registered identity without
-    /// exposing erased objects or raw mutable state.
-    pub(crate) fn render_registered(&self, id: ComponentId) -> Option<View> {
-        let (view, _) = self.view_for_resolution(id)?;
-        Some(view.attach_component(id))
     }
 }

@@ -25,10 +25,6 @@ impl ComponentId {
     pub(crate) const fn value(self) -> u64 {
         self.0.get()
     }
-
-    pub(crate) const fn from_nonzero(value: NonZeroU64) -> Self {
-        Self(value)
-    }
 }
 
 impl fmt::Debug for ComponentId {

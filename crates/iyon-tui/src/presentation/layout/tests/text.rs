@@ -6,7 +6,7 @@ fn styled_spans_survive_wrapping_and_newlines() {
         TextSpan::styled("abc", style("tool.running")),
         TextSpan::styled("def\ngh", style("tool.error")),
     ])
-    .width(WidthRule::Fill)
+    .fill_width()
     .into_view();
     let rows = compile_view(&view, 4).rows;
     assert_eq!(text(&rows[0]), "abcd");
@@ -14,15 +14,15 @@ fn styled_spans_survive_wrapping_and_newlines() {
     assert_eq!(text(&rows[2]), "gh");
     assert_eq!(
         rows[0].style_at(0).and_then(|style| style.foreground),
-        theme::physical_tool_running().foreground
+        Some(theme::physical_color("tool.running"))
     );
     assert_eq!(
         rows[0].style_at(3).and_then(|style| style.foreground),
-        theme::physical_tool_error().foreground
+        Some(theme::physical_color("tool.error"))
     );
     assert_eq!(
         rows[2].style_at(0).and_then(|style| style.foreground),
-        theme::physical_tool_error().foreground
+        Some(theme::physical_color("tool.error"))
     );
 }
 
@@ -78,10 +78,7 @@ fn typed_text_alignment_uses_existing_text_layout() {
         (HorizontalAlign::Center, "  x"),
         (HorizontalAlign::End, "    x"),
     ] {
-        let view = View::text("x")
-            .width(WidthRule::Fill)
-            .text_align(align)
-            .into_view();
+        let view = View::text("x").fill_width().text_align(align).into_view();
         let rows = compile_view(&view, 5).rows;
         assert_eq!(text(&rows[0]), expected);
     }

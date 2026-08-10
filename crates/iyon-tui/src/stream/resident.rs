@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 
-use super::{StreamNode, StreamOffset, StreamRange, StreamView};
+use super::{StreamNode, StreamOffset, StreamView};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct ResidentPrefix {
@@ -62,9 +62,5 @@ impl ResidentPrefix {
             .front()
             .map_or(self.end, |node| node.owned_range().start);
         self.base
-    }
-
-    pub(crate) fn contains_range(&self, range: StreamRange) -> bool {
-        range.start >= self.base && range.end <= self.end
     }
 }

@@ -7,12 +7,6 @@ use iyon_core::{
 };
 
 #[derive(Debug)]
-pub(crate) enum BackendCommand {
-    SubmitTurn { text: String },
-    CancelActiveTurn,
-}
-
-#[derive(Debug)]
 pub(crate) enum FrontendEvent {
     TurnStarted,
     SteerQueued {
@@ -240,6 +234,8 @@ impl BackendEventHandler {
         self.config_refresh_pending
     }
 
+    // S11 migration seam: permits transferring CoreEventReceiver to the
+    // application-side external-action bridge once Iyon leaves iyon-tui.
     pub(crate) fn take_event_receiver(&mut self) -> Option<CoreEventReceiver> {
         self.event_rx.take()
     }

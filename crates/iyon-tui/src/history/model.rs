@@ -208,10 +208,6 @@ impl History {
         self.layout = layout;
     }
 
-    pub(super) fn units_mut(&mut self) -> &mut VecDeque<HistoryUnit> {
-        &mut self.units
-    }
-
     fn ensure_append_allowed(&self) -> Result<(), HistoryError> {
         let Some(last) = self.units.back() else {
             return Ok(());

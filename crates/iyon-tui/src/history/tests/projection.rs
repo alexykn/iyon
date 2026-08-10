@@ -1,10 +1,11 @@
 use super::super::*;
 use super::TestSource;
+use crate::history::projection::project;
 use crate::{
     Component, ComponentCx, View,
     component::{ComponentHandle, ComponentId, ComponentRegistry},
     geometry::Size,
-    presentation::{Insets, IntoView, layout::ViewCompiler},
+    presentation::{Insets, IntoView},
     scene::{LayoutSync, LayoutSynchronizer, ResolveError, layout_resolved_scene},
     stream::{build_index_call_count, reset_build_index_call_count},
 };
@@ -23,8 +24,7 @@ impl Component for LabelComponent {
 
 fn rows(history: &History, registry: &ComponentRegistry, size: Size) -> Vec<String> {
     let scene = project(history, registry, size).unwrap();
-    ViewCompiler::default()
-        .compile_bounded(&scene.scene.view, size)
+    crate::presentation::layout::compile_bounded_view(&scene.scene.view, size)
         .rows
         .into_iter()
         .map(|row| row.plain_text())
@@ -270,8 +270,7 @@ fn partial_live_viewport_translates_component_geometry_with_painted_rows() {
     assert_eq!(child_geometry.visible.map(|rect| rect.y), Some(0));
     assert_eq!(child_geometry.visible.map(|rect| rect.height), Some(1));
     assert_eq!(
-        ViewCompiler::default()
-            .compile_bounded(&scene.scene.view, Size::new(12, 3))
+        crate::presentation::layout::compile_bounded_view(&scene.scene.view, Size::new(12, 3))
             .rows
             .into_iter()
             .map(|row| row.plain_text())

@@ -1,6 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::TextSpan;
+use crate::stream::resident::ResidentPrefix;
 use crate::stream::*;
 
 #[derive(Clone)]

@@ -3,6 +3,7 @@
 pub(crate) struct ComponentRevision(u64);
 
 impl ComponentRevision {
+    #[cfg(test)]
     pub(crate) const fn value(self) -> u64 {
         self.0
     }

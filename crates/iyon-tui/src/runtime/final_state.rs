@@ -14,7 +14,7 @@ use crate::{
 use super::{
     backend::ToolUpdatePresentation,
     controller::AppAction,
-    final_components::{ActivityState, ApprovalDecision, ConversationActivity, UserBatch},
+    final_components::{ApprovalDecision, ConversationActivity, UserBatch},
     panel::SteeringQueuePanel,
 };
 

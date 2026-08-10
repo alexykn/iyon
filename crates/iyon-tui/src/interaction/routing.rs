@@ -16,6 +16,7 @@ impl KeyRouter {
         Self::default()
     }
 
+    /// S9 seam: installs an application-owned global action binding.
     pub(crate) fn add_global(&mut self, binding: super::global::GlobalBinding) {
         self.globals.push(binding);
     }

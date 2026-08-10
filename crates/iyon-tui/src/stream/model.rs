@@ -61,6 +61,7 @@ impl<S: StreamingSource> StreamModel<S> {
         &self.current
     }
 
+    #[cfg(test)]
     pub(crate) fn resident(&self) -> &ResidentPrefix {
         &self.resident
     }
@@ -183,6 +184,7 @@ impl<S: StreamingSource> StreamModel<S> {
         Ok(StreamView::new(nodes))
     }
 
+    #[cfg(test)]
     pub(crate) fn compile(&self, width: u16) -> CompiledStream {
         compile_stream(&self.combined_view(), width, self.current.stable_through)
     }

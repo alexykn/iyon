@@ -1,20 +1,22 @@
 //! Width-dependent semantic projection of History into one vertical View.
 
 use crate::{
-    component::ComponentRegistry,
     geometry::{LayoutConstraints, Size},
     physical::PhysicalRow,
     presentation::{
         Insets, View,
         layout::{LayoutEngine, ManualLayoutEngine},
     },
-    scene::{ResolveError, ResolveSession, ResolvedScene},
+    scene::{ResolveError, ResolveSession},
     stream::StreamRowIndex,
 };
 
 use super::{FlowBoundary, History, HistoryUnitContent, native::frontier::SpacingTransferState};
 use crate::stream::FrozenPhysicalRows;
+#[cfg(test)]
+use crate::{component::ComponentRegistry, scene::ResolvedScene};
 
+#[cfg(test)]
 #[derive(Debug, PartialEq)]
 pub(crate) struct HistoryProjection {
     pub(crate) scene: ResolvedScene,
@@ -64,6 +66,7 @@ struct Selected {
     height: usize,
 }
 
+#[cfg(test)]
 pub(crate) fn project(
     history: &History,
     registry: &ComponentRegistry,
@@ -78,6 +81,7 @@ pub(crate) fn project(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn project_into_session(
     history: &History,
     size: Size,

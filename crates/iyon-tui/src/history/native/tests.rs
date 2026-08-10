@@ -5,12 +5,14 @@ use std::{
 };
 
 use super::super::*;
+use super::{NativeBlockReason, NativeTransferOutcome};
+use crate::history::projection::project;
 use crate::{
     Component, ComponentCx, TextSpan,
     backend::NativeHistorySink,
     geometry::Size,
     physical::PhysicalRow,
-    presentation::{ColorSpec, Insets, IntoView, StyleSpec, View, layout::ViewCompiler},
+    presentation::{ColorSpec, Insets, IntoView, StyleSpec, View},
     stream::{
         StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
         StreamingSource,
@@ -616,9 +618,9 @@ fn zero_default_gap_is_crossed_before_partial_stream_content() {
     history.set_layout(HistoryLayout::new(Insets::ZERO, 3));
     let registry = crate::component::ComponentRegistry::new();
     let projection = project(&history, &registry, Size::new(8, 1)).unwrap();
-    let rows = ViewCompiler::default()
-        .compile_bounded(&projection.scene.view, Size::new(8, 1))
-        .rows;
+    let rows =
+        crate::presentation::layout::compile_bounded_view(&projection.scene.view, Size::new(8, 1))
+            .rows;
     assert_eq!(rows[0].plain_text(), "B1");
     let mut second = FakeSink::default();
     transfer(&mut history, &mut second, 8, 8);
@@ -647,15 +649,14 @@ fn stream_checkpoint_ack_advances_only_after_sink_ack() {
     assert_eq!(state.unit, handle.unit());
     assert_eq!(history.units.front().unwrap().id, handle.unit());
     let registry = crate::component::ComponentRegistry::new();
-    let rows = ViewCompiler::default()
-        .compile_bounded(
-            &project(&history, &registry, Size::new(8, 1))
-                .unwrap()
-                .scene
-                .view,
-            Size::new(8, 1),
-        )
-        .rows;
+    let rows = crate::presentation::layout::compile_bounded_view(
+        &project(&history, &registry, Size::new(8, 1))
+            .unwrap()
+            .scene
+            .view,
+        Size::new(8, 1),
+    )
+    .rows;
     assert_eq!(rows[0].plain_text(), "B");
 }
 
@@ -677,8 +678,7 @@ fn partially_native_open_stream_grows_seals_and_blocks_successor_until_retired()
     let registry = crate::component::ComponentRegistry::new();
     let projection = project(&history, &registry, Size::new(8, 1)).unwrap();
     assert_eq!(
-        ViewCompiler::default()
-            .compile_bounded(&projection.scene.view, Size::new(8, 1))
+        crate::presentation::layout::compile_bounded_view(&projection.scene.view, Size::new(8, 1))
             .rows
             .iter()
             .map(PhysicalRow::plain_text)
@@ -690,8 +690,7 @@ fn partially_native_open_stream_grows_seals_and_blocks_successor_until_retired()
     history.update_stream(handle, GrowingSource::grow).unwrap();
     let projection = project(&history, &registry, Size::new(8, 2)).unwrap();
     assert_eq!(
-        ViewCompiler::default()
-            .compile_bounded(&projection.scene.view, Size::new(8, 2))
+        crate::presentation::layout::compile_bounded_view(&projection.scene.view, Size::new(8, 2))
             .rows
             .iter()
             .map(PhysicalRow::plain_text)
@@ -709,8 +708,7 @@ fn partially_native_open_stream_grows_seals_and_blocks_successor_until_retired()
     );
     let projection = project(&history, &registry, Size::new(8, 1)).unwrap();
     assert_eq!(
-        ViewCompiler::default()
-            .compile_bounded(&projection.scene.view, Size::new(8, 1))
+        crate::presentation::layout::compile_bounded_view(&projection.scene.view, Size::new(8, 1))
             .rows
             .iter()
             .map(PhysicalRow::plain_text)
@@ -1082,30 +1080,28 @@ fn native_predecessor_keeps_default_gap_in_resident_projection() {
     let mut sink = FakeSink::default();
 
     transfer(&mut history, &mut sink, 8, 8);
-    let rows = ViewCompiler::default()
-        .compile_bounded(
-            &project(&history, &registry, Size::new(8, 2))
-                .unwrap()
-                .scene
-                .view,
-            Size::new(8, 2),
-        )
-        .rows;
+    let rows = crate::presentation::layout::compile_bounded_view(
+        &project(&history, &registry, Size::new(8, 2))
+            .unwrap()
+            .scene
+            .view,
+        Size::new(8, 2),
+    )
+    .rows;
     assert_eq!(
         rows.iter().map(PhysicalRow::plain_text).collect::<Vec<_>>(),
         ["", "B"]
     );
 
     transfer(&mut history, &mut sink, 8, 8);
-    let rows = ViewCompiler::default()
-        .compile_bounded(
-            &project(&history, &registry, Size::new(8, 2))
-                .unwrap()
-                .scene
-                .view,
-            Size::new(8, 2),
-        )
-        .rows;
+    let rows = crate::presentation::layout::compile_bounded_view(
+        &project(&history, &registry, Size::new(8, 2))
+            .unwrap()
+            .scene
+            .view,
+        Size::new(8, 2),
+    )
+    .rows;
     assert_eq!(
         rows.iter().map(PhysicalRow::plain_text).collect::<Vec<_>>(),
         ["", "B"]
@@ -1123,15 +1119,14 @@ fn attach_to_previous_does_not_create_frontier_gap() {
     let mut sink = FakeSink::default();
     transfer(&mut history, &mut sink, 8, 8);
 
-    let rows = ViewCompiler::default()
-        .compile_bounded(
-            &project(&history, &registry, Size::new(8, 1))
-                .unwrap()
-                .scene
-                .view,
-            Size::new(8, 1),
-        )
-        .rows;
+    let rows = crate::presentation::layout::compile_bounded_view(
+        &project(&history, &registry, Size::new(8, 1))
+            .unwrap()
+            .scene
+            .view,
+        Size::new(8, 1),
+    )
+    .rows;
     assert_eq!(
         rows.iter().map(PhysicalRow::plain_text).collect::<Vec<_>>(),
         ["B"]
@@ -1165,15 +1160,14 @@ fn partial_static_rows_conserve_and_survive_resize_and_layout_change() {
     let mut history = History::new();
     history.push("A\nB\nC").unwrap();
     let registry = crate::component::ComponentRegistry::new();
-    let expected = ViewCompiler::default()
-        .compile_bounded(
-            &project(&history, &registry, Size::new(8, 3))
-                .unwrap()
-                .scene
-                .view,
-            Size::new(8, 3),
-        )
-        .rows;
+    let expected = crate::presentation::layout::compile_bounded_view(
+        &project(&history, &registry, Size::new(8, 3))
+            .unwrap()
+            .scene
+            .view,
+        Size::new(8, 3),
+    )
+    .rows;
     let mut sink = FakeSink::accepting([Ok(1)]);
     transfer(&mut history, &mut sink, 8, 8);
     let projection = project(&history, &registry, Size::new(8, 3)).unwrap();
@@ -1209,15 +1203,14 @@ fn partial_atomic_rows_conserve_exact_physical_presentation() {
         .push_stream(NativeSource::from_snapshot(snapshot, true))
         .unwrap();
     let registry = crate::component::ComponentRegistry::new();
-    let expected = ViewCompiler::default()
-        .compile_bounded(
-            &project(&history, &registry, Size::new(8, 3))
-                .unwrap()
-                .scene
-                .view,
-            Size::new(8, 3),
-        )
-        .rows;
+    let expected = crate::presentation::layout::compile_bounded_view(
+        &project(&history, &registry, Size::new(8, 3))
+            .unwrap()
+            .scene
+            .view,
+        Size::new(8, 3),
+    )
+    .rows;
     let mut sink = FakeSink::accepting([Ok(1)]);
     transfer(&mut history, &mut sink, 8, 8);
     let projection = project(&history, &registry, Size::new(8, 3)).unwrap();
@@ -1233,9 +1226,11 @@ fn static_physical_rows_match_bounded_view_rows() {
     let mut sink = FakeSink::default();
     transfer(&mut history, &mut sink, 10, 4);
 
-    let expected = ViewCompiler::default()
-        .compile_bounded(&View::text("wide").into_view(), Size::new(6, 1))
-        .rows[0]
+    let expected = crate::presentation::layout::compile_bounded_view(
+        &View::text("wide").into_view(),
+        Size::new(6, 1),
+    )
+    .rows[0]
         .clone();
     assert_eq!(sink.rows[0].width(), 10);
     assert_eq!(sink.rows[0].cell(2), expected.cell(0));
@@ -1258,15 +1253,14 @@ fn styled_wide_static_rows_conserve_exact_physical_cells_across_partial_transfer
         )
         .unwrap();
     let registry = crate::component::ComponentRegistry::new();
-    let expected = ViewCompiler::default()
-        .compile_bounded(
-            &project(&history, &registry, Size::new(10, 2))
-                .unwrap()
-                .scene
-                .view,
-            Size::new(10, 2),
-        )
-        .rows;
+    let expected = crate::presentation::layout::compile_bounded_view(
+        &project(&history, &registry, Size::new(10, 2))
+            .unwrap()
+            .scene
+            .view,
+        Size::new(10, 2),
+    )
+    .rows;
     assert!(expected[0].cells().iter().any(|cell| cell.continuation));
     assert!(
         expected[0]
@@ -1303,15 +1297,14 @@ fn stream_physical_rows_match_resident_rows_with_horizontal_padding() {
         .push_stream(NativeSource::new("abcdefghijkl", 12, true))
         .unwrap();
     let registry = crate::component::ComponentRegistry::new();
-    let expected = ViewCompiler::default()
-        .compile_bounded(
-            &project(&history, &registry, Size::new(10, 2))
-                .unwrap()
-                .scene
-                .view,
-            Size::new(10, 2),
-        )
-        .rows;
+    let expected = crate::presentation::layout::compile_bounded_view(
+        &project(&history, &registry, Size::new(10, 2))
+            .unwrap()
+            .scene
+            .view,
+        Size::new(10, 2),
+    )
+    .rows;
     let mut sink = FakeSink::accepting([Ok(1)]);
 
     transfer(&mut history, &mut sink, 10, 8);
@@ -1326,15 +1319,14 @@ fn stream_and_projection_agree_when_padding_leaves_no_content_width() {
         .push_stream(NativeSource::new("abc", 3, true))
         .unwrap();
     let registry = crate::component::ComponentRegistry::new();
-    let expected = ViewCompiler::default()
-        .compile_bounded(
-            &project(&history, &registry, Size::new(3, 3))
-                .unwrap()
-                .scene
-                .view,
-            Size::new(3, 3),
-        )
-        .rows;
+    let expected = crate::presentation::layout::compile_bounded_view(
+        &project(&history, &registry, Size::new(3, 3))
+            .unwrap()
+            .scene
+            .view,
+        Size::new(3, 3),
+    )
+    .rows;
     let mut sink = FakeSink::default();
 
     transfer(&mut history, &mut sink, 3, 8);

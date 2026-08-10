@@ -12,44 +12,6 @@ pub(crate) fn color(value: PhysicalColor) -> Color {
     }
 }
 
-pub(crate) fn physical_style(value: Style) -> PhysicalStyle {
-    let foreground = value.fg.map(physical_color);
-    let background = value.bg.map(physical_color);
-    PhysicalStyle {
-        foreground,
-        background,
-        bold: value.add_modifier.contains(Modifier::BOLD),
-        dim: value.add_modifier.contains(Modifier::DIM),
-        italic: value.add_modifier.contains(Modifier::ITALIC),
-        underline: value.add_modifier.contains(Modifier::UNDERLINED),
-        reversed: value.add_modifier.contains(Modifier::REVERSED),
-    }
-}
-
-fn physical_color(value: Color) -> PhysicalColor {
-    match value {
-        Color::Reset => PhysicalColor::Default,
-        Color::Indexed(value) => PhysicalColor::Indexed(value),
-        Color::Rgb(r, g, b) => PhysicalColor::Rgb { r, g, b },
-        Color::Black => PhysicalColor::Named(AnsiColor::Black),
-        Color::Red => PhysicalColor::Named(AnsiColor::Red),
-        Color::Green => PhysicalColor::Named(AnsiColor::Green),
-        Color::Yellow => PhysicalColor::Named(AnsiColor::Yellow),
-        Color::Blue => PhysicalColor::Named(AnsiColor::Blue),
-        Color::Magenta => PhysicalColor::Named(AnsiColor::Magenta),
-        Color::Cyan => PhysicalColor::Named(AnsiColor::Cyan),
-        Color::Gray => PhysicalColor::Named(AnsiColor::Gray),
-        Color::DarkGray => PhysicalColor::Named(AnsiColor::DarkGray),
-        Color::LightRed => PhysicalColor::Named(AnsiColor::LightRed),
-        Color::LightGreen => PhysicalColor::Named(AnsiColor::LightGreen),
-        Color::LightYellow => PhysicalColor::Named(AnsiColor::LightYellow),
-        Color::LightBlue => PhysicalColor::Named(AnsiColor::LightBlue),
-        Color::LightMagenta => PhysicalColor::Named(AnsiColor::LightMagenta),
-        Color::LightCyan => PhysicalColor::Named(AnsiColor::LightCyan),
-        Color::White => PhysicalColor::Named(AnsiColor::White),
-    }
-}
-
 fn named_color(value: AnsiColor) -> Color {
     match value {
         AnsiColor::Black => Color::Black,

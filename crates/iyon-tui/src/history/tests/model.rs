@@ -1,10 +1,19 @@
 use super::super::*;
-use crate::{View, component::ComponentId, presentation::IntoView};
+use crate::{Component, View, component::ComponentRegistry, presentation::IntoView};
+
+#[derive(Debug)]
+struct LiveComponent(String);
+
+impl Component for LiveComponent {
+    fn view(&self) -> View {
+        View::text(self.0.clone()).into_view()
+    }
+}
 
 fn live_view(label: &str) -> View {
-    View::text(label)
-        .into_view()
-        .with_component(ComponentId::allocate())
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(LiveComponent(label.to_owned()));
+    View::component(handle)
 }
 
 fn unit_ids(history: &History) -> Vec<HistoryUnitId> {

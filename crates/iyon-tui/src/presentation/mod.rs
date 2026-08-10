@@ -20,4 +20,4 @@ pub(crate) use api::{
 
 // Retained IR types remain private implementation details of the semantic
 // layout engine.
-pub(crate) use ir::{Decoration, RowChild, WidthRule};
+pub(crate) use ir::WidthRule;

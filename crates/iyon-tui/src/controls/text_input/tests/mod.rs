@@ -1,7 +1,8 @@
 use std::ops::Range;
 
 use crate::component::ComponentRegistry;
-use crate::interaction::{FocusState, GlobalBindings, route_key, route_paste};
+use crate::interaction::routing::route_key;
+use crate::interaction::{FocusState, GlobalBindings, route_paste};
 use crate::output::{OutputQueue, OutputRouter};
 use crate::presentation::IntoView;
 use crate::scene::resolve_scene;
@@ -97,7 +98,7 @@ fn mounted_text_input_paste_is_one_consumed_change_event() {
     let handle = registry.register(input);
     let scene = resolve_scene(&View::component(handle), &registry).unwrap();
     let mut focus = FocusState::default();
-    focus.reconcile(&scene.mounts, &scene.capabilities, &mut registry);
+    focus.reconcile_with_geometry(&scene.mounts, &scene.capabilities, None, &mut registry);
     let mut queue = OutputQueue::new();
     assert_eq!(
         route_paste(
@@ -126,7 +127,7 @@ fn paste_bubbles_to_ancestor_but_not_when_focused_input_consumes() {
     });
     let scene = resolve_scene(&View::component(parent), &registry).unwrap();
     let mut focus = FocusState::default();
-    focus.reconcile(&scene.mounts, &scene.capabilities, &mut registry);
+    focus.reconcile_with_geometry(&scene.mounts, &scene.capabilities, None, &mut registry);
     let mut queue = OutputQueue::new();
     assert_eq!(
         route_paste(
@@ -152,7 +153,7 @@ fn mounted_command_emits_deferred_output_after_key_dispatch() {
     let handle = registry.register(input);
     let scene = resolve_scene(&View::component(handle), &registry).unwrap();
     let mut focus = FocusState::default();
-    focus.reconcile(&scene.mounts, &scene.capabilities, &mut registry);
+    focus.reconcile_with_geometry(&scene.mounts, &scene.capabilities, None, &mut registry);
     let globals = GlobalBindings::default();
     let mut queue = OutputQueue::new();
     assert_eq!(
@@ -199,7 +200,7 @@ fn modal_paste_containment_excludes_background_components() {
     )
     .unwrap();
     let mut focus = FocusState::default();
-    focus.reconcile(&scene.mounts, &scene.capabilities, &mut registry);
+    focus.reconcile_with_geometry(&scene.mounts, &scene.capabilities, None, &mut registry);
     let mut queue = OutputQueue::new();
     route_paste(
         "modal",

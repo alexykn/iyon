@@ -87,10 +87,6 @@ impl StreamRange {
         self.end
     }
 
-    pub(crate) const fn empty(at: StreamOffset) -> Self {
-        Self { start: at, end: at }
-    }
-
     pub fn is_empty(&self) -> bool {
         self.start >= self.end
     }

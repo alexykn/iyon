@@ -64,13 +64,6 @@ impl StreamNode {
         ))
     }
 
-    pub(crate) fn with_width(mut self, width_rule: WidthRule) -> Self {
-        if let Self::Text(text) = &mut self {
-            text.width = width_rule;
-        }
-        self
-    }
-
     pub(crate) fn atomic(range: StreamRange, view: View) -> Self {
         assert!(
             !view.contains_component_identity(),
@@ -87,10 +80,7 @@ impl StreamNode {
         }
     }
 
-    pub(crate) fn source_range(&self) -> StreamRange {
-        self.owned_range()
-    }
-
+    #[cfg(test)]
     pub(crate) fn provenance(&self) -> StreamProvenance {
         match self {
             Self::Text(_) => StreamProvenance::Projected(self.owned_range()),
@@ -132,11 +122,14 @@ impl StreamView {
                             .filter(|run| !run.display.is_empty())
                             .cloned()
                             .map(|run| TextSpan::styled(run.display, run.style)),
-                    )
-                    .width(match &text.layout {
-                        ProjectedTextLayout::Plain => text.width,
-                        ProjectedTextLayout::Hanging { .. } => WidthRule::Fill,
-                    });
+                    );
+                    let body = match &text.layout {
+                        ProjectedTextLayout::Plain => match text.width {
+                            WidthRule::Fit => body.fit_width(),
+                            WidthRule::Fill => body.fill_width(),
+                        },
+                        ProjectedTextLayout::Hanging { .. } => body.fill_width(),
+                    };
                     match &text.layout {
                         ProjectedTextLayout::Plain => body.into_view(),
                         ProjectedTextLayout::Hanging {
@@ -155,7 +148,7 @@ impl StreamView {
                                     )])
                                     .no_wrap()
                                 } else {
-                                    View::text("").width(WidthRule::Fill)
+                                    View::text("").fill_width()
                                 },
                             );
                             row.flex(body);
@@ -171,6 +164,7 @@ impl StreamView {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn semantic_slice(&self, range: StreamRange) -> Result<Self, StreamSliceError> {
         semantic_slice_nodes(self.nodes.iter(), range)
     }
@@ -198,15 +192,13 @@ impl StreamView {
         Self::new(nodes)
     }
 
+    #[cfg(test)]
     pub(crate) fn empty() -> Self {
         Self { nodes: Vec::new() }
     }
 
-    pub(crate) fn push(&mut self, node: StreamNode) {
-        self.nodes.push(node);
-    }
-
     /// Single exact text block.
+    #[cfg(test)]
     pub(crate) fn exact_text(range: StreamRange, spans: Vec<TextSpan>) -> Self {
         Self {
             nodes: vec![StreamNode::exact_text(range, spans)],
@@ -214,6 +206,7 @@ impl StreamView {
     }
 
     /// Single atomic view.
+    #[cfg(test)]
     pub(crate) fn atomic(range: StreamRange, view: View) -> Self {
         Self {
             nodes: vec![StreamNode::atomic(range, view)],
