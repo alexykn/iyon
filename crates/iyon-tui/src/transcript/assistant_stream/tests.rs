@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    stream::node::StreamProvenance,
+    stream::StreamProvenance,
     stream::plan_stream_transfer,
     stream::{StreamRowTransfer, compile_stream, projected_atoms},
 };

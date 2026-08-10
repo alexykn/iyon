@@ -1,4 +1,4 @@
-use crate::stream::node::StreamSliceError;
+use crate::stream::StreamSliceError;
 use crate::stream::{
     StreamNode, StreamOffset, StreamRange, StreamRowAnchor, StreamRowTransfer, StreamView,
     compile_stream,

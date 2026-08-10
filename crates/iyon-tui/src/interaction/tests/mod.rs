@@ -7,7 +7,7 @@ use crate::{
     scene::resolve_scene,
 };
 
-use super::routing::route_key;
+use super::route_key;
 use super::{FocusState, GlobalBindings, InteractionResult, Key, KeyStroke, Modifiers};
 
 struct FocusProbe {

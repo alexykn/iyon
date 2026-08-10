@@ -7,7 +7,7 @@ mod append;
 mod compile;
 mod coord;
 mod model;
-pub(crate) mod node;
+mod node;
 mod projected;
 mod resident;
 mod snapshot;
@@ -28,6 +28,9 @@ pub use coord::{StreamOffset, StreamRange, StreamRevision};
 pub use model::StreamModelError as StreamError;
 pub(crate) use model::{StreamModel, StreamModelError};
 pub(crate) use node::{StreamNode, StreamView};
+
+#[cfg(test)]
+pub(crate) use node::{StreamProvenance, StreamSliceError};
 pub use pane::StreamPane;
 pub(crate) use projected::{
     ExactTerminator, ProjectedTextLayout, ProjectedTextRun, projected_atoms,

@@ -16,7 +16,11 @@ impl KeyRouter {
         Self::default()
     }
 
-    /// S9 seam: installs an application-owned global action binding.
+    /// S10 seam: installs an application-owned global action binding.
+    #[expect(
+        dead_code,
+        reason = "S10 seam for installing application-owned global action bindings"
+    )]
     pub(crate) fn add_global(&mut self, binding: super::global::GlobalBinding) {
         self.globals.push(binding);
     }
