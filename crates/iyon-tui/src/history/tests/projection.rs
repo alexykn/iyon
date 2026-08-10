@@ -6,6 +6,7 @@ use crate::{
     geometry::Size,
     presentation::{Insets, IntoView, layout::ViewCompiler},
     scene::{LayoutSync, LayoutSynchronizer, ResolveError, layout_resolved_scene},
+    stream::{build_index_call_count, reset_build_index_call_count},
 };
 
 struct LabelComponent {
@@ -313,6 +314,29 @@ fn sealing_a_stream_with_identical_semantics_is_visually_inert() {
     history.seal_stream(handle).unwrap();
 
     assert_eq!(rows(&history, &registry, Size::new(8, 2)), before);
+}
+
+#[test]
+fn offscreen_streams_are_lazy_and_visible_streams_prepare_once() {
+    let mut history = History::new();
+    history
+        .push_stream(TestSource::new("old", 3, true))
+        .unwrap();
+    history.push("B").unwrap();
+    history.push("C").unwrap();
+    history.push("D").unwrap();
+    let registry = ComponentRegistry::new();
+
+    reset_build_index_call_count();
+    assert_eq!(rows(&history, &registry, Size::new(8, 1)), ["D"]);
+    assert_eq!(build_index_call_count(), 0);
+
+    reset_build_index_call_count();
+    assert_eq!(
+        rows(&history, &registry, Size::new(8, 4)),
+        ["old", "B", "C", "D"]
+    );
+    assert_eq!(build_index_call_count(), 1);
 }
 
 #[test]

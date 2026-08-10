@@ -4,4 +4,7 @@ mod index;
 mod window;
 
 pub(crate) use index::{StreamRowIndex, build_index};
+
+#[cfg(test)]
+pub(crate) use index::{build_index_call_count, reset_build_index_call_count};
 pub(crate) use window::window_view;
