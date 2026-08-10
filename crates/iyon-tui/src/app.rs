@@ -63,7 +63,7 @@ impl App {
                     state.exit_state = ExitState::FinalFrame;
                 }
                 ExitState::FinalFrame => {
-                    self.render_goodbye(terminal)?;
+                    self.render_goodbye(terminal, &mut state)?;
                     state.exit_state = ExitState::Done;
                 }
                 ExitState::Done => break,
@@ -328,7 +328,13 @@ impl App {
         Ok(())
     }
 
-    fn render_goodbye(&mut self, terminal: &mut InlineTerminal) -> Result<()> {
-        terminal.insert_goodbye()
+    fn render_goodbye(
+        &mut self,
+        terminal: &mut InlineTerminal,
+        state: &mut AppState,
+    ) -> Result<()> {
+        state.prepare_goodbye()?;
+        self.render(terminal, state)?;
+        terminal.position_after_final_frame()
     }
 }

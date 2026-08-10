@@ -8,7 +8,6 @@ use ratatui::{DefaultTerminal, Frame, layout::Rect, text::Line};
 use crate::{
     backend::NativeHistorySink,
     physical::PhysicalRow,
-    presentation::{IntoView, View, layout::ViewCompiler},
     scene::PreparedSceneFrame,
     terminal::ratatui::{render_history_overlay, render_surface, rows_to_lines},
 };
@@ -134,28 +133,11 @@ impl InlineTerminal {
         })
     }
 
-    pub(crate) fn insert_goodbye(&mut self) -> Result<()> {
+    pub(crate) fn position_after_final_frame(&mut self) -> Result<()> {
         let viewport = self.current_viewport_area()?;
-        let blank = View::spacer(0).fill_width().fill_height();
-        let surface = ViewCompiler::default().paint_bounded(
-            &blank,
-            crate::geometry::Size::new(viewport.width, viewport.height),
-        );
-        self.draw(|frame| {
-            let area = frame.area();
-            render_surface(&surface, frame.buffer_mut(), area);
-        })?;
-
-        let view = View::text("Goodbye.").fill_width().into_view();
-        let rows = ViewCompiler::default().compile(&view, viewport.width).rows;
-        self.insert_history_rows(&rows_to_lines(&rows))?;
-        if viewport.height > 0 {
-            let cursor_y = viewport
-                .y
-                .saturating_add(1)
-                .min(viewport.bottom().saturating_sub(1));
-            self.set_cursor_position((viewport.x, cursor_y))?;
+        if viewport.height == 0 {
+            return Ok(());
         }
-        Ok(())
+        self.set_cursor_position((viewport.x, viewport.bottom().saturating_sub(1)))
     }
 }
