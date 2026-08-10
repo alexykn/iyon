@@ -12,7 +12,7 @@ use iyon_tui::{
 use super::{
     backend::{BackendCommands, ToolUpdatePresentation},
     controller::IyonAction,
-    final_components::{ApprovalDecision, ConversationActivity, UserBatch},
+    final_components::{ApprovalDecision, ConversationActivity, ToolOutput, UserBatch},
     panel::SteeringQueuePanel,
     stream_smoother::StreamSmoother,
     transcript::{AssistantStream, SegmentKind, TimelineItem, ToolTimelineStatus, TuiFormatter},
@@ -85,6 +85,7 @@ pub(crate) struct InfoState {
 struct LiveTool {
     unit: HistoryUnitId,
     component: ComponentHandle<ConversationActivity>,
+    output: ComponentHandle<ToolOutput>,
 }
 
 pub(crate) struct ConversationState {
@@ -437,6 +438,7 @@ impl IyonState {
     ) -> Result<()> {
         self.freeze_user_batch(cx)?;
         self.seal_stream(cx)?;
+        let output = cx.register(ToolOutput::default());
         let (unit, component) = if let Some((unit, component)) = self.conversation.working.take() {
             cx.with_component_mut(component, |activity| {
                 activity.transition_to_tool(
@@ -445,6 +447,7 @@ impl IyonState {
                     args.clone(),
                     ToolTimelineStatus::Running,
                     None,
+                    output,
                 )
             })
             .ok_or_else(|| anyhow!("activity disappeared"))?;
@@ -457,6 +460,7 @@ impl IyonState {
                 args.clone(),
                 ToolTimelineStatus::Running,
                 None,
+                output,
             ));
             let unit = cx
                 .history_mut()
@@ -464,9 +468,14 @@ impl IyonState {
                 .push(View::component(component).fill_width())?;
             (unit, component)
         };
-        self.conversation
-            .tools
-            .insert(id, LiveTool { unit, component });
+        self.conversation.tools.insert(
+            id,
+            LiveTool {
+                unit,
+                component,
+                output,
+            },
+        );
         Ok(())
     }
 
@@ -479,10 +488,10 @@ impl IyonState {
         let Some(tool) = self.conversation.tools.get(&id).copied() else {
             return Ok(());
         };
-        cx.with_component_mut(tool.component, |activity| {
-            activity.update_tool(format_tool_update(update))
+        cx.with_component_mut(tool.output, |output| {
+            output.set_text(format_tool_update(update));
         })
-        .ok_or_else(|| anyhow!("activity disappeared"))?;
+        .ok_or_else(|| anyhow!("tool output disappeared"))?;
         Ok(())
     }
 
@@ -510,6 +519,7 @@ impl IyonState {
                 args,
                 ToolTimelineStatus::PendingApproval,
                 Some(approval_id),
+                tool.output,
             )
         })
         .ok_or_else(|| anyhow!("activity disappeared"))?;
@@ -591,6 +601,7 @@ impl IyonState {
             .ok_or_else(|| anyhow!("history unavailable"))?
             .freeze(tool.unit, view)?;
         self.remove_approval_route(cx, id);
+        cx.remove_component(tool.output);
         cx.remove_component(tool.component);
         self.conversation.tools.remove(id);
         self.conversation.last_completed_tool = Some(id.to_string());
@@ -621,7 +632,14 @@ impl IyonState {
         details: Value,
         is_error: bool,
     ) -> Result<()> {
+        if self.conversation.last_completed_tool.as_ref() == Some(&id) {
+            return Ok(());
+        }
         if let Some(tool) = self.conversation.tools.get(&id).copied() {
+            cx.with_component_mut(tool.output, |output| {
+                output.set_text(Some(text.clone()));
+            })
+            .ok_or_else(|| anyhow!("tool output disappeared"))?;
             cx.with_component_mut(tool.component, |activity| {
                 activity.set_result(text, details, is_error);
                 activity.complete(is_error);
