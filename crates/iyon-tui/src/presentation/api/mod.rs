@@ -11,8 +11,8 @@ mod view;
 pub use super::ir::View;
 pub use composition::{Horizontal, Vertical};
 pub use style::{
-    BorderEdges, BorderGlyphs, BorderSpec, BorderStyle, ColorSpec, Insets, OverflowIndicator,
-    StyleSpec, TextAttribute, TextAttributeSpec, ThemeKey, VerticalAlign,
+    BorderEdges, BorderGlyphError, BorderGlyphs, BorderSpec, BorderStyle, ColorSpec, Insets,
+    OverflowIndicator, StyleSpec, TextAttribute, TextAttributeSpec, ThemeKey, VerticalAlign,
 };
 pub use text::{HorizontalAlign, Text, TextSpan, WrapMode};
 pub use view::IntoView;

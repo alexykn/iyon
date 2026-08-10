@@ -64,9 +64,9 @@ pub use output::{EventCx, Output, OutputRouter, RouteConflict};
 pub use scene::Scene;
 
 pub use presentation::api::{
-    BorderEdges, BorderGlyphs, BorderSpec, BorderStyle, ColorSpec, Horizontal, HorizontalAlign,
-    Insets, IntoView, OverflowIndicator, StyleSpec, Text, TextAttribute, TextAttributeSpec,
-    TextSpan, ThemeKey, Vertical, VerticalAlign, View, WrapMode,
+    BorderEdges, BorderGlyphError, BorderGlyphs, BorderSpec, BorderStyle, ColorSpec, Horizontal,
+    HorizontalAlign, Insets, IntoView, OverflowIndicator, StyleSpec, Text, TextAttribute,
+    TextAttributeSpec, TextSpan, ThemeKey, Vertical, VerticalAlign, View, WrapMode,
 };
 pub use stream::{
     ProjectedText, ProjectedTextBuilder, ProjectedValidationError, StreamError, StreamOffset,

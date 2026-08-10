@@ -27,8 +27,10 @@ pub(crate) enum NativeBlockReason {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NativeTransferStatus {
-    Idle,
+    /// The native frontier advanced; this may retire semantic-only stream
+    /// content without inserting a physical row.
     Progress,
+    Idle,
     SinkBlocked,
     SemanticBlocked {
         unit: HistoryUnitId,

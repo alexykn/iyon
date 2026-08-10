@@ -90,12 +90,12 @@ impl App {
         self.apply_backend_events(backend_events, state)?;
         self.flush_stream_if_ready(state)?;
 
-        if self
+        let tick = self
             .scene_host
-            .tick_due(Instant::now(), &mut state.components)
-        {
-            self.apply_output_actions(state)?;
-            self.needs_redraw = true;
+            .tick_due(Instant::now(), &mut state.components);
+        if tick.ran {
+            let output_dirty = self.apply_output_actions(state)?;
+            self.needs_redraw |= tick.dirty || output_dirty;
         }
         if state.exit_state == ExitState::Running && self.needs_redraw {
             self.render(terminal, state)?;
@@ -111,7 +111,7 @@ impl App {
                     if result == crate::InteractionResult::Ignored {
                         self.handle_global_key(key, state)?;
                     }
-                    self.apply_output_actions(state)?;
+                    let _ = self.apply_output_actions(state)?;
                     self.needs_redraw = true;
                 }
             }
@@ -126,7 +126,7 @@ impl App {
                     text
                 };
                 self.scene_host.dispatch_paste(&text, &mut state.components);
-                self.apply_output_actions(state)?;
+                let _ = self.apply_output_actions(state)?;
                 self.needs_redraw = true;
             }
             Event::Resize(_, _) => self.needs_redraw = true,
@@ -165,12 +165,13 @@ impl App {
         Ok(())
     }
 
-    fn apply_output_actions(&mut self, state: &mut AppState) -> Result<()> {
-        for action in self
+    fn apply_output_actions(&mut self, state: &mut AppState) -> Result<bool> {
+        let actions = self
             .scene_host
             .drain_outputs(&state.outputs)
-            .map_err(|error| anyhow!(error))?
-        {
+            .map_err(|error| anyhow!(error))?;
+        let dirty = !actions.is_empty();
+        for action in actions {
             match action {
                 AppAction::SubmitTurn(text) => {
                     let text = state.expand_submission(text);
@@ -197,7 +198,7 @@ impl App {
                 }
             }
         }
-        Ok(())
+        Ok(dirty)
     }
 
     fn apply_backend_events(

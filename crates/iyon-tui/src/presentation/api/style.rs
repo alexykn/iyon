@@ -1,5 +1,10 @@
 //! Backend-neutral semantic styling and decoration vocabulary.
 
+use std::{error::Error, fmt};
+
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+
 /// Vertical alignment for children in a horizontal composition.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VerticalAlign {
@@ -256,6 +261,26 @@ impl BorderEdges {
     }
 }
 
+/// Failure to construct a border glyph that occupies exactly one cell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BorderGlyphError {
+    pub field: &'static str,
+    pub width: usize,
+    pub graphemes: usize,
+}
+
+impl fmt::Display for BorderGlyphError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "border glyph `{}` must contain one grapheme with width one (got {} graphemes, width {})",
+            self.field, self.graphemes, self.width
+        )
+    }
+}
+
+impl Error for BorderGlyphError {}
+
 /// Custom one-cell border glyphs. Applications can use ASCII, Unicode box
 /// drawing, or another backend-supported pattern.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -280,29 +305,60 @@ impl BorderGlyphs {
         top_right: impl Into<String>,
         bottom_left: impl Into<String>,
         bottom_right: impl Into<String>,
-    ) -> Self {
-        Self {
-            top: top.into(),
-            right: right.into(),
-            bottom: bottom.into(),
-            left: left.into(),
-            top_left: top_left.into(),
-            top_right: top_right.into(),
-            bottom_left: bottom_left.into(),
-            bottom_right: bottom_right.into(),
+    ) -> Result<Self, BorderGlyphError> {
+        let top = top.into();
+        let right = right.into();
+        let bottom = bottom.into();
+        let left = left.into();
+        let top_left = top_left.into();
+        let top_right = top_right.into();
+        let bottom_left = bottom_left.into();
+        let bottom_right = bottom_right.into();
+        for (field, glyph) in [
+            ("top", &top),
+            ("right", &right),
+            ("bottom", &bottom),
+            ("left", &left),
+            ("top_left", &top_left),
+            ("top_right", &top_right),
+            ("bottom_left", &bottom_left),
+            ("bottom_right", &bottom_right),
+        ] {
+            let graphemes = glyph.graphemes(true).count();
+            let width = UnicodeWidthStr::width(glyph.as_str());
+            if graphemes != 1 || width != 1 {
+                return Err(BorderGlyphError {
+                    field,
+                    width,
+                    graphemes,
+                });
+            }
         }
+        Ok(Self {
+            top,
+            right,
+            bottom,
+            left,
+            top_left,
+            top_right,
+            bottom_left,
+            bottom_right,
+        })
     }
 
     pub(crate) fn plain() -> Self {
         Self::new("─", "│", "─", "│", "┌", "┐", "└", "┘")
+            .expect("built-in border glyphs are one-cell")
     }
 
     pub(crate) fn rounded() -> Self {
         Self::new("─", "│", "─", "│", "╭", "╮", "╰", "╯")
+            .expect("built-in border glyphs are one-cell")
     }
 
     pub(crate) fn double() -> Self {
         Self::new("═", "║", "═", "║", "╔", "╗", "╚", "╝")
+            .expect("built-in border glyphs are one-cell")
     }
 }
 

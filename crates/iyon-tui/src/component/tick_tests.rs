@@ -46,9 +46,17 @@ fn one_mounted_component_ticks_only_after_its_deadline() {
         scheduler.next_timeout(start, Duration::from_secs(1)),
         Duration::from_millis(80)
     );
-    assert!(!scheduler.tick_due(start + Duration::from_millis(79), &mut registry));
+    assert!(
+        !scheduler
+            .tick_due(start + Duration::from_millis(79), &mut registry)
+            .dirty
+    );
     assert_eq!(registry.with(handle, |blinker| blinker.frame), Some(0));
-    assert!(scheduler.tick_due(start + Duration::from_millis(80), &mut registry));
+    assert!(
+        scheduler
+            .tick_due(start + Duration::from_millis(80), &mut registry)
+            .dirty
+    );
     assert_eq!(registry.with(handle, |blinker| blinker.frame), Some(1));
     assert_eq!(registry.revision(handle).unwrap().value(), 1);
 }
@@ -76,7 +84,11 @@ fn multiple_due_components_tick_in_mount_order() {
     let mut mounted = MountedComponents::default();
     let transitions = mounted.reconcile(graph(&[(first.id(), None), (second.id(), None)]));
     scheduler.sync_mounts(mounted.current(), &transitions, now);
-    assert!(scheduler.tick_due(now + Duration::from_millis(80), &mut registry));
+    assert!(
+        scheduler
+            .tick_due(now + Duration::from_millis(80), &mut registry)
+            .dirty
+    );
     assert_eq!(registry.with(first, |blinker| blinker.frame), Some(1));
     assert_eq!(registry.with(second, |blinker| blinker.frame), Some(1));
     assert_eq!(registry.revision(first).unwrap().value(), 1);
@@ -105,14 +117,22 @@ fn unmount_deactivates_and_remount_resets_the_deadline() {
         &transitions,
         initial + Duration::from_millis(100),
     );
-    assert!(!scheduler.tick_due(initial + Duration::from_secs(1), &mut registry));
+    assert!(
+        !scheduler
+            .tick_due(initial + Duration::from_secs(1), &mut registry)
+            .dirty
+    );
     assert_eq!(registry.with(handle, |blinker| blinker.frame), Some(0));
 
     let remount = initial + Duration::from_secs(2);
     let transitions = mounted.reconcile(graph(&[(handle.id(), None)]));
     scheduler.sync_mounts(mounted.current(), &transitions, remount);
-    assert!(!scheduler.tick_due(remount, &mut registry));
-    assert!(scheduler.tick_due(remount + Duration::from_millis(80), &mut registry));
+    assert!(!scheduler.tick_due(remount, &mut registry).dirty);
+    assert!(
+        scheduler
+            .tick_due(remount + Duration::from_millis(80), &mut registry)
+            .dirty
+    );
     assert_eq!(registry.with(handle, |blinker| blinker.frame), Some(1));
 }
 

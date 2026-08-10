@@ -1,10 +1,8 @@
 //! Physical border and surface decoration painting.
 
-use unicode_segmentation::UnicodeSegmentation;
-
 use crate::{
     physical::{PhysicalStyle, Surface},
-    presentation::BorderSpec,
+    presentation::{BorderSpec, WidthRule, WrapMode, ir::TextView, layout::ViewCompiler},
 };
 
 use super::ThemeResolver;
@@ -52,11 +50,18 @@ pub(crate) fn paint_border(
 
     if edges.top {
         if let Some(label) = &border.top_label {
-            for (x, grapheme) in label.graphemes(true).enumerate() {
-                if x >= usize::from(surface.width()) {
-                    break;
+            let mut text = TextView::plain(label.clone());
+            text.wrap = WrapMode::NoWrap;
+            let painted =
+                ViewCompiler::default().paint_text(&text, surface.width(), WidthRule::Fill, style);
+            for x in 0..surface.width() {
+                let label_cell = painted.get(x, 0);
+                if !label_cell.painted {
+                    continue;
                 }
-                set_cell(surface, x as u16, 0, grapheme.to_owned(), style);
+                let mut cell = label_cell.clone();
+                cell.style.background = surface.get(x, 0).style.background;
+                *surface.get_mut(x, 0) = cell;
             }
         }
     }

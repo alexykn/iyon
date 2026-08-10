@@ -76,7 +76,7 @@ impl TickProbe {
     fn tick(&mut self, _now: Instant, cx: &mut crate::EventCx<'_>) -> bool {
         self.ticks += 1;
         cx.emit(self.changed, self.ticks);
-        true
+        false
     }
 }
 
@@ -473,11 +473,13 @@ fn mounted_tick_capabilities_emit_after_the_tick_dispatch_returns() {
     let start = Instant::now();
     scheduler.sync_capabilities(mounted.current(), &scene.capabilities, &transitions, start);
     let mut queue = OutputQueue::new();
-    assert!(scheduler.tick_due_with_events(
+    let outcome = scheduler.tick_due_with_events(
         start + Duration::from_millis(80),
         &mut registry,
         &mut queue,
-    ));
+    );
+    assert!(outcome.ran);
+    assert!(!outcome.dirty);
     assert_eq!(registry.with(probe, |probe| probe.ticks), Some(1));
 
     let mut router = OutputRouter::new();
@@ -493,11 +495,11 @@ fn mounted_tick_capabilities_emit_after_the_tick_dispatch_returns() {
         &transitions,
         start + Duration::from_millis(100),
     );
-    assert!(!scheduler.tick_due_with_events(
-        start + Duration::from_secs(1),
-        &mut registry,
-        &mut queue,
-    ));
+    assert!(
+        !scheduler
+            .tick_due_with_events(start + Duration::from_secs(1), &mut registry, &mut queue,)
+            .dirty
+    );
 }
 
 #[test]
