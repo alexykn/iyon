@@ -39,6 +39,7 @@ pub(crate) struct ReadyStatus {
 pub(crate) struct RunningApp<State, Action, Error, Update, ViewFn> {
     pub(crate) state: State,
     scene: Scene,
+    theme: crate::Theme,
     components: ComponentRegistry,
     outputs: OutputRouter<Action>,
     scene_host: SceneHost,
@@ -74,6 +75,7 @@ where
             update,
             view,
             history,
+            mut theme,
             handle,
             ingress,
             marker: _,
@@ -96,6 +98,7 @@ where
                     components: &mut components,
                     outputs: &mut outputs,
                     timers: &mut timers,
+                    theme: &mut theme,
                     global_bindings: &mut global_bindings,
                     paste_interceptors: &mut paste_interceptors,
                     deferred_pastes: &mut deferred_pastes,
@@ -109,6 +112,7 @@ where
         let mut running = Self {
             state,
             scene,
+            theme,
             components,
             outputs,
             scene_host: SceneHost::default(),
@@ -190,9 +194,10 @@ where
             return Ok(self.status(false));
         }
 
-        self.collect_due_timers(now);
+        self.collect_due_timers_front(now);
         let tick = self.scene_host.tick_due(now, &mut self.components);
         self.dirty |= tick.dirty;
+        self.body_dirty |= tick.dirty;
         self.drain_outputs_to_actions()?;
 
         for _ in 0..ACTION_BATCH_BUDGET {
@@ -206,6 +211,7 @@ where
                         components: &mut self.components,
                         outputs: &mut self.outputs,
                         timers: &mut self.timers,
+                        theme: &mut self.theme,
                         global_bindings: &mut self.global_bindings,
                         paste_interceptors: &mut self.paste_interceptors,
                         deferred_pastes: &mut self.deferred_pastes,
@@ -262,6 +268,7 @@ where
             now,
             &mut self.scene,
             &mut self.components,
+            &self.theme,
             sink,
             &mut viewport,
         )?;
@@ -275,6 +282,11 @@ where
 
     pub(crate) fn is_exiting(&self) -> bool {
         self.exit_requested
+    }
+
+    #[cfg(feature = "test-util")]
+    pub(crate) fn handle(&self) -> AppHandle<Action> {
+        self.handle.clone()
     }
 
     pub(crate) fn close_ingress(&mut self) {
@@ -353,6 +365,16 @@ where
             dirty: self.dirty,
             exiting: self.exit_requested,
             more_ready: more_ready && !self.exit_requested,
+        }
+    }
+
+    fn collect_due_timers_front(&mut self, now: Instant) {
+        let mut due = Vec::new();
+        while let Some(action) = self.timers.pop_due(now) {
+            due.push(action);
+        }
+        for action in due.into_iter().rev() {
+            self.actions.push_front(action);
         }
     }
 

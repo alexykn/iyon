@@ -30,16 +30,6 @@ pub(crate) enum StreamTransferPayload {
     Frozen { rows: FrozenPhysicalRows },
 }
 
-#[cfg(test)]
-impl StreamTransferPayload {
-    pub(crate) fn rows_to_write(&self) -> usize {
-        match self {
-            Self::Compiled { len, .. } => *len,
-            Self::Frozen { rows } => rows.len(),
-        }
-    }
-}
-
 /// Persistent partial-Atomic state across transfer calls and resizes.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum StreamPartialTransfer {

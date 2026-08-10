@@ -12,6 +12,7 @@ mod tree;
 mod tests;
 
 use crate::{
+    Theme,
     geometry::LayoutConstraints,
     physical::{PhysicalRow, Surface},
     presentation::View,
@@ -40,6 +41,18 @@ pub(crate) struct ViewCompiler {
 }
 
 impl ViewCompiler {
+    pub(crate) fn new(theme: &Theme) -> Self {
+        Self {
+            theme: ThemeResolver::new(theme),
+        }
+    }
+
+    pub(crate) fn with_resolver(theme: &ThemeResolver) -> Self {
+        Self {
+            theme: theme.clone(),
+        }
+    }
+
     pub(crate) fn compile(&self, view: &View, max_width: u16) -> LayoutBlock {
         let tree = self.layout_tree(view, LayoutConstraints::width_only(max_width));
         let surface = ViewPainter.paint_tree(self, &tree);
@@ -56,8 +69,13 @@ impl ViewCompiler {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn compile_view(view: &View, width: u16) -> LayoutBlock {
-    ViewCompiler::default().compile(view, width)
+    compile_view_with_theme(view, width, &Theme::default())
+}
+
+pub(crate) fn compile_view_with_theme(view: &View, width: u16, theme: &Theme) -> LayoutBlock {
+    ViewCompiler::new(theme).compile(view, width)
 }
 
 #[cfg(test)]

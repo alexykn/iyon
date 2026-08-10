@@ -6,7 +6,7 @@
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::presentation::{HorizontalAlign, StyleSpec, TextSpan, WidthRule, WrapMode};
+use crate::presentation::{HorizontalAlign, StyleRef, TextSpan, WidthRule, WrapMode};
 
 use super::coord::{StreamOffset, StreamRange};
 
@@ -44,7 +44,7 @@ pub(crate) enum ProjectedTextLayout {
     Hanging {
         body_column: u16,
         prefix: String,
-        prefix_style: StyleSpec,
+        prefix_style: StyleRef,
         prefix_source: StreamRange,
         show_prefix: bool,
     },
@@ -53,7 +53,7 @@ pub(crate) enum ProjectedTextLayout {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ProjectedTextRun {
     pub(crate) display: String,
-    pub(crate) style: StyleSpec,
+    pub(crate) style: StyleRef,
     pub(crate) owned: StreamRange,
     pub(crate) exact_visible: Option<StreamRange>,
 }
@@ -88,18 +88,23 @@ impl ProjectedTextBuilder {
         display: impl Into<String>,
         owned: StreamRange,
         exact_visible: Option<StreamRange>,
-        style: StyleSpec,
+        style: impl Into<StyleRef>,
     ) -> Self {
         self.runs.push(ProjectedTextRun {
             display: display.into(),
-            style,
+            style: style.into(),
             owned,
             exact_visible,
         });
         self
     }
 
-    pub fn exact(self, display: impl Into<String>, range: StreamRange, style: StyleSpec) -> Self {
+    pub fn exact(
+        self,
+        display: impl Into<String>,
+        range: StreamRange,
+        style: impl Into<StyleRef>,
+    ) -> Self {
         self.run(display, range, Some(range), style)
     }
 
@@ -107,7 +112,7 @@ impl ProjectedTextBuilder {
         self,
         display: impl Into<String>,
         owned: StreamRange,
-        style: StyleSpec,
+        style: impl Into<StyleRef>,
     ) -> Self {
         self.run(display, owned, None, style)
     }
@@ -141,14 +146,14 @@ impl ProjectedTextBuilder {
         mut self,
         body_column: u16,
         prefix: impl Into<String>,
-        prefix_style: StyleSpec,
+        prefix_style: impl Into<StyleRef>,
         prefix_source: StreamRange,
         show_prefix: bool,
     ) -> Self {
         self.layout = ProjectedTextLayout::Hanging {
             body_column,
             prefix: prefix.into(),
-            prefix_style,
+            prefix_style: prefix_style.into(),
             prefix_source,
             show_prefix,
         };
@@ -347,7 +352,7 @@ pub(crate) fn slice_projected_text(text: &ProjectedText, offset: StreamOffset) -
 pub(crate) struct ProjectedAtom {
     pub(crate) display: String,
     pub(crate) owned: StreamRange,
-    pub(crate) style: StyleSpec,
+    pub(crate) style: StyleRef,
     pub(crate) run_index: Option<usize>,
 }
 
@@ -361,7 +366,7 @@ pub(crate) fn projected_atoms(text: &ProjectedText) -> Vec<ProjectedAtom> {
     let flush_exact =
         |atoms: &mut Vec<ProjectedAtom>,
          display: &mut String,
-         fragments: &mut Vec<(usize, usize, StreamRange, StreamRange, usize, StyleSpec)>| {
+         fragments: &mut Vec<(usize, usize, StreamRange, StreamRange, usize, StyleRef)>| {
             for (relative, grapheme) in display.grapheme_indices(true) {
                 let relative_end = relative + grapheme.len();
                 let contributors = fragments

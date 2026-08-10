@@ -13,18 +13,6 @@ use super::{
     },
 };
 
-/// Semantic provenance attached to stream view nodes.
-#[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum StreamProvenance {
-    /// A source-mapped text flow whose physical rows can expose monotonic source
-    /// checkpoints, including transformed Markdown text.
-    Projected(StreamRange),
-
-    /// Presentation is genuinely indivisible and must be transferred as one unit.
-    Atomic(StreamRange),
-}
-
 /// A semantic presentation node with truthful provenance.
 ///
 /// Exact text is statically constrained to [`TextView`] plus an optional typed
@@ -78,14 +66,6 @@ impl StreamNode {
         match self {
             Self::Text(text) => text.owned_range(),
             Self::Atomic { range, .. } => *range,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn provenance(&self) -> StreamProvenance {
-        match self {
-            Self::Text(_) => StreamProvenance::Projected(self.owned_range()),
-            Self::Atomic { range, .. } => StreamProvenance::Atomic(*range),
         }
     }
 }

@@ -23,7 +23,11 @@ pub use error::HistoryError;
 pub use id::HistoryUnitId;
 pub use layout::HistoryLayout;
 pub use model::History;
-pub(crate) use native::{NativeTransferError, NativeTransferStatus, transfer_native_prefix};
+#[cfg(test)]
+pub(crate) use native::transfer_native_prefix;
+pub(crate) use native::{
+    NativeTransferError, NativeTransferStatus, transfer_native_prefix_with_theme,
+};
 pub(crate) use projection::{HistoryPhysicalOverlay, project_into_session_for_host};
 pub(crate) use stream::ErasedHistoryStream;
 pub use stream::HistoryStreamHandle;

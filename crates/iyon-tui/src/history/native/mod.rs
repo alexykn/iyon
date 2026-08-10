@@ -8,7 +8,7 @@ mod tests;
 use crate::{
     backend::NativeHistorySink,
     physical::PhysicalRow,
-    presentation::layout::compile_view,
+    presentation::layout::compile_view_with_theme,
     stream::{
         CompiledStream, FrozenPhysicalRows, StreamPartialTransfer, StreamTransferPayload,
         plan_stream_transfer,
@@ -51,11 +51,22 @@ pub(crate) enum NativeTransferError<E> {
     InvalidAcknowledgement { requested: usize, accepted: usize },
 }
 
+#[cfg(test)]
 pub(crate) fn transfer_native_prefix<S: NativeHistorySink>(
     history: &mut History,
     sink: &mut S,
     width: u16,
     max_rows: usize,
+) -> Result<NativeTransferOutcome, NativeTransferError<S::Error>> {
+    transfer_native_prefix_with_theme(history, sink, width, max_rows, &crate::Theme::default())
+}
+
+pub(crate) fn transfer_native_prefix_with_theme<S: NativeHistorySink>(
+    history: &mut History,
+    sink: &mut S,
+    width: u16,
+    max_rows: usize,
+    theme: &crate::Theme,
 ) -> Result<NativeTransferOutcome, NativeTransferError<S::Error>> {
     if max_rows == 0 || width == 0 || history.units.is_empty() {
         return Ok(outcome(0, 0, NativeTransferStatus::Idle));
@@ -98,14 +109,14 @@ pub(crate) fn transfer_native_prefix<S: NativeHistorySink>(
             },
         )),
         HistoryUnitContent::Static(view) => {
-            let rows = static_rows(view, width, history.layout());
+            let rows = static_rows(view, width, history.layout(), theme);
             if rows.is_empty() {
                 retire_front(history);
-                return transfer_native_prefix(history, sink, width, max_rows);
+                return transfer_native_prefix_with_theme(history, sink, width, max_rows, theme);
             }
             transfer_static(history, sink, rows, max_rows)
         }
-        HistoryUnitContent::Stream(_) => transfer_stream(history, sink, width, max_rows),
+        HistoryUnitContent::Stream(_) => transfer_stream(history, sink, width, max_rows, theme),
     }
 }
 
@@ -254,6 +265,7 @@ fn transfer_stream<S: NativeHistorySink>(
     sink: &mut S,
     width: u16,
     max_rows: usize,
+    theme: &crate::Theme,
 ) -> Result<NativeTransferOutcome, NativeTransferError<S::Error>> {
     let unit = history.units.front().expect("stream unit");
     let unit_id = unit.id;
@@ -283,6 +295,7 @@ fn transfer_stream<S: NativeHistorySink>(
                         .left
                         .saturating_add(history.layout().padding.right),
                 ),
+                theme,
             ),
             stream.is_sealed(),
             stream.source_end(),
@@ -307,7 +320,7 @@ fn transfer_stream<S: NativeHistorySink>(
             partial: None,
         });
         state.committed_through = next;
-        return transfer_native_prefix(history, sink, width, max_rows);
+        return transfer_native_prefix_with_theme(history, sink, width, max_rows, theme);
     }
     let plan = plan_stream_transfer(
         &compiled,
@@ -395,10 +408,11 @@ fn static_rows(
     view: &crate::presentation::View,
     width: u16,
     layout: super::HistoryLayout,
+    theme: &crate::Theme,
 ) -> Vec<PhysicalRow> {
     let content_width =
         width.saturating_sub(layout.padding.left.saturating_add(layout.padding.right));
-    compile_view(view, content_width)
+    compile_view_with_theme(view, content_width, theme)
         .rows
         .into_iter()
         .map(|row| row.placed(width, layout.padding.left))

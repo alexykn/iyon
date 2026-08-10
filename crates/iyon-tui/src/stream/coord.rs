@@ -26,7 +26,7 @@ impl StreamOffset {
         }
     }
 
-    pub(crate) const fn saturating_add(self, rhs: u64) -> Self {
+    pub const fn saturating_add(self, rhs: u64) -> Self {
         Self(self.0.saturating_add(rhs))
     }
 }
@@ -53,7 +53,7 @@ impl StreamRevision {
         }
     }
 
-    pub(crate) fn next(self) -> Self {
+    pub fn next(self) -> Self {
         self.checked_next().expect("stream revision exhausted")
     }
 }

@@ -52,8 +52,12 @@ pub(crate) fn paint_border(
         if let Some(label) = &border.top_label {
             let mut text = TextView::plain(label.clone());
             text.wrap = WrapMode::NoWrap;
-            let painted =
-                ViewCompiler::default().paint_text(&text, surface.width(), WidthRule::Fill, style);
+            let painted = ViewCompiler::with_resolver(theme).paint_text(
+                &text,
+                surface.width(),
+                WidthRule::Fill,
+                style,
+            );
             for x in 0..surface.width() {
                 let label_cell = painted.get(x, 0);
                 if !label_cell.painted {

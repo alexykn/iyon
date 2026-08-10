@@ -3,7 +3,7 @@ use crate::tools::{
     renderers::{column, result_lines, result_style, text, tool_call, tool_result_line},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
-use crate::{ColorSpec, IntoView, StyleSpec, View};
+use iyon_tui::{ColorSpec, IntoView, StyleSpec, View};
 
 #[derive(Debug)]
 pub(crate) struct EditRenderer;

@@ -1,35 +1,40 @@
-use crate::View;
 use crate::tools::{
     registry::ToolRenderer,
     renderers::{column, result_lines, result_style, tool_call},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use iyon_tui::View;
 
 #[derive(Debug)]
-pub(crate) struct LsRenderer;
+pub(crate) struct FindRenderer;
 
-impl ToolRenderer for LsRenderer {
+impl ToolRenderer for FindRenderer {
     fn tool_name(&self) -> &'static str {
-        "ls"
+        "find"
     }
 
     fn render_call(&self, input: ToolCallRenderInput<'_>) -> View {
+        let pattern = input
+            .arguments
+            .get("pattern")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
         let path = input
             .arguments
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or(".");
         tool_call(
-            format!("ls {path} — {}", status_label(input.status)),
+            format!("find {pattern} in {path} — {}", status_label(input.status)),
             super::tool_style(input.status),
         )
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> View {
         let title = if input.is_error() {
-            "ls failed"
+            "find failed"
         } else {
-            "ls result"
+            "find result"
         };
         let mut children = vec![super::tool_result_line(
             title,

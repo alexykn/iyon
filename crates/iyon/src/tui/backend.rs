@@ -1,0 +1,515 @@
+use std::{collections::HashMap, fmt};
+
+use anyhow::Result;
+use iyon_core::{
+    CoreCommand, CoreCommandSender, CoreEvent, CoreEventReceiver, MessageDelta, MessageRole,
+    ReasoningLevel, ToolUpdateEvent,
+};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+
+use iyon_tui::AppHandle;
+
+use super::controller::IyonAction;
+
+#[derive(Debug)]
+pub enum FrontendEvent {
+    TurnStarted,
+    SteerQueued {
+        text: String,
+    },
+    UserMessage {
+        text: String,
+    },
+    AssistantDelta {
+        text: String,
+    },
+    ThinkingDelta {
+        text: String,
+    },
+    TurnFinished,
+    TurnFailed {
+        message: String,
+    },
+    TurnCancelled,
+    ToolCallStarted {
+        tool_call_id: String,
+        tool_name: String,
+        arguments: serde_json::Value,
+    },
+    ToolCallUpdated {
+        tool_call_id: String,
+        update: ToolUpdatePresentation,
+    },
+    ToolCallFinished {
+        tool_call_id: String,
+        is_error: bool,
+    },
+    ToolApprovalRequested {
+        approval_id: u64,
+        tool_call_id: String,
+        tool_name: String,
+        arguments: serde_json::Value,
+    },
+    ToolApprovalResolved {
+        approval_id: u64,
+        tool_call_id: String,
+        approved: bool,
+        reason: Option<String>,
+    },
+    ToolResult {
+        tool_call_id: String,
+        tool_name: String,
+        text: String,
+        details: serde_json::Value,
+        is_error: bool,
+    },
+    ConfigChanged {
+        provider: String,
+        model_id: String,
+        reasoning_effort: ReasoningLevel,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum ToolUpdatePresentation {
+    Text(String),
+    Progress {
+        label: String,
+        current: Option<u64>,
+        total: Option<u64>,
+    },
+    Details(serde_json::Value),
+}
+
+#[derive(Debug, Clone)]
+struct PendingToolResultPresentation {
+    tool_call_id: String,
+    tool_name: String,
+    is_error: bool,
+    text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SubmitTurnResult {
+    Sent,
+    NoBackendAttached,
+}
+
+#[derive(Clone)]
+pub(crate) struct BackendCommands {
+    command_tx: Option<CoreCommandSender>,
+}
+
+impl BackendCommands {
+    pub(crate) fn new(command_tx: Option<CoreCommandSender>) -> Self {
+        Self { command_tx }
+    }
+
+    pub(crate) fn submit_turn(&self, text: String) -> Result<SubmitTurnResult> {
+        let Some(tx) = &self.command_tx else {
+            return Ok(SubmitTurnResult::NoBackendAttached);
+        };
+        tx.try_send(CoreCommand::SubmitTurn { text })?;
+        Ok(SubmitTurnResult::Sent)
+    }
+
+    pub(crate) fn cancel_active_turn(&self) -> Result<()> {
+        if let Some(tx) = &self.command_tx {
+            tx.try_send(CoreCommand::CancelActiveTurn)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn cycle_reasoning_effort(&self) -> Result<()> {
+        if let Some(tx) = &self.command_tx {
+            tx.try_send(CoreCommand::CycleReasoningEffort)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn approve(&self, approval_id: u64) -> Result<()> {
+        if let Some(tx) = &self.command_tx {
+            tx.try_send(CoreCommand::ApproveToolCall { approval_id })?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn reject(&self, approval_id: u64, reason: Option<String>) -> Result<()> {
+        if let Some(tx) = &self.command_tx {
+            tx.try_send(CoreCommand::RejectToolCall {
+                approval_id,
+                reason,
+            })?;
+        }
+        Ok(())
+    }
+}
+
+pub(crate) struct CoreEventMapper {
+    message_roles: HashMap<u64, MessageRole>,
+    tool_results: HashMap<u64, PendingToolResultPresentation>,
+}
+
+impl Default for CoreEventMapper {
+    fn default() -> Self {
+        Self {
+            message_roles: HashMap::new(),
+            tool_results: HashMap::new(),
+        }
+    }
+}
+
+impl CoreEventMapper {
+    pub(crate) fn map(&mut self, event: CoreEvent) -> Option<FrontendEvent> {
+        match event {
+            CoreEvent::AgentStarted | CoreEvent::AgentFinished => None,
+            CoreEvent::TurnStarted { .. } => Some(FrontendEvent::TurnStarted),
+            CoreEvent::SteerQueued { text } => Some(FrontendEvent::SteerQueued { text }),
+            CoreEvent::MessageStarted {
+                message_id, role, ..
+            } => {
+                self.message_roles.insert(message_id, role);
+                None
+            }
+            CoreEvent::MessageDelta {
+                message_id,
+                delta: MessageDelta::Text(text),
+                ..
+            } => match self.message_roles.get(&message_id).copied() {
+                Some(MessageRole::User) => Some(FrontendEvent::UserMessage { text }),
+                Some(MessageRole::Assistant) => Some(FrontendEvent::AssistantDelta { text }),
+                Some(MessageRole::ToolResult) => {
+                    if let Some(result) = self.tool_results.get_mut(&message_id) {
+                        result.text.push_str(&text);
+                    }
+                    None
+                }
+                Some(MessageRole::Status) | None => None,
+            },
+            CoreEvent::MessageDelta {
+                message_id,
+                delta: MessageDelta::Thinking(text),
+                ..
+            } => matches!(
+                self.message_roles.get(&message_id),
+                Some(MessageRole::Assistant)
+            )
+            .then_some(FrontendEvent::ThinkingDelta { text }),
+            CoreEvent::MessageDelta { .. } => None,
+            CoreEvent::MessageFinished { message_id, .. } => {
+                if matches!(
+                    self.message_roles.remove(&message_id),
+                    Some(MessageRole::ToolResult)
+                ) {
+                    return self.tool_results.remove(&message_id).map(|result| {
+                        FrontendEvent::ToolResult {
+                            tool_call_id: result.tool_call_id,
+                            tool_name: result.tool_name,
+                            text: result.text,
+                            details: serde_json::Value::Null,
+                            is_error: result.is_error,
+                        }
+                    });
+                }
+                None
+            }
+            CoreEvent::ToolCallStarted {
+                tool_call_id,
+                tool_name,
+                arguments,
+                ..
+            } => Some(FrontendEvent::ToolCallStarted {
+                tool_call_id,
+                tool_name,
+                arguments,
+            }),
+            CoreEvent::ToolCallUpdated {
+                tool_call_id,
+                update,
+                ..
+            } => Some(FrontendEvent::ToolCallUpdated {
+                tool_call_id,
+                update: lower_tool_update(update),
+            }),
+            CoreEvent::ToolCallFinished {
+                tool_call_id,
+                is_error,
+                ..
+            } => Some(FrontendEvent::ToolCallFinished {
+                tool_call_id,
+                is_error,
+            }),
+            CoreEvent::ToolApprovalRequested {
+                approval_id,
+                tool_call_id,
+                tool_name,
+                arguments,
+                ..
+            } => Some(FrontendEvent::ToolApprovalRequested {
+                approval_id,
+                tool_call_id,
+                tool_name,
+                arguments,
+            }),
+            CoreEvent::ToolApprovalResolved {
+                approval_id,
+                tool_call_id,
+                approved,
+                reason,
+                ..
+            } => Some(FrontendEvent::ToolApprovalResolved {
+                approval_id,
+                tool_call_id,
+                approved,
+                reason,
+            }),
+            CoreEvent::ToolResultStarted {
+                tool_call_id,
+                tool_name,
+                is_error,
+                message_id,
+                ..
+            } => {
+                self.tool_results.insert(
+                    message_id,
+                    PendingToolResultPresentation {
+                        tool_call_id,
+                        tool_name,
+                        is_error,
+                        text: String::new(),
+                    },
+                );
+                None
+            }
+            CoreEvent::ToolResultFinished {
+                tool_call_id,
+                tool_name,
+                text,
+                details,
+                is_error,
+                ..
+            } => Some(FrontendEvent::ToolResult {
+                tool_call_id,
+                tool_name,
+                text,
+                details,
+                is_error,
+            }),
+            CoreEvent::TurnFinished { .. } => Some(FrontendEvent::TurnFinished),
+            CoreEvent::TurnFailed { message, .. } => Some(FrontendEvent::TurnFailed { message }),
+            CoreEvent::TurnCancelled { .. } => {
+                self.message_roles.clear();
+                Some(FrontendEvent::TurnCancelled)
+            }
+            CoreEvent::ConfigChanged {
+                provider,
+                model_id,
+                reasoning_effort,
+            } => Some(FrontendEvent::ConfigChanged {
+                provider,
+                model_id,
+                reasoning_effort,
+            }),
+        }
+    }
+}
+
+fn lower_tool_update(update: ToolUpdateEvent) -> ToolUpdatePresentation {
+    match update {
+        ToolUpdateEvent::Text(text) => ToolUpdatePresentation::Text(text),
+        ToolUpdateEvent::Progress {
+            label,
+            current,
+            total,
+        } => ToolUpdatePresentation::Progress {
+            label,
+            current,
+            total,
+        },
+        ToolUpdateEvent::Details(details) => ToolUpdatePresentation::Details(details),
+    }
+}
+
+pub(crate) struct CoreBridge {
+    cancel: CancellationToken,
+    task: Option<JoinHandle<()>>,
+}
+
+impl fmt::Debug for CoreBridge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CoreBridge").finish_non_exhaustive()
+    }
+}
+
+impl CoreBridge {
+    pub(crate) fn spawn(mut receiver: CoreEventReceiver, handle: AppHandle<IyonAction>) -> Self {
+        let cancel = CancellationToken::new();
+        let child = cancel.child_token();
+        let task = tokio::spawn(async move {
+            let mut mapper = CoreEventMapper::default();
+            loop {
+                tokio::select! {
+                    _ = child.cancelled() => break,
+                    event = receiver.recv_event() => {
+                        let Some(event) = event else { break; };
+                        let Some(frontend) = mapper.map(event) else { continue; };
+                        if handle.send(IyonAction::Backend(frontend)).is_err() { break; }
+                        tokio::task::yield_now().await;
+                    }
+                }
+            }
+        });
+        Self {
+            cancel,
+            task: Some(task),
+        }
+    }
+
+    pub(crate) async fn shutdown(&mut self) -> Result<()> {
+        self.cancel.cancel();
+        if let Some(task) = self.task.take() {
+            task.await.map_err(|error| anyhow::anyhow!(error))?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for CoreBridge {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mapper_preserves_message_role_and_thinking_order() {
+        let mut mapper = CoreEventMapper::default();
+        assert!(
+            mapper
+                .map(CoreEvent::MessageStarted {
+                    turn_id: 1,
+                    message_id: 2,
+                    role: MessageRole::Assistant,
+                })
+                .is_none()
+        );
+        assert!(matches!(
+            mapper.map(CoreEvent::MessageDelta {
+                turn_id: 1,
+                message_id: 2,
+                delta: MessageDelta::Thinking("think".into()),
+            }),
+            Some(FrontendEvent::ThinkingDelta { text }) if text == "think"
+        ));
+        assert!(matches!(
+            mapper.map(CoreEvent::MessageDelta {
+                turn_id: 1,
+                message_id: 2,
+                delta: MessageDelta::Text("answer".into()),
+            }),
+            Some(FrontendEvent::AssistantDelta { text }) if text == "answer"
+        ));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn bridge_delivers_core_stream_events_to_the_headless_app() {
+        let core = iyon_core::IyonCore::spawn_default_on_current_runtime();
+        let (commands, receiver) = core.split();
+        let selection = iyon_core::ModelSelection {
+            provider: "mock".into(),
+            model_id: "mock".into(),
+        };
+        let app = super::super::build_app(commands.clone(), selection);
+        let mut harness = iyon_tui::testing::start(app, 80, 20).unwrap();
+        let mut bridge = CoreBridge::spawn(receiver, harness.handle());
+        commands
+            .try_send(iyon_core::CoreCommand::SubmitTurn {
+                text: "hello".into(),
+            })
+            .unwrap();
+
+        let mut saw_stream = false;
+        for _ in 0..80 {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            harness
+                .advance_time(std::time::Duration::from_millis(20))
+                .unwrap();
+            if harness
+                .screen_lines()
+                .iter()
+                .any(|line| line.contains("Mock response"))
+            {
+                saw_stream = true;
+                break;
+            }
+        }
+        bridge.shutdown().await.unwrap();
+        assert!(saw_stream, "core stream never reached the application");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn bridge_shutdown_cancels_an_idle_receiver() {
+        let core = iyon_core::IyonCore::spawn_default_on_current_runtime();
+        let (commands, receiver) = core.split();
+        let app = super::super::build_app(
+            commands,
+            iyon_core::ModelSelection {
+                provider: "mock".into(),
+                model_id: "mock".into(),
+            },
+        );
+        let handle = app.handle();
+        let mut bridge = CoreBridge::spawn(receiver, handle);
+        bridge.shutdown().await.unwrap();
+    }
+
+    #[test]
+    fn mapper_accumulates_tool_result_message_deltas() {
+        let mut mapper = CoreEventMapper::default();
+        assert!(
+            mapper
+                .map(CoreEvent::ToolResultStarted {
+                    turn_id: 1,
+                    message_id: 8,
+                    tool_call_id: "tool".into(),
+                    tool_name: "bash".into(),
+                    is_error: false,
+                })
+                .is_none()
+        );
+        assert!(
+            mapper
+                .map(CoreEvent::MessageStarted {
+                    turn_id: 1,
+                    message_id: 8,
+                    role: MessageRole::ToolResult,
+                })
+                .is_none()
+        );
+        for text in ["one", " two"] {
+            assert!(
+                mapper
+                    .map(CoreEvent::MessageDelta {
+                        turn_id: 1,
+                        message_id: 8,
+                        delta: MessageDelta::Text(text.into()),
+                    })
+                    .is_none()
+            );
+        }
+        let event = mapper
+            .map(CoreEvent::MessageFinished {
+                turn_id: 1,
+                message_id: 8,
+            })
+            .expect("mapped result");
+        assert!(matches!(event, FrontendEvent::ToolResult { text, .. } if text == "one two"));
+    }
+}

@@ -62,6 +62,33 @@ impl StyleSpec {
         self
     }
 
+    pub fn set_foreground(&mut self, color: ColorSpec) {
+        self.foreground = Some(color);
+    }
+
+    pub fn set_background(&mut self, color: ColorSpec) {
+        self.background = Some(color);
+    }
+
+    pub fn set_attribute(&mut self, attribute: TextAttribute, enabled: bool) {
+        self.attributes.set(attribute, enabled);
+    }
+
+    pub fn with_attributes(mut self, attributes: TextAttributeSpec) -> Self {
+        self.attributes = attributes;
+        self
+    }
+
+    pub fn attribute_value(&self, attribute: TextAttribute) -> Option<bool> {
+        match attribute {
+            TextAttribute::Bold => self.attributes.bold,
+            TextAttribute::Dim => self.attributes.dim,
+            TextAttribute::Italic => self.attributes.italic,
+            TextAttribute::Underline => self.attributes.underline,
+            TextAttribute::Reversed => self.attributes.reversed,
+        }
+    }
+
     /// Applies the explicitly specified fields from `incoming`; it is the
     /// more-specific patch and never clears unspecified fields.
     pub(in crate::presentation::api) fn overlay(&mut self, incoming: &Self) {
@@ -133,10 +160,41 @@ impl From<u16> for Insets {
         Self::all(value)
     }
 }
+/// Public named ANSI colors supported by terminal backends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AnsiColor {
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    Gray,
+    DarkGray,
+    LightRed,
+    LightGreen,
+    LightYellow,
+    LightBlue,
+    LightMagenta,
+    LightCyan,
+    White,
+}
+
+/// A backend-neutral theme color.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ThemeColor {
+    Default,
+    Named(AnsiColor),
+    Indexed(u8),
+    Rgb { r: u8, g: u8, b: u8 },
+}
+
 /// Backend-neutral theme, ANSI, or RGB color specification.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ColorSpec {
     Theme(ThemeKey),
+    Named(AnsiColor),
     Ansi(u8),
     Rgb { r: u8, g: u8, b: u8 },
 }
@@ -144,6 +202,10 @@ pub enum ColorSpec {
 impl ColorSpec {
     pub fn theme(key: impl Into<ThemeKey>) -> Self {
         Self::Theme(key.into())
+    }
+
+    pub const fn named(color: AnsiColor) -> Self {
+        Self::Named(color)
     }
 
     pub const fn ansi(value: u8) -> Self {
@@ -156,8 +218,14 @@ impl ColorSpec {
 }
 
 /// Opaque semantic key resolved by the host theme.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ThemeKey(pub(crate) String);
+
+impl ThemeKey {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 impl From<&str> for ThemeKey {
     fn from(value: &str) -> Self {
@@ -170,6 +238,78 @@ impl From<String> for ThemeKey {
         Self(value)
     }
 }
+
+/// A semantic named style plus a sparse local override.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StyleRef {
+    pub(crate) theme: Option<ThemeKey>,
+    pub(crate) local: StyleSpec,
+}
+
+impl StyleRef {
+    pub fn direct(style: StyleSpec) -> Self {
+        Self {
+            theme: None,
+            local: style,
+        }
+    }
+
+    pub fn theme(key: impl Into<ThemeKey>) -> Self {
+        Self {
+            theme: Some(key.into()),
+            local: StyleSpec::default(),
+        }
+    }
+
+    pub fn themed(key: impl Into<ThemeKey>, overrides: StyleSpec) -> Self {
+        Self {
+            theme: Some(key.into()),
+            local: overrides,
+        }
+    }
+
+    pub fn overrides(mut self, patch: StyleSpec) -> Self {
+        self.local.overlay(&patch);
+        self
+    }
+
+    pub(crate) fn overlay(&mut self, patch: &StyleSpec) {
+        self.local.overlay(patch);
+    }
+}
+
+impl From<StyleSpec> for StyleRef {
+    fn from(style: StyleSpec) -> Self {
+        Self::direct(style)
+    }
+}
+
+impl std::ops::Deref for StyleRef {
+    type Target = StyleSpec;
+
+    fn deref(&self) -> &Self::Target {
+        &self.local
+    }
+}
+
+impl std::ops::DerefMut for StyleRef {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.local
+    }
+}
+
+impl PartialEq<StyleSpec> for StyleRef {
+    fn eq(&self, other: &StyleSpec) -> bool {
+        self.theme.is_none() && &self.local == other
+    }
+}
+
+impl PartialEq<StyleRef> for StyleSpec {
+    fn eq(&self, other: &StyleRef) -> bool {
+        other == self
+    }
+}
+
 /// Sparse text-attribute intent used by semantic style patches.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TextAttributeSpec {
@@ -181,6 +321,15 @@ pub struct TextAttributeSpec {
 }
 
 impl TextAttributeSpec {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
+        self.set(attribute, enabled);
+        self
+    }
+
     pub(in crate::presentation::api) fn set(&mut self, attribute: TextAttribute, enabled: bool) {
         match attribute {
             TextAttribute::Bold => self.bold = Some(enabled),
@@ -459,8 +608,8 @@ pub enum BorderStyle {
 #[derive(Clone, Debug, PartialEq)]
 pub enum OverflowIndicator {
     None,
-    Ellipsis { style: StyleSpec },
-    Footer { prefix: String, style: StyleSpec },
+    Ellipsis { style: StyleRef },
+    Footer { prefix: String, style: StyleRef },
 }
 
 #[cfg(test)]
@@ -486,12 +635,12 @@ mod tests {
         assert_eq!(ColorSpec::ansi(3), ColorSpec::Ansi(3));
         assert_eq!(ColorSpec::rgb(1, 2, 3), ColorSpec::Rgb { r: 1, g: 2, b: 3 });
         assert_eq!(
-            ColorSpec::theme("text.muted"),
-            ColorSpec::Theme(ThemeKey::from("text.muted"))
+            ColorSpec::theme("muted"),
+            ColorSpec::Theme(ThemeKey::from("muted"))
         );
         assert_eq!(
-            ColorSpec::theme(String::from("text.muted")),
-            ColorSpec::Theme(ThemeKey::from("text.muted")),
+            ColorSpec::theme(String::from("muted")),
+            ColorSpec::Theme(ThemeKey::from("muted")),
         );
     }
 

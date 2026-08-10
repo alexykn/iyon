@@ -1,6 +1,6 @@
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::{History, View};
+use crate::{History, Theme, View};
 
 use super::{context::AppCx, error::RunError, handle::AppHandle, kernel::RunningApp};
 
@@ -14,6 +14,7 @@ pub struct App<State, Action, Error, Init, Update, ViewFn> {
     pub(crate) update: Update,
     pub(crate) view: ViewFn,
     pub(crate) history: Option<History>,
+    pub(crate) theme: Theme,
     pub(crate) handle: AppHandle<Action>,
     pub(crate) ingress: Option<UnboundedReceiver<Action>>,
     pub(crate) marker: std::marker::PhantomData<fn(State, Action) -> Error>,
@@ -34,6 +35,7 @@ impl<State, Action, Error, Init, Update, ViewFn> App<State, Action, Error, Init,
             update,
             view,
             history: None,
+            theme: Theme::default(),
             handle,
             ingress: Some(ingress),
             marker: std::marker::PhantomData,
@@ -43,6 +45,12 @@ impl<State, Action, Error, Init, Update, ViewFn> App<State, Action, Error, Init,
     /// Returns a cloneable Action-only producer for this application.
     pub fn handle(&self) -> AppHandle<Action> {
         self.handle.clone()
+    }
+
+    /// Configures the application-owned semantic paint theme.
+    pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
     }
 
     /// Runs the application with the default terminal adapter.

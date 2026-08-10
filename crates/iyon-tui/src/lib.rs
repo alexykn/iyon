@@ -36,7 +36,6 @@
 //! let _ = Horizontal::new();
 //! ```
 
-mod app;
 mod application;
 mod backend;
 mod component;
@@ -47,13 +46,12 @@ mod interaction;
 mod output;
 mod physical;
 mod presentation;
-mod runtime;
 mod scene;
 mod stream;
 mod terminal;
+#[cfg(feature = "test-util")]
+pub mod testing;
 mod theme;
-mod tools;
-mod transcript;
 
 pub use application::{App, AppClosed, AppCx, AppHandle, RunError, RuntimeError, TimerHandle};
 
@@ -65,58 +63,16 @@ pub use history::{
 pub use interaction::{InteractionResult, Key, KeyStroke, MediaKey, ModifierKey, Modifiers};
 pub use output::{EventCx, Output, OutputRouter, RouteConflict};
 pub use scene::Scene;
+pub use theme::Theme;
 
 pub use presentation::api::{
-    BorderEdges, BorderGlyphError, BorderGlyphs, BorderSpec, BorderStyle, ColorSpec, Horizontal,
-    HorizontalAlign, Insets, IntoView, OverflowIndicator, StyleSpec, Text, TextAttribute,
-    TextAttributeSpec, TextSpan, ThemeKey, Vertical, VerticalAlign, View, WrapMode,
+    AnsiColor, BorderEdges, BorderGlyphError, BorderGlyphs, BorderSpec, BorderStyle, ColorSpec,
+    Horizontal, HorizontalAlign, Insets, IntoView, OverflowIndicator, StyleRef, StyleSpec, Text,
+    TextAttribute, TextAttributeSpec, TextSpan, ThemeColor, ThemeKey, Vertical, VerticalAlign,
+    View, WrapMode,
 };
 pub use stream::{
     ProjectedText, ProjectedTextBuilder, ProjectedValidationError, StreamError, StreamOffset,
     StreamPane, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
     StreamValidationError, StreamingSource,
 };
-
-use std::io::stdout;
-
-use anyhow::Result;
-use app::App as IyonApp;
-use crossterm::{
-    event::{DisableBracketedPaste, EnableBracketedPaste},
-    execute,
-};
-use ratatui::{TerminalOptions, Viewport};
-use runtime::BackendEventHandler;
-use terminal::InlineTerminal;
-
-pub fn run() -> Result<()> {
-    run_with_backend_handler(BackendEventHandler::default())
-}
-
-pub fn run_with_core(core: iyon_core::IyonCore) -> Result<()> {
-    run_with_backend_handler(BackendEventHandler::new(core))
-}
-
-fn run_with_backend_handler(backend_handler: BackendEventHandler) -> Result<()> {
-    execute!(stdout(), EnableBracketedPaste)?;
-
-    let options = TerminalOptions {
-        viewport: Viewport::Inline(20),
-    };
-    let terminal = ratatui::init_with_options(options);
-    execute!(stdout(), EnableBracketedPaste)?;
-    let result = {
-        let mut terminal = InlineTerminal::new(terminal);
-        IyonApp::with_backend_handler(backend_handler).run(&mut terminal)
-    };
-
-    if let Err(error) = execute!(stdout(), DisableBracketedPaste) {
-        eprintln!("Failed to disable bracketed paste: {error}");
-    }
-
-    if let Err(error) = crossterm::terminal::disable_raw_mode() {
-        eprintln!("Failed to restore terminal: {error}");
-    }
-
-    result
-}

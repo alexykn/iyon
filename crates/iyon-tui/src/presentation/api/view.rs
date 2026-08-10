@@ -2,7 +2,7 @@
 
 use super::{
     composition::{Horizontal, Vertical},
-    style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, TextAttribute},
+    style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, StyleSpec, TextAttribute},
     text::{Text, TextSpan},
 };
 use crate::presentation::ir::{
@@ -196,9 +196,22 @@ impl View {
         self
     }
 
+    /// Applies a semantic named style or direct sparse style to this node.
+    pub fn style(mut self, style: impl Into<StyleRef>) -> Self {
+        let style = style.into();
+        if style.theme.is_some() {
+            self.decoration.text_style = style;
+        } else {
+            self.decoration.text_style.overlay(&style.local);
+        }
+        self
+    }
+
     /// Sets inherited foreground intent for descendant text.
     pub fn foreground(mut self, color: ColorSpec) -> Self {
-        self.decoration.text_style.foreground = Some(color);
+        self.decoration
+            .text_style
+            .overlay(&StyleSpec::new().foreground(color));
         self
     }
 
@@ -212,8 +225,7 @@ impl View {
     pub fn text_attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
         self.decoration
             .text_style
-            .attributes
-            .set(attribute, enabled);
+            .overlay(&StyleSpec::new().attribute(attribute, enabled));
         self
     }
 
@@ -356,7 +368,7 @@ mod tests {
             row.flex(View::text("long command").fill_width());
             row.gap(1);
         })
-        .background(ColorSpec::Theme("tool.running".into()))
+        .background(ColorSpec::Theme("accent".into()))
         .padding(Insets::all(1));
         assert!(matches!(view.kind, ViewKind::Row(_)));
         assert!(!view.decoration.padding.eq(&Insets::ZERO));

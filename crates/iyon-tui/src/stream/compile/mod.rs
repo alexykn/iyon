@@ -11,6 +11,8 @@ use super::{
     projected::checkpoint_after_row,
 };
 
+use crate::Theme;
+
 pub(crate) use rows::{
     CompiledStream, CompiledStreamRow, StreamAtomicId, StreamRowAnchor, StreamRowTransfer,
 };
@@ -24,10 +26,19 @@ pub(crate) fn compile_stream(
     max_width: u16,
     stable_through: StreamOffset,
 ) -> CompiledStream {
+    compile_stream_with_theme(view, max_width, stable_through, &crate::Theme::default())
+}
+
+pub(crate) fn compile_stream_with_theme(
+    view: &StreamView,
+    max_width: u16,
+    stable_through: StreamOffset,
+    theme: &Theme,
+) -> CompiledStream {
     use crate::presentation::layout::ViewCompiler;
 
     let width = max_width.max(1);
-    let compiler = ViewCompiler::default();
+    let compiler = ViewCompiler::new(theme);
     let mut rows = Vec::new();
     let mut anchors = Vec::new();
     let mut transfer = Vec::new();

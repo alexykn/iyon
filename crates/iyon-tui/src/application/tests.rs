@@ -558,6 +558,39 @@ fn zero_duration_timer_is_queued_after_the_current_update() {
 }
 
 #[test]
+fn due_timers_get_a_fair_turn_before_a_ready_action_backlog() {
+    let now = Instant::now();
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| -> Result<State, TestError> {
+            cx.schedule_after(Duration::ZERO, Action::Timer);
+            Ok(State {
+                input: cx.register(TextInput::new()),
+                submitted: Vec::new(),
+                count: 0,
+                removed: false,
+                ticking: None,
+            })
+        },
+        |state, action, _cx| {
+            if action == Action::Timer {
+                state.count += 1;
+            }
+            Ok(())
+        },
+        body,
+    );
+    let handle = app.handle();
+    let mut app = start(app, now);
+    for _ in 0..128 {
+        handle.send(Action::A).unwrap();
+    }
+    app.collect_external_pending();
+    let status = app.advance_ready(now).unwrap();
+    assert!(status.more_ready);
+    assert_eq!(app.state.count, 1);
+}
+
+#[test]
 fn finite_batch_yields_a_self_rescheduling_zero_timer() {
     let now = Instant::now();
     let app = App::new(

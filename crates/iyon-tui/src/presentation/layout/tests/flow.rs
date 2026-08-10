@@ -368,7 +368,7 @@ fn clamp_emits_indicator() {
     let view = View::text("one two three four").clamp_rows(
         2,
         crate::presentation::api::style::OverflowIndicator::Ellipsis {
-            style: StyleSpec::default(),
+            style: StyleSpec::default().into(),
         },
     );
     let rows = compile_view(&view, 4).rows;

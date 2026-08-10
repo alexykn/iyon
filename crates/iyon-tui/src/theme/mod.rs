@@ -1,68 +1,50 @@
-//! Single source of truth for the application's semantic palette.
+//! Application-owned semantic paint policy.
 //!
-//! The palette is stored as backend-neutral physical values.
+//! Themes contain named colors and sparse named text styles. They deliberately
+//! do not contain layout or terminal geometry.
 
-use crate::physical::{AnsiColor, PhysicalColor};
+use std::collections::HashMap;
 
-pub(crate) fn physical_color(key: &str) -> PhysicalColor {
-    match key {
-        "surface.user" => PhysicalColor::Rgb {
-            r: 45,
-            g: 55,
-            b: 72,
-        },
-        "text.muted" | "surface.default" => PhysicalColor::Rgb {
-            r: 113,
-            g: 128,
-            b: 150,
-        },
-        "tool.running" => PhysicalColor::Rgb {
-            r: 160,
-            g: 174,
-            b: 192,
-        },
-        "tool.finished" => PhysicalColor::Rgb {
-            r: 104,
-            g: 211,
-            b: 145,
-        },
-        "tool.error" | "text.error" => PhysicalColor::Named(AnsiColor::Red),
-        "text.warning" => PhysicalColor::Named(AnsiColor::Yellow),
-        "markdown.header" => PhysicalColor::Rgb {
-            r: 255,
-            g: 196,
-            b: 87,
-        },
-        "markdown.bold" => PhysicalColor::Rgb {
-            r: 230,
-            g: 230,
-            b: 235,
-        },
-        "markdown.italic" => PhysicalColor::Rgb {
-            r: 150,
-            g: 180,
-            b: 220,
-        },
-        "markdown.code" => PhysicalColor::Rgb {
-            r: 120,
-            g: 200,
-            b: 210,
-        },
-        "markdown.list" => PhysicalColor::Rgb {
-            r: 104,
-            g: 211,
-            b: 145,
-        },
-        "truncation_footer" => PhysicalColor::Rgb {
-            r: 120,
-            g: 122,
-            b: 132,
-        },
-        "input.border" => PhysicalColor::Rgb {
-            r: 173,
-            g: 216,
-            b: 230,
-        },
-        _ => PhysicalColor::Default,
+use crate::presentation::api::{StyleSpec, ThemeColor, ThemeKey};
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Theme {
+    colors: HashMap<ThemeKey, ThemeColor>,
+    styles: HashMap<ThemeKey, StyleSpec>,
+}
+
+impl Theme {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_color(mut self, key: impl Into<ThemeKey>, color: ThemeColor) -> Self {
+        self.colors.insert(key.into(), color);
+        self
+    }
+
+    pub fn with_style(mut self, key: impl Into<ThemeKey>, style: StyleSpec) -> Self {
+        self.styles.insert(key.into(), style);
+        self
+    }
+
+    pub fn set_color(&mut self, key: impl Into<ThemeKey>, color: ThemeColor) -> Option<ThemeColor> {
+        self.colors.insert(key.into(), color)
+    }
+
+    pub fn set_style(&mut self, key: impl Into<ThemeKey>, style: StyleSpec) -> Option<StyleSpec> {
+        self.styles.insert(key.into(), style)
+    }
+
+    pub fn color(&self, key: &str) -> Option<ThemeColor> {
+        self.colors
+            .iter()
+            .find_map(|(name, color)| (name.as_str() == key).then_some(*color))
+    }
+
+    pub fn style(&self, key: &str) -> Option<&StyleSpec> {
+        self.styles
+            .iter()
+            .find_map(|(name, style)| (name.as_str() == key).then_some(style))
     }
 }

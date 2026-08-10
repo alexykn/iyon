@@ -2,6 +2,8 @@ mod auth;
 
 use std::sync::Arc;
 
+use iyon::tui;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use iyon_api::OpenAICodexModelApi;
@@ -76,7 +78,7 @@ async fn run_interactive() -> Result<()> {
                 eprintln!(
                     "warning: no OpenRouter API key (set OPENROUTER_API_KEY); starting unconfigured"
                 );
-                return run_with_model(Arc::new(iyon_api::MockModelApi), mock_selection());
+                return run_with_model(Arc::new(iyon_api::MockModelApi), mock_selection()).await;
             };
             let model_id = std::env::var("IYON_MODEL")
                 .unwrap_or_else(|_| DEFAULT_OPENROUTER_MODEL.to_string());
@@ -109,15 +111,20 @@ async fn run_interactive() -> Result<()> {
         },
         ProviderKind::Mock => (Arc::new(iyon_api::MockModelApi), mock_selection()),
     };
-    run_with_model(model, selection)
+    run_with_model(model, selection).await
 }
 
-fn run_with_model(model: Arc<dyn iyon_api::ModelApi>, selection: ModelSelection) -> Result<()> {
+async fn run_with_model(
+    model: Arc<dyn iyon_api::ModelApi>,
+    selection: ModelSelection,
+) -> Result<()> {
     let tool_hooks = build_tool_hooks();
     let core = iyon_core::IyonCore::spawn_on_current_runtime_with_selection_and_hooks(
-        model, selection, tool_hooks,
+        model,
+        selection.clone(),
+        tool_hooks,
     );
-    iyon_tui::run_with_core(core)
+    tui::run_with_core(core, selection).await
 }
 
 fn mock_selection() -> ModelSelection {

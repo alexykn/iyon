@@ -38,7 +38,7 @@ impl PhysicalRow {
         self.cells.get(index)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-util"))]
     pub(crate) fn plain_text(&self) -> String {
         let last_painted = self
             .cells

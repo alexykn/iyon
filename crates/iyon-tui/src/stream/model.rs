@@ -2,7 +2,7 @@
 
 use super::{
     StreamOffset, StreamRange, StreamSnapshot, StreamView, StreamingSource,
-    compile::{CompiledStream, compile_stream},
+    compile::{CompiledStream, compile_stream_with_theme},
     node::{StreamSliceError, semantic_slice_nodes},
     resident::ResidentPrefix,
     validate::StreamValidationError,
@@ -185,15 +185,27 @@ impl<S: StreamingSource> StreamModel<S> {
     }
 
     #[cfg(test)]
+    #[cfg(test)]
     pub(crate) fn compile(&self, width: u16) -> CompiledStream {
-        compile_stream(&self.combined_view(), width, self.current.stable_through)
+        compile_stream_with_theme(
+            &self.combined_view(),
+            width,
+            self.current.stable_through,
+            &crate::Theme::default(),
+        )
     }
 
-    pub(crate) fn compile_from(&self, offset: StreamOffset, width: u16) -> CompiledStream {
-        compile_stream(
+    pub(crate) fn compile_from(
+        &self,
+        offset: StreamOffset,
+        width: u16,
+        theme: &crate::Theme,
+    ) -> CompiledStream {
+        compile_stream_with_theme(
             &self.semantic_view_from(offset),
             width,
             self.current.stable_through,
+            theme,
         )
     }
 

@@ -1,43 +1,35 @@
-use crate::View;
 use crate::tools::{
     registry::ToolRenderer,
     renderers::{column, result_lines, result_style, tool_call},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use iyon_tui::View;
 
 #[derive(Debug)]
-pub(crate) struct GrepRenderer;
+pub(crate) struct LsRenderer;
 
-impl ToolRenderer for GrepRenderer {
+impl ToolRenderer for LsRenderer {
     fn tool_name(&self) -> &'static str {
-        "grep"
+        "ls"
     }
 
     fn render_call(&self, input: ToolCallRenderInput<'_>) -> View {
-        let pattern = input
-            .arguments
-            .get("pattern")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
         let path = input
             .arguments
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or(".");
         tool_call(
-            format!(
-                "grep /{pattern}/ in {path} — {}",
-                status_label(input.status)
-            ),
+            format!("ls {path} — {}", status_label(input.status)),
             super::tool_style(input.status),
         )
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> View {
         let title = if input.is_error() {
-            "grep failed"
+            "ls failed"
         } else {
-            "grep result"
+            "ls result"
         };
         let mut children = vec![super::tool_result_line(
             title,

@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::View;
 use crate::tools::{
     renderers::{
         BashRenderer, EditRenderer, FindRenderer, GenericRenderer, GrepRenderer, LsRenderer,
@@ -8,6 +7,7 @@ use crate::tools::{
     },
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use iyon_tui::View;
 
 /// FEATURE EXTENSION API.
 ///

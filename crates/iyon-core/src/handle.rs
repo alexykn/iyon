@@ -168,6 +168,11 @@ impl Drop for CoreEventReceiver {
 }
 
 impl CoreEventReceiver {
+    /// Receives the next core event without blocking a synchronous thread.
+    pub async fn recv_event(&mut self) -> Option<CoreEvent> {
+        self.event_rx.recv().await
+    }
+
     pub fn try_recv_event(&mut self) -> Option<CoreEvent> {
         self.event_rx.try_recv().ok()
     }
@@ -182,5 +187,19 @@ impl CoreEventReceiver {
             events.push(event);
         }
         events
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::CoreEvent;
+
+    #[tokio::test]
+    async fn async_receive_reads_the_real_core_event_channel() {
+        let core = IyonCore::spawn_default_on_current_runtime();
+        let (_commands, mut events) = core.split();
+        let event = events.recv_event().await.expect("initial core event");
+        assert!(matches!(event, CoreEvent::ConfigChanged { .. }));
     }
 }

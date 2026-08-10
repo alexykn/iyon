@@ -3,7 +3,7 @@
 //! Panels own semantic state and rendering. Placement, sizing, focus, and
 //! visibility are decided by the containing Scene View and generic host.
 
-use crate::{Component, View};
+use iyon_tui::{Component, View};
 
 const MAX_PENDING_ROWS: usize = 4;
 

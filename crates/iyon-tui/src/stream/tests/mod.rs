@@ -72,7 +72,7 @@ fn snapshot_validation_rejects_invalid_visible_source_length() {
         layout: ProjectedTextLayout::Plain,
         runs: vec![ProjectedTextRun {
             display: "abc".to_string(),
-            style: StyleSpec::default(),
+            style: StyleSpec::default().into(),
             owned: StreamRange::new(StreamOffset::new(0), StreamOffset::new(100)),
             exact_visible: Some(StreamRange::new(
                 StreamOffset::new(0),
@@ -179,7 +179,7 @@ fn atomic_wide_grapheme_at_width_two_is_committable() {
 #[test]
 fn atomic_view_uses_the_ordinary_view_style_compiler() {
     let mut view = View::text("atomic").into_view();
-    view.decoration.text_style = StyleSpec::new().bold();
+    view.decoration.text_style = StyleSpec::new().bold().into();
     let stream = StreamView::atomic(
         StreamRange::new(StreamOffset::ZERO, StreamOffset::new(6)),
         view.clone(),
@@ -311,7 +311,7 @@ fn projected_checkpoint_never_splits_cross_run_egcs() {
                 cursor += display.len() as u64;
                 ProjectedTextRun {
                     display: display.to_owned(),
-                    style: StyleSpec::new().bold().italic(),
+                    style: StyleSpec::new().bold().italic().into(),
                     owned: StreamRange::new(StreamOffset::new(start), StreamOffset::new(cursor)),
                     exact_visible: Some(StreamRange::new(
                         StreamOffset::new(start),
@@ -379,7 +379,7 @@ fn thinking_style_transition_preserves_muted_and_italic() {
     let span_thinking = TextSpan::styled(
         "reasoning\n",
         StyleSpec::new()
-            .foreground(ColorSpec::Theme(ThemeKey::from("text.muted")))
+            .foreground(ColorSpec::Theme(ThemeKey::from("muted")))
             .italic()
             .dim(),
     );

@@ -1,27 +1,45 @@
 //! Typed semantic text construction backed by the canonical View IR.
 
-use super::style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleSpec, TextAttribute};
+use super::style::{
+    BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, StyleSpec, TextAttribute,
+};
 use crate::presentation::ir::{Decoration, HeightRule, TextView, View, ViewKind, WidthRule};
 
 /// A semantic text span with optional text-cell styling.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextSpan {
     pub(crate) text: String,
-    pub(crate) style: StyleSpec,
+    pub(crate) style: StyleRef,
 }
 
 impl TextSpan {
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn text_mut(&mut self) -> &mut String {
+        &mut self.text
+    }
+
+    pub fn style(&self) -> &StyleRef {
+        &self.style
+    }
+
+    pub fn style_mut(&mut self) -> &mut StyleRef {
+        &mut self.style
+    }
+
     pub fn plain(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            style: StyleSpec::default(),
+            style: StyleRef::default(),
         }
     }
 
-    pub fn styled(text: impl Into<String>, style: StyleSpec) -> Self {
+    pub fn styled(text: impl Into<String>, style: impl Into<StyleRef>) -> Self {
         Self {
             text: text.into(),
-            style,
+            style: style.into(),
         }
     }
 }
@@ -118,8 +136,13 @@ impl Text {
         self
     }
 
-    pub fn style(mut self, style: StyleSpec) -> Self {
-        self.view.decoration.text_style.overlay(&style);
+    pub fn style(mut self, style: impl Into<StyleRef>) -> Self {
+        let style = style.into();
+        if style.theme.is_some() {
+            self.view.decoration.text_style = style;
+        } else {
+            self.view.decoration.text_style.overlay(&style.local);
+        }
         self
     }
 
@@ -137,7 +160,10 @@ impl Text {
 
     /// Sets inherited foreground intent for this text node.
     pub fn foreground(mut self, color: ColorSpec) -> Self {
-        self.view.decoration.text_style.foreground = Some(color);
+        self.view
+            .decoration
+            .text_style
+            .overlay(&StyleSpec::new().foreground(color));
         self
     }
 
@@ -152,8 +178,7 @@ impl Text {
         self.view
             .decoration
             .text_style
-            .attributes
-            .set(attribute, enabled);
+            .overlay(&StyleSpec::new().attribute(attribute, enabled));
         self
     }
 

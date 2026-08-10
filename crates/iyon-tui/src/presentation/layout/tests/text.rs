@@ -3,8 +3,14 @@ use super::*;
 #[test]
 fn styled_spans_survive_wrapping_and_newlines() {
     let view = View::styled_text(vec![
-        TextSpan::styled("abc", style("tool.running")),
-        TextSpan::styled("def\ngh", style("tool.error")),
+        TextSpan::styled(
+            "abc",
+            StyleSpec::new().foreground(ColorSpec::Named(AnsiColor::Green)),
+        ),
+        TextSpan::styled(
+            "def\ngh",
+            StyleSpec::new().foreground(ColorSpec::Named(AnsiColor::Red)),
+        ),
     ])
     .fill_width()
     .into_view();
@@ -14,15 +20,15 @@ fn styled_spans_survive_wrapping_and_newlines() {
     assert_eq!(text(&rows[2]), "gh");
     assert_eq!(
         rows[0].style_at(0).and_then(|style| style.foreground),
-        Some(theme::physical_color("tool.running"))
+        Some(PhysicalColor::Named(crate::physical::AnsiColor::Green))
     );
     assert_eq!(
         rows[0].style_at(3).and_then(|style| style.foreground),
-        Some(theme::physical_color("tool.error"))
+        Some(PhysicalColor::Named(crate::physical::AnsiColor::Red))
     );
     assert_eq!(
         rows[2].style_at(0).and_then(|style| style.foreground),
-        Some(theme::physical_color("tool.error"))
+        Some(PhysicalColor::Named(crate::physical::AnsiColor::Red))
     );
 }
 

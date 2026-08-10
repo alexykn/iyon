@@ -3,9 +3,9 @@ use super::*;
 #[test]
 fn ancestor_and_child_text_styles_cascade_to_physical_text() {
     let mut child = View::text("x").into_view();
-    child.decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(2));
+    child.decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(2)).into();
     let mut view = box_view(child, Decoration::default());
-    view.decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(1));
+    view.decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(1)).into();
 
     let surface = layout_view(&view, 1, PhysicalStyle::default());
     assert_eq!(
@@ -21,9 +21,11 @@ fn span_style_overrides_node_and_explicit_false_cascades() {
         TextSpan::styled("b", StyleSpec::new().bold()),
     ])
     .into_view();
-    child.decoration.text_style = StyleSpec::new().attribute(TextAttribute::Bold, false);
+    child.decoration.text_style = StyleSpec::new()
+        .attribute(TextAttribute::Bold, false)
+        .into();
     let mut view = box_view(child, Decoration::default());
-    view.decoration.text_style = StyleSpec::new().bold();
+    view.decoration.text_style = StyleSpec::new().bold().into();
 
     let surface = layout_view(&view, 2, PhysicalStyle::default());
     assert!(!surface.get(0, 0).style.bold);
@@ -251,7 +253,7 @@ fn explicit_border_color_preserves_surface_background() {
 #[test]
 fn implicit_border_color_preserves_surface_background_and_inherits_foreground() {
     let mut decoration = background_decoration(ColorSpec::Ansi(1));
-    decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(2));
+    decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(2)).into();
     decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: None,
@@ -270,7 +272,7 @@ fn implicit_border_color_preserves_surface_background_and_inherits_foreground() 
 #[test]
 fn text_background_does_not_leak_into_border() {
     let mut decoration = Decoration::default();
-    decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
+    decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2)).into();
     decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: None,
@@ -291,7 +293,7 @@ fn text_background_does_not_leak_into_border() {
 #[test]
 fn surface_and_text_backgrounds_coexist_across_border_and_content() {
     let mut decoration = background_decoration(ColorSpec::Ansi(1));
-    decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
+    decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2)).into();
     decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: None,
@@ -343,7 +345,7 @@ fn border_painting_preserves_tiny_width_geometry() {
 #[test]
 fn text_background_only_paints_text_cells() {
     let mut view = View::text("x").fill_width().into_view();
-    view.decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
+    view.decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2)).into();
     let surface = layout_view(&view, 4, PhysicalStyle::default());
 
     assert_eq!(
@@ -357,7 +359,7 @@ fn text_background_only_paints_text_cells() {
 fn explicit_text_background_wins_over_surface_background() {
     let mut view = View::text("x").fill_width().into_view();
     view.decoration.surface_background = Some(ColorSpec::Ansi(1));
-    view.decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2));
+    view.decoration.text_style = StyleSpec::new().background(ColorSpec::Ansi(2)).into();
     let surface = layout_view(&view, 4, PhysicalStyle::default());
 
     assert_eq!(
@@ -493,10 +495,7 @@ fn decoration_preserves_physical_incompleteness() {
 fn box_background_covers_padding_and_row_gap() {
     let view = box_view(
         tool_view("body"),
-        background_with_padding(
-            ColorSpec::Theme(ThemeKey::from("surface.user")),
-            Insets::all(1),
-        ),
+        background_with_padding(ColorSpec::Theme(ThemeKey::from("panel")), Insets::all(1)),
     );
     let rows = compile_view(&view, 12).rows;
     assert!(rows.iter().all(|row| {

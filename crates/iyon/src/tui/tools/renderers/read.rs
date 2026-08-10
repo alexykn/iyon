@@ -1,9 +1,9 @@
-use crate::View;
 use crate::tools::{
     registry::ToolRenderer,
     renderers::{column, result_lines, result_style, tool_call},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
+use iyon_tui::View;
 
 #[derive(Debug)]
 pub(crate) struct ReadRenderer;
