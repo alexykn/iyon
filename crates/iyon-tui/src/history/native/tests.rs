@@ -168,7 +168,7 @@ impl GrowingSource {
         let snapshot = StreamSnapshotBuilder::new(
             StreamRevision::new(1),
             StreamOffset::ZERO,
-            StreamOffset::new(3),
+            StreamOffset::new(4),
             StreamOffset::new(4),
         )
         .exact_text(
@@ -717,6 +717,11 @@ fn partially_native_open_stream_grows_seals_and_blocks_successor_until_retired()
             .collect::<Vec<_>>(),
         ["C"]
     );
+    let mut probe = FakeSink::accepting([Ok(0)]);
+    let outcome = transfer(&mut history, &mut probe, 8, 8);
+    assert_eq!(outcome.requested, 1);
+    assert_eq!(outcome.inserted, 0);
+    assert_eq!(outcome.status, NativeTransferStatus::SinkBlocked);
 
     history.seal_stream(handle).unwrap();
     history.push("D").unwrap();
