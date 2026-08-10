@@ -56,6 +56,22 @@ impl ViewCompiler {
         }
     }
 
+    pub(crate) fn paint_bounded(&self, view: &View, size: Size) -> Surface {
+        let tree = self.layout_tree(view, LayoutConstraints::bounded(size));
+        let surface = ViewPainter.paint_tree(self, &tree);
+        let mut bounded = Surface::new(
+            surface.width().min(size.width),
+            surface.height().min(size.height),
+        );
+        bounded.physically_complete = tree.physically_complete && surface.physically_complete;
+        for y in 0..bounded.height() {
+            for x in 0..bounded.width() {
+                *bounded.get_mut(x, y) = surface.get(x, y).clone();
+            }
+        }
+        bounded
+    }
+
     pub(crate) fn layout_tree(&self, view: &View, constraints: LayoutConstraints) -> LayoutTree {
         ManualLayoutEngine.layout(view, constraints)
     }
