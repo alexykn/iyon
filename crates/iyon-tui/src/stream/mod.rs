@@ -39,3 +39,6 @@ pub use snapshot::{StreamSnapshot, StreamSnapshotBuilder};
 pub use source::StreamingSource;
 pub use validate::{ProjectedValidationError, StreamValidationError};
 pub(crate) use viewport::{StreamRowIndex, build_index, window_view};
+
+#[cfg(test)]
+pub(crate) use viewport::{build_index_call_count, reset_build_index_call_count};

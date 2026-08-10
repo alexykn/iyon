@@ -26,7 +26,7 @@ struct UnitPlan {
 enum PlannedContent {
     Static,
     Live(View),
-    Stream(StreamRowIndex),
+    Stream { index: Option<StreamRowIndex> },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -79,14 +79,11 @@ fn project_view(
                     content: PlannedContent::Live(resolved),
                 })
             }
-            HistoryUnitContent::Stream(stream) => {
-                let index = stream.prepare(content_width);
-                Ok(UnitPlan {
-                    boundary: unit.boundary,
-                    height: Some(index.anchors.len()),
-                    content: PlannedContent::Stream(index),
-                })
-            }
+            HistoryUnitContent::Stream(_) => Ok(UnitPlan {
+                boundary: unit.boundary,
+                height: None,
+                content: PlannedContent::Stream { index: None },
+            }),
         })
         .collect::<Result<Vec<_>, ResolveError>>()?;
 
@@ -190,9 +187,13 @@ fn ensure_height(plan: &mut UnitPlan, unit: &super::HistoryUnit, width: u16) -> 
     if let Some(height) = plan.height {
         return height;
     }
-    let height = match (&plan.content, &unit.content) {
+    let height = match (&mut plan.content, &unit.content) {
         (PlannedContent::Static, HistoryUnitContent::Static(view)) => view_height(view, width),
         (PlannedContent::Live(view), _) => view_height(view, width),
+        (PlannedContent::Stream { index }, HistoryUnitContent::Stream(stream)) => {
+            let prepared = index.get_or_insert_with(|| stream.prepare(width));
+            prepared.anchors.len()
+        }
         _ => unreachable!("History projection plan does not match its unit"),
     };
     plan.height = Some(height);
@@ -238,10 +239,13 @@ fn unit_view(plan: &UnitPlan, unit: &super::HistoryUnit, selected: Selected) -> 
             selected.offset.min(usize::from(u16::MAX)) as u16,
             Some(selected.height.min(usize::from(u16::MAX)) as u16),
         ),
-        PlannedContent::Stream(index) => {
+        PlannedContent::Stream { index } => {
             let HistoryUnitContent::Stream(stream) = &unit.content else {
                 unreachable!("stream plan must match stream unit")
             };
+            let index = index
+                .as_ref()
+                .expect("selected stream must have a prepared index");
             let view = stream.window_view(
                 index,
                 selected.offset,
