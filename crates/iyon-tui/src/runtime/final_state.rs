@@ -236,6 +236,13 @@ impl AppState {
         self.exit_state = ExitState::Requested;
     }
 
+    pub(crate) fn prepare_goodbye(&mut self) -> Result<()> {
+        self.history_mut()
+            .push(View::text("Goodbye.").fill_width())?;
+        self.scene.set_body(View::spacer(0));
+        Ok(())
+    }
+
     pub(crate) fn clear_composer(&mut self) {
         let _ = self
             .components
