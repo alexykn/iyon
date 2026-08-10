@@ -8,6 +8,7 @@ use ratatui::{DefaultTerminal, Frame, layout::Rect, text::Line};
 use crate::{
     backend::NativeHistorySink,
     physical::PhysicalRow,
+    presentation::{IntoView, View, layout::compile_view},
     scene::PreparedSceneFrame,
     terminal::ratatui::{render_history_overlay, render_surface, rows_to_lines},
 };
@@ -133,11 +134,18 @@ impl InlineTerminal {
         })
     }
 
-    pub(crate) fn draw_goodbye(&mut self) -> Result<()> {
-        self.draw(|frame| {
-            frame.render_widget(ratatui::widgets::Paragraph::default(), frame.area());
-        })?;
-        self.insert_history_rows(&[Line::from(""), Line::from(""), Line::from("Goodbye.")])?;
+    pub(crate) fn insert_goodbye(&mut self) -> Result<()> {
+        let viewport = self.current_viewport_area()?;
+        let view = View::text("Goodbye.").fill_width().into_view();
+        let rows = compile_view(&view, viewport.width).rows;
+        self.insert_history_rows(&rows_to_lines(&rows))?;
+        if viewport.height > 0 {
+            let cursor_y = viewport
+                .y
+                .saturating_add(1)
+                .min(viewport.bottom().saturating_sub(1));
+            self.set_cursor_position((viewport.x, cursor_y))?;
+        }
         Ok(())
     }
 }

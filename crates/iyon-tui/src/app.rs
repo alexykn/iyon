@@ -329,6 +329,6 @@ impl App {
     }
 
     fn render_goodbye(&mut self, terminal: &mut InlineTerminal) -> Result<()> {
-        terminal.draw_goodbye()
+        terminal.insert_goodbye()
     }
 }
