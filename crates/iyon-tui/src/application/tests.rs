@@ -1,9 +1,15 @@
 use std::{
     cell::{Cell, RefCell},
     convert::Infallible,
+    future::Future,
     rc::Rc,
+    task::{Context, Poll},
     time::{Duration, Instant},
 };
+
+use futures_util::task::noop_waker_ref;
+
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use super::{
     App, AppCx,
@@ -13,7 +19,11 @@ use super::{
 use crate::{
     BorderSpec, Component, ComponentCx, ComponentHandle, EventCx, History, HistoryError,
     InteractionResult, IntoView, Key, KeyStroke, Output, RouteConflict, TextInput, View,
-    backend::NativeHistorySink, geometry::Size, physical::PhysicalRow,
+    backend::NativeHistorySink,
+    geometry::Size,
+    physical::PhysicalRow,
+    scene::PreparedSceneFrame,
+    terminal::{TerminalBackend, TerminalEvent},
 };
 
 #[derive(Debug)]
@@ -51,6 +61,8 @@ enum Action {
     AfterExit,
     Mutate,
     Remove,
+    Pasted(String),
+    Changed(String),
 }
 
 struct State {
@@ -95,6 +107,111 @@ impl NativeHistorySink for HeadlessSink {
     fn insert_history_rows(&mut self, rows: &[PhysicalRow]) -> Result<usize, Self::Error> {
         self.rows.extend(rows.iter().cloned());
         Ok(rows.len())
+    }
+}
+
+#[derive(Default)]
+struct FakeReport {
+    draws: usize,
+    viewport_calls: usize,
+    viewport_sizes: Vec<Size>,
+    native_rows: Vec<PhysicalRow>,
+    final_positions: usize,
+    restores: usize,
+}
+
+struct FakeBackend {
+    events: UnboundedReceiver<TerminalEvent>,
+    report: Rc<RefCell<FakeReport>>,
+    viewport: Rc<Cell<Size>>,
+    event_error: bool,
+    viewport_error: bool,
+    draw_error: bool,
+    restore_error: bool,
+}
+
+#[derive(Clone)]
+struct FakeTerminalControl {
+    events: UnboundedSender<TerminalEvent>,
+    report: Rc<RefCell<FakeReport>>,
+    viewport: Rc<Cell<Size>>,
+}
+
+fn fake_backend() -> (FakeBackend, FakeTerminalControl) {
+    let (events, receiver) = mpsc::unbounded_channel();
+    let report = Rc::new(RefCell::new(FakeReport::default()));
+    let viewport = Rc::new(Cell::new(Size::new(40, 8)));
+    (
+        FakeBackend {
+            events: receiver,
+            report: Rc::clone(&report),
+            viewport: Rc::clone(&viewport),
+            event_error: false,
+            viewport_error: false,
+            draw_error: false,
+            restore_error: false,
+        },
+        FakeTerminalControl {
+            events,
+            report,
+            viewport,
+        },
+    )
+}
+
+impl NativeHistorySink for FakeBackend {
+    type Error = anyhow::Error;
+
+    fn insert_history_rows(&mut self, rows: &[PhysicalRow]) -> Result<usize, Self::Error> {
+        self.report
+            .borrow_mut()
+            .native_rows
+            .extend(rows.iter().cloned());
+        Ok(rows.len())
+    }
+}
+
+impl TerminalBackend for FakeBackend {
+    async fn next_event(&mut self) -> anyhow::Result<TerminalEvent> {
+        if self.event_error {
+            return Err(anyhow::anyhow!("fake event failure"));
+        }
+        self.events
+            .recv()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("fake terminal event source closed"))
+    }
+
+    fn viewport(&mut self) -> anyhow::Result<Size> {
+        if self.viewport_error {
+            return Err(anyhow::anyhow!("fake viewport failure"));
+        }
+        let viewport = self.viewport.get();
+        let mut report = self.report.borrow_mut();
+        report.viewport_calls += 1;
+        report.viewport_sizes.push(viewport);
+        Ok(viewport)
+    }
+
+    fn draw_frame(&mut self, _frame: &PreparedSceneFrame) -> anyhow::Result<()> {
+        if self.draw_error {
+            return Err(anyhow::anyhow!("fake draw failure"));
+        }
+        self.report.borrow_mut().draws += 1;
+        Ok(())
+    }
+
+    fn position_after_final_frame(&mut self) -> anyhow::Result<()> {
+        self.report.borrow_mut().final_positions += 1;
+        Ok(())
+    }
+
+    fn restore(&mut self) -> anyhow::Result<()> {
+        self.report.borrow_mut().restores += 1;
+        if self.restore_error {
+            return Err(anyhow::anyhow!("fake restore failure"));
+        }
+        Ok(())
     }
 }
 
@@ -693,4 +810,417 @@ fn application_errors_stop_initialization_or_the_current_batch() {
     prepare(&mut app, now);
     let error = app.advance_ready(now).expect_err("update error");
     assert!(matches!(error, KernelError::Application(_)));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn production_runtime_processes_pre_run_actions_after_initial_frame() {
+    let updates = Rc::new(Cell::new(0));
+    let app = App::new(
+        |_cx: &mut AppCx<'_, Action>| Ok::<_, TestError>(()),
+        {
+            let updates = Rc::clone(&updates);
+            move |_state, action, cx| {
+                if action == Action::Exit {
+                    updates.set(updates.get() + 1);
+                    cx.exit();
+                }
+                Ok(())
+            }
+        },
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let handle = app.handle();
+    handle.send(Action::Exit).unwrap();
+    let (backend, control) = fake_backend();
+
+    let result = super::run::run_with_backend(app, backend).await;
+
+    assert!(result.is_ok());
+    assert_eq!(updates.get(), 1);
+    assert_eq!(control.report.borrow().draws, 2);
+    assert_eq!(control.report.borrow().final_positions, 1);
+    assert_eq!(control.report.borrow().restores, 1);
+    assert_eq!(
+        handle.send(Action::AfterExit).unwrap_err().into_inner(),
+        Action::AfterExit
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn app_handle_wakes_a_runtime_without_terminal_polling() {
+    let updates = Rc::new(Cell::new(0));
+    let app = App::new(
+        |_cx: &mut AppCx<'_, Action>| Ok::<_, TestError>(()),
+        {
+            let updates = Rc::clone(&updates);
+            move |_state, action, cx| {
+                if action == Action::Exit {
+                    updates.set(updates.get() + 1);
+                    cx.exit();
+                }
+                Ok(())
+            }
+        },
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let handle = app.handle();
+    let (backend, _control) = fake_backend();
+
+    let runtime = super::run::run_with_backend(app, backend);
+    let producer = async move {
+        tokio::task::yield_now().await;
+        handle.send(Action::Exit).unwrap();
+    };
+    let (result, ()) = tokio::join!(runtime, producer);
+
+    assert!(result.is_ok());
+    assert_eq!(updates.get(), 1);
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn production_runtime_wakes_on_mounted_component_tick() {
+    let fired = Rc::new(Cell::new(false));
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| {
+            let ticking = cx.register(Ticking::new());
+            let output = cx
+                .with_component(ticking, |component| component.output)
+                .expect("ticking component is registered");
+            cx.route(output, |_| Action::Tick)?;
+            Ok::<_, TestError>(ticking)
+        },
+        {
+            let fired = Rc::clone(&fired);
+            move |_state, action, cx| {
+                if action == Action::Tick {
+                    fired.set(true);
+                    cx.exit();
+                }
+                Ok(())
+            }
+        },
+        |ticking: &ComponentHandle<Ticking>| View::component(*ticking),
+    );
+    let (backend, _control) = fake_backend();
+    let runtime = super::run::run_with_backend(app, backend);
+    let clock = async {
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_millis(80)).await;
+    };
+    let (result, ()) = tokio::join!(runtime, clock);
+
+    assert!(result.is_ok());
+    assert!(fired.get());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn production_runtime_yields_between_finite_action_batches() {
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| {
+            cx.schedule_after(Duration::ZERO, Action::Loop);
+            Ok::<_, TestError>(0usize)
+        },
+        |state, action, cx| {
+            if action == Action::Loop {
+                *state += 1;
+                if *state == 260 {
+                    cx.exit();
+                } else {
+                    cx.schedule_after(Duration::ZERO, Action::Loop);
+                }
+            }
+            Ok(())
+        },
+        |state: &usize| View::text(state.to_string()).into_view(),
+    );
+    let (backend, control) = fake_backend();
+
+    super::run::run_with_backend(app, backend)
+        .await
+        .expect("finite runtime completes");
+
+    assert!(control.report.borrow().draws >= 3);
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn production_runtime_wakes_on_application_timer_deadline() {
+    let fired = Rc::new(Cell::new(false));
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| {
+            cx.schedule_after(Duration::from_millis(10), Action::Timer);
+            Ok::<_, TestError>(())
+        },
+        {
+            let fired = Rc::clone(&fired);
+            move |_state: &mut (), action, cx| {
+                if action == Action::Timer {
+                    fired.set(true);
+                    cx.exit();
+                }
+                Ok(())
+            }
+        },
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let (backend, _control) = fake_backend();
+    let runtime = super::run::run_with_backend(app, backend);
+    let clock = async {
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_millis(10)).await;
+    };
+    let (result, ()) = tokio::join!(runtime, clock);
+
+    assert!(result.is_ok());
+    assert!(fired.get());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn production_runtime_uses_backend_viewport_after_resize_event() {
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| {
+            cx.bind_key(KeyStroke::new(Key::Escape), || Action::Exit);
+            Ok::<_, TestError>(())
+        },
+        |_state: &mut (), action, cx| {
+            if action == Action::Exit {
+                cx.exit();
+            }
+            Ok(())
+        },
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let (backend, control) = fake_backend();
+    let runtime = super::run::run_with_backend(app, backend);
+    let producer = async move {
+        tokio::task::yield_now().await;
+        control.viewport.set(Size::new(50, 12));
+        control.events.send(TerminalEvent::Resize).unwrap();
+        control
+            .events
+            .send(TerminalEvent::Key(KeyStroke::new(Key::Escape)))
+            .unwrap();
+    };
+    let (result, ()) = tokio::join!(runtime, producer);
+
+    assert!(result.is_ok());
+    assert!(
+        control
+            .report
+            .borrow()
+            .viewport_sizes
+            .contains(&Size::new(50, 12))
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn production_paste_interceptor_forwards_without_reinterception() {
+    let observed = Rc::new(RefCell::new(Vec::new()));
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| {
+            let input = cx.register(TextInput::new());
+            let output = cx
+                .with_component_mut(input, |input| {
+                    input.output_on_change(|change| change.text().to_owned())
+                })
+                .expect("input is registered");
+            cx.route(output, Action::Changed)?;
+            cx.intercept_paste(input, Action::Pasted);
+            Ok::<_, TestError>(input)
+        },
+        {
+            let observed = Rc::clone(&observed);
+            move |_input, action, cx| {
+                match action {
+                    Action::Pasted(text) => {
+                        observed.borrow_mut().push(text);
+                        cx.forward_paste("marker");
+                    }
+                    Action::Changed(text) => {
+                        assert_eq!(text, "marker");
+                        cx.exit();
+                    }
+                    _ => {}
+                }
+                Ok(())
+            }
+        },
+        |input: &ComponentHandle<TextInput>| View::component(*input),
+    );
+    let (backend, control) = fake_backend();
+    let runtime = super::run::run_with_backend(app, backend);
+    let producer = async move {
+        tokio::task::yield_now().await;
+        control
+            .events
+            .send(TerminalEvent::Paste("raw".to_owned()))
+            .unwrap();
+    };
+    let (result, ()) = tokio::join!(runtime, producer);
+
+    assert!(result.is_ok());
+    assert_eq!(&*observed.borrow(), &["raw"]);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn production_runtime_maps_backend_and_application_errors() {
+    let app = App::new(
+        |_cx: &mut AppCx<'_, Action>| Ok::<_, TestError>(()),
+        |_state: &mut (), _action, _cx| Err(TestError::Route),
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let handle = app.handle();
+    handle.send(Action::A).unwrap();
+    let (backend, control) = fake_backend();
+    let application_error = super::run::run_with_backend(app, backend)
+        .await
+        .expect_err("update error propagates");
+    assert!(matches!(application_error, crate::RunError::Application(_)));
+    assert_eq!(control.report.borrow().restores, 1);
+
+    let app = App::new(
+        |_cx: &mut AppCx<'_, Action>| Ok::<_, TestError>(()),
+        |_state: &mut (), _action, _cx| Ok(()),
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let (mut backend, control) = fake_backend();
+    backend.event_error = true;
+    let runtime_error = super::run::run_with_backend(app, backend)
+        .await
+        .expect_err("terminal error propagates");
+    assert!(matches!(runtime_error, crate::RunError::Runtime(_)));
+    assert_eq!(control.report.borrow().restores, 1);
+
+    let app = App::new(
+        |_cx: &mut AppCx<'_, Action>| Ok::<_, TestError>(()),
+        |_state: &mut (), _action, _cx| Ok(()),
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let (mut backend, control) = fake_backend();
+    backend.viewport_error = true;
+    let runtime_error = super::run::run_with_backend(app, backend)
+        .await
+        .expect_err("frame preparation error propagates");
+    assert!(matches!(runtime_error, crate::RunError::Runtime(_)));
+    assert_eq!(control.report.borrow().restores, 1);
+
+    let app = App::new(
+        |_cx: &mut AppCx<'_, Action>| Ok::<_, TestError>(()),
+        |_state: &mut (), _action, _cx| Ok(()),
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let (mut backend, control) = fake_backend();
+    backend.draw_error = true;
+    let runtime_error = super::run::run_with_backend(app, backend)
+        .await
+        .expect_err("draw error propagates");
+    assert!(matches!(runtime_error, crate::RunError::Runtime(_)));
+    assert_eq!(control.report.borrow().restores, 1);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn terminal_session_restores_when_run_future_is_dropped() {
+    let app = App::new(
+        |_cx: &mut AppCx<'_, Action>| Ok::<_, TestError>(()),
+        |_state: &mut (), _action, _cx| Ok(()),
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let (backend, control) = fake_backend();
+    let mut runtime = Box::pin(super::run::run_with_backend(app, backend));
+    let waker = noop_waker_ref();
+    let mut context = Context::from_waker(waker);
+    assert!(matches!(runtime.as_mut().poll(&mut context), Poll::Pending));
+    drop(runtime);
+    assert_eq!(control.report.borrow().restores, 1);
+}
+
+#[test]
+fn local_runtime_accepts_non_send_state_and_action() {
+    type Local = Rc<String>;
+    let app = App::new(
+        |_cx: &mut AppCx<'_, Local>| Ok::<_, TestError>(Rc::new("state".to_owned())),
+        |_state: &mut Local, _action: Local, _cx| Ok(()),
+        |_state: &Local| View::text("local").into_view(),
+    );
+    app.start(Instant::now()).expect("local app starts");
+}
+
+#[test]
+fn app_handle_recovers_closed_actions_and_has_conditional_thread_traits() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<crate::AppHandle<String>>();
+
+    let app = App::new(
+        |_cx: &mut AppCx<'_, Action>| Ok::<_, TestError>(()),
+        |_state: &mut (), _action, _cx| Ok(()),
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let handle = app.handle();
+    drop(app);
+
+    let closed = handle
+        .send(Action::Exit)
+        .expect_err("dropped app closes ingress");
+    assert_eq!(closed.action(), &Action::Exit);
+    assert_eq!(closed.into_inner(), Action::Exit);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn application_global_key_runs_after_local_routing() {
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| {
+            cx.bind_key(KeyStroke::new(Key::Escape), || Action::Exit);
+            Ok::<_, TestError>(())
+        },
+        |_state: &mut (), action, cx| {
+            if action == Action::Exit {
+                cx.exit();
+            }
+            Ok(())
+        },
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let (backend, control) = fake_backend();
+    let runtime = super::run::run_with_backend(app, backend);
+    let producer = async move {
+        tokio::task::yield_now().await;
+        control
+            .events
+            .send(TerminalEvent::Key(KeyStroke::new(Key::Escape)))
+            .unwrap();
+    };
+    let (result, ()) = tokio::join!(runtime, producer);
+
+    assert!(result.is_ok());
+    assert_eq!(control.report.borrow().restores, 1);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn production_runtime_preserves_native_history_in_its_backend() {
+    let mut history = History::new();
+    for index in 0..20 {
+        history.push(format!("native-{index}")).unwrap();
+    }
+    let app = App::new(
+        |_cx: &mut AppCx<'_, Action>| Ok::<_, TestError>(()),
+        |_state: &mut (), action, cx| {
+            if action == Action::Exit {
+                cx.exit();
+            }
+            Ok(())
+        },
+        |_state: &()| View::text("runtime").into_view(),
+    )
+    .with_history(history);
+    let handle = app.handle();
+    handle.send(Action::Exit).unwrap();
+    let (backend, control) = fake_backend();
+
+    super::run::run_with_backend(app, backend)
+        .await
+        .expect("runtime completes");
+
+    let report = control.report.borrow();
+    assert!(!report.native_rows.is_empty());
+    assert!(report.draws >= 2);
+    assert_eq!(report.restores, 1);
 }

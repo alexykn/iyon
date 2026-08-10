@@ -3,26 +3,18 @@ use crate::{
     output::OutputQueue,
 };
 
-use super::{FocusState, GlobalBindings, InteractionResult, KeyStroke, MountedCapabilities};
+use super::{FocusState, InteractionResult, KeyStroke, MountedCapabilities};
+
+#[cfg(test)]
+use super::GlobalBindings;
 
 /// Private framework keyboard router.
 #[derive(Default)]
-pub(crate) struct KeyRouter {
-    globals: GlobalBindings,
-}
+pub(crate) struct KeyRouter;
 
 impl KeyRouter {
     pub(crate) fn new() -> Self {
         Self::default()
-    }
-
-    /// S10 seam: installs an application-owned global action binding.
-    #[expect(
-        dead_code,
-        reason = "S10 seam for installing application-owned global action bindings"
-    )]
-    pub(crate) fn add_global(&mut self, binding: super::global::GlobalBinding) {
-        self.globals.push(binding);
     }
 
     pub(crate) fn dispatch(
@@ -34,16 +26,34 @@ impl KeyRouter {
         registry: &mut ComponentRegistry,
         queue: &mut OutputQueue,
     ) -> InteractionResult {
-        route_key(
-            key,
-            focus,
-            graph,
-            capabilities,
-            registry,
-            queue,
-            &self.globals,
-        )
+        route_key_local(key, focus, graph, capabilities, registry, queue)
     }
+
+    pub(crate) fn dispatch_local(
+        &self,
+        key: KeyStroke,
+        focus: &mut FocusState,
+        graph: &MountGraph,
+        capabilities: &MountedCapabilities,
+        registry: &mut ComponentRegistry,
+        queue: &mut OutputQueue,
+    ) -> InteractionResult {
+        route_key_local(key, focus, graph, capabilities, registry, queue)
+    }
+}
+
+pub(crate) fn route_paste_interceptor<A>(
+    text: &str,
+    focus: &FocusState,
+    graph: &MountGraph,
+    mut intercept: impl FnMut(ComponentId, &str) -> Option<A>,
+) -> Option<A> {
+    for id in routing_chain(focus, graph) {
+        if let Some(action) = intercept(id, text) {
+            return Some(action);
+        }
+    }
+    None
 }
 
 pub(crate) fn route_paste(
@@ -69,6 +79,7 @@ pub(crate) fn route_paste(
     InteractionResult::Ignored
 }
 
+#[cfg(test)]
 pub(crate) fn route_key(
     key: KeyStroke,
     focus: &mut FocusState,
@@ -77,6 +88,22 @@ pub(crate) fn route_key(
     registry: &mut ComponentRegistry,
     queue: &mut OutputQueue,
     globals: &GlobalBindings,
+) -> InteractionResult {
+    let result = route_key_local(key, focus, graph, capabilities, registry, queue);
+    if result == InteractionResult::Consumed {
+        return result;
+    }
+    let mut cx = queue.event_cx();
+    globals.dispatch(key, &mut cx)
+}
+
+pub(crate) fn route_key_local(
+    key: KeyStroke,
+    focus: &mut FocusState,
+    graph: &MountGraph,
+    capabilities: &MountedCapabilities,
+    registry: &mut ComponentRegistry,
+    queue: &mut OutputQueue,
 ) -> InteractionResult {
     let mut cx = queue.event_cx();
     let chain = routing_chain(focus, graph);
@@ -117,7 +144,7 @@ pub(crate) fn route_key(
         }
     }
 
-    globals.dispatch(key, &mut cx)
+    InteractionResult::Ignored
 }
 
 fn routing_chain(focus: &FocusState, graph: &MountGraph) -> Vec<ComponentId> {

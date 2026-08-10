@@ -55,7 +55,7 @@ mod theme;
 mod tools;
 mod transcript;
 
-pub use application::{App, AppCx, TimerHandle};
+pub use application::{App, AppClosed, AppCx, AppHandle, RunError, RuntimeError, TimerHandle};
 
 pub use component::{Component, ComponentCx, ComponentHandle};
 pub use controls::{TextChange, TextInput};
