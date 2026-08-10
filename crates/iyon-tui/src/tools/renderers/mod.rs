@@ -1,6 +1,5 @@
 use crate::{ColorSpec, StyleSpec, Text, TextSpan, View};
 
-pub(super) const TOOL_BODY_OFFSET: u16 = 2;
 use crate::transcript::ToolTimelineStatus;
 
 mod bash;
@@ -44,19 +43,20 @@ pub(super) fn text(text: impl Into<String>, style: StyleSpec) -> Text {
 }
 
 pub(super) fn tool_call(text_value: String, style: StyleSpec) -> View {
-    View::horizontal(|row| {
-        row.child(text("●", style.clone()).no_wrap());
-        row.flex(text(text_value, style).fill_width());
-        row.gap(1);
-    })
+    View::hanging(
+        text("● ", style.clone()).no_wrap(),
+        View::text("  ").no_wrap(),
+        text(text_value, style).fill_width(),
+    )
     .fill_width()
 }
 
 pub(super) fn tool_result_line(text_value: impl Into<String>, style: StyleSpec) -> View {
-    View::horizontal(|row| {
-        row.fixed(TOOL_BODY_OFFSET, View::text("").fill_width());
-        row.flex(text(text_value, style).fill_width());
-    })
+    View::hanging(
+        View::text("  ").no_wrap(),
+        View::text("  ").no_wrap(),
+        text(text_value, style).fill_width(),
+    )
     .fill_width()
 }
 
@@ -83,19 +83,20 @@ mod tests {
     fn tool_layout_helpers_lower_to_final_semantic_composition() {
         let style = StyleSpec::new().foreground(ColorSpec::ansi(1));
         let call = tool_call("ready".to_string(), style.clone());
-        let expected_call = View::horizontal(|row| {
-            row.child(text("●", style.clone()).no_wrap());
-            row.flex(text("ready", style.clone()).fill_width());
-            row.gap(1);
-        })
+        let expected_call = View::hanging(
+            text("● ", style.clone()).no_wrap(),
+            View::text("  ").no_wrap(),
+            text("ready", style.clone()).fill_width(),
+        )
         .fill_width();
         assert_eq!(call, expected_call);
 
         let result = tool_result_line("result", style.clone());
-        let expected_result = View::horizontal(|row| {
-            row.fixed(TOOL_BODY_OFFSET, View::text("").fill_width());
-            row.flex(text("result", style.clone()).fill_width());
-        })
+        let expected_result = View::hanging(
+            View::text("  ").no_wrap(),
+            View::text("  ").no_wrap(),
+            text("result", style.clone()).fill_width(),
+        )
         .fill_width();
         assert_eq!(result, expected_result);
 
