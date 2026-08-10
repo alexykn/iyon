@@ -83,6 +83,12 @@ pub(crate) enum TickRegistrationError {
     AlreadyRegistered,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TickOutcome {
+    pub(crate) ran: bool,
+    pub(crate) dirty: bool,
+}
+
 /// Private scheduler for mounted retained components.
 pub(crate) struct TickScheduler {
     registrations: HashMap<ComponentId, TickRegistration>,
@@ -262,7 +268,11 @@ impl TickScheduler {
             .unwrap_or(idle_timeout)
     }
 
-    pub(crate) fn tick_due(&mut self, now: Instant, registry: &mut ComponentRegistry) -> bool {
+    pub(crate) fn tick_due(
+        &mut self,
+        now: Instant,
+        registry: &mut ComponentRegistry,
+    ) -> TickOutcome {
         let mut queue = OutputQueue::new();
         self.tick_due_with_events(now, registry, &mut queue)
     }
@@ -272,7 +282,7 @@ impl TickScheduler {
         now: Instant,
         registry: &mut ComponentRegistry,
         queue: &mut OutputQueue,
-    ) -> bool {
+    ) -> TickOutcome {
         let due: Vec<_> = self
             .mount_order
             .iter()
@@ -286,18 +296,20 @@ impl TickScheduler {
             .collect();
 
         let mut dirty = false;
+        let mut ran = false;
         let mut cx = queue.event_cx();
         for id in due {
             let Some(registration) = self.registrations.get_mut(&id) else {
                 continue;
             };
+            ran = true;
             dirty |= registration.driver.tick(id, now, registry, &mut cx);
             registration.next_due = Some(
                 now.checked_add(registration.interval)
                     .expect("component tick deadline exhausted"),
             );
         }
-        dirty
+        TickOutcome { ran, dirty }
     }
 
     fn activate(&mut self, id: ComponentId, now: Instant) {

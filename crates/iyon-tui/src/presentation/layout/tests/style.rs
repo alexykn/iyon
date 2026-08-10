@@ -182,6 +182,29 @@ fn final_structural_order_affects_clamp_geometry() {
 }
 
 #[test]
+fn border_glyphs_enforce_one_cell_semantics() {
+    assert!(BorderGlyphs::new("─", "│", "─", "│", "┌", "┐", "└", "┘").is_ok());
+    assert!(BorderGlyphs::new("e\u{301}", "│", "─", "│", "┌", "┐", "└", "┘",).is_ok());
+    let error = BorderGlyphs::new("界", "│", "─", "│", "┌", "┐", "└", "┘").unwrap_err();
+    assert_eq!(error.field, "top");
+    assert_eq!(error.width, 2);
+}
+
+#[test]
+fn border_labels_use_display_width_and_clip_to_the_top_edge() {
+    let view = View::text("x")
+        .border(BorderSpec::plain().top_label("界界界"))
+        .width(WidthRule::Fill)
+        .into_view();
+    let row = &ViewCompiler::default().compile(&view, 5).rows[0];
+    assert_eq!(row.cell(0).unwrap().grapheme.as_deref(), Some("界"));
+    assert!(row.cell(1).unwrap().continuation);
+    assert_eq!(row.cell(2).unwrap().grapheme.as_deref(), Some("界"));
+    assert!(row.cell(3).unwrap().continuation);
+    assert_eq!(row.cell(4).unwrap().grapheme.as_deref(), Some("┐"));
+}
+
+#[test]
 fn explicit_border_constructor_uses_rounded_glyphs() {
     let view = View::text("x").border(BorderSpec::rounded().color(ColorSpec::ansi(2)));
     let rows = ViewCompiler::default().compile(&view.into_view(), 5).rows;

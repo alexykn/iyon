@@ -10,20 +10,20 @@ use anyhow::Result;
 
 use crate::{
     backend::NativeHistorySink,
-    component::{ComponentRegistry, MountGraph, MountedComponents, TickScheduler},
+    component::{ComponentRegistry, MountGraph, MountedComponents, TickOutcome, TickScheduler},
     geometry::Size,
     interaction::{
         FocusState, InteractionResult, KeyRouter, KeyStroke, MountedCapabilities, route_paste,
     },
     output::{OutputQueue, OutputRouter},
     physical::Surface,
-    presentation::{
-        layout::{LayoutEngine, ManualLayoutEngine, ViewCompiler},
-        paint::ViewPainter,
-    },
+    presentation::{layout::ViewCompiler, paint::ViewPainter},
 };
 
-use super::{LayoutSynchronizer, ResolveError, ResolvedRootScene, Scene, resolve_root_scene};
+use super::{
+    LayoutSynchronizer, ResolveError, ResolvedRootScene, ResolvedSceneLayout, Scene,
+    layout_resolved_scene, resolve_root_scene,
+};
 
 const MAX_LAYOUT_PASSES: usize = 8;
 
@@ -36,6 +36,11 @@ pub(crate) struct PreparedSceneFrame {
 }
 
 /// Generic runtime host for one semantic Scene.
+struct StableScene {
+    root: ResolvedRootScene,
+    layout: ResolvedSceneLayout,
+}
+
 pub(crate) struct SceneHost {
     mounted: MountedComponents,
     synchronizer: LayoutSynchronizer,
@@ -108,7 +113,11 @@ impl SceneHost {
         router.drain(&mut self.outputs)
     }
 
-    pub(crate) fn tick_due(&mut self, now: Instant, registry: &mut ComponentRegistry) -> bool {
+    pub(crate) fn tick_due(
+        &mut self,
+        now: Instant,
+        registry: &mut ComponentRegistry,
+    ) -> TickOutcome {
         self.ticker
             .tick_due_with_events(now, registry, &mut self.outputs)
     }
@@ -129,22 +138,27 @@ impl SceneHost {
         loop {
             let size = viewport(sink).map_err(SceneHostError::Viewport)?;
             let resolved = self.resolve_stable(scene, registry, size)?;
-            if resolved.history_overflow_rows == 0 {
-                return Ok(self.paint(resolved, size));
+            if resolved.root.history_overflow_rows == 0 {
+                return Ok(self.paint(resolved));
             }
 
             let Some(history) = scene.history_mut() else {
-                return Ok(self.paint(resolved, size));
+                return Ok(self.paint(resolved));
             };
             let transfer = crate::history::transfer_native_prefix(
                 history,
                 sink,
                 size.width,
-                resolved.history_overflow_rows,
+                resolved.root.history_overflow_rows,
             )
             .map_err(SceneHostError::Transfer)?;
-            if transfer.inserted == 0 {
-                return Ok(self.paint(resolved, size));
+            match transfer.status {
+                crate::history::NativeTransferStatus::Progress => continue,
+                crate::history::NativeTransferStatus::Idle
+                | crate::history::NativeTransferStatus::SinkBlocked
+                | crate::history::NativeTransferStatus::SemanticBlocked { .. } => {
+                    return Ok(self.paint(resolved));
+                }
             }
         }
     }
@@ -154,11 +168,11 @@ impl SceneHost {
         scene: &Scene,
         registry: &mut ComponentRegistry,
         size: Size,
-    ) -> Result<ResolvedRootScene, SceneHostError<E>> {
+    ) -> Result<StableScene, SceneHostError<E>> {
         for _ in 0..MAX_LAYOUT_PASSES {
             let resolved =
                 resolve_root_scene(scene, registry, size).map_err(SceneHostError::Resolve)?;
-            let layout = crate::scene::layout_resolved_scene(&resolved.scene, size);
+            let layout = layout_resolved_scene(&resolved.scene, size);
             let sync = self.synchronizer.synchronize(
                 &resolved.scene.mounts,
                 &resolved.scene.capabilities,
@@ -184,22 +198,21 @@ impl SceneHost {
                 Some(&layout.components),
                 registry,
             );
-            return Ok(resolved);
+            return Ok(StableScene {
+                root: resolved,
+                layout,
+            });
         }
         Err(SceneHostError::DidNotConverge)
     }
 
-    fn paint(&self, resolved: ResolvedRootScene, size: Size) -> PreparedSceneFrame {
+    fn paint(&self, resolved: StableScene) -> PreparedSceneFrame {
         let compiler = ViewCompiler::default();
-        let tree = ManualLayoutEngine.layout(
-            &resolved.scene.view,
-            crate::geometry::LayoutConstraints::bounded(size),
-        );
-        let surface = ViewPainter.paint_tree(&compiler, &tree);
+        let surface = ViewPainter.paint_tree(&compiler, &resolved.layout.tree);
         let complete = surface.physically_complete;
         PreparedSceneFrame {
             surface,
-            history_overlay: resolved.history_overlay,
+            history_overlay: resolved.root.history_overlay,
             physically_complete: complete,
         }
     }
@@ -220,3 +233,134 @@ impl<E: std::fmt::Debug> std::fmt::Display for SceneHostError<E> {
 }
 
 impl<E: std::fmt::Debug + 'static> std::error::Error for SceneHostError<E> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        Component, ComponentCx, IntoView, Scene, StreamingSource, TextSpan, View,
+        backend::NativeHistorySink,
+        component::ComponentRegistry,
+        geometry::Size,
+        physical::PhysicalRow,
+        stream::{
+            StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
+        },
+    };
+
+    #[derive(Debug)]
+    struct LayoutAware {
+        changed: bool,
+        calls: usize,
+    }
+
+    impl Component for LayoutAware {
+        fn view(&self) -> View {
+            if self.changed {
+                View::text("new\nrow").into_view()
+            } else {
+                View::text("old").into_view()
+            }
+        }
+
+        fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+            cx.on_layout_changed(Self::layout_changed);
+        }
+    }
+
+    impl LayoutAware {
+        fn layout_changed(&mut self, _size: Size) {
+            self.calls += 1;
+            if self.calls == 1 {
+                self.changed = true;
+            }
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct EmptySealedSource;
+
+    impl StreamingSource for EmptySealedSource {
+        fn snapshot(&self) -> StreamSnapshot {
+            StreamSnapshotBuilder::new(
+                StreamRevision::new(0),
+                StreamOffset::ZERO,
+                StreamOffset::ZERO,
+                StreamOffset::ZERO,
+            )
+            .exact_text(
+                StreamRange::new(StreamOffset::ZERO, StreamOffset::ZERO),
+                [TextSpan::plain("")],
+            )
+            .finish()
+            .unwrap()
+        }
+
+        fn seal(&mut self) {}
+
+        fn is_sealed(&self) -> bool {
+            true
+        }
+    }
+
+    #[derive(Default)]
+    struct TestSink {
+        rows: Vec<PhysicalRow>,
+    }
+
+    impl NativeHistorySink for TestSink {
+        type Error = ();
+
+        fn insert_history_rows(&mut self, rows: &[PhysicalRow]) -> Result<usize, Self::Error> {
+            self.rows.extend(rows.iter().cloned());
+            Ok(rows.len())
+        }
+    }
+
+    #[test]
+    fn paints_the_layout_from_the_stable_convergence_pass() {
+        let mut registry = ComponentRegistry::new();
+        let handle = registry.register(LayoutAware {
+            changed: false,
+            calls: 0,
+        });
+        let scene = Scene::new(View::component(handle));
+        let mut host = SceneHost::default();
+
+        let stable = host
+            .resolve_stable::<()>(&scene, &mut registry, Size::new(10, 4))
+            .unwrap();
+        let geometry = stable
+            .layout
+            .components
+            .entries
+            .get(&handle.id())
+            .expect("layout-aware component geometry")
+            .content;
+        let frame = host.paint(stable);
+
+        assert_eq!(registry.with(handle, |component| component.calls), Some(2));
+        assert_eq!(geometry.height, 2);
+        assert_eq!(frame.surface.get(0, 0).grapheme.as_deref(), Some("n"));
+        assert_eq!(frame.surface.get(0, 1).grapheme.as_deref(), Some("r"));
+    }
+
+    #[test]
+    fn render_continues_after_zero_row_stream_retirement() {
+        let mut history = crate::History::new();
+        let stream = history.push_stream(EmptySealedSource).unwrap();
+        history.seal_stream(stream).unwrap();
+        history.push("S1\nS2\nS3").unwrap();
+        let mut scene = Scene::with_history(history, "body");
+        let mut registry = ComponentRegistry::new();
+        let mut host = SceneHost::default();
+        let mut sink = TestSink::default();
+
+        host.render(&mut scene, &mut registry, &mut sink, |_| {
+            Ok(Size::new(10, 3))
+        })
+        .unwrap();
+
+        assert!(sink.rows.iter().any(|row| row.plain_text() == "S1"));
+    }
+}
