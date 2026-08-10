@@ -134,7 +134,6 @@ where
 
         let deadline = app.next_deadline();
         tokio::select! {
-            biased;
             _ = wait_for_deadline(deadline) => {}
             event = session.next_event() => {
                 match event

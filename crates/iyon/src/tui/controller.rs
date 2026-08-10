@@ -1,5 +1,5 @@
 use super::backend::FrontendEvent;
-use super::final_components::ApprovalDecision;
+use super::components::ApprovalDecision;
 
 #[derive(Debug)]
 pub enum IyonAction {

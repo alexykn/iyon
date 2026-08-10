@@ -752,6 +752,48 @@ impl Component for Ticking {
     }
 }
 
+struct RedrawTick;
+
+impl RedrawTick {
+    fn tick(&mut self, _now: Instant, _cx: &mut EventCx<'_>) -> bool {
+        true
+    }
+}
+
+impl Component for RedrawTick {
+    fn view(&self) -> View {
+        View::text("redraw").into_view()
+    }
+
+    fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+        cx.tick(Duration::from_millis(80), Self::tick);
+    }
+}
+
+#[test]
+fn mounted_component_tick_redraw_does_not_rederive_body() {
+    let now = Instant::now();
+    let view_calls = Rc::new(Cell::new(0));
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| -> Result<_, TestError> { Ok(cx.register(RedrawTick)) },
+        |_state: &mut ComponentHandle<RedrawTick>, _action, _cx| Ok(()),
+        {
+            let view_calls = Rc::clone(&view_calls);
+            move |component: &ComponentHandle<RedrawTick>| {
+                view_calls.set(view_calls.get() + 1);
+                View::component(*component)
+            }
+        },
+    );
+    let mut app = start(app, now);
+    prepare(&mut app, now);
+    assert_eq!(view_calls.get(), 1);
+    let status = app.advance_ready(now + Duration::from_millis(80)).unwrap();
+    assert!(status.dirty);
+    prepare(&mut app, now + Duration::from_millis(80));
+    assert_eq!(view_calls.get(), 1);
+}
+
 #[test]
 fn mounted_tick_output_is_routed_into_the_same_action_queue() {
     let now = Instant::now();

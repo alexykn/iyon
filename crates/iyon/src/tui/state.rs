@@ -11,9 +11,10 @@ use iyon_tui::{
 
 use super::{
     backend::{BackendCommands, ToolUpdatePresentation},
+    components::{
+        ApprovalDecision, ConversationActivity, SteeringQueuePanel, ToolOutput, UserBatch,
+    },
     controller::IyonAction,
-    final_components::{ApprovalDecision, ConversationActivity, ToolOutput, UserBatch},
-    panel::SteeringQueuePanel,
     stream_smoother::StreamSmoother,
     transcript::{AssistantStream, SegmentKind, TimelineItem, ToolTimelineStatus, TuiFormatter},
 };
@@ -395,11 +396,7 @@ impl IyonState {
         self.seal_stream(cx)?;
         self.conversation.turn_started = false;
         self.remove_working(cx)?;
-        let tools = self.conversation.tools.keys().cloned().collect::<Vec<_>>();
-        for id in tools {
-            self.finish_tool_call(cx, id, false)?;
-        }
-        Ok(())
+        self.finalize_tools(cx)
     }
 
     pub(crate) fn fail_turn(
@@ -503,6 +500,7 @@ impl IyonState {
         name: String,
         args: Value,
     ) -> Result<()> {
+        self.freeze_user_batch(cx)?;
         if !self.conversation.tools.contains_key(&id) {
             self.start_tool_call(cx, id.clone(), name.clone(), args.clone())?;
         }
@@ -572,6 +570,15 @@ impl IyonState {
                     None,
                 )
             });
+        }
+        Ok(())
+    }
+
+    fn finalize_tools(&mut self, cx: &mut AppCx<'_, IyonAction>) -> Result<()> {
+        let tools = self.conversation.tools.keys().cloned().collect::<Vec<_>>();
+        for id in tools {
+            self.finish_tool_call(cx, id.clone(), false)?;
+            self.freeze_completed_tool(cx, &id, true)?;
         }
         Ok(())
     }
@@ -673,21 +680,17 @@ impl IyonState {
     }
 
     pub(crate) fn prepare_goodbye(&mut self, cx: &mut AppCx<'_, IyonAction>) -> Result<()> {
+        if let Some(chunks) = self.stream_pacer.flush(cx) {
+            self.start_assistant_delta(cx, chunks)?;
+        }
         self.freeze_user_batch(cx)?;
         self.seal_stream(cx)?;
         self.conversation.turn_started = false;
         self.remove_working(cx)?;
-        let tools = self.conversation.tools.keys().cloned().collect::<Vec<_>>();
-        for id in tools {
-            self.finish_tool_call(cx, id, false)?;
-        }
+        self.finalize_tools(cx)?;
         cx.history_mut()
             .ok_or_else(|| anyhow!("history unavailable"))?
             .push(View::text("Goodbye.").fill_width())?;
-        if let Some(chunks) = self.stream_pacer.flush(cx) {
-            self.start_assistant_delta(cx, chunks)?;
-            self.seal_stream(cx)?;
-        }
         self.body_visible = false;
         Ok(())
     }

@@ -1,9 +1,6 @@
 mod backend;
+mod components;
 mod controller;
-#[path = "components/conversation_activity.rs"]
-mod final_components;
-#[path = "components/steering_queue.rs"]
-mod panel;
 mod state;
 mod stream_smoother;
 
@@ -16,8 +13,8 @@ use iyon_core::ModelSelection;
 use iyon_tui::{App, AppCx, History, HistoryLayout, Insets, View};
 
 pub use backend::{FrontendEvent, ToolUpdatePresentation};
+pub use components::ApprovalDecision;
 pub use controller::IyonAction;
-pub use final_components::ApprovalDecision;
 pub use state::IyonState;
 
 use backend::{BackendCommands, CoreBridge};

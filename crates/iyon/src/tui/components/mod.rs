@@ -1,5 +1,6 @@
 pub(crate) mod conversation_activity;
 pub(crate) mod steering_queue;
 
-pub(crate) use conversation_activity::{ApprovalDecision, ConversationActivity};
+pub use conversation_activity::ApprovalDecision;
+pub(crate) use conversation_activity::{ConversationActivity, ToolOutput, UserBatch};
 pub(crate) use steering_queue::SteeringQueuePanel;
