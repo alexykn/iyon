@@ -109,6 +109,60 @@ fn identical_freeze_is_visually_inert() {
 }
 
 #[test]
+fn open_stream_preserves_protected_live_band_before_following_suffix() {
+    let mut registry = ComponentRegistry::new();
+    let first = registry.register(LabelComponent { label: "A1\nA2" });
+    let second = registry.register(LabelComponent { label: "B1\nB2" });
+    let before = (1..=20)
+        .map(|row| format!("S{row}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let after = (1..=21)
+        .map(|row| format!("S{row}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut history = History::new();
+    history.push(View::component(first)).unwrap();
+    history.push(View::component(second)).unwrap();
+    let stream = history
+        .push_stream(TestSource::new(&before, before.len() as u64, false))
+        .unwrap();
+
+    assert_eq!(
+        rows(&history, &registry, Size::new(10, 8)),
+        ["A1", "A2", "B1", "B2", "S17", "S18", "S19", "S20"]
+    );
+    assert_eq!(
+        project(&history, &registry, Size::new(10, 8))
+            .unwrap()
+            .scene
+            .mounts
+            .ids()
+            .collect::<Vec<_>>(),
+        [first.id(), second.id()]
+    );
+
+    history
+        .update_stream(stream, |source| {
+            source.replace_snapshot(source.snapshot_with(1, after.len() as u64, &after));
+        })
+        .unwrap();
+    assert_eq!(
+        rows(&history, &registry, Size::new(10, 8)),
+        ["A1", "A2", "B1", "B2", "S18", "S19", "S20", "S21"]
+    );
+    assert_eq!(
+        project(&history, &registry, Size::new(10, 8))
+            .unwrap()
+            .scene
+            .mounts
+            .ids()
+            .collect::<Vec<_>>(),
+        [first.id(), second.id()]
+    );
+}
+
+#[test]
 fn multiple_live_units_resolve_in_history_order_even_when_old() {
     let mut registry = ComponentRegistry::new();
     let first = registry.register(LabelComponent { label: "A" });

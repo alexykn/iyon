@@ -122,6 +122,7 @@ pub(crate) fn project_into_session(
     let mut selected_items = Vec::new();
     let mut remaining = usize::from(size.height);
     let top_padding = resident_top_padding(history);
+    let items = flow_items(history, &plans);
 
     if let Some(rows) = frozen_static_rows(history) {
         if let Some(plan) = plans.first_mut() {
@@ -130,51 +131,117 @@ pub(crate) fn project_into_session(
         }
     }
 
-    // History follows its semantic end. Walk backwards until the viewport is
-    // full; the first selected item may be a partial unit, gap, or padding.
-    take_selected(
-        FlowItem::BottomPadding,
-        usize::from(layout.padding.bottom),
-        &mut remaining,
-        &mut selected_units,
-        &mut selected_items,
-    );
-    for index in (0..plans.len()).rev() {
-        if remaining == 0 {
-            break;
-        }
-        let height = ensure_height(&mut plans[index], units[index], content_width);
-        take_selected(
-            FlowItem::Unit(index),
-            height,
-            &mut remaining,
-            &mut selected_units,
-            &mut selected_items,
+    // An open Stream tail follows its semantic end, but resident blockers
+    // before it form a protected band. Reserve that real flow geometry first;
+    // only the remaining capacity belongs to the Stream suffix. If the band
+    // itself does not fit, retain the ordinary end-follow overflow behavior.
+    if let Some((blocker, stream)) = protected_stream_bounds(&units) {
+        let protected_height = protected_band_height(
+            history,
+            &mut plans,
+            &units,
+            &items,
+            blocker,
+            stream,
+            content_width,
         );
-        if remaining == 0 {
-            break;
-        }
-        if has_predecessor_gap(history, index, &plans[index]) {
-            take_selected(
-                FlowItem::Gap(index),
-                resident_gap(history, index, &plans[index]),
+        if protected_height <= remaining {
+            for item in items
+                .iter()
+                .copied()
+                .filter(|item| protected_band_item(*item, blocker, stream))
+            {
+                take_full(
+                    item,
+                    item_height(
+                        history,
+                        &mut plans,
+                        &units,
+                        item,
+                        content_width,
+                        top_padding,
+                    ),
+                    &mut remaining,
+                    &mut selected_units,
+                    &mut selected_items,
+                );
+            }
+            for item in items
+                .iter()
+                .rev()
+                .copied()
+                .filter(|item| stream_region_item(*item, stream))
+            {
+                let height = item_height(
+                    history,
+                    &mut plans,
+                    &units,
+                    item,
+                    content_width,
+                    top_padding,
+                );
+                take_selected(
+                    item,
+                    height,
+                    &mut remaining,
+                    &mut selected_units,
+                    &mut selected_items,
+                );
+                if remaining == 0 {
+                    break;
+                }
+            }
+            for item in items
+                .iter()
+                .rev()
+                .copied()
+                .filter(|item| preceding_item(*item, blocker))
+            {
+                let height = item_height(
+                    history,
+                    &mut plans,
+                    &units,
+                    item,
+                    content_width,
+                    top_padding,
+                );
+                take_selected(
+                    item,
+                    height,
+                    &mut remaining,
+                    &mut selected_units,
+                    &mut selected_items,
+                );
+                if remaining == 0 {
+                    break;
+                }
+            }
+        } else {
+            select_end_following(
+                history,
+                &mut plans,
+                &units,
+                &items,
+                content_width,
+                top_padding,
                 &mut remaining,
                 &mut selected_units,
                 &mut selected_items,
             );
         }
-    }
-    if remaining > 0 {
-        take_selected(
-            FlowItem::TopPadding,
+    } else {
+        select_end_following(
+            history,
+            &mut plans,
+            &units,
+            &items,
+            content_width,
             top_padding,
             &mut remaining,
             &mut selected_units,
             &mut selected_items,
         );
     }
-
-    let items = flow_items(history, &plans);
     let mut children = Vec::new();
     let slack = remaining;
     push_spacer(&mut children, slack);
@@ -228,6 +295,114 @@ pub(crate) fn project_into_session(
         view: root,
         frozen_overlay,
     })
+}
+
+fn protected_stream_bounds(units: &[&super::HistoryUnit]) -> Option<(usize, usize)> {
+    let stream = units.len().checked_sub(1)?;
+    let HistoryUnitContent::Stream(stream_content) = &units[stream].content else {
+        return None;
+    };
+    if stream_content.is_sealed() {
+        return None;
+    }
+    let blocker =
+        (0..stream).find(|index| matches!(&units[*index].content, HistoryUnitContent::Live(_)))?;
+    Some((blocker, stream))
+}
+
+fn protected_band_item(item: FlowItem, blocker: usize, stream: usize) -> bool {
+    match item {
+        FlowItem::Unit(index) | FlowItem::Gap(index) => blocker <= index && index < stream,
+        FlowItem::TopPadding | FlowItem::BottomPadding => false,
+    }
+}
+
+fn stream_region_item(item: FlowItem, stream: usize) -> bool {
+    match item {
+        FlowItem::BottomPadding => true,
+        FlowItem::Gap(index) | FlowItem::Unit(index) => index == stream,
+        FlowItem::TopPadding => false,
+    }
+}
+
+fn preceding_item(item: FlowItem, blocker: usize) -> bool {
+    match item {
+        FlowItem::TopPadding => true,
+        FlowItem::Unit(index) | FlowItem::Gap(index) => index < blocker,
+        FlowItem::BottomPadding => false,
+    }
+}
+
+fn protected_band_height(
+    history: &History,
+    plans: &mut [UnitPlan],
+    units: &[&super::HistoryUnit],
+    items: &[FlowItem],
+    blocker: usize,
+    stream: usize,
+    width: u16,
+) -> usize {
+    items
+        .iter()
+        .copied()
+        .filter(|item| protected_band_item(*item, blocker, stream))
+        .map(|item| item_height(history, plans, units, item, width, 0))
+        .sum()
+}
+
+fn item_height(
+    history: &History,
+    plans: &mut [UnitPlan],
+    units: &[&super::HistoryUnit],
+    item: FlowItem,
+    width: u16,
+    top_padding: usize,
+) -> usize {
+    match item {
+        FlowItem::TopPadding => top_padding,
+        FlowItem::BottomPadding => usize::from(history.layout().padding.bottom),
+        FlowItem::Gap(index) => resident_gap(history, index, &plans[index]),
+        FlowItem::Unit(index) => ensure_height(&mut plans[index], units[index], width),
+    }
+}
+
+fn take_full(
+    item: FlowItem,
+    height: usize,
+    remaining: &mut usize,
+    selected_units: &mut [Option<Selected>],
+    selected_items: &mut Vec<(FlowItem, Selected)>,
+) {
+    if height == 0 {
+        return;
+    }
+    debug_assert!(*remaining >= height);
+    let selected = Selected { offset: 0, height };
+    match item {
+        FlowItem::Unit(index) => selected_units[index] = Some(selected),
+        _ => selected_items.push((item, selected)),
+    }
+    *remaining = (*remaining).saturating_sub(height);
+}
+
+fn select_end_following(
+    history: &History,
+    plans: &mut [UnitPlan],
+    units: &[&super::HistoryUnit],
+    items: &[FlowItem],
+    width: u16,
+    top_padding: usize,
+    remaining: &mut usize,
+    selected_units: &mut [Option<Selected>],
+    selected_items: &mut Vec<(FlowItem, Selected)>,
+) {
+    for item in items.iter().rev().copied() {
+        let height = item_height(history, plans, units, item, width, top_padding);
+        take_selected(item, height, remaining, selected_units, selected_items);
+        if *remaining == 0 {
+            break;
+        }
+    }
 }
 
 fn frozen_visible_rows(plan: &UnitPlan, selected: Selected) -> Option<(Vec<PhysicalRow>, usize)> {

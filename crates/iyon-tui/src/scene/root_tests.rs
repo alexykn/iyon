@@ -237,7 +237,7 @@ fn multi_live_stream_capacity_keeps_one_root_mount_order() {
     assert_eq!(
         rows,
         [
-            "S13", "S14", "S15", "S16", "S17", "S18", "S19", "S20", "C1", "C2"
+            "A1", "A2", "B1", "B2", "S17", "S18", "S19", "S20", "C1", "C2"
         ]
     );
 
@@ -257,7 +257,7 @@ fn multi_live_stream_capacity_keeps_one_root_mount_order() {
     assert_eq!(
         rows,
         [
-            "S14", "S15", "S16", "S17", "S18", "S19", "S20", "S21", "C1", "C2"
+            "A1", "A2", "B1", "B2", "S18", "S19", "S20", "S21", "C1", "C2"
         ]
     );
 }

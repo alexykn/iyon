@@ -14,10 +14,16 @@ use super::{
 /// History owns unit order, semantic lifetime, and semantic layout. Native
 /// durability remains private behind the host-owned native sink seam.
 ///
-/// ```text
-/// let mut history = History::new();
-/// let completed = history.push("completed output")?;
-/// history.freeze(completed, "final output")?;
+/// ```no_run
+/// use iyon_tui::{Component, ComponentHandle, History, HistoryError, View};
+///
+/// fn build<C: Component>(handle: ComponentHandle<C>) -> Result<History, HistoryError> {
+///     let mut history = History::new();
+///     history.push("completed output")?;
+///     let live = history.push(View::component(handle))?;
+///     history.freeze(live, "final output")?;
+///     Ok(history)
+/// }
 /// ```
 pub struct History {
     pub(super) units: VecDeque<HistoryUnit>,
