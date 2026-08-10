@@ -46,6 +46,34 @@ impl From<RouteConflict> for TestError {
     }
 }
 
+#[derive(Debug)]
+struct RuntimeCause;
+
+impl std::fmt::Display for RuntimeCause {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("runtime cause")
+    }
+}
+
+impl std::error::Error for RuntimeCause {}
+
+#[test]
+fn runtime_error_source_exposes_the_wrapped_top_level_cause() {
+    let error = super::error::RuntimeError::new(RuntimeCause);
+    let source = std::error::Error::source(&error).expect("runtime source");
+    assert_eq!(source.to_string(), "runtime cause");
+    assert!(source.source().is_none());
+
+    let output_error =
+        super::error::RuntimeError::new(crate::output::OutputDispatchError::TypeMismatch);
+    let source = std::error::Error::source(&output_error).expect("output source");
+    assert!(
+        source
+            .downcast_ref::<crate::output::OutputDispatchError>()
+            .is_some()
+    );
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum Action {
     Submit(String),
@@ -369,6 +397,81 @@ fn headless_paste_dispatch_stays_on_the_local_component_path() {
     assert_eq!(
         app.dispatch_paste("typed").unwrap(),
         InteractionResult::Consumed
+    );
+    let mut sink = HeadlessSink::default();
+    let frame = app
+        .prepare_frame(now, &mut sink, |_| Ok(Size::new(40, 8)))
+        .unwrap();
+    assert!(surface_text(&frame).contains("typed"));
+}
+
+#[test]
+fn paste_interceptor_follows_registration_not_mount_lifetime() {
+    let now = Instant::now();
+    struct LifetimeState {
+        input: ComponentHandle<TextInput>,
+        visible: bool,
+        pasted: Vec<String>,
+        removed: bool,
+    }
+
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| {
+            let input = cx.register(TextInput::new());
+            cx.intercept_paste(input, Action::Pasted);
+            cx.schedule_after(Duration::ZERO, Action::Mutate);
+            cx.schedule_after(Duration::from_millis(1), Action::Second);
+            Ok::<_, TestError>(LifetimeState {
+                input,
+                visible: true,
+                pasted: Vec::new(),
+                removed: false,
+            })
+        },
+        |state, action, cx| {
+            match action {
+                Action::Mutate => state.visible = false,
+                Action::Second => state.visible = true,
+                Action::Pasted(text) => {
+                    state.pasted.push(text);
+                    state.visible = false;
+                    state.removed = cx.remove_component(state.input).is_some();
+                }
+                _ => {}
+            }
+            Ok(())
+        },
+        |state: &LifetimeState| {
+            if state.visible {
+                View::component(state.input)
+            } else {
+                View::text("unmounted").into_view()
+            }
+        },
+    );
+    let mut app = start(app, now);
+    prepare(&mut app, now);
+
+    app.advance_ready(now).unwrap();
+    prepare(&mut app, now);
+    assert_eq!(
+        app.dispatch_paste("while-unmounted").unwrap(),
+        InteractionResult::Ignored
+    );
+
+    app.advance_ready(now + Duration::from_millis(1)).unwrap();
+    prepare(&mut app, now + Duration::from_millis(1));
+    assert_eq!(
+        app.dispatch_paste("while-mounted").unwrap(),
+        InteractionResult::Consumed
+    );
+    app.advance_ready(now + Duration::from_millis(1)).unwrap();
+    prepare(&mut app, now + Duration::from_millis(1));
+    assert!(app.state.removed);
+    assert_eq!(app.state.pasted, ["while-mounted"]);
+    assert_eq!(
+        app.dispatch_paste("after-removal").unwrap(),
+        InteractionResult::Ignored
     );
 }
 
@@ -847,6 +950,29 @@ async fn production_runtime_processes_pre_run_actions_after_initial_frame() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn init_exit_skips_backend_factory() {
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| {
+            cx.exit();
+            Ok::<_, TestError>(())
+        },
+        |_state: &mut (), _action, _cx| Ok(()),
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let called = Rc::new(Cell::new(false));
+    let called_by_factory = Rc::clone(&called);
+    let (backend, _control) = fake_backend();
+    let result = super::run::run_with_backend_factory(app, move || {
+        called_by_factory.set(true);
+        Ok(backend)
+    })
+    .await;
+
+    assert!(result.is_ok());
+    assert!(!called.get());
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn app_handle_wakes_a_runtime_without_terminal_polling() {
     let updates = Rc::new(Cell::new(0));
     let app = App::new(
@@ -1013,6 +1139,43 @@ async fn production_runtime_uses_backend_viewport_after_resize_event() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn init_forward_paste_routes_after_initial_mount_without_terminal_input() {
+    let observed = Rc::new(RefCell::new(Vec::new()));
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| {
+            let input = cx.register(TextInput::new());
+            let output = cx
+                .with_component_mut(input, |input| {
+                    input.output_on_change(|change| change.text().to_owned())
+                })
+                .expect("input is registered");
+            cx.route(output, Action::Changed)?;
+            cx.forward_paste("initial");
+            Ok::<_, TestError>(input)
+        },
+        {
+            let observed = Rc::clone(&observed);
+            move |_input, action, cx| {
+                if let Action::Changed(text) = action {
+                    observed.borrow_mut().push(text);
+                    cx.exit();
+                }
+                Ok(())
+            }
+        },
+        |input: &ComponentHandle<TextInput>| View::component(*input),
+    );
+    let (backend, control) = fake_backend();
+
+    super::run::run_with_backend(app, backend)
+        .await
+        .expect("init paste completes the application");
+
+    assert_eq!(&*observed.borrow(), &["initial"]);
+    assert!(control.report.borrow().draws >= 2);
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn production_paste_interceptor_forwards_without_reinterception() {
     let observed = Rc::new(RefCell::new(Vec::new()));
     let app = App::new(
@@ -1062,6 +1225,27 @@ async fn production_paste_interceptor_forwards_without_reinterception() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn normal_completion_preserves_restore_failure_as_runtime_error() {
+    let app = App::new(
+        |_cx: &mut AppCx<'_, Action>| Ok::<_, TestError>(()),
+        |_state: &mut (), action, cx| {
+            if action == Action::Exit {
+                cx.exit();
+            }
+            Ok(())
+        },
+        |_state: &()| View::text("runtime").into_view(),
+    );
+    let handle = app.handle();
+    handle.send(Action::Exit).unwrap();
+    let (mut backend, control) = fake_backend();
+    backend.restore_error = true;
+    let result = super::run::run_with_backend(app, backend).await;
+    assert!(matches!(result, Err(crate::RunError::Runtime(_))));
+    assert_eq!(control.report.borrow().restores, 1);
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn production_runtime_maps_backend_and_application_errors() {
     let app = App::new(
         |_cx: &mut AppCx<'_, Action>| Ok::<_, TestError>(()),
@@ -1070,7 +1254,8 @@ async fn production_runtime_maps_backend_and_application_errors() {
     );
     let handle = app.handle();
     handle.send(Action::A).unwrap();
-    let (backend, control) = fake_backend();
+    let (mut backend, control) = fake_backend();
+    backend.restore_error = true;
     let application_error = super::run::run_with_backend(app, backend)
         .await
         .expect_err("update error propagates");
@@ -1084,10 +1269,14 @@ async fn production_runtime_maps_backend_and_application_errors() {
     );
     let (mut backend, control) = fake_backend();
     backend.event_error = true;
+    backend.restore_error = true;
     let runtime_error = super::run::run_with_backend(app, backend)
         .await
         .expect_err("terminal error propagates");
-    assert!(matches!(runtime_error, crate::RunError::Runtime(_)));
+    let crate::RunError::Runtime(runtime_error) = runtime_error else {
+        panic!("expected runtime error");
+    };
+    assert!(std::error::Error::source(&runtime_error).is_some());
     assert_eq!(control.report.borrow().restores, 1);
 
     let app = App::new(
@@ -1164,34 +1353,154 @@ fn app_handle_recovers_closed_actions_and_has_conditional_thread_traits() {
     assert_eq!(closed.into_inner(), Action::Exit);
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn application_global_key_runs_after_local_routing() {
+struct PasteModal {
+    input: ComponentHandle<TextInput>,
+}
+
+impl Component for PasteModal {
+    fn view(&self) -> View {
+        View::component(self.input)
+    }
+
+    fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+        cx.modal_scope();
+    }
+}
+
+#[test]
+fn application_paste_interceptors_respect_active_modal_routing() {
+    let now = Instant::now();
+    struct ModalState {
+        background: ComponentHandle<TextInput>,
+        modal: ComponentHandle<PasteModal>,
+        hits: Vec<Action>,
+    }
+
     let app = App::new(
         |cx: &mut AppCx<'_, Action>| {
-            cx.bind_key(KeyStroke::new(Key::Escape), || Action::Exit);
-            Ok::<_, TestError>(())
+            let background = cx.register(TextInput::new());
+            let modal_input = cx.register(TextInput::new());
+            let modal = cx.register(PasteModal { input: modal_input });
+            cx.intercept_paste(background, |_| Action::A);
+            cx.intercept_paste(modal, |_| Action::B);
+            Ok::<_, TestError>(ModalState {
+                background,
+                modal,
+                hits: Vec::new(),
+            })
         },
-        |_state: &mut (), action, cx| {
-            if action == Action::Exit {
-                cx.exit();
-            }
+        |state, action, _cx| {
+            state.hits.push(action);
             Ok(())
         },
-        |_state: &()| View::text("runtime").into_view(),
+        |state: &ModalState| {
+            View::vertical(|column| {
+                column.child(View::component(state.background));
+                column.child(View::component(state.modal));
+            })
+        },
     );
-    let (backend, control) = fake_backend();
-    let runtime = super::run::run_with_backend(app, backend);
-    let producer = async move {
-        tokio::task::yield_now().await;
-        control
-            .events
-            .send(TerminalEvent::Key(KeyStroke::new(Key::Escape)))
-            .unwrap();
-    };
-    let (result, ()) = tokio::join!(runtime, producer);
+    let mut app = start(app, now);
+    prepare(&mut app, now);
+    assert_eq!(
+        app.dispatch_paste("modal").unwrap(),
+        InteractionResult::Consumed
+    );
+    app.advance_ready(now).unwrap();
+    assert_eq!(app.state.hits, [Action::B]);
+}
 
-    assert!(result.is_ok());
-    assert_eq!(control.report.borrow().restores, 1);
+struct KeyConsumer;
+
+impl Component for KeyConsumer {
+    fn view(&self) -> View {
+        View::text("consumer").into_view()
+    }
+
+    fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+        cx.focusable();
+        cx.key_commands(Self::command, Self::handle);
+    }
+}
+
+impl KeyConsumer {
+    fn command(&self, key: KeyStroke) -> Option<()> {
+        (key.key() == Key::Char('x')).then_some(())
+    }
+
+    fn handle(&mut self, _: (), _: &mut EventCx<'_>) -> InteractionResult {
+        InteractionResult::Consumed
+    }
+}
+
+#[test]
+fn application_global_keys_preserve_local_traversal_and_binding_lifetime() {
+    let now = Instant::now();
+    struct GlobalState {
+        consumer: ComponentHandle<KeyConsumer>,
+        input: ComponentHandle<TextInput>,
+        hits: Vec<Action>,
+    }
+
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| {
+            let consumer = cx.register(KeyConsumer);
+            let input = cx.register(TextInput::new());
+            cx.bind_key(KeyStroke::new(Key::Char('x')), || Action::A);
+            cx.bind_key(KeyStroke::new(Key::Tab), || Action::B);
+            cx.bind_key(KeyStroke::new(Key::Char('q')), || Action::C);
+            cx.bind_key(KeyStroke::new(Key::Char('r')), || Action::A);
+            cx.bind_key(KeyStroke::new(Key::Char('r')), || Action::B);
+            cx.bind_key(KeyStroke::new(Key::Char('z')), || Action::C);
+            assert!(cx.unbind_key(KeyStroke::new(Key::Char('z'))));
+            Ok::<_, TestError>(GlobalState {
+                consumer,
+                input,
+                hits: Vec::new(),
+            })
+        },
+        |state, action, _cx| {
+            state.hits.push(action);
+            Ok(())
+        },
+        |state: &GlobalState| {
+            View::vertical(|column| {
+                column.child(View::component(state.consumer));
+                column.child(View::component(state.input));
+            })
+        },
+    );
+    let mut app = start(app, now);
+    prepare(&mut app, now);
+
+    assert_eq!(
+        app.dispatch_key(KeyStroke::new(Key::Char('x'))).unwrap(),
+        InteractionResult::Consumed
+    );
+    app.advance_ready(now).unwrap();
+    assert!(app.state.hits.is_empty());
+
+    assert_eq!(
+        app.dispatch_key(KeyStroke::new(Key::Tab)).unwrap(),
+        InteractionResult::Consumed
+    );
+    app.advance_ready(now).unwrap();
+    assert!(app.state.hits.is_empty());
+
+    assert_eq!(
+        app.dispatch_key(KeyStroke::new(Key::Char('q'))).unwrap(),
+        InteractionResult::Consumed
+    );
+    assert_eq!(
+        app.dispatch_key(KeyStroke::new(Key::Char('r'))).unwrap(),
+        InteractionResult::Consumed
+    );
+    assert_eq!(
+        app.dispatch_key(KeyStroke::new(Key::Char('z'))).unwrap(),
+        InteractionResult::Ignored
+    );
+    app.advance_ready(now).unwrap();
+    assert_eq!(app.state.hits, [Action::C, Action::B]);
 }
 
 #[tokio::test(flavor = "current_thread")]

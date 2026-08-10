@@ -220,7 +220,7 @@ where
             self.dirty = true;
             self.body_dirty = true;
             self.drain_outputs_to_actions()?;
-            self.drain_forwarded_pastes()?;
+            self.drain_deferred_pastes()?;
             self.collect_due_timers(now);
             if self.exit_requested {
                 self.close_ingress();
@@ -322,7 +322,7 @@ where
         }
     }
 
-    fn drain_forwarded_pastes(&mut self) -> Result<(), KernelError<Error>> {
+    pub(crate) fn drain_deferred_pastes(&mut self) -> Result<(), KernelError<Error>> {
         while let Some(text) = self.deferred_pastes.pop_front() {
             let result = self.scene_host.dispatch_paste(&text, &mut self.components);
             self.drain_outputs_to_actions()?;

@@ -47,10 +47,6 @@ impl RuntimeError {
             source: source.into(),
         }
     }
-
-    pub(crate) fn message(message: impl Into<String>) -> Self {
-        Self::new(anyhow::anyhow!(message.into()))
-    }
 }
 
 impl fmt::Debug for RuntimeError {
@@ -70,6 +66,6 @@ impl fmt::Display for RuntimeError {
 
 impl Error for RuntimeError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.source.source()
+        Some(self.source.as_ref())
     }
 }

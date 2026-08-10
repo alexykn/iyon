@@ -106,7 +106,11 @@ impl<'a, Action> AppCx<'a, Action> {
     where
         C: Component,
     {
-        self.components.remove(handle)
+        let component = self.components.remove(handle);
+        if component.is_some() {
+            self.paste_interceptors.remove(handle);
+        }
+        component
     }
 
     /// Routes one typed component output into an application action.

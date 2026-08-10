@@ -5,9 +5,6 @@ use crate::{
 
 use super::{FocusState, InteractionResult, KeyStroke, MountedCapabilities};
 
-#[cfg(test)]
-use super::GlobalBindings;
-
 /// Private framework keyboard router.
 #[derive(Default)]
 pub(crate) struct KeyRouter;
@@ -77,24 +74,6 @@ pub(crate) fn route_paste(
         }
     }
     InteractionResult::Ignored
-}
-
-#[cfg(test)]
-pub(crate) fn route_key(
-    key: KeyStroke,
-    focus: &mut FocusState,
-    graph: &MountGraph,
-    capabilities: &MountedCapabilities,
-    registry: &mut ComponentRegistry,
-    queue: &mut OutputQueue,
-    globals: &GlobalBindings,
-) -> InteractionResult {
-    let result = route_key_local(key, focus, graph, capabilities, registry, queue);
-    if result == InteractionResult::Consumed {
-        return result;
-    }
-    let mut cx = queue.event_cx();
-    globals.dispatch(key, &mut cx)
 }
 
 pub(crate) fn route_key_local(
