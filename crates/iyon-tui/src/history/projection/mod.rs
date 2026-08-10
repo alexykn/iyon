@@ -8,9 +8,10 @@ use crate::{
         layout::{LayoutEngine, ManualLayoutEngine},
     },
     scene::{ResolveError, ResolveSession, ResolvedScene},
+    stream::StreamRowIndex,
 };
 
-use super::{FlowBoundary, History, HistoryLayout, HistoryUnitContent};
+use super::{FlowBoundary, History, HistoryUnitContent};
 
 pub(crate) struct HistoryProjection {
     pub(crate) view: View,
@@ -25,7 +26,7 @@ struct UnitPlan {
 enum PlannedContent {
     Static,
     Live(View),
-    Stream,
+    Stream(StreamRowIndex),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -78,11 +79,14 @@ fn project_view(
                     content: PlannedContent::Live(resolved),
                 })
             }
-            HistoryUnitContent::Stream(_) => Ok(UnitPlan {
-                boundary: unit.boundary,
-                height: None,
-                content: PlannedContent::Stream,
-            }),
+            HistoryUnitContent::Stream(stream) => {
+                let index = stream.prepare(content_width);
+                Ok(UnitPlan {
+                    boundary: unit.boundary,
+                    height: Some(index.anchors.len()),
+                    content: PlannedContent::Stream(index),
+                })
+            }
         })
         .collect::<Result<Vec<_>, ResolveError>>()?;
 
@@ -142,12 +146,7 @@ fn project_view(
         match item {
             FlowItem::Unit(index) => {
                 if let Some(selected) = selected_units[index] {
-                    children.push(unit_view(
-                        &plans[index],
-                        units[index],
-                        selected,
-                        content_width,
-                    ));
+                    children.push(unit_view(&plans[index], units[index], selected));
                 } else if let PlannedContent::Live(view) = &plans[index].content {
                     children.push(View::row_viewport_with_height(view.clone(), 0, Some(0)));
                 }
@@ -194,7 +193,6 @@ fn ensure_height(plan: &mut UnitPlan, unit: &super::HistoryUnit, width: u16) -> 
     let height = match (&plan.content, &unit.content) {
         (PlannedContent::Static, HistoryUnitContent::Static(view)) => view_height(view, width),
         (PlannedContent::Live(view), _) => view_height(view, width),
-        (PlannedContent::Stream, HistoryUnitContent::Stream(stream)) => stream.row_count(width),
         _ => unreachable!("History projection plan does not match its unit"),
     };
     plan.height = Some(height);
@@ -223,7 +221,7 @@ fn take_selected(
     *remaining = (*remaining).saturating_sub(visible);
 }
 
-fn unit_view(plan: &UnitPlan, unit: &super::HistoryUnit, selected: Selected, width: u16) -> View {
+fn unit_view(plan: &UnitPlan, unit: &super::HistoryUnit, selected: Selected) -> View {
     match &plan.content {
         PlannedContent::Static => {
             let HistoryUnitContent::Static(view) = &unit.content else {
@@ -240,12 +238,12 @@ fn unit_view(plan: &UnitPlan, unit: &super::HistoryUnit, selected: Selected, wid
             selected.offset.min(usize::from(u16::MAX)) as u16,
             Some(selected.height.min(usize::from(u16::MAX)) as u16),
         ),
-        PlannedContent::Stream => {
+        PlannedContent::Stream(index) => {
             let HistoryUnitContent::Stream(stream) = &unit.content else {
                 unreachable!("stream plan must match stream unit")
             };
             let view = stream.window_view(
-                width,
+                index,
                 selected.offset,
                 selected.height.min(usize::from(u16::MAX)) as u16,
             );

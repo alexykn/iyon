@@ -22,6 +22,6 @@ pub(crate) use error::HistoryError;
 pub(crate) use id::HistoryUnitId;
 pub(crate) use layout::HistoryLayout;
 pub(crate) use model::History;
-pub(crate) use projection::{HistoryProjection, project};
+pub(crate) use projection::project;
 pub(crate) use stream::{ErasedHistoryStream, HistoryStreamHandle};
 pub(crate) use unit::{HistoryUnit, HistoryUnitContent};
