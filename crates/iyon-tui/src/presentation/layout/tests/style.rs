@@ -214,6 +214,9 @@ fn explicit_border_color_preserves_surface_background() {
     decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: Some(ColorSpec::Ansi(2)),
+        edges: BorderEdges::ALL,
+        glyphs: BorderGlyphs::plain(),
+        top_label: None,
     });
     let view = View::box_(
         View::text("x").width(WidthRule::Fill).into_view(),
@@ -234,6 +237,9 @@ fn implicit_border_color_preserves_surface_background_and_inherits_foreground() 
     decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: None,
+        edges: BorderEdges::ALL,
+        glyphs: BorderGlyphs::plain(),
+        top_label: None,
     });
     let view = View::box_(
         View::text("x").width(WidthRule::Fill).into_view(),
@@ -254,6 +260,9 @@ fn text_background_does_not_leak_into_border() {
     decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: None,
+        edges: BorderEdges::ALL,
+        glyphs: BorderGlyphs::plain(),
+        top_label: None,
     });
     let view = View::box_(
         View::text("x").width(WidthRule::Fill).into_view(),
@@ -276,6 +285,9 @@ fn surface_and_text_backgrounds_coexist_across_border_and_content() {
     decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: None,
+        edges: BorderEdges::ALL,
+        glyphs: BorderGlyphs::plain(),
+        top_label: None,
     });
     let view = View::box_(
         View::text("x").width(WidthRule::Fill).into_view(),
@@ -304,6 +316,9 @@ fn border_painting_preserves_tiny_width_geometry() {
     decoration.border = Some(BorderSpec {
         style: BorderStyle::Plain,
         color: Some(ColorSpec::Ansi(2)),
+        edges: BorderEdges::ALL,
+        glyphs: BorderGlyphs::plain(),
+        top_label: None,
     });
     let view = View::box_(View::text("x").into_view(), decoration).width(WidthRule::Fill);
 

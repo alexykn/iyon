@@ -1,8 +1,10 @@
 //! Physical border and surface decoration painting.
 
+use unicode_segmentation::UnicodeSegmentation;
+
 use crate::{
     physical::{PhysicalStyle, Surface},
-    presentation::{BorderSpec, BorderStyle},
+    presentation::BorderSpec,
 };
 
 use super::ThemeResolver;
@@ -16,57 +18,56 @@ pub(crate) fn paint_border(
     if surface.width() == 0 || surface.height() == 0 {
         return;
     }
+
     let style = border_style(border, theme, inherited);
-    let (horizontal, vertical, corners) = match border.style {
-        BorderStyle::Plain => ('─', '│', ('┌', '┐', '└', '┘')),
-        BorderStyle::Rounded => ('─', '│', ('╭', '╮', '╰', '╯')),
-        BorderStyle::Double => ('═', '║', ('╔', '╗', '╚', '╝')),
-    };
-    for x in 0..surface.width() {
-        set_cell(surface, x, 0, horizontal.to_string(), style);
-        if surface.height() > 1 {
-            set_cell(
-                surface,
-                x,
-                surface.height() - 1,
-                horizontal.to_string(),
-                style,
-            );
+    let edges = border.edges;
+    let glyphs = &border.glyphs;
+    let last_x = surface.width().saturating_sub(1);
+    let last_y = surface.height().saturating_sub(1);
+
+    if edges.top {
+        for x in 0..surface.width() {
+            set_cell(surface, x, 0, glyphs.top.clone(), style);
         }
     }
-    for y in 0..surface.height() {
-        set_cell(surface, 0, y, vertical.to_string(), style);
-        if surface.width() > 1 {
-            set_cell(surface, surface.width() - 1, y, vertical.to_string(), style);
+    if edges.bottom {
+        for x in 0..surface.width() {
+            set_cell(surface, x, last_y, glyphs.bottom.clone(), style);
         }
     }
-    set_cell(surface, 0, 0, corners.0.to_string(), style);
-    if surface.width() > 1 {
-        set_cell(
-            surface,
-            surface.width() - 1,
-            0,
-            corners.1.to_string(),
-            style,
-        );
-    }
-    if surface.height() > 1 {
-        set_cell(
-            surface,
-            0,
-            surface.height() - 1,
-            corners.2.to_string(),
-            style,
-        );
-        if surface.width() > 1 {
-            set_cell(
-                surface,
-                surface.width() - 1,
-                surface.height() - 1,
-                corners.3.to_string(),
-                style,
-            );
+    if edges.left {
+        for y in 0..surface.height() {
+            set_cell(surface, 0, y, glyphs.left.clone(), style);
         }
+    }
+    if edges.right {
+        for y in 0..surface.height() {
+            set_cell(surface, last_x, y, glyphs.right.clone(), style);
+        }
+    }
+
+    if edges.top && edges.left {
+        set_cell(surface, 0, 0, glyphs.top_left.clone(), style);
+    }
+
+    if edges.top {
+        if let Some(label) = &border.top_label {
+            for (x, grapheme) in label.graphemes(true).enumerate() {
+                if x >= usize::from(surface.width()) {
+                    break;
+                }
+                set_cell(surface, x as u16, 0, grapheme.to_owned(), style);
+            }
+        }
+    }
+    if edges.top && edges.right {
+        set_cell(surface, last_x, 0, glyphs.top_right.clone(), style);
+    }
+    if edges.bottom && edges.left {
+        set_cell(surface, 0, last_y, glyphs.bottom_left.clone(), style);
+    }
+    if edges.bottom && edges.right {
+        set_cell(surface, last_x, last_y, glyphs.bottom_right.clone(), style);
     }
 }
 

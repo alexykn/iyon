@@ -10,8 +10,11 @@ use crate::{
 
 pub(crate) fn horizontal_decoration(view: &View, width: u16) -> (u16, u16, u16) {
     let decoration = &view.decoration;
-    let border = u16::from(decoration.border.is_some());
-    let border_pad = border.saturating_mul(2);
+    let (left_border, right_border) = decoration
+        .border
+        .as_ref()
+        .map_or((0, 0), |border| (border.left_width(), border.right_width()));
+    let border_pad = left_border.saturating_add(right_border);
     let max_content = width.saturating_sub(border_pad);
     let left = decoration.padding.left.min(max_content.saturating_sub(1));
     let right = decoration
@@ -28,7 +31,15 @@ pub(crate) fn horizontal_decoration(view: &View, width: u16) -> (u16, u16, u16) 
 pub(crate) fn intrinsic_size(view: &View, width: u16) -> Size {
     let decoration = &view.decoration;
     let (_, _, horizontal) = horizontal_decoration(view, width);
-    let border = u16::from(decoration.border.is_some());
+    let (left_border, right_border, top_border, bottom_border) =
+        decoration.border.as_ref().map_or((0, 0, 0, 0), |border| {
+            (
+                border.left_width(),
+                border.right_width(),
+                border.top_height(),
+                border.bottom_height(),
+            )
+        });
     let inner_width = width.saturating_sub(horizontal);
     let core = match &view.kind {
         ViewKind::Text(text) => text_intrinsic_size(text, inner_width),
@@ -118,11 +129,13 @@ pub(crate) fn intrinsic_size(view: &View, width: u16) -> Size {
         core_width
             .saturating_add(decoration.padding.left)
             .saturating_add(decoration.padding.right)
-            .saturating_add(border.saturating_mul(2)),
+            .saturating_add(left_border)
+            .saturating_add(right_border),
         core.height
             .saturating_add(decoration.padding.top)
             .saturating_add(decoration.padding.bottom)
-            .saturating_add(border.saturating_mul(2)),
+            .saturating_add(top_border)
+            .saturating_add(bottom_border),
     )
 }
 

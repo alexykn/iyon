@@ -3,7 +3,9 @@
 use super::*;
 use crate::geometry::Size;
 use crate::physical::{PhysicalColor, PhysicalRow, PhysicalStyle};
-use crate::presentation::api::style::{BorderSpec, BorderStyle, OverflowIndicator, TextAttribute};
+use crate::presentation::api::style::{
+    BorderEdges, BorderGlyphs, BorderSpec, BorderStyle, OverflowIndicator, TextAttribute,
+};
 use crate::presentation::ir::ViewKind;
 use crate::presentation::{
     ColorSpec, Decoration, HorizontalAlign, Insets, IntoView, RowChild, StyleSpec, TextSpan,

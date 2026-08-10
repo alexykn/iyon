@@ -17,7 +17,7 @@ mod tests;
 use std::ops::Range;
 
 use crate::{
-    Component, ComponentCx, EventCx, InteractionResult, Output, View, geometry::Size,
+    BorderSpec, Component, ComponentCx, EventCx, InteractionResult, Output, View, geometry::Size,
     presentation::wrap::input_wrap_ranges,
 };
 
@@ -42,6 +42,7 @@ pub struct TextInput {
     change_outputs: ChangeOutputs,
     layout_size: Option<Size>,
     scroll_row: usize,
+    border: Option<BorderSpec>,
 }
 
 impl TextInput {
@@ -55,12 +56,19 @@ impl TextInput {
             change_outputs: ChangeOutputs::default(),
             layout_size: None,
             scroll_row: 0,
+            border: None,
         }
     }
 
     /// Returns a copy configured for single- or multi-line editing.
     pub fn multiline(mut self, enabled: bool) -> Self {
         self.set_multiline(enabled);
+        self
+    }
+
+    /// Sets the semantic border used by the input surface.
+    pub fn border(mut self, border: BorderSpec) -> Self {
+        self.border = Some(border);
         self
     }
 

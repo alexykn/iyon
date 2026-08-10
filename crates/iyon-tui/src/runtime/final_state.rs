@@ -105,6 +105,7 @@ pub(crate) struct ConversationState {
     tools: HashMap<String, LiveTool>,
     stream: Option<HistoryStreamHandle<AssistantStream>>,
     last_completed_tool: Option<String>,
+    turn_started: bool,
 }
 
 impl Default for ConversationState {
@@ -116,6 +117,7 @@ impl Default for ConversationState {
             tools: HashMap::new(),
             stream: None,
             last_completed_tool: None,
+            turn_started: false,
         }
     }
 }
@@ -136,7 +138,13 @@ pub(crate) struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         let mut components = ComponentRegistry::new();
-        let composer = components.register(TextInput::new().multiline(true));
+        let composer = components.register(
+            TextInput::new().multiline(true).border(
+                crate::BorderSpec::plain()
+                    .edges(crate::BorderEdges::TOP_BOTTOM)
+                    .color(crate::ColorSpec::theme("input.border")),
+            ),
+        );
         let steering = components.register(SteeringQueuePanel::new());
         let mut outputs = OutputRouter::new();
         let submitted = components
@@ -176,9 +184,7 @@ impl AppState {
     }
 
     pub(crate) fn rebuild_body(&mut self) {
-        let composer = View::component(self.composer)
-            .fill_width()
-            .border(crate::BorderSpec::plain());
+        let composer = View::component(self.composer).fill_width();
         let steering = View::component(self.steering).fill_width();
         let footer = View::text(self.footer_text()).fill_width();
         self.scene.set_body(
@@ -239,10 +245,19 @@ impl AppState {
     }
 
     pub(crate) fn has_active_turn(&self) -> bool {
-        self.conversation.working.is_some()
+        self.conversation.turn_started
+            || self.conversation.working.is_some()
             || self.conversation.stream.is_some()
             || !self.conversation.tools.is_empty()
             || self.pending_tool_approval.is_some()
+    }
+
+    pub(crate) fn turn_started(&mut self) -> Result<()> {
+        self.conversation.turn_started = true;
+        if self.conversation.user_batch.is_some() {
+            self.start_working()?;
+        }
+        Ok(())
     }
 
     pub(crate) fn start_working(&mut self) -> Result<()> {
@@ -300,6 +315,9 @@ impl AppState {
         let _ = self
             .components
             .with_mut(steering, |panel| panel.delivered(&delivered_text));
+        if self.conversation.turn_started {
+            self.start_working()?;
+        }
         self.rebuild_body();
         Ok(())
     }
@@ -348,6 +366,7 @@ impl AppState {
     pub(crate) fn finish_turn(&mut self) -> Result<()> {
         self.freeze_user_batch()?;
         self.seal_stream()?;
+        self.conversation.turn_started = false;
         self.remove_working()?;
         Ok(())
     }
@@ -355,6 +374,7 @@ impl AppState {
     pub(crate) fn finalize_for_exit(&mut self) -> Result<()> {
         self.freeze_user_batch()?;
         self.seal_stream()?;
+        self.conversation.turn_started = false;
         self.remove_working()?;
         let tools = self.conversation.tools.keys().cloned().collect::<Vec<_>>();
         for tool_call_id in tools {
@@ -366,6 +386,7 @@ impl AppState {
     pub(crate) fn fail_turn(&mut self, message: String) -> Result<()> {
         self.freeze_user_batch()?;
         self.seal_stream()?;
+        self.conversation.turn_started = false;
         if self.conversation.working.is_some() {
             let (unit, component) = self.conversation.working.take().unwrap();
             let view = self
