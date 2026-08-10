@@ -761,8 +761,13 @@ mod tests {
             .transcript
             .uncommitted_rows()
             .iter()
-            .chain(state.assistant_live_rows().iter())
-            .cloned()
+            .map(|row| row.placed(width, 0))
+            .chain(
+                state
+                    .assistant_live_rows()
+                    .iter()
+                    .map(|row| row.placed(width, 0)),
+            )
             .collect()
     }
 

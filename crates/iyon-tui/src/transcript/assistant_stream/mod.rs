@@ -334,7 +334,7 @@ fn build_assistant_stream_view(
                 } else {
                     ExactTerminator::None
                 },
-                width: WidthRule::Fit,
+                width: WidthRule::Fill,
                 wrap: WrapMode::WordThenGrapheme,
                 align: HorizontalAlign::Start,
                 layout: ProjectedTextLayout::Plain,
