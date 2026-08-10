@@ -43,7 +43,7 @@ pub(crate) use transfer::{
     plan_stream_transfer,
 };
 pub use validate::{ProjectedValidationError, StreamValidationError};
-pub(crate) use viewport::{StreamRowIndex, build_index, build_index_from, window_view};
+pub(crate) use viewport::{StreamRowIndex, build_index_from, window_view};
 
 #[cfg(test)]
 pub(crate) use viewport::{build_index_call_count, reset_build_index_call_count};

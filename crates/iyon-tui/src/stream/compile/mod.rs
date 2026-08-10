@@ -121,6 +121,11 @@ pub(crate) fn compile_stream(
         }
     }
 
+    let rows = if max_width == 0 {
+        rows.into_iter().map(|_| PhysicalRow::empty()).collect()
+    } else {
+        rows
+    };
     let rows = rows
         .into_iter()
         .zip(anchors)

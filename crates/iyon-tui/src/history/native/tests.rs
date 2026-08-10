@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{cell::Cell, collections::VecDeque, rc::Rc};
 
 use super::super::*;
 use crate::{
@@ -51,6 +51,68 @@ impl StreamingSource for NativeSource {
         self.sealed = true;
         self.snapshot.stable_through = self.snapshot.source_end;
         self.snapshot.revision = StreamRevision::new(self.snapshot.revision.as_u64() + 1);
+    }
+
+    fn is_sealed(&self) -> bool {
+        self.sealed
+    }
+}
+
+#[derive(Clone)]
+struct CompactingSource {
+    snapshot: StreamSnapshot,
+    sealed: bool,
+    compact_calls: Rc<Cell<usize>>,
+}
+
+impl CompactingSource {
+    fn stabilize(&mut self) {
+        self.snapshot.stable_through = self.snapshot.source_end;
+        self.snapshot.revision = self.snapshot.revision.next();
+    }
+
+    fn new() -> Self {
+        let snapshot = StreamSnapshotBuilder::new(
+            StreamRevision::ZERO,
+            StreamOffset::ZERO,
+            StreamOffset::new(1),
+            StreamOffset::new(2),
+        )
+        .exact_text(
+            StreamRange::new(StreamOffset::ZERO, StreamOffset::new(1)),
+            [TextSpan::plain("A")],
+        )
+        .exact_text(
+            StreamRange::new(StreamOffset::new(1), StreamOffset::new(2)),
+            [TextSpan::plain("B")],
+        )
+        .finish()
+        .unwrap();
+        Self {
+            snapshot,
+            sealed: false,
+            compact_calls: Rc::new(Cell::new(0)),
+        }
+    }
+}
+
+impl StreamingSource for CompactingSource {
+    fn snapshot(&self) -> StreamSnapshot {
+        self.snapshot.clone()
+    }
+
+    fn compact_before(&mut self, offset: StreamOffset) {
+        self.compact_calls
+            .set(self.compact_calls.get().saturating_add(1));
+        self.snapshot.source_base = offset;
+        self.snapshot.view = self.snapshot.view.suffix_from(offset);
+        self.snapshot.revision = self.snapshot.revision.next();
+    }
+
+    fn seal(&mut self) {
+        self.sealed = true;
+        self.snapshot.stable_through = self.snapshot.source_end;
+        self.snapshot.revision = self.snapshot.revision.next();
     }
 
     fn is_sealed(&self) -> bool {
@@ -265,6 +327,117 @@ fn leading_gap_partial_ack_freezes_spacing_across_layout_change() {
 }
 
 #[test]
+fn zero_top_padding_is_crossed_before_partial_static_content() {
+    let mut history = History::new();
+    history.push("A0\nA1").unwrap();
+    let mut first = FakeSink::accepting([Ok(1)]);
+    transfer(&mut history, &mut first, 8, 8);
+    assert!(matches!(
+        history.native.top_padding,
+        crate::history::native::frontier::SpacingTransferState::Native
+    ));
+
+    history.set_layout(HistoryLayout::new(Insets::new(3, 0, 0, 0), 0));
+    let registry = crate::component::ComponentRegistry::new();
+    let projection = project(&history, &registry, Size::new(8, 1)).unwrap();
+    assert!(projection.frozen_overlay.is_some());
+    let mut second = FakeSink::default();
+    transfer(&mut history, &mut second, 8, 8);
+    assert_eq!(
+        second
+            .rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["A1"]
+    );
+}
+
+#[test]
+fn zero_top_padding_remains_crossed_after_full_transfer_and_append() {
+    let mut history = History::new();
+    history.push("A").unwrap();
+    let mut sink = FakeSink::default();
+    transfer(&mut history, &mut sink, 8, 8);
+    history.set_layout(HistoryLayout::new(Insets::new(3, 0, 0, 0), 0));
+    history.push("B").unwrap();
+
+    transfer(&mut history, &mut sink, 8, 8);
+    assert_eq!(
+        sink.rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["A", "B"]
+    );
+}
+
+#[test]
+fn zero_default_gap_is_crossed_before_partial_static_content() {
+    let mut history = History::new();
+    history.push("A").unwrap();
+    history.push("B0\nB1").unwrap();
+    let mut sink = FakeSink::default();
+    transfer(&mut history, &mut sink, 8, 8);
+    let mut partial = FakeSink::accepting([Ok(1)]);
+    transfer(&mut history, &mut partial, 8, 8);
+    assert!(matches!(
+        history.native.leading_gap,
+        Some(crate::history::native::frontier::SpacingTransferState::Native)
+    ));
+
+    history.set_layout(HistoryLayout::new(Insets::ZERO, 3));
+    let registry = crate::component::ComponentRegistry::new();
+    let projection = project(&history, &registry, Size::new(8, 1)).unwrap();
+    assert!(projection.frozen_overlay.is_some());
+    let mut second = FakeSink::default();
+    transfer(&mut history, &mut second, 8, 8);
+    assert_eq!(
+        second
+            .rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["B1"]
+    );
+}
+
+#[test]
+fn zero_default_gap_is_crossed_before_partial_stream_content() {
+    let mut history = History::new();
+    history.push("A").unwrap();
+    history
+        .push_stream(NativeSource::new("B0\nB1", 5, true))
+        .unwrap();
+    let mut sink = FakeSink::default();
+    transfer(&mut history, &mut sink, 8, 8);
+    let mut partial = FakeSink::accepting([Ok(1)]);
+    transfer(&mut history, &mut partial, 8, 8);
+    assert!(matches!(
+        history.native.leading_gap,
+        Some(crate::history::native::frontier::SpacingTransferState::Native)
+    ));
+
+    history.set_layout(HistoryLayout::new(Insets::ZERO, 3));
+    let registry = crate::component::ComponentRegistry::new();
+    let projection = project(&history, &registry, Size::new(8, 1)).unwrap();
+    let rows = ViewCompiler::default()
+        .compile_bounded(&projection.scene.view, Size::new(8, 1))
+        .rows;
+    assert_eq!(rows[0].plain_text(), "B1");
+    let mut second = FakeSink::default();
+    transfer(&mut history, &mut second, 8, 8);
+    assert_eq!(
+        second
+            .rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["B1"]
+    );
+}
+
+#[test]
 fn stream_checkpoint_ack_advances_only_after_sink_ack() {
     let mut history = History::new();
     let handle = history
@@ -281,7 +454,10 @@ fn stream_checkpoint_ack_advances_only_after_sink_ack() {
     let registry = crate::component::ComponentRegistry::new();
     let rows = ViewCompiler::default()
         .compile_bounded(
-            &project(&history, &registry, Size::new(8, 1)).unwrap().view,
+            &project(&history, &registry, Size::new(8, 1))
+                .unwrap()
+                .scene
+                .view,
             Size::new(8, 1),
         )
         .rows;
@@ -407,6 +583,103 @@ fn sealed_empty_stream_retires_without_a_sink_write() {
 }
 
 #[test]
+fn sealed_empty_stream_with_nonzero_base_retires() {
+    let snapshot = StreamSnapshotBuilder::new(
+        StreamRevision::ZERO,
+        StreamOffset::new(50),
+        StreamOffset::new(50),
+        StreamOffset::new(50),
+    )
+    .finish()
+    .unwrap();
+    let mut history = History::new();
+    history
+        .push_stream(NativeSource::from_snapshot(snapshot, true))
+        .unwrap();
+    let mut sink = FakeSink::default();
+
+    transfer(&mut history, &mut sink, 8, 8);
+    assert!(history.units.is_empty());
+    assert!(sink.rows.is_empty());
+}
+
+#[test]
+fn stream_with_nonzero_base_transfers_from_its_semantic_origin() {
+    let snapshot = StreamSnapshotBuilder::new(
+        StreamRevision::ZERO,
+        StreamOffset::new(50),
+        StreamOffset::new(52),
+        StreamOffset::new(52),
+    )
+    .exact_text(
+        StreamRange::new(StreamOffset::new(50), StreamOffset::new(52)),
+        [TextSpan::plain("AB")],
+    )
+    .finish()
+    .unwrap();
+    let mut history = History::new();
+    history
+        .push_stream(NativeSource::from_snapshot(snapshot, true))
+        .unwrap();
+    let mut sink = FakeSink::default();
+
+    transfer(&mut history, &mut sink, 8, 8);
+    assert_eq!(
+        sink.rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["AB"]
+    );
+    assert!(history.units.is_empty());
+}
+
+#[test]
+fn open_empty_stream_with_nonzero_base_remains_resident() {
+    let snapshot = StreamSnapshotBuilder::new(
+        StreamRevision::ZERO,
+        StreamOffset::new(50),
+        StreamOffset::new(50),
+        StreamOffset::new(50),
+    )
+    .finish()
+    .unwrap();
+    let mut history = History::new();
+    history
+        .push_stream(NativeSource::from_snapshot(snapshot, false))
+        .unwrap();
+    let mut sink = FakeSink::default();
+
+    transfer(&mut history, &mut sink, 8, 8);
+    assert_eq!(history.units.len(), 1);
+}
+
+#[test]
+fn compacted_non_send_stream_transfers_only_the_uncommitted_suffix() {
+    let source = CompactingSource::new();
+    let compact_calls = source.compact_calls.clone();
+    let mut history = History::new();
+    let handle = history.push_stream(source).unwrap();
+    history.refresh_stream(handle).unwrap();
+    assert_eq!(compact_calls.get(), 1);
+
+    let mut sink = FakeSink::default();
+    transfer(&mut history, &mut sink, 8, 8);
+    history
+        .update_stream(handle, CompactingSource::stabilize)
+        .unwrap();
+    transfer(&mut history, &mut sink, 8, 8);
+    assert_eq!(
+        sink.rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["A", "B"]
+    );
+    assert_eq!(compact_calls.get(), 2);
+}
+
+#[test]
 fn open_empty_stream_remains_resident() {
     let mut history = History::new();
     history
@@ -430,7 +703,10 @@ fn native_predecessor_keeps_default_gap_in_resident_projection() {
     transfer(&mut history, &mut sink, 8, 8);
     let rows = ViewCompiler::default()
         .compile_bounded(
-            &project(&history, &registry, Size::new(8, 2)).unwrap().view,
+            &project(&history, &registry, Size::new(8, 2))
+                .unwrap()
+                .scene
+                .view,
             Size::new(8, 2),
         )
         .rows;
@@ -442,7 +718,10 @@ fn native_predecessor_keeps_default_gap_in_resident_projection() {
     transfer(&mut history, &mut sink, 8, 8);
     let rows = ViewCompiler::default()
         .compile_bounded(
-            &project(&history, &registry, Size::new(8, 2)).unwrap().view,
+            &project(&history, &registry, Size::new(8, 2))
+                .unwrap()
+                .scene
+                .view,
             Size::new(8, 2),
         )
         .rows;
@@ -465,7 +744,10 @@ fn attach_to_previous_does_not_create_frontier_gap() {
 
     let rows = ViewCompiler::default()
         .compile_bounded(
-            &project(&history, &registry, Size::new(8, 1)).unwrap().view,
+            &project(&history, &registry, Size::new(8, 1))
+                .unwrap()
+                .scene
+                .view,
             Size::new(8, 1),
         )
         .rows;
@@ -483,8 +765,10 @@ fn frozen_static_remainder_is_exposed_as_a_physical_overlay() {
     let mut sink = FakeSink::accepting([Ok(1)]);
     transfer(&mut history, &mut sink, 8, 3);
 
-    let (_, overlay) = project_with_overlay(&history, &registry, Size::new(8, 2)).unwrap();
-    let overlay = overlay.expect("frozen remainder should be overlaid");
+    let projection = project(&history, &registry, Size::new(8, 2)).unwrap();
+    let overlay = projection
+        .frozen_overlay
+        .expect("frozen remainder should be overlaid");
     assert_eq!(
         overlay
             .rows
@@ -493,6 +777,71 @@ fn frozen_static_remainder_is_exposed_as_a_physical_overlay() {
             .collect::<Vec<_>>(),
         ["B", "C"]
     );
+}
+
+#[test]
+fn partial_static_rows_conserve_and_survive_resize_and_layout_change() {
+    let mut history = History::new();
+    history.push("A\nB\nC").unwrap();
+    let registry = crate::component::ComponentRegistry::new();
+    let expected = ViewCompiler::default()
+        .compile_bounded(
+            &project(&history, &registry, Size::new(8, 3))
+                .unwrap()
+                .scene
+                .view,
+            Size::new(8, 3),
+        )
+        .rows;
+    let mut sink = FakeSink::accepting([Ok(1)]);
+    transfer(&mut history, &mut sink, 8, 8);
+    let projection = project(&history, &registry, Size::new(8, 3)).unwrap();
+    assert_eq!(sink.rows, expected[..1]);
+    assert_eq!(projection.frozen_overlay.unwrap().rows, expected[1..]);
+
+    let frozen = history.native.frozen_static.as_ref().unwrap().rows.clone();
+    history.set_layout(HistoryLayout::new(Insets::horizontal(2), 0));
+    let mut remainder_sink = FakeSink::default();
+    transfer(&mut history, &mut remainder_sink, 10, 8);
+    assert_eq!(remainder_sink.rows, frozen.as_slice());
+}
+
+#[test]
+fn partial_atomic_rows_conserve_exact_physical_presentation() {
+    let snapshot = StreamSnapshotBuilder::new(
+        StreamRevision::ZERO,
+        StreamOffset::ZERO,
+        StreamOffset::new(3),
+        StreamOffset::new(3),
+    )
+    .atomic(
+        StreamRange::new(StreamOffset::ZERO, StreamOffset::new(3)),
+        View::vertical(|column| {
+            column.children(["A", "B", "C"]);
+        }),
+    )
+    .unwrap()
+    .finish()
+    .unwrap();
+    let mut history = History::new();
+    history
+        .push_stream(NativeSource::from_snapshot(snapshot, true))
+        .unwrap();
+    let registry = crate::component::ComponentRegistry::new();
+    let expected = ViewCompiler::default()
+        .compile_bounded(
+            &project(&history, &registry, Size::new(8, 3))
+                .unwrap()
+                .scene
+                .view,
+            Size::new(8, 3),
+        )
+        .rows;
+    let mut sink = FakeSink::accepting([Ok(1)]);
+    transfer(&mut history, &mut sink, 8, 8);
+    let projection = project(&history, &registry, Size::new(8, 3)).unwrap();
+    assert_eq!(sink.rows, expected[..1]);
+    assert_eq!(projection.frozen_overlay.unwrap().rows, expected[1..]);
 }
 
 #[test]
@@ -509,4 +858,50 @@ fn static_physical_rows_match_bounded_view_rows() {
         .clone();
     assert_eq!(sink.rows[0].width(), 10);
     assert_eq!(sink.rows[0].cell(2), expected.cell(0));
+}
+
+#[test]
+fn stream_physical_rows_match_resident_rows_with_horizontal_padding() {
+    let mut history = History::new();
+    history.set_layout(HistoryLayout::new(Insets::horizontal(2), 0));
+    history
+        .push_stream(NativeSource::new("abcdefghijkl", 12, true))
+        .unwrap();
+    let registry = crate::component::ComponentRegistry::new();
+    let expected = ViewCompiler::default()
+        .compile_bounded(
+            &project(&history, &registry, Size::new(10, 2))
+                .unwrap()
+                .scene
+                .view,
+            Size::new(10, 2),
+        )
+        .rows;
+    let mut sink = FakeSink::accepting([Ok(1)]);
+
+    transfer(&mut history, &mut sink, 10, 8);
+    assert_eq!(sink.rows, expected[..1]);
+}
+
+#[test]
+fn stream_and_projection_agree_when_padding_leaves_no_content_width() {
+    let mut history = History::new();
+    history.set_layout(HistoryLayout::new(Insets::horizontal(2), 0));
+    history
+        .push_stream(NativeSource::new("abc", 3, true))
+        .unwrap();
+    let registry = crate::component::ComponentRegistry::new();
+    let expected = ViewCompiler::default()
+        .compile_bounded(
+            &project(&history, &registry, Size::new(3, 3))
+                .unwrap()
+                .scene
+                .view,
+            Size::new(3, 3),
+        )
+        .rows;
+    let mut sink = FakeSink::default();
+
+    transfer(&mut history, &mut sink, 3, 8);
+    assert_eq!(sink.rows, expected);
 }

@@ -15,9 +15,15 @@ use crate::{
 use super::{FlowBoundary, History, HistoryUnitContent, native::frontier::SpacingTransferState};
 use crate::stream::FrozenPhysicalRows;
 
+#[derive(Debug, PartialEq)]
 pub(crate) struct HistoryProjection {
-    pub(crate) view: View,
+    pub(crate) scene: ResolvedScene,
     pub(crate) frozen_overlay: Option<HistoryPhysicalOverlay>,
+}
+
+struct SemanticProjection {
+    view: View,
+    frozen_overlay: Option<HistoryPhysicalOverlay>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,26 +67,21 @@ pub(crate) fn project(
     history: &History,
     registry: &ComponentRegistry,
     size: Size,
-) -> Result<ResolvedScene, ResolveError> {
-    Ok(project_with_overlay(history, registry, size)?.0)
-}
-
-pub(crate) fn project_with_overlay(
-    history: &History,
-    registry: &ComponentRegistry,
-    size: Size,
-) -> Result<(ResolvedScene, Option<HistoryPhysicalOverlay>), ResolveError> {
+) -> Result<HistoryProjection, ResolveError> {
     let mut session = ResolveSession::new(registry);
     let projection = project_view(history, size, &mut session)?;
     let scene = session.finish(projection.view);
-    Ok((scene, projection.frozen_overlay))
+    Ok(HistoryProjection {
+        scene,
+        frozen_overlay: projection.frozen_overlay,
+    })
 }
 
 fn project_view(
     history: &History,
     size: Size,
     session: &mut ResolveSession<'_>,
-) -> Result<HistoryProjection, ResolveError> {
+) -> Result<SemanticProjection, ResolveError> {
     let layout = history.layout();
     let content_width = size
         .width
@@ -223,7 +224,7 @@ fn project_view(
         0,
         layout.padding.left,
     ));
-    Ok(HistoryProjection {
+    Ok(SemanticProjection {
         view: root,
         frozen_overlay,
     })
@@ -252,13 +253,22 @@ fn stream_projection_state(
     history: &History,
     unit: super::HistoryUnitId,
 ) -> (crate::stream::StreamOffset, Option<FrozenPhysicalRows>) {
+    let semantic_base = history
+        .units
+        .iter()
+        .find(|candidate| candidate.id == unit)
+        .and_then(|candidate| match &candidate.content {
+            HistoryUnitContent::Stream(stream) => Some(stream.semantic_base()),
+            _ => None,
+        })
+        .unwrap_or(crate::stream::StreamOffset::ZERO);
     let Some(state) = history
         .native
         .stream
         .as_ref()
         .filter(|state| state.unit == unit)
     else {
-        return (crate::stream::StreamOffset::ZERO, None);
+        return (semantic_base, None);
     };
     match &state.partial {
         Some(crate::stream::StreamPartialCommit::FrozenAtomic {
