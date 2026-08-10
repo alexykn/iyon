@@ -39,7 +39,7 @@ pub(crate) use resident::ResidentPrefix;
 pub use snapshot::{StreamSnapshot, StreamSnapshotBuilder};
 pub use source::StreamingSource;
 pub(crate) use transfer::{
-    FrozenPhysicalRows, StreamPartialCommit, StreamTransferPayload, StreamTransferPlan,
+    FrozenPhysicalRows, StreamPartialTransfer, StreamTransferPayload, StreamTransferPlan,
     plan_stream_transfer,
 };
 pub use validate::{ProjectedValidationError, StreamValidationError};

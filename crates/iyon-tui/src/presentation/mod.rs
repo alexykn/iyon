@@ -6,7 +6,6 @@
 //! Unicode wrapping. Generic stream provenance is a sibling `stream` subsystem.
 
 pub(crate) mod api;
-pub(crate) mod host;
 pub(crate) mod ir;
 pub(crate) mod layout;
 pub(crate) mod paint;
@@ -19,8 +18,6 @@ pub(crate) use api::{
     Vertical, VerticalAlign, View, WrapMode,
 };
 
-pub(crate) use host::{ActiveContent, DockPanel, DockSizePolicy, UiKey};
-
-// Migration-only crate-internal structural vocabulary. Feature code will stop
-// depending on these once the semantic construction API migration is complete.
+// Retained IR types remain private implementation details of the semantic
+// layout engine.
 pub(crate) use ir::{Decoration, RowChild, WidthRule};

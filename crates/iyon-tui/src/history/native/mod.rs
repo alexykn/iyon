@@ -10,7 +10,7 @@ use crate::{
     physical::PhysicalRow,
     presentation::layout::compile_view,
     stream::{
-        CompiledStream, FrozenPhysicalRows, StreamPartialCommit, StreamTransferPayload,
+        CompiledStream, FrozenPhysicalRows, StreamPartialTransfer, StreamTransferPayload,
         plan_stream_transfer,
     },
 };
@@ -263,7 +263,7 @@ fn transfer_stream<S: NativeHistorySink>(
             (state.committed_through, state.partial.clone())
         });
     let start = match starting_partial.as_ref() {
-        Some(StreamPartialCommit::FrozenAtomic { source_end, .. }) => *source_end,
+        Some(StreamPartialTransfer::FrozenAtomic { source_end, .. }) => *source_end,
         None => starting_cursor,
     };
     let (mut compiled, sealed, source_end) = {

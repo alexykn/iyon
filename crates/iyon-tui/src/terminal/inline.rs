@@ -5,11 +5,42 @@
 use anyhow::Result;
 use ratatui::{DefaultTerminal, Frame, layout::Rect, text::Line};
 
+use crate::{
+    backend::NativeHistorySink,
+    physical::PhysicalRow,
+    scene::PreparedSceneFrame,
+    terminal::ratatui::{render_history_overlay, render_surface, rows_to_lines},
+};
+
 #[derive(Debug)]
 pub(crate) struct InlineTerminal {
     terminal: DefaultTerminal,
     invalidate_next_draw: bool,
     last_drawn_cursor: Option<(u16, u16)>,
+}
+
+pub(crate) struct InlineHistorySink<'a> {
+    terminal: &'a mut InlineTerminal,
+}
+
+impl<'a> InlineHistorySink<'a> {
+    pub(crate) fn new(terminal: &'a mut InlineTerminal) -> Self {
+        Self { terminal }
+    }
+
+    pub(crate) fn viewport(&mut self) -> Result<crate::geometry::Size> {
+        let area = self.terminal.current_viewport_area()?;
+        Ok(crate::geometry::Size::new(area.width, area.height))
+    }
+}
+
+impl NativeHistorySink for InlineHistorySink<'_> {
+    type Error = anyhow::Error;
+
+    fn insert_history_rows(&mut self, rows: &[PhysicalRow]) -> Result<usize, Self::Error> {
+        let lines = rows_to_lines(rows);
+        self.terminal.insert_history_rows(&lines)
+    }
 }
 
 impl InlineTerminal {
@@ -91,6 +122,22 @@ impl InlineTerminal {
     pub(crate) fn set_cursor_position(&mut self, position: (u16, u16)) -> Result<()> {
         self.terminal.set_cursor_position(position)?;
         self.last_drawn_cursor = Some(position);
+        Ok(())
+    }
+
+    pub(crate) fn draw_scene_frame(&mut self, prepared: &PreparedSceneFrame) -> Result<()> {
+        self.draw(|frame| {
+            let area = frame.area();
+            render_surface(&prepared.surface, frame.buffer_mut(), area);
+            render_history_overlay(prepared.history_overlay.as_ref(), frame.buffer_mut(), area);
+        })
+    }
+
+    pub(crate) fn draw_goodbye(&mut self) -> Result<()> {
+        self.draw(|frame| {
+            frame.render_widget(ratatui::widgets::Paragraph::default(), frame.area());
+        })?;
+        self.insert_history_rows(&[Line::from(""), Line::from(""), Line::from("Goodbye.")])?;
         Ok(())
     }
 }

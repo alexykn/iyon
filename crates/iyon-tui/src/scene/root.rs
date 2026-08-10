@@ -76,6 +76,7 @@ use super::{ResolveError, ResolveSession, ResolvedScene};
 pub(crate) struct ResolvedRootScene {
     pub(crate) scene: ResolvedScene,
     pub(crate) history_overlay: Option<HistoryPhysicalOverlay>,
+    pub(crate) history_overflow_rows: usize,
     pub(crate) history_height: u16,
     pub(crate) body_height: u16,
 }
@@ -97,13 +98,17 @@ pub(crate) fn resolve_root_scene(
         .map_or(0, |_| size.height.saturating_sub(body_height));
 
     let mut session = ResolveSession::new(registry);
-    let (history_view, history_overlay) = match root.history.as_ref() {
+    let (history_view, history_overlay, history_overflow_rows) = match root.history.as_ref() {
         Some(history) => {
             let projection =
                 project_into_session(history, Size::new(size.width, history_height), &mut session)?;
-            (projection.view, projection.frozen_overlay)
+            (
+                projection.view,
+                projection.frozen_overlay,
+                projection.overflow_rows,
+            )
         }
-        None => (View::spacer(0), None),
+        None => (View::spacer(0), None, 0),
     };
     let body_view = session
         .resolve_root(root.body())?
@@ -115,6 +120,7 @@ pub(crate) fn resolve_root_scene(
     Ok(ResolvedRootScene {
         scene,
         history_overlay,
+        history_overflow_rows,
         history_height,
         body_height,
     })

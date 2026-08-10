@@ -21,7 +21,7 @@
 //! * `style` — the row-level gutter/prefix style;
 //! * `source` — source stability / streaming bookkeeping (`content_len`,
 //!   `has_newline`, `stable_prefix_len`), used only by the
-//!   still-special HostedStream provenance path.
+//!   semantic AssistantStream source.
 //!
 //! Streaming is *tolerant*: an unclosed marker (`**unclosed`, `*ital`, `` `code ``)
 //! renders literally rather than being suppressed. A marker only becomes styled
@@ -39,7 +39,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::presentation::{
     ColorSpec, Insets, IntoView, StyleSpec, TextAttributeSpec, TextSpan, ThemeKey, View,
 };
-use crate::transcript::model::{AssistantSegment, SegmentKind};
+use crate::transcript::semantic::{AssistantSegment, SegmentKind};
 
 // ---------------------------------------------------------------------------
 // Width-independent assistant document
@@ -1183,7 +1183,7 @@ mod tests {
     use super::*;
     use crate::presentation::layout::compile_view;
     use crate::stream::StreamingSource;
-    use crate::transcript::model::{AssistantSegment, SegmentKind};
+    use crate::transcript::semantic::{AssistantSegment, SegmentKind};
 
     fn text_segs(text: &str) -> Vec<AssistantSegment> {
         vec![AssistantSegment::Text(text.to_string())]

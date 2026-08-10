@@ -45,7 +45,7 @@ impl StreamTransferPayload {
 
 /// Persistent partial-Atomic state across transfer calls and resizes.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum StreamPartialCommit {
+pub(crate) enum StreamPartialTransfer {
     FrozenAtomic {
         group: StreamAtomicId,
         source_end: StreamOffset,
@@ -58,17 +58,17 @@ pub(crate) enum StreamPartialCommit {
 pub(crate) struct StreamTransferPlan {
     pub(crate) payload: StreamTransferPayload,
     pub(crate) next_committed_through: StreamOffset,
-    pub(crate) next_partial: Option<StreamPartialCommit>,
+    pub(crate) next_partial: Option<StreamPartialTransfer>,
 }
 
 /// Pure stream transfer planner. It never mutates the StreamModel or frontier.
 pub(crate) fn plan_stream_transfer(
     compiled: &CompiledStream,
     desired_rows: usize,
-    partial: Option<&StreamPartialCommit>,
+    partial: Option<&StreamPartialTransfer>,
     current_committed_through: StreamOffset,
 ) -> StreamTransferPlan {
-    if let Some(StreamPartialCommit::FrozenAtomic {
+    if let Some(StreamPartialTransfer::FrozenAtomic {
         group,
         source_end,
         rows,
@@ -103,7 +103,7 @@ pub(crate) fn plan_stream_transfer(
                 rows: FrozenPhysicalRows::new(slice),
             },
             next_committed_through: current_committed_through,
-            next_partial: Some(StreamPartialCommit::FrozenAtomic {
+            next_partial: Some(StreamPartialTransfer::FrozenAtomic {
                 group: *group,
                 source_end: *source_end,
                 rows: rows.clone(),
@@ -188,7 +188,7 @@ pub(crate) fn plan_stream_transfer(
                         len: rows_written + take,
                     },
                     next_committed_through: cursor,
-                    next_partial: Some(StreamPartialCommit::FrozenAtomic {
+                    next_partial: Some(StreamPartialTransfer::FrozenAtomic {
                         group: *group,
                         source_end: *source_end,
                         rows: FrozenPhysicalRows::new(frozen_rows),

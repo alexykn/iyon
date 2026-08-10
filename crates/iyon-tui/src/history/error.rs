@@ -9,6 +9,7 @@ pub enum HistoryError {
     OpenStreamMustRemainTail { stream: HistoryUnitId },
     UnitNotFound { unit: HistoryUnitId },
     UnitNotLive { unit: HistoryUnitId },
+    LiveMustRemainTail { unit: HistoryUnitId },
     UnitNotStream { unit: HistoryUnitId },
     FinalViewContainsComponent { unit: HistoryUnitId },
     StreamTypeMismatch { unit: HistoryUnitId },
@@ -28,6 +29,10 @@ impl std::fmt::Display for HistoryError {
             }
             Self::UnitNotFound { unit } => write!(formatter, "History unit {unit:?} was not found"),
             Self::UnitNotLive { unit } => write!(formatter, "History unit {unit:?} is not live"),
+            Self::LiveMustRemainTail { unit } => write!(
+                formatter,
+                "live History unit {unit:?} must remain the History tail"
+            ),
             Self::UnitNotStream { unit } => {
                 write!(formatter, "History unit {unit:?} is not a stream")
             }

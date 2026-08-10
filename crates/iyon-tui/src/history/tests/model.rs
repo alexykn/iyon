@@ -119,3 +119,51 @@ fn first_unit_boundary_is_preserved() {
     let unit = history.units().find(|unit| unit.id == id).unwrap();
     assert_eq!(unit.boundary, FlowBoundary::AttachToPrevious);
 }
+
+#[test]
+fn live_tail_can_be_replaced_by_stream_in_place() {
+    let mut history = History::new();
+    let live = history
+        .push_with_boundary(live_view("working"), FlowBoundary::AttachToPrevious)
+        .unwrap();
+
+    let stream = history
+        .replace_live_with_stream(live, super::TestSource::new("stream", 6, false))
+        .unwrap();
+
+    assert_eq!(stream.unit(), live);
+    let unit = history.units().find(|unit| unit.id == live).unwrap();
+    assert_eq!(unit.boundary, FlowBoundary::AttachToPrevious);
+    assert!(matches!(unit.content, HistoryUnitContent::Stream(_)));
+}
+
+#[test]
+fn live_to_stream_rejects_non_tail_static_and_missing_units() {
+    let mut history = History::new();
+    let live = history.push(live_view("working")).unwrap();
+    let tail = history.push(live_view("tail")).unwrap();
+    let missing = HistoryUnitId::allocate();
+
+    assert_eq!(
+        history.replace_live_with_stream(live, super::TestSource::new("x", 1, false)),
+        Err(HistoryError::LiveMustRemainTail { unit: live })
+    );
+    assert_eq!(
+        history.replace_live_with_stream(missing, super::TestSource::new("x", 1, false)),
+        Err(HistoryError::UnitNotFound { unit: missing })
+    );
+    history.freeze(tail, "static").unwrap();
+    assert_eq!(
+        history.replace_live_with_stream(tail, super::TestSource::new("x", 1, false)),
+        Err(HistoryError::UnitNotLive { unit: tail })
+    );
+}
+
+#[test]
+fn discard_live_removes_only_the_transient_tail() {
+    let mut history = History::new();
+    let static_id = history.push("static").unwrap();
+    let live = history.push(live_view("working")).unwrap();
+    history.discard_live(live).unwrap();
+    assert_eq!(unit_ids(&history), vec![static_id]);
+}
