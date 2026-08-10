@@ -195,7 +195,10 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
 }
 
 /// Typed, non-owning identity for a History stream unit.
-pub(crate) struct HistoryStreamHandle<S: StreamingSource> {
+///
+/// The source type remains attached to the handle so update, refresh, and
+/// seal operations never require an application-facing erased stream type.
+pub struct HistoryStreamHandle<S: StreamingSource> {
     unit: HistoryUnitId,
     marker: PhantomData<fn() -> S>,
 }
@@ -230,7 +233,7 @@ impl<S: StreamingSource> HistoryStreamHandle<S> {
         }
     }
 
-    pub(crate) const fn unit(self) -> HistoryUnitId {
+    pub const fn unit(self) -> HistoryUnitId {
         self.unit
     }
 }

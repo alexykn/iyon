@@ -80,7 +80,7 @@ fn boundaries_and_padding_are_parent_owned_flow_geometry() {
     history.set_layout(HistoryLayout::new(Insets::new(1, 1, 1, 1), 2));
     history.push("A").unwrap();
     history
-        .push_with_boundary(FlowBoundary::AttachToPrevious, "B")
+        .push_with_boundary("B", FlowBoundary::AttachToPrevious)
         .unwrap();
     history.push("C").unwrap();
     let registry = ComponentRegistry::new();

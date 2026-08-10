@@ -10,7 +10,7 @@ static NEXT_HISTORY_UNIT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Stable identity for one unit in one process's generic History namespace.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct HistoryUnitId(NonZeroU64);
+pub struct HistoryUnitId(NonZeroU64);
 
 impl HistoryUnitId {
     pub(crate) fn allocate() -> Self {

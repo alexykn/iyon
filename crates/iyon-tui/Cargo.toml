@@ -19,3 +19,4 @@ textwrap = "0.16.2"
 vt100.workspace = true
 proptest.workspace = true
 insta.workspace = true
+trybuild.workspace = true

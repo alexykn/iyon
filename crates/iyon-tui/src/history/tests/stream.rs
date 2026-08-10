@@ -143,8 +143,8 @@ fn sealing_preserves_stream_identity_and_unlocks_append() {
     let mut history = History::new();
     let stream = history
         .push_stream_with_boundary(
-            FlowBoundary::AttachToPrevious,
             TestSource::new("A", 0, false),
+            FlowBoundary::AttachToPrevious,
         )
         .unwrap();
     history.seal_stream(stream).unwrap();

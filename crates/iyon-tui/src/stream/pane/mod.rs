@@ -18,7 +18,7 @@ use index::{nearest_anchor, top_index};
 
 /// A generic mounted local semantic stream viewport.
 ///
-/// The pane retains semantic resident content through its [`StreamModel`]. It
+/// The pane retains semantic resident content through the stream model. It
 /// never transfers or releases that content to native terminal history.
 pub struct StreamPane<S: StreamingSource> {
     model: StreamModel<S>,

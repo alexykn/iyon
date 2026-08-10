@@ -3,7 +3,11 @@
 //! [`View`] is an owned backend-neutral semantic value. Compose views with
 //! [`View::horizontal`] and [`View::vertical`], style nodes with semantic
 //! properties, and use [`IntoView`] to integrate application components.
-//! Layout internals and terminal backend types remain private.
+//! [`Component`] is retained mounted state referenced by a View. [`History`]
+//! is an ordered root-level historical/live/stream flow, while [`Scene`] is
+//! the terminal semantic root containing optional History and a required
+//! ordinary body View. Layout internals and terminal backend types remain
+//! private.
 //!
 //! ```compile_fail
 //! use iyon_tui::presentation::ir::ViewKind;
@@ -55,8 +59,13 @@ mod view;
 
 pub use component::{Component, ComponentCx, ComponentHandle};
 pub use controls::{TextChange, TextInput};
+pub use history::{
+    FlowBoundary, History, HistoryError, HistoryLayout, HistoryStreamHandle, HistoryUnitId,
+};
 pub use interaction::{InteractionResult, Key, KeyStroke, MediaKey, ModifierKey, Modifiers};
 pub use output::{EventCx, Output, OutputRouter, RouteConflict};
+pub use scene::Scene;
+
 pub use presentation::api::{
     BorderSpec, BorderStyle, ColorSpec, Horizontal, HorizontalAlign, Insets, IntoView,
     OverflowIndicator, StyleSpec, Text, TextAttribute, TextAttributeSpec, TextSpan, ThemeKey,
