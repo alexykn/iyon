@@ -1,5 +1,7 @@
 use std::{collections::VecDeque, marker::PhantomData, time::Instant};
 
+use tokio::sync::mpsc::{UnboundedReceiver, error::TryRecvError};
+
 use anyhow::Result;
 
 use crate::{
@@ -11,37 +13,22 @@ use crate::{
     scene::{PreparedSceneFrame, SceneHost, SceneHostError},
 };
 
-use super::{app::App, context::AppCx, timer::TimerQueue};
+use super::{
+    app::App,
+    context::{AppCx, AppCxParts},
+    handle::AppHandle,
+    input::{GlobalBindings, PasteInterceptors},
+    timer::TimerQueue,
+};
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "S9 kernel batching is consumed by the future runtime driver"
-    )
-)]
 const ACTION_BATCH_BUDGET: usize = 128;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "S9 kernel status errors are consumed by the future runtime driver"
-    )
-)]
 #[derive(Debug)]
 pub(crate) enum KernelError<Error> {
     Application(Error),
     Output(OutputDispatchError),
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "S9 ready status is consumed by the future runtime driver"
-    )
-)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ReadyStatus {
     pub(crate) dirty: bool,
@@ -49,13 +36,6 @@ pub(crate) struct ReadyStatus {
     pub(crate) more_ready: bool,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "S9 running kernel is consumed by the headless proof driver and S10 runtime"
-    )
-)]
 pub(crate) struct RunningApp<State, Action, Error, Update, ViewFn> {
     pub(crate) state: State,
     scene: Scene,
@@ -64,6 +44,11 @@ pub(crate) struct RunningApp<State, Action, Error, Update, ViewFn> {
     scene_host: SceneHost,
     actions: VecDeque<Action>,
     timers: TimerQueue<Action>,
+    global_bindings: GlobalBindings<Action>,
+    paste_interceptors: PasteInterceptors<Action>,
+    deferred_pastes: VecDeque<String>,
+    ingress: Option<UnboundedReceiver<Action>>,
+    handle: AppHandle<Action>,
     update: Update,
     view: ViewFn,
     dirty: bool,
@@ -72,13 +57,6 @@ pub(crate) struct RunningApp<State, Action, Error, Update, ViewFn> {
     marker: PhantomData<fn() -> Error>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "S9 kernel operations are consumed by the headless proof driver and S10 runtime"
-    )
-)]
 impl<State, Action, Error, Update, ViewFn> RunningApp<State, Action, Error, Update, ViewFn>
 where
     Update: FnMut(&mut State, Action, &mut AppCx<'_, Action>) -> Result<(), Error>,
@@ -96,6 +74,8 @@ where
             update,
             view,
             history,
+            handle,
+            ingress,
             marker: _,
         } = app;
         let mut scene = history.map_or_else(
@@ -105,14 +85,23 @@ where
         let mut components = ComponentRegistry::new();
         let mut outputs = OutputRouter::new();
         let mut timers = TimerQueue::default();
+        let mut global_bindings = GlobalBindings::default();
+        let mut paste_interceptors = PasteInterceptors::default();
+        let mut deferred_pastes = VecDeque::new();
         let mut exit_requested = false;
         let state = {
             let mut cx = AppCx::new(
-                &mut scene,
-                &mut components,
-                &mut outputs,
-                &mut timers,
-                &mut exit_requested,
+                AppCxParts {
+                    scene: &mut scene,
+                    components: &mut components,
+                    outputs: &mut outputs,
+                    timers: &mut timers,
+                    global_bindings: &mut global_bindings,
+                    paste_interceptors: &mut paste_interceptors,
+                    deferred_pastes: &mut deferred_pastes,
+                    exit_requested: &mut exit_requested,
+                    handle: &handle,
+                },
                 now,
             );
             init(&mut cx).map_err(KernelError::Application)?
@@ -125,6 +114,11 @@ where
             scene_host: SceneHost::default(),
             actions: VecDeque::new(),
             timers,
+            global_bindings,
+            paste_interceptors,
+            deferred_pastes,
+            ingress,
+            handle,
             update,
             view,
             dirty: true,
@@ -134,6 +128,9 @@ where
         };
         let body = (running.view)(&running.state);
         running.scene.set_body(body);
+        if running.exit_requested {
+            running.close_ingress();
+        }
         Ok(running)
     }
 
@@ -144,8 +141,16 @@ where
         if self.exit_requested {
             return Ok(InteractionResult::Ignored);
         }
-        let result = self.scene_host.dispatch_key(key, &mut self.components);
+        let result = self
+            .scene_host
+            .dispatch_key_local(key, &mut self.components);
         self.drain_outputs_to_actions()?;
+        if result == InteractionResult::Ignored
+            && let Some(action) = self.global_bindings.action(key)
+        {
+            self.actions.push_back(action);
+            return Ok(InteractionResult::Consumed);
+        }
         if result == InteractionResult::Consumed {
             self.dirty = true;
         }
@@ -159,6 +164,13 @@ where
         if self.exit_requested {
             return Ok(InteractionResult::Ignored);
         }
+        if let Some(action) = self.scene_host.intercept_paste(text, |component, _text| {
+            self.paste_interceptors.action(component, text)
+        }) {
+            self.actions.push_back(action);
+            return Ok(InteractionResult::Consumed);
+        }
+
         let result = self.scene_host.dispatch_paste(text, &mut self.components);
         self.drain_outputs_to_actions()?;
         if result == InteractionResult::Consumed {
@@ -172,6 +184,7 @@ where
         now: Instant,
     ) -> Result<ReadyStatus, KernelError<Error>> {
         if self.exit_requested {
+            self.close_ingress();
             self.actions.clear();
             self.timers.clear();
             return Ok(self.status(false));
@@ -188,11 +201,17 @@ where
             };
             let update_result = {
                 let mut cx = AppCx::new(
-                    &mut self.scene,
-                    &mut self.components,
-                    &mut self.outputs,
-                    &mut self.timers,
-                    &mut self.exit_requested,
+                    AppCxParts {
+                        scene: &mut self.scene,
+                        components: &mut self.components,
+                        outputs: &mut self.outputs,
+                        timers: &mut self.timers,
+                        global_bindings: &mut self.global_bindings,
+                        paste_interceptors: &mut self.paste_interceptors,
+                        deferred_pastes: &mut self.deferred_pastes,
+                        exit_requested: &mut self.exit_requested,
+                        handle: &self.handle,
+                    },
                     now,
                 );
                 (self.update)(&mut self.state, action, &mut cx)
@@ -201,8 +220,10 @@ where
             self.dirty = true;
             self.body_dirty = true;
             self.drain_outputs_to_actions()?;
+            self.drain_forwarded_pastes()?;
             self.collect_due_timers(now);
             if self.exit_requested {
+                self.close_ingress();
                 self.actions.clear();
                 self.timers.clear();
                 break;
@@ -246,6 +267,70 @@ where
         )?;
         self.dirty = false;
         Ok(frame)
+    }
+
+    pub(crate) fn invalidate_frame(&mut self) {
+        self.dirty = true;
+    }
+
+    pub(crate) fn is_exiting(&self) -> bool {
+        self.exit_requested
+    }
+
+    pub(crate) fn close_ingress(&mut self) {
+        self.ingress = None;
+    }
+
+    pub(crate) fn ingress_is_open(&self) -> bool {
+        self.ingress.is_some()
+    }
+
+    pub(crate) async fn recv_external(&mut self) -> Option<Action> {
+        self.ingress.as_mut()?.recv().await
+    }
+
+    pub(crate) fn collect_external_pending(&mut self) {
+        for _ in 0..ACTION_BATCH_BUDGET {
+            let Some(ingress) = self.ingress.as_mut() else {
+                break;
+            };
+            match ingress.try_recv() {
+                Ok(action) => self.actions.push_back(action),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    self.close_ingress();
+                    break;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn collect_external(&mut self, first: Action) {
+        self.actions.push_back(first);
+        for _ in 1..ACTION_BATCH_BUDGET {
+            let Some(ingress) = self.ingress.as_mut() else {
+                break;
+            };
+            match ingress.try_recv() {
+                Ok(action) => self.actions.push_back(action),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    self.close_ingress();
+                    break;
+                }
+            }
+        }
+    }
+
+    fn drain_forwarded_pastes(&mut self) -> Result<(), KernelError<Error>> {
+        while let Some(text) = self.deferred_pastes.pop_front() {
+            let result = self.scene_host.dispatch_paste(&text, &mut self.components);
+            self.drain_outputs_to_actions()?;
+            if result == InteractionResult::Consumed {
+                self.dirty = true;
+            }
+        }
+        Ok(())
     }
 
     #[cfg(test)]

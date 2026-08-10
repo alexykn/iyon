@@ -10,11 +10,8 @@ pub(crate) struct GlobalBindings {
 }
 
 impl GlobalBindings {
-    /// S10 seam: AppCx will populate application-owned global actions.
-    #[expect(
-        dead_code,
-        reason = "S10 seam for application-owned global action registration"
-    )]
+    /// Legacy routing test fixture; application bindings live in the kernel.
+    #[expect(dead_code, reason = "legacy interaction routing test fixture")]
     pub(crate) fn push(&mut self, binding: GlobalBinding) {
         self.bindings.push(binding);
     }

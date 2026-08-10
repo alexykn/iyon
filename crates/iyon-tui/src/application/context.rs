@@ -1,45 +1,69 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use crate::{
     Component, ComponentHandle, History, Output, OutputRouter, RouteConflict,
     component::ComponentRegistry, scene::Scene,
 };
 
-use super::timer::{TimerHandle, TimerQueue};
+use super::{
+    handle::AppHandle,
+    input::{GlobalBindings, PasteInterceptors},
+    timer::{TimerHandle, TimerQueue},
+};
 
 /// Borrow-scoped application capabilities available during initialization and
 /// action updates.
+pub(crate) struct AppCxParts<'a, Action> {
+    pub(crate) scene: &'a mut Scene,
+    pub(crate) components: &'a mut ComponentRegistry,
+    pub(crate) outputs: &'a mut OutputRouter<Action>,
+    pub(crate) timers: &'a mut TimerQueue<Action>,
+    pub(crate) global_bindings: &'a mut GlobalBindings<Action>,
+    pub(crate) paste_interceptors: &'a mut PasteInterceptors<Action>,
+    pub(crate) deferred_pastes: &'a mut VecDeque<String>,
+    pub(crate) exit_requested: &'a mut bool,
+    pub(crate) handle: &'a AppHandle<Action>,
+}
+
 pub struct AppCx<'a, Action> {
     scene: &'a mut Scene,
     components: &'a mut ComponentRegistry,
     outputs: &'a mut OutputRouter<Action>,
     timers: &'a mut TimerQueue<Action>,
+    global_bindings: &'a mut GlobalBindings<Action>,
+    paste_interceptors: &'a mut PasteInterceptors<Action>,
+    deferred_pastes: &'a mut VecDeque<String>,
     exit_requested: &'a mut bool,
+    handle: &'a AppHandle<Action>,
     now: Instant,
 }
 
 impl<'a, Action> AppCx<'a, Action> {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "S9 private context constructor is consumed by the kernel"
-        )
-    )]
-    pub(crate) fn new(
-        scene: &'a mut Scene,
-        components: &'a mut ComponentRegistry,
-        outputs: &'a mut OutputRouter<Action>,
-        timers: &'a mut TimerQueue<Action>,
-        exit_requested: &'a mut bool,
-        now: Instant,
-    ) -> Self {
+    pub(crate) fn new(parts: AppCxParts<'a, Action>, now: Instant) -> Self {
+        let AppCxParts {
+            scene,
+            components,
+            outputs,
+            timers,
+            global_bindings,
+            paste_interceptors,
+            deferred_pastes,
+            exit_requested,
+            handle,
+        } = parts;
         Self {
             scene,
             components,
             outputs,
             timers,
+            global_bindings,
+            paste_interceptors,
+            deferred_pastes,
             exit_requested,
+            handle,
             now,
         }
     }
@@ -108,6 +132,52 @@ impl<'a, Action> AppCx<'a, Action> {
     /// Returns mutable access to the persistent root History, when configured.
     pub fn history_mut(&mut self) -> Option<&mut History> {
         self.scene.history_mut()
+    }
+
+    /// Returns an Action-only handle targeting this application's ingress.
+    pub fn handle(&self) -> AppHandle<Action> {
+        self.handle.clone()
+    }
+
+    /// Replaces the application-global Action factory for one exact key.
+    ///
+    /// The factory runs only after focused and ancestor Component routing,
+    /// including framework focus traversal, returns `Ignored`.
+    pub fn bind_key(&mut self, key: crate::KeyStroke, action: impl Fn() -> Action + 'static) {
+        self.global_bindings.bind(key, action);
+    }
+
+    /// Removes an application-global key binding.
+    pub fn unbind_key(&mut self, key: crate::KeyStroke) -> bool {
+        self.global_bindings.unbind(key)
+    }
+
+    /// Registers a component-scoped paste-to-Action mapping.
+    ///
+    /// The first matching Component in the ordinary focused/modal routing
+    /// chain wins; background Components outside that chain cannot intercept.
+    pub fn intercept_paste<C>(
+        &mut self,
+        component: ComponentHandle<C>,
+        map: impl Fn(String) -> Action + 'static,
+    ) where
+        C: Component,
+    {
+        self.paste_interceptors.intercept(component, map);
+    }
+
+    /// Removes a component-scoped paste interceptor.
+    pub fn remove_paste_interceptor<C>(&mut self, component: ComponentHandle<C>) -> bool
+    where
+        C: Component,
+    {
+        self.paste_interceptors.remove(component)
+    }
+
+    /// Queues text for ordinary focused-component paste routing after this
+    /// update returns. Interceptors are deliberately bypassed.
+    pub fn forward_paste(&mut self, text: impl Into<String>) {
+        self.deferred_pastes.push_back(text.into());
     }
 
     /// Schedules one non-recurring Action.

@@ -14,6 +14,7 @@ use crate::{
     geometry::Size,
     interaction::{
         FocusState, InteractionResult, KeyRouter, KeyStroke, MountedCapabilities, route_paste,
+        route_paste_interceptor,
     },
     output::{OutputQueue, OutputRouter},
     physical::Surface,
@@ -71,13 +72,6 @@ impl SceneHost {
         self.ticker.next_timeout(now, idle)
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "S9 deadline arbiter consumes the mounted tick deadline"
-        )
-    )]
     pub(crate) fn next_tick_deadline(&self) -> Option<Instant> {
         self.ticker.next_deadline()
     }
@@ -113,6 +107,29 @@ impl SceneHost {
             registry,
             &mut self.outputs,
         )
+    }
+
+    pub(crate) fn dispatch_key_local(
+        &mut self,
+        key: KeyStroke,
+        registry: &mut ComponentRegistry,
+    ) -> InteractionResult {
+        self.key_router.dispatch_local(
+            key,
+            &mut self.focus,
+            &self.graph,
+            &self.capabilities,
+            registry,
+            &mut self.outputs,
+        )
+    }
+
+    pub(crate) fn intercept_paste<A>(
+        &self,
+        text: &str,
+        intercept: impl FnMut(crate::component::ComponentId, &str) -> Option<A>,
+    ) -> Option<A> {
+        route_paste_interceptor(text, &self.focus, &self.graph, intercept)
     }
 
     pub(crate) fn dispatch_paste(

@@ -1,6 +1,8 @@
+use tokio::sync::mpsc::UnboundedReceiver;
+
 use crate::{History, View};
 
-use super::{context::AppCx, kernel::RunningApp};
+use super::{context::AppCx, error::RunError, handle::AppHandle, kernel::RunningApp};
 
 /// A generic standalone application definition.
 ///
@@ -12,6 +14,8 @@ pub struct App<State, Action, Error, Init, Update, ViewFn> {
     pub(crate) update: Update,
     pub(crate) view: ViewFn,
     pub(crate) history: Option<History>,
+    pub(crate) handle: AppHandle<Action>,
+    pub(crate) ingress: Option<UnboundedReceiver<Action>>,
     pub(crate) marker: std::marker::PhantomData<fn(State, Action) -> Error>,
 }
 
@@ -24,13 +28,34 @@ impl<State, Action, Error, Init, Update, ViewFn> App<State, Action, Error, Init,
         Update: FnMut(&mut State, Action, &mut AppCx<'_, Action>) -> Result<(), Error>,
         ViewFn: Fn(&State) -> View,
     {
+        let (handle, ingress) = AppHandle::channel();
         Self {
             init,
             update,
             view,
             history: None,
+            handle,
+            ingress: Some(ingress),
             marker: std::marker::PhantomData,
         }
+    }
+
+    /// Returns a cloneable Action-only producer for this application.
+    pub fn handle(&self) -> AppHandle<Action> {
+        self.handle.clone()
+    }
+
+    /// Runs the application with the default terminal adapter.
+    ///
+    /// The future may remain single-threaded when State or Action is not
+    /// `Send`. Await it on a Tokio-compatible runtime.
+    pub async fn run(self) -> Result<(), RunError<Error>>
+    where
+        Init: FnOnce(&mut AppCx<'_, Action>) -> Result<State, Error>,
+        Update: FnMut(&mut State, Action, &mut AppCx<'_, Action>) -> Result<(), Error>,
+        ViewFn: Fn(&State) -> View,
+    {
+        super::run::run(self).await
     }
 
     /// Configures the one persistent root History owned by this application.
@@ -39,13 +64,6 @@ impl<State, Action, Error, Init, Update, ViewFn> App<State, Action, Error, Init,
         self
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "S9 private startup seam is consumed by the runtime driver"
-        )
-    )]
     pub(crate) fn start(
         self,
         now: std::time::Instant,

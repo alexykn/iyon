@@ -7,7 +7,11 @@
 
 mod app;
 mod context;
+mod error;
+mod handle;
+mod input;
 mod kernel;
+mod run;
 mod timer;
 
 #[cfg(test)]
@@ -15,4 +19,6 @@ mod tests;
 
 pub use app::App;
 pub use context::AppCx;
+pub use error::{RunError, RuntimeError};
+pub use handle::{AppClosed, AppHandle};
 pub use timer::TimerHandle;

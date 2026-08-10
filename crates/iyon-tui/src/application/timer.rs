@@ -11,13 +11,6 @@ pub struct TimerHandle {
     id: u64,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "S9 timer entries are consumed by the application kernel"
-    )
-)]
 struct TimerEntry<Action> {
     handle: TimerHandle,
     deadline: Instant,
@@ -39,13 +32,6 @@ impl<Action> Default for TimerQueue<Action> {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "S9 timer queue operations are consumed by the application kernel"
-    )
-)]
 impl<Action> TimerQueue<Action> {
     pub(crate) fn schedule(
         &mut self,
