@@ -1,4 +1,8 @@
-use std::{cell::Cell, collections::VecDeque, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::VecDeque,
+    rc::Rc,
+};
 
 use super::super::*;
 use crate::{
@@ -6,7 +10,7 @@ use crate::{
     backend::NativeHistorySink,
     geometry::Size,
     physical::PhysicalRow,
-    presentation::{Insets, IntoView, View, layout::ViewCompiler},
+    presentation::{ColorSpec, Insets, IntoView, StyleSpec, View, layout::ViewCompiler},
     stream::{
         StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
         StreamingSource,
@@ -25,15 +29,19 @@ impl NativeSource {
     }
 
     fn new(text: &str, stable_through: u64, sealed: bool) -> Self {
-        let end = text.len() as u64;
+        Self::at(0, text, stable_through, sealed)
+    }
+
+    fn at(base: u64, text: &str, stable_through: u64, sealed: bool) -> Self {
+        let end = base.saturating_add(text.len() as u64);
         let snapshot = StreamSnapshotBuilder::new(
             StreamRevision::ZERO,
-            StreamOffset::ZERO,
+            StreamOffset::new(base),
             StreamOffset::new(stable_through),
             StreamOffset::new(end),
         )
         .exact_text(
-            StreamRange::new(StreamOffset::ZERO, StreamOffset::new(end)),
+            StreamRange::new(StreamOffset::new(base), StreamOffset::new(end)),
             [TextSpan::plain(text)],
         )
         .finish()
@@ -120,6 +128,84 @@ impl StreamingSource for CompactingSource {
     }
 }
 
+#[derive(Clone)]
+struct GrowingSource {
+    state: Rc<RefCell<GrowingState>>,
+}
+
+struct GrowingState {
+    snapshot: StreamSnapshot,
+    sealed: bool,
+}
+
+impl GrowingSource {
+    fn new() -> Self {
+        let snapshot = StreamSnapshotBuilder::new(
+            StreamRevision::ZERO,
+            StreamOffset::ZERO,
+            StreamOffset::new(2),
+            StreamOffset::new(3),
+        )
+        .exact_text(
+            StreamRange::new(StreamOffset::ZERO, StreamOffset::new(2)),
+            [TextSpan::plain("A\n")],
+        )
+        .exact_text(
+            StreamRange::new(StreamOffset::new(2), StreamOffset::new(3)),
+            [TextSpan::plain("B")],
+        )
+        .finish()
+        .unwrap();
+        Self {
+            state: Rc::new(RefCell::new(GrowingState {
+                snapshot,
+                sealed: false,
+            })),
+        }
+    }
+
+    fn grow(&mut self) {
+        let snapshot = StreamSnapshotBuilder::new(
+            StreamRevision::new(1),
+            StreamOffset::ZERO,
+            StreamOffset::new(3),
+            StreamOffset::new(4),
+        )
+        .exact_text(
+            StreamRange::new(StreamOffset::ZERO, StreamOffset::new(2)),
+            [TextSpan::plain("A\n")],
+        )
+        .exact_text(
+            StreamRange::new(StreamOffset::new(2), StreamOffset::new(3)),
+            [TextSpan::plain("B")],
+        )
+        .exact_text(
+            StreamRange::new(StreamOffset::new(3), StreamOffset::new(4)),
+            [TextSpan::plain("C")],
+        )
+        .finish()
+        .unwrap();
+        self.state.borrow_mut().snapshot = snapshot;
+    }
+}
+
+impl StreamingSource for GrowingSource {
+    fn snapshot(&self) -> StreamSnapshot {
+        self.state.borrow().snapshot.clone()
+    }
+
+    fn seal(&mut self) {
+        let mut state = self.state.borrow_mut();
+        state.sealed = true;
+        state.snapshot.stable_through = state.snapshot.source_end;
+        state.snapshot.revision = state.snapshot.revision.next();
+    }
+
+    fn is_sealed(&self) -> bool {
+        self.state.borrow().sealed
+    }
+}
+
 struct LiveComponent;
 
 impl Component for LiveComponent {
@@ -134,6 +220,7 @@ impl Component for LiveComponent {
 struct FakeSink {
     rows: Vec<PhysicalRow>,
     accepts: VecDeque<Result<usize, &'static str>>,
+    calls: usize,
 }
 
 impl FakeSink {
@@ -149,6 +236,7 @@ impl NativeHistorySink for FakeSink {
     type Error = &'static str;
 
     fn insert_history_rows(&mut self, rows: &[PhysicalRow]) -> Result<usize, Self::Error> {
+        self.calls += 1;
         let accepted = self.accepts.pop_front().unwrap_or(Ok(rows.len()))?;
         self.rows.extend(rows[..accepted].iter().cloned());
         Ok(accepted)
@@ -283,12 +371,62 @@ fn top_padding_is_transferred_once_and_bottom_padding_is_resident() {
 }
 
 #[test]
+fn top_padding_partial_ack_freezes_exact_remainder_across_layout_change() {
+    let mut history = History::new();
+    history.set_layout(HistoryLayout::new(Insets::new(3, 0, 0, 0), 0));
+    history.push("A").unwrap();
+    let mut first = FakeSink::accepting([Ok(1)]);
+
+    transfer(&mut history, &mut first, 8, 8);
+    let frozen = match history.native.top_padding {
+        crate::history::native::frontier::SpacingTransferState::Frozen(ref rows) => rows.clone(),
+        _ => panic!("top padding should be frozen after partial ACK"),
+    };
+    assert_eq!(frozen.as_slice().len(), 2);
+
+    history.set_layout(HistoryLayout::new(Insets::new(10, 0, 0, 0), 0));
+    let mut second = FakeSink::default();
+    transfer(&mut history, &mut second, 8, 8);
+    assert_eq!(second.rows, frozen.as_slice());
+
+    let mut third = FakeSink::default();
+    transfer(&mut history, &mut third, 8, 8);
+    assert_eq!(
+        third
+            .rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["A"]
+    );
+}
+
+#[test]
+fn zero_height_static_retires_without_native_row() {
+    let mut history = History::new();
+    let zero = history.push(View::spacer(0)).unwrap();
+    let successor = history.push("B").unwrap();
+    let mut sink = FakeSink::accepting([Ok(0)]);
+
+    let outcome = transfer(&mut history, &mut sink, 8, 8);
+    assert_eq!(sink.calls, 1);
+    assert!(sink.rows.is_empty());
+    assert_eq!(history.native.last_native_unit, Some(zero));
+    assert_eq!(history.units.front().unwrap().id, successor);
+    assert_eq!(outcome.status, NativeTransferStatus::SinkBlocked);
+
+    let mut successor_sink = FakeSink::default();
+    transfer(&mut history, &mut successor_sink, 8, 8);
+    assert_eq!(successor_sink.rows[0].plain_text(), "B");
+}
+
+#[test]
 fn live_blocks_later_static_units() {
     let mut registry = crate::component::ComponentRegistry::new();
     let live = registry.register(LiveComponent);
     let mut history = History::new();
     history.push("A").unwrap();
-    history.push(View::component(live)).unwrap();
+    let live_unit = history.push(View::component(live)).unwrap();
     history.push("C").unwrap();
     let mut sink = FakeSink::default();
 
@@ -296,10 +434,67 @@ fn live_blocks_later_static_units() {
     let outcome = transfer(&mut history, &mut sink, 8, 8);
     assert!(matches!(
         outcome.status,
-        NativeTransferStatus::SemanticBlocked { .. }
+        NativeTransferStatus::SemanticBlocked {
+            unit,
+            reason: NativeBlockReason::Live,
+        } if unit == live_unit
     ));
     assert_eq!(history.units.len(), 2);
     let _ = registry;
+}
+
+#[test]
+fn multiple_live_units_enforce_one_global_native_frontier() {
+    let mut registry = crate::component::ComponentRegistry::new();
+    let live_b = registry.register(LiveComponent);
+    let live_d = registry.register(LiveComponent);
+    let mut history = History::new();
+    history.set_layout(HistoryLayout::new(Insets::ZERO, 1));
+    history.push("A").unwrap();
+    let b = history.push(View::component(live_b)).unwrap();
+    history.push("C").unwrap();
+    let d = history.push(View::component(live_d)).unwrap();
+    history.push("E").unwrap();
+    let mut sink = FakeSink::default();
+
+    transfer(&mut history, &mut sink, 8, 8);
+    transfer(&mut history, &mut sink, 8, 8);
+    let projection = project(&history, &registry, Size::new(8, 5)).unwrap();
+    assert!(projection.scene.mounts.ids().any(|id| id == live_b.id()));
+    assert!(projection.scene.mounts.ids().any(|id| id == live_d.id()));
+
+    let blocked_b = transfer(&mut history, &mut sink, 8, 8);
+    assert!(matches!(
+        blocked_b.status,
+        NativeTransferStatus::SemanticBlocked {
+            unit,
+            reason: NativeBlockReason::Live,
+        } if unit == b
+    ));
+    assert_eq!(history.units.front().unwrap().id, b);
+
+    history.freeze(b, "B").unwrap();
+    let projection = project(&history, &registry, Size::new(8, 1)).unwrap();
+    assert!(projection.scene.mounts.ids().any(|id| id == live_d.id()));
+    transfer(&mut history, &mut sink, 8, 8);
+    transfer(&mut history, &mut sink, 8, 8);
+    transfer(&mut history, &mut sink, 8, 8);
+    transfer(&mut history, &mut sink, 8, 8);
+    let blocked_d = transfer(&mut history, &mut sink, 8, 8);
+    assert!(matches!(
+        blocked_d.status,
+        NativeTransferStatus::SemanticBlocked {
+            unit,
+            reason: NativeBlockReason::Live,
+        } if unit == d
+    ));
+    assert_eq!(
+        sink.rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["A", "", "B", "", "C", ""]
+    );
 }
 
 #[test]
@@ -465,6 +660,135 @@ fn stream_checkpoint_ack_advances_only_after_sink_ack() {
 }
 
 #[test]
+fn partially_native_open_stream_grows_seals_and_blocks_successor_until_retired() {
+    let source = GrowingSource::new();
+    let mut history = History::new();
+    let handle = history.push_stream(source).unwrap();
+    let mut sink = FakeSink::accepting([Ok(1), Ok(1), Ok(1)]);
+
+    transfer(&mut history, &mut sink, 8, 1);
+    assert_eq!(
+        sink.rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["A"]
+    );
+    let registry = crate::component::ComponentRegistry::new();
+    let projection = project(&history, &registry, Size::new(8, 1)).unwrap();
+    assert_eq!(
+        ViewCompiler::default()
+            .compile_bounded(&projection.scene.view, Size::new(8, 1))
+            .rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["B"]
+    );
+    assert_eq!(history.units.front().unwrap().id, handle.unit());
+
+    history.update_stream(handle, GrowingSource::grow).unwrap();
+    let projection = project(&history, &registry, Size::new(8, 2)).unwrap();
+    assert_eq!(
+        ViewCompiler::default()
+            .compile_bounded(&projection.scene.view, Size::new(8, 2))
+            .rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["B", "C"]
+    );
+
+    transfer(&mut history, &mut sink, 8, 1);
+    assert_eq!(
+        sink.rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["A", "B"]
+    );
+    let projection = project(&history, &registry, Size::new(8, 1)).unwrap();
+    assert_eq!(
+        ViewCompiler::default()
+            .compile_bounded(&projection.scene.view, Size::new(8, 1))
+            .rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["C"]
+    );
+
+    history.seal_stream(handle).unwrap();
+    history.push("D").unwrap();
+    let before_c = history.units.front().unwrap().id;
+    transfer(&mut history, &mut sink, 8, 8);
+    assert_eq!(history.native.last_native_unit, Some(before_c));
+    assert_eq!(
+        sink.rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["A", "B", "C"]
+    );
+    transfer(&mut history, &mut sink, 8, 8);
+    assert_eq!(
+        sink.rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["A", "B", "C", "D"]
+    );
+}
+
+#[test]
+fn sequential_streams_transfer_in_history_order_with_unit_local_offsets() {
+    let mut history = History::new();
+    let _stream_a = history
+        .push_stream(NativeSource::at(50, "A", 51, true))
+        .unwrap();
+    history.push("B").unwrap();
+    let _stream_c = history
+        .push_stream(NativeSource::at(1_000, "C", 1_001, true))
+        .unwrap();
+    let d = history.push("D").unwrap();
+    let stream_e = history
+        .push_stream(NativeSource::at(9_000, "E", 9_001, false))
+        .unwrap();
+    let mut sink = FakeSink::default();
+
+    let mut blocked = None;
+    for _ in 0..20 {
+        let outcome = transfer(&mut history, &mut sink, 8, 8);
+        if matches!(outcome.status, NativeTransferStatus::SemanticBlocked { .. }) {
+            blocked = Some(outcome.status);
+            break;
+        }
+    }
+
+    assert!(matches!(
+        blocked,
+        Some(NativeTransferStatus::SemanticBlocked {
+            unit,
+            reason: NativeBlockReason::StreamBlocked,
+        }) if unit == stream_e.unit()
+    ));
+    assert_eq!(
+        sink.rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>(),
+        ["A", "B", "C", "D", "E"]
+    );
+    assert_eq!(history.units.len(), 1);
+    assert_eq!(history.units.front().unwrap().id, stream_e.unit());
+    assert_eq!(history.native.last_native_unit, Some(d));
+    assert_eq!(
+        history.native.stream.as_ref().unwrap().committed_through,
+        StreamOffset::new(9_001)
+    );
+}
+
+#[test]
 fn atomic_partial_ack_freezes_and_drains_exact_physical_rows() {
     let snapshot = StreamSnapshotBuilder::new(
         StreamRevision::ZERO,
@@ -503,6 +827,48 @@ fn atomic_partial_ack_freezes_and_drains_exact_physical_rows() {
     assert_eq!(transfer(&mut history, &mut second, 8, 8).inserted, 2);
     assert!(history.native.stream.as_ref().unwrap().partial.is_none());
     assert!(history.native.stream.as_ref().unwrap().committed_through >= StreamOffset::new(3));
+}
+
+#[test]
+fn frozen_atomic_remainder_survives_resize_and_layout_change_without_reflow() {
+    let snapshot = StreamSnapshotBuilder::new(
+        StreamRevision::ZERO,
+        StreamOffset::ZERO,
+        StreamOffset::new(3),
+        StreamOffset::new(3),
+    )
+    .atomic(
+        StreamRange::new(StreamOffset::ZERO, StreamOffset::new(3)),
+        View::vertical(|column| {
+            column.children(["A0", "A1", "A2"]);
+        }),
+    )
+    .unwrap()
+    .finish()
+    .unwrap();
+    let mut history = History::new();
+    history.set_layout(HistoryLayout::new(Insets::horizontal(1), 0));
+    history
+        .push_stream(NativeSource::from_snapshot(snapshot, true))
+        .unwrap();
+    let mut first = FakeSink::accepting([Ok(1)]);
+    transfer(&mut history, &mut first, 8, 8);
+    let frozen = match &history.native.stream.as_ref().unwrap().partial {
+        Some(crate::stream::StreamPartialCommit::FrozenAtomic { rows, .. }) => rows.clone(),
+        _ => panic!("expected FrozenAtomic remainder"),
+    };
+    assert_eq!(frozen.as_slice().len(), 3);
+
+    history.set_layout(HistoryLayout::new(Insets::horizontal(2), 0));
+    assert!(matches!(
+        &history.native.stream.as_ref().unwrap().partial,
+        Some(crate::stream::StreamPartialCommit::FrozenAtomic { rows, .. })
+            if rows == &frozen
+    ));
+    let mut second = FakeSink::default();
+    transfer(&mut history, &mut second, 12, 8);
+    assert_eq!(second.rows, frozen.as_slice()[1..]);
+    assert!(history.units.is_empty());
 }
 
 #[test]
@@ -556,7 +922,7 @@ fn unstable_zero_height_atomic_blocks_later_rows() {
     .finish()
     .unwrap();
     let mut history = History::new();
-    history
+    let handle = history
         .push_stream(NativeSource::from_snapshot(snapshot, false))
         .unwrap();
     let mut sink = FakeSink::default();
@@ -564,7 +930,10 @@ fn unstable_zero_height_atomic_blocks_later_rows() {
     let outcome = transfer(&mut history, &mut sink, 8, 8);
     assert!(matches!(
         outcome.status,
-        NativeTransferStatus::SemanticBlocked { .. }
+        NativeTransferStatus::SemanticBlocked {
+            unit,
+            reason: NativeBlockReason::StreamBlocked,
+        } if unit == handle.unit()
     ));
     assert!(sink.rows.is_empty());
     assert_eq!(history.units.len(), 1);
@@ -687,7 +1056,14 @@ fn open_empty_stream_remains_resident() {
         .unwrap();
     let mut sink = FakeSink::default();
 
-    transfer(&mut history, &mut sink, 8, 8);
+    let outcome = transfer(&mut history, &mut sink, 8, 8);
+    assert!(matches!(
+        outcome.status,
+        NativeTransferStatus::SemanticBlocked {
+            reason: NativeBlockReason::StreamBlocked,
+            ..
+        }
+    ));
     assert_eq!(history.units.len(), 1);
 }
 
@@ -858,6 +1234,60 @@ fn static_physical_rows_match_bounded_view_rows() {
         .clone();
     assert_eq!(sink.rows[0].width(), 10);
     assert_eq!(sink.rows[0].cell(2), expected.cell(0));
+}
+
+#[test]
+fn styled_wide_static_rows_conserve_exact_physical_cells_across_partial_transfer() {
+    let mut history = History::new();
+    history.set_layout(HistoryLayout::new(Insets::horizontal(1), 0));
+    history
+        .push(
+            View::styled_text([TextSpan::styled(
+                "界e\u{301}\nZ",
+                StyleSpec::new()
+                    .foreground(ColorSpec::ansi(1))
+                    .background(ColorSpec::ansi(2))
+                    .bold(),
+            )])
+            .into_view(),
+        )
+        .unwrap();
+    let registry = crate::component::ComponentRegistry::new();
+    let expected = ViewCompiler::default()
+        .compile_bounded(
+            &project(&history, &registry, Size::new(10, 2))
+                .unwrap()
+                .scene
+                .view,
+            Size::new(10, 2),
+        )
+        .rows;
+    assert!(expected[0].cells().iter().any(|cell| cell.continuation));
+    assert!(
+        expected[0]
+            .cells()
+            .iter()
+            .any(|cell| cell.style.foreground.is_some())
+    );
+    assert!(
+        expected[0]
+            .cells()
+            .iter()
+            .any(|cell| cell.style.background.is_some())
+    );
+    assert!(expected[0].cells().iter().any(|cell| cell.style.bold));
+
+    let mut first = FakeSink::accepting([Ok(1)]);
+    transfer(&mut history, &mut first, 10, 8);
+    let projection = project(&history, &registry, Size::new(10, 2)).unwrap();
+    assert_eq!(first.rows, expected[..1]);
+    assert_eq!(projection.frozen_overlay.unwrap().rows, expected[1..]);
+
+    let frozen = history.native.frozen_static.as_ref().unwrap().rows.clone();
+    history.set_layout(HistoryLayout::new(Insets::horizontal(2), 0));
+    let mut second = FakeSink::default();
+    transfer(&mut history, &mut second, 12, 8);
+    assert_eq!(second.rows, frozen.as_slice());
 }
 
 #[test]

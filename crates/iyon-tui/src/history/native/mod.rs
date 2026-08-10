@@ -20,11 +20,20 @@ pub(super) use frontier::NativeFrontier;
 use frontier::{FrozenStaticRemainder, SpacingTransferState, StreamFrontierState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NativeBlockReason {
+    Live,
+    StreamBlocked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NativeTransferStatus {
     Idle,
     Progress,
     SinkBlocked,
-    SemanticBlocked { unit: HistoryUnitId },
+    SemanticBlocked {
+        unit: HistoryUnitId,
+        reason: NativeBlockReason,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +90,10 @@ pub(crate) fn transfer_native_prefix<S: NativeHistorySink>(
         HistoryUnitContent::Live(_) => Ok(outcome(
             0,
             0,
-            NativeTransferStatus::SemanticBlocked { unit: unit_id },
+            NativeTransferStatus::SemanticBlocked {
+                unit: unit_id,
+                reason: NativeBlockReason::Live,
+            },
         )),
         HistoryUnitContent::Static(view) => {
             let rows = static_rows(view, width, history.layout());
@@ -310,7 +322,10 @@ fn transfer_stream<S: NativeHistorySink>(
         return Ok(outcome(
             0,
             0,
-            NativeTransferStatus::SemanticBlocked { unit: unit_id },
+            NativeTransferStatus::SemanticBlocked {
+                unit: unit_id,
+                reason: NativeBlockReason::StreamBlocked,
+            },
         ));
     }
 
