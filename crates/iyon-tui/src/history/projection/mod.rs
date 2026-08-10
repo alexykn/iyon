@@ -83,6 +83,25 @@ pub(crate) fn project_into_session(
     size: Size,
     session: &mut ResolveSession<'_>,
 ) -> Result<HistoryProjectionParts, ResolveError> {
+    project_into_session_with_mode(history, size, session, false)
+}
+
+/// Host projection mode eagerly measures retained streams so native overflow
+/// metadata accounts for sealed streams that are still resident in History.
+pub(crate) fn project_into_session_for_host(
+    history: &History,
+    size: Size,
+    session: &mut ResolveSession<'_>,
+) -> Result<HistoryProjectionParts, ResolveError> {
+    project_into_session_with_mode(history, size, session, true)
+}
+
+fn project_into_session_with_mode(
+    history: &History,
+    size: Size,
+    session: &mut ResolveSession<'_>,
+    eager_stream_overflow: bool,
+) -> Result<HistoryProjectionParts, ResolveError> {
     let layout = history.layout();
     let content_width = size
         .width
@@ -143,6 +162,7 @@ pub(crate) fn project_into_session(
                 item,
                 content_width,
                 top_padding,
+                eager_stream_overflow,
             )
         })
         .fold(
@@ -383,6 +403,7 @@ fn item_height_for_overflow(
     item: FlowItem,
     width: u16,
     top_padding: usize,
+    eager_stream_overflow: bool,
 ) -> (usize, bool) {
     match item {
         FlowItem::TopPadding => (top_padding, false),
@@ -395,7 +416,7 @@ fn item_height_for_overflow(
             (PlannedContent::Frozen(rows), _) => (rows.len(), false),
             (PlannedContent::Live(view), _) => (view_height(view, width), false),
             (PlannedContent::Stream { .. }, HistoryUnitContent::Stream(stream))
-                if !stream.is_sealed() =>
+                if eager_stream_overflow || !stream.is_sealed() =>
             {
                 (ensure_height(&mut plans[index], units[index], width), false)
             }

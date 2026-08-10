@@ -27,7 +27,9 @@ pub(crate) use native::{
     NativeBlockReason, NativeTransferError, NativeTransferOutcome, NativeTransferStatus,
     transfer_native_prefix,
 };
-pub(crate) use projection::{HistoryPhysicalOverlay, project, project_into_session};
+pub(crate) use projection::{
+    HistoryPhysicalOverlay, project, project_into_session, project_into_session_for_host,
+};
 pub(crate) use stream::ErasedHistoryStream;
 pub use stream::HistoryStreamHandle;
 pub(crate) use unit::{HistoryUnit, HistoryUnitContent};

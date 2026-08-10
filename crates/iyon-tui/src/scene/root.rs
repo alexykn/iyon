@@ -62,7 +62,7 @@ impl Scene {
 use crate::{
     component::ComponentRegistry,
     geometry::{LayoutConstraints, Size},
-    history::{HistoryPhysicalOverlay, project_into_session},
+    history::{HistoryPhysicalOverlay, project_into_session_for_host},
     presentation::{
         ir::{ColumnChild, ColumnView, HeightRule, TrackSize, ViewKind, WidthRule},
         layout::{LayoutEngine, ManualLayoutEngine},
@@ -100,8 +100,11 @@ pub(crate) fn resolve_root_scene(
     let mut session = ResolveSession::new(registry);
     let (history_view, history_overlay, history_overflow_rows) = match root.history.as_ref() {
         Some(history) => {
-            let projection =
-                project_into_session(history, Size::new(size.width, history_height), &mut session)?;
+            let projection = project_into_session_for_host(
+                history,
+                Size::new(size.width, history_height),
+                &mut session,
+            )?;
             (
                 projection.view,
                 projection.frozen_overlay,
