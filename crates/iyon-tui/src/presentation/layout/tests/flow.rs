@@ -72,6 +72,39 @@ fn width_defaults_and_explicit_fill_are_intrinsic_and_allocated() {
 }
 
 #[test]
+fn hanging_preserves_body_width_policy_within_bounded_column() {
+    let compiler = ViewCompiler::default();
+    let fit = View::hanging(
+        View::text("• ").no_wrap(),
+        View::text("  ").no_wrap(),
+        View::text("x").fit_width(),
+    )
+    .fill_width();
+    let fill = View::hanging(
+        View::text("• ").no_wrap(),
+        View::text("  ").no_wrap(),
+        View::text("x").fill_width(),
+    )
+    .fill_width();
+
+    let fit_tree = compiler.layout_tree(
+        &fit,
+        crate::geometry::LayoutConstraints::bounded(Size::new(20, 4)),
+    );
+    let fill_tree = compiler.layout_tree(
+        &fill,
+        crate::geometry::LayoutConstraints::bounded(Size::new(20, 4)),
+    );
+    let fit_body = *fit_tree.node(fit_tree.root).children.last().unwrap();
+    let fill_body = *fill_tree.node(fill_tree.root).children.last().unwrap();
+
+    assert_eq!(fit_tree.size.width, 20);
+    assert_eq!(fit_tree.node(fit_body).rect.width, 1);
+    assert_eq!(fill_tree.size.width, 20);
+    assert_eq!(fill_tree.node(fill_body).rect.width, 18);
+}
+
+#[test]
 fn nested_fill_does_not_change_fit_child_allocation() {
     let compiler = ViewCompiler::default();
     let mut fit_child = View::text("x").fit_width().into_view();
