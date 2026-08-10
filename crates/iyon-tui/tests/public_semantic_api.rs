@@ -36,7 +36,7 @@ fn hanging_component_view<C: Component>(handle: ComponentHandle<C>) -> View {
     View::hanging(
         View::text("> ").no_wrap(),
         View::text("  ").no_wrap(),
-        View::component(handle),
+        View::component(handle).fill_width(),
     )
     .fill_width()
 }

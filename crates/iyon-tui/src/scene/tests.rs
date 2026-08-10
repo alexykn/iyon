@@ -164,7 +164,7 @@ fn hanging_body_component_is_mounted_once_and_owns_one_body_geometry() {
     let view = View::hanging(
         View::text("• ").no_wrap(),
         View::text("  ").no_wrap(),
-        View::component(handle),
+        View::component(handle).fill_width(),
     )
     .fill_width();
     let resolved = resolve_scene(&view, &registry).unwrap();
@@ -200,7 +200,7 @@ fn hanging_body_component_reflows_without_mount_duplication() {
     let view = View::hanging(
         View::text("• ").no_wrap(),
         View::text("  ").no_wrap(),
-        View::component(handle),
+        View::component(handle).fill_width(),
     )
     .fill_width();
     let resolved = resolve_scene(&view, &registry).unwrap();

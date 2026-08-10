@@ -80,15 +80,11 @@ impl View {
     ) -> Self {
         let prefix = prefix.into_view();
         let continuation_prefix = continuation_prefix.into_view();
-        let mut body = body.into_view();
+        let body = body.into_view();
         assert!(
             !continuation_prefix.contains_component_identity(),
             "hanging continuation_prefix cannot contain component identity: it is repeated"
         );
-        // The body owns the entire region to the right of the prefix. Make
-        // that region available to a component even when its slot was created
-        // without an explicit fill-width rule.
-        body.width = WidthRule::Fill;
 
         Self {
             component: None,
