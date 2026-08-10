@@ -117,7 +117,10 @@ impl ScrollbackCoordinator {
             return Ok(0);
         }
 
-        let rows = transcript.uncommitted_rows()[..rows_to_commit].to_vec();
+        let rows = transcript.uncommitted_rows()[..rows_to_commit]
+            .iter()
+            .map(crate::terminal::ratatui::row_to_line)
+            .collect::<Vec<_>>();
         let outcome = self.commit_rows_lossless(terminal, &rows)?;
         transcript.mark_rows_committed(outcome.inserted);
         Ok(outcome.inserted)
@@ -140,7 +143,10 @@ impl ScrollbackCoordinator {
         if chunk_len == 0 {
             return Ok(FlushResult::Blocked);
         }
-        let rows = transcript.uncommitted_rows()[..chunk_len].to_vec();
+        let rows = transcript.uncommitted_rows()[..chunk_len]
+            .iter()
+            .map(crate::terminal::ratatui::row_to_line)
+            .collect::<Vec<_>>();
         let outcome = self.commit_rows_lossless(terminal, &rows)?;
         transcript.mark_rows_committed(outcome.inserted);
         terminal.invalidate_next_draw();

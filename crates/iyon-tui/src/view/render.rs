@@ -36,7 +36,7 @@ impl View for InputView<'_> {}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ConversationView<'a> {
-    pub(crate) transcript_rows: &'a [Line<'static>],
+    pub(crate) transcript_rows: &'a [PhysicalRow],
     pub(crate) hosted_rows: &'a [PhysicalRow],
     pub(crate) transient_rows: &'a [PhysicalRow],
 }
@@ -165,10 +165,11 @@ impl Renderable<ConversationView<'_>> for Renderer {
         let mut row = 0usize;
         let buffer = frame.buffer_mut();
 
-        let mut draw_line = |line: &Line<'static>| {
+        let mut draw_line = |physical_row: &PhysicalRow| {
             let y = area
                 .y
                 .saturating_add(u16::try_from(row).unwrap_or(u16::MAX));
+            let line = row_to_line(physical_row);
             let row_area = Rect {
                 x: area.x,
                 y,
@@ -176,7 +177,7 @@ impl Renderable<ConversationView<'_>> for Renderer {
                 height: 1,
             };
             buffer.set_style(row_area, line.style);
-            buffer.set_line(area.x, y, line, area.width);
+            buffer.set_line(area.x, y, &line, area.width);
             row = row.saturating_add(1);
         };
 
@@ -191,8 +192,7 @@ impl Renderable<ConversationView<'_>> for Renderer {
 
         if skip < view.hosted_rows.len() {
             for physical_row in &view.hosted_rows[skip..] {
-                let line = row_to_line(physical_row);
-                draw_line(&line);
+                draw_line(physical_row);
             }
             skip = 0;
         } else {
@@ -201,8 +201,7 @@ impl Renderable<ConversationView<'_>> for Renderer {
 
         if skip < view.transient_rows.len() {
             for physical_row in &view.transient_rows[skip..] {
-                let line = row_to_line(physical_row);
-                draw_line(&line);
+                draw_line(physical_row);
             }
         }
     }

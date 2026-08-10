@@ -76,10 +76,6 @@ impl AssistantStream {
         &self.segments
     }
 
-    pub(crate) fn is_sealed(&self) -> bool {
-        self.sealed
-    }
-
     fn restart_plan_at(
         &self,
         offset: StreamOffset,
@@ -151,7 +147,7 @@ fn list_body_column(depth: usize, marker: &crate::transcript::markdown::Assistan
         }
     };
     (depth as u16)
-        .saturating_mul(crate::transcript::row::LIST_INDENT as u16)
+        .saturating_mul(crate::transcript::markdown::ASSISTANT_LIST_INDENT as u16)
         .saturating_add(marker_width)
 }
 
@@ -232,7 +228,7 @@ fn build_assistant_stream_view(
                     list_body_column(*depth, marker),
                     format!(
                         "{}{}",
-                        " ".repeat(*depth * crate::transcript::row::LIST_INDENT),
+                        " ".repeat(*depth * crate::transcript::markdown::ASSISTANT_LIST_INDENT),
                         marker_text
                     ),
                     true,

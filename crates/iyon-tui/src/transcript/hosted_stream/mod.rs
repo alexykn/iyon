@@ -253,6 +253,11 @@ where
         self.is_sealed() && self.partial.is_none()
     }
 
+    pub(crate) fn is_fully_native(&self) -> bool {
+        self.committed_through == self.last_source_end
+            && self.leading_boundary != LeadingBoundaryState::Pending
+    }
+
     /// Consumes the mutable host and transfers its immutable remaining source
     /// presentation to the transcript host.
     pub(crate) fn into_resident_handoff(self) -> ResidentStreamHandoff {
@@ -281,8 +286,6 @@ where
 
         ResidentStreamHandoff {
             unit_id: self.unit_id,
-            source_base: self.committed_through,
-            source_end: snapshot.source_end,
             view: snapshot
                 .view
                 .suffix_from(self.committed_through)
@@ -310,8 +313,6 @@ pub(crate) struct PreparedStreamFrame {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ResidentStreamHandoff {
     pub(crate) unit_id: crate::transcript::model::TranscriptUnitId,
-    pub(crate) source_base: StreamOffset,
-    pub(crate) source_end: StreamOffset,
     pub(crate) view: View,
     pub(crate) leading_boundary: LeadingBoundaryState,
 }

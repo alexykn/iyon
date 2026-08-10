@@ -236,15 +236,13 @@ impl AppState {
         }
 
         let unit_id = hosted.unit_id;
+        let fully_native = hosted.is_fully_native();
         let LiveTail::Streaming { hosted, .. } =
             std::mem::replace(&mut self.live_tail, LiveTail::Empty)
         else {
             unreachable!("streaming tail disappeared during finalization")
         };
         let handoff = hosted.into_resident_handoff();
-
-        let fully_native = handoff.source_base == handoff.source_end
-            && handoff.leading_boundary != crate::transcript::LeadingBoundaryState::Pending;
         if fully_native && self.transcript.hosted_unit_is_history_head(unit_id) {
             debug_assert!(
                 self.transcript.hosted_unit_is_history_head(unit_id),
@@ -757,21 +755,14 @@ pub(crate) struct InfoState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::text::Line;
-
-    fn conversation_rows(state: &mut AppState, width: u16) -> Vec<Line<'static>> {
+    fn conversation_rows(state: &mut AppState, width: u16) -> Vec<PhysicalRow> {
         state.transcript.ensure_render_cache(width);
         state
             .transcript
             .uncommitted_rows()
             .iter()
+            .chain(state.assistant_live_rows().iter())
             .cloned()
-            .chain(
-                state
-                    .assistant_live_rows()
-                    .iter()
-                    .map(crate::terminal::ratatui::row_to_line),
-            )
             .collect()
     }
 
@@ -865,7 +856,16 @@ mod tests {
         );
         state.prepare_assistant_frame(80, 0);
         let after = conversation_rows(&mut state, 80);
-        assert_eq!(before, after);
+        assert_eq!(
+            before
+                .iter()
+                .map(PhysicalRow::plain_text)
+                .collect::<Vec<_>>(),
+            after
+                .iter()
+                .map(PhysicalRow::plain_text)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

@@ -187,11 +187,7 @@ mod tests {
             &mut wrap_cache,
             root,
         );
-        let before_rows = state
-            .assistant_live_rows()
-            .iter()
-            .map(crate::terminal::ratatui::row_to_line)
-            .collect::<Vec<_>>();
+        let before_rows = state.assistant_live_rows().to_vec();
 
         state.finish_active_turn();
         assert_eq!(
@@ -207,7 +203,16 @@ mod tests {
         );
         let after_rows = state.transcript.uncommitted_rows().to_vec();
 
-        assert_eq!(before_rows, after_rows);
+        assert_eq!(
+            before_rows
+                .iter()
+                .map(PhysicalRow::plain_text)
+                .collect::<Vec<_>>(),
+            after_rows
+                .iter()
+                .map(PhysicalRow::plain_text)
+                .collect::<Vec<_>>()
+        );
         assert_eq!(before.spacer_area.height, after.spacer_area.height);
         assert_eq!(before.conversation_area.y, after.conversation_area.y);
         assert_eq!(
