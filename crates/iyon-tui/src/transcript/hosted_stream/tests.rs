@@ -143,7 +143,7 @@ fn multiline_transfer_checkpoint_does_not_recreate_newline_row() {
 }
 
 #[test]
-fn plan_commit_skips_fully_committed_atomic_group() {
+fn plan_stream_transfer_skips_fully_committed_atomic_group() {
     // Test A: atomic 3 physical rows, commit all 3, plan again from same compiled object => 0 rows
     let atomic_view = View::column(
         vec![
@@ -164,19 +164,19 @@ fn plan_commit_skips_fully_committed_atomic_group() {
     assert_eq!(compiled.transferable_prefix_rows, 3);
 
     // First commit: commit all 3 rows
-    let plan1 = plan_commit(&compiled, 3, None, StreamOffset::ZERO);
+    let plan1 = plan_stream_transfer(&compiled, 3, None, StreamOffset::ZERO);
     assert_eq!(plan1.payload.rows_to_write(), 3);
     assert_eq!(plan1.next_committed_through, StreamOffset::new(30));
     assert_eq!(plan1.next_partial, None);
 
     // Plan again from same compiled object without compacting
-    let plan2 = plan_commit(&compiled, 3, None, StreamOffset::new(30));
+    let plan2 = plan_stream_transfer(&compiled, 3, None, StreamOffset::new(30));
     assert_eq!(plan2.payload.rows_to_write(), 0);
     assert_eq!(plan2.next_committed_through, StreamOffset::new(30));
 }
 
 #[test]
-fn plan_commit_mixed_provenance_skips_exact_and_atomic_groups() {
+fn plan_stream_transfer_mixed_provenance_skips_exact_and_atomic_groups() {
     // Test B: Exact 0..5, Atomic 5..20, Exact 20..24, commit through 20, plan again
     let mut view = StreamView::empty();
     view.push(StreamNode::exact_text(
@@ -202,7 +202,7 @@ fn plan_commit_mixed_provenance_skips_exact_and_atomic_groups() {
     assert_eq!(compiled.rows.len(), 4);
 
     // Commit through source 20 (skips first Exact and whole Atomic group)
-    let plan = plan_commit(&compiled, 10, None, StreamOffset::new(20));
+    let plan = plan_stream_transfer(&compiled, 10, None, StreamOffset::new(20));
     // Only the final Exact row is written
     assert_eq!(plan.payload.rows_to_write(), 1);
     assert_eq!(plan.next_committed_through, StreamOffset::new(24));
@@ -229,7 +229,7 @@ fn compile_stream_atomic_partial_freezes_physical_rows() {
     assert_eq!(compiled.transferable_prefix_rows, 3);
 
     // Request 1 row of the 3-row atomic group
-    let plan = plan_commit(&compiled, 1, None, StreamOffset::new(0));
+    let plan = plan_stream_transfer(&compiled, 1, None, StreamOffset::new(0));
     assert_eq!(plan.payload.rows_to_write(), 1);
     // Source offset does not advance yet!
     assert_eq!(plan.next_committed_through, StreamOffset::new(0));
@@ -243,7 +243,7 @@ fn compile_stream_atomic_partial_freezes_physical_rows() {
     ));
 
     // Commit remaining 2 rows from partial state
-    let plan2 = plan_commit(
+    let plan2 = plan_stream_transfer(
         &compiled,
         2,
         plan.next_partial.as_ref(),
@@ -292,7 +292,7 @@ fn frozen_atomic_live_projection_survives_resize() {
     assert_eq!(prepared2.live_rows[2].plain_text(), "suffix-after");
     assert!(matches!(
         prepared2.history.semantic_plan.payload,
-        CommitPayload::Frozen { .. }
+        StreamTransferPayload::Frozen { .. }
     ));
     hosted.apply_commit_success(prepared2.history);
 

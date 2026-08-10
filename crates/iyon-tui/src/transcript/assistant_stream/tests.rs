@@ -1,7 +1,8 @@
 use super::*;
 use crate::{
+    stream::plan_stream_transfer,
     stream::{StreamProvenance, StreamRowTransfer, compile_stream, projected_atoms},
-    transcript::hosted_stream::{HostedStream, LeadingBoundaryState, plan_commit},
+    transcript::hosted_stream::{HostedStream, LeadingBoundaryState},
 };
 
 #[test]
@@ -523,7 +524,7 @@ fn whitespace_only_open_prefix_cannot_commit_before_classification() {
             compiled_one.transferable_prefix_rows, 0,
             "suffix={suffix:?}"
         );
-        let plan = plan_commit(&compiled_one, 10, None, StreamOffset::ZERO);
+        let plan = plan_stream_transfer(&compiled_one, 10, None, StreamOffset::ZERO);
         assert_eq!(plan.payload.rows_to_write(), 0);
         assert_eq!(plan.next_committed_through, StreamOffset::ZERO);
 

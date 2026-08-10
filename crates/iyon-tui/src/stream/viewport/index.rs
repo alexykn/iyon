@@ -19,11 +19,23 @@ pub(crate) fn build_index<S: StreamingSource>(
     model: &StreamModel<S>,
     width: u16,
 ) -> StreamRowIndex {
+    build_index_from(model, super::super::StreamOffset::ZERO, width)
+}
+
+pub(crate) fn build_index_from<S: StreamingSource>(
+    model: &StreamModel<S>,
+    start: super::super::StreamOffset,
+    width: u16,
+) -> StreamRowIndex {
     #[cfg(test)]
     BUILD_INDEX_CALLS.with(|calls| calls.set(calls.get().saturating_add(1)));
 
     let snapshot = model.snapshot();
-    let compiled = compile_stream(&model.semantic_view(), width, snapshot.stable_through);
+    let compiled = compile_stream(
+        &model.semantic_view_from(start),
+        width,
+        snapshot.stable_through,
+    );
     StreamRowIndex {
         revision: snapshot.revision,
         width,

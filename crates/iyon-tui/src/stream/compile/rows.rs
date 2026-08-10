@@ -50,4 +50,6 @@ impl Deref for CompiledStreamRow {
 pub(crate) struct CompiledStream {
     pub(crate) rows: Vec<CompiledStreamRow>,
     pub(crate) transferable_prefix_rows: usize,
+    /// Stable leading semantic nodes that produce no physical row.
+    pub(crate) zero_row_prefix: Option<StreamOffset>,
 }

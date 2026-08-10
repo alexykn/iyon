@@ -33,6 +33,7 @@
 //! ```
 
 mod app;
+mod backend;
 mod component;
 mod controls;
 mod geometry;
