@@ -7,13 +7,6 @@ use super::{context::AppCx, kernel::RunningApp};
 /// `App` stores application State, Action, and the three semantic callbacks.
 /// It has no terminal or executor dependency. The production terminal driver
 /// is added in S10.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "S9 application builder is consumed by the headless kernel and S10 runtime driver"
-    )
-)]
 pub struct App<State, Action, Error, Init, Update, ViewFn> {
     pub(crate) init: Init,
     pub(crate) update: Update,
@@ -22,13 +15,6 @@ pub struct App<State, Action, Error, Init, Update, ViewFn> {
     pub(crate) marker: std::marker::PhantomData<fn(State, Action) -> Error>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "S9 application startup is consumed by the future runtime driver"
-    )
-)]
 impl<State, Action, Error, Init, Update, ViewFn> App<State, Action, Error, Init, Update, ViewFn> {
     /// Defines an application from initialization, action update, and body
     /// derivation callbacks.
@@ -53,6 +39,13 @@ impl<State, Action, Error, Init, Update, ViewFn> App<State, Action, Error, Init,
         self
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "S9 private startup seam is consumed by the runtime driver"
+        )
+    )]
     pub(crate) fn start(
         self,
         now: std::time::Instant,
