@@ -37,6 +37,7 @@
 //! ```
 
 mod app;
+mod application;
 mod backend;
 mod component;
 mod controls;
@@ -53,6 +54,8 @@ mod terminal;
 mod theme;
 mod tools;
 mod transcript;
+
+pub use application::{App, AppCx, TimerHandle};
 
 pub use component::{Component, ComponentCx, ComponentHandle};
 pub use controls::{TextChange, TextInput};
@@ -77,7 +80,7 @@ pub use stream::{
 use std::io::stdout;
 
 use anyhow::Result;
-use app::App;
+use app::App as IyonApp;
 use crossterm::{
     event::{DisableBracketedPaste, EnableBracketedPaste},
     execute,
@@ -104,7 +107,7 @@ fn run_with_backend_handler(backend_handler: BackendEventHandler) -> Result<()> 
     execute!(stdout(), EnableBracketedPaste)?;
     let result = {
         let mut terminal = InlineTerminal::new(terminal);
-        App::with_backend_handler(backend_handler).run(&mut terminal)
+        IyonApp::with_backend_handler(backend_handler).run(&mut terminal)
     };
 
     if let Err(error) = execute!(stdout(), DisableBracketedPaste) {
