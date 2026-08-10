@@ -15,7 +15,6 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct InlineTerminal {
     terminal: DefaultTerminal,
-    last_drawn_cursor: Option<(u16, u16)>,
 }
 
 pub(crate) struct InlineHistorySink<'a> {
@@ -44,10 +43,7 @@ impl NativeHistorySink for InlineHistorySink<'_> {
 
 impl InlineTerminal {
     pub(crate) fn new(terminal: DefaultTerminal) -> Self {
-        Self {
-            terminal,
-            last_drawn_cursor: None,
-        }
+        Self { terminal }
     }
 
     pub(crate) fn draw<F>(&mut self, draw_fn: F) -> Result<()>
@@ -58,12 +54,11 @@ impl InlineTerminal {
             draw_fn(frame);
         })?;
 
-        self.last_drawn_cursor = self
-            .terminal
-            .get_cursor_position()
-            .ok()
-            .map(|position| (position.x, position.y));
-
+        // `get_cursor_position` performs a synchronous terminal DSR query with the
+        // crossterm backend. Doing that after every frame can block the async
+        // runtime (and consequently freeze ticks and streaming) when a terminal
+        // or multiplexer does not answer immediately. Frames do not expose a
+        // visible cursor, so no post-draw cursor read is needed here.
         Ok(())
     }
 
@@ -91,10 +86,6 @@ impl InlineTerminal {
             }
         })?;
 
-        if let Some((x, y)) = self.last_drawn_cursor {
-            self.terminal.set_cursor_position((x, y))?;
-        }
-
         Ok(rendered_rows)
     }
 
@@ -105,7 +96,6 @@ impl InlineTerminal {
 
     pub(crate) fn set_cursor_position(&mut self, position: (u16, u16)) -> Result<()> {
         self.terminal.set_cursor_position(position)?;
-        self.last_drawn_cursor = Some(position);
         Ok(())
     }
 
