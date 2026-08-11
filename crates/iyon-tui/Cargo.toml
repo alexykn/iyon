@@ -8,9 +8,8 @@ test-util = []
 
 [dependencies]
 anyhow.workspace = true
-crossterm.workspace = true
 futures-util.workspace = true
-ratatui = { workspace = true, features = ["scrolling-regions"] }
+termwiz.workspace = true
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
 unicode-linebreak.workspace = true
