@@ -288,6 +288,11 @@ impl IyonState {
         if text.is_empty() {
             return Ok(());
         }
+        // A steered user message is emitted at the boundary between two model
+        // responses. The core can emit it before the previous turn's final
+        // TurnFinished reaches the UI, so close the assistant stream before
+        // appending the new History unit.
+        self.seal_stream(cx)?;
         if let Some((_, component)) = self.conversation.user_batch {
             cx.with_component_mut(component, |batch| batch.push(text.clone()))
                 .ok_or_else(|| anyhow!("user batch disappeared"))?;
