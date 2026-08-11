@@ -59,10 +59,11 @@ impl TermwizBackend {
     fn from_startup(
         commands: Sender<TerminalCommand>,
         events: tokio::sync::mpsc::UnboundedReceiver<Result<TerminalEvent>>,
-        size_receiver: watch::Receiver<Size>,
+        mut size_receiver: watch::Receiver<Size>,
         worker: JoinHandle<()>,
         startup: Startup,
     ) -> Self {
+        size_receiver.borrow_and_update();
         Self {
             commands,
             events,
