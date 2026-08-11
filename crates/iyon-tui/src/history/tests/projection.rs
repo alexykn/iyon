@@ -109,20 +109,18 @@ fn bounded_live_unit_allocates_header_before_flexible_body() {
 fn bounded_history_keeps_header_above_flex_max_scroll_pane() {
     let mut history = History::new();
     let mut registry = ComponentRegistry::new();
-    let mut pane_state = crate::ScrollPane::new(View::text(
+    let pane = registry.register(crate::ScrollPane::new(View::text(
         (1..=30)
             .map(|row| format!("pane {row}"))
             .collect::<Vec<_>>()
             .join("\n"),
-    ));
-    pane_state.on_layout_changed(Size::new(20, 7));
-    let pane = registry.register(pane_state);
+    )));
     let component = registry.register(FlexibleScrollUnit { pane });
     history.push(View::component(component)).unwrap();
 
     let rendered = rows(&history, &registry, Size::new(20, 8));
     assert_eq!(rendered[0], "header");
-    assert!(rendered.iter().any(|row| row.contains("pane 30")));
+    assert!(rendered.iter().any(|row| row.contains("pane 1")));
 }
 
 #[test]

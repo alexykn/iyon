@@ -369,38 +369,6 @@ mod tests {
         }
     }
 
-    struct RoutedScrollPane(ScrollPane);
-
-    impl RoutedScrollPane {
-        fn layout_changed(&mut self, size: Size) {
-            self.0.on_layout_changed(size);
-        }
-
-        fn command(&self, key: KeyStroke) -> Option<crate::scroll::ScrollCommand> {
-            self.0.map_command(key)
-        }
-
-        fn handle(
-            &mut self,
-            command: crate::scroll::ScrollCommand,
-            cx: &mut crate::EventCx<'_>,
-        ) -> InteractionResult {
-            self.0.handle_command(command, cx)
-        }
-    }
-
-    impl Component for RoutedScrollPane {
-        fn view(&self) -> View {
-            self.0.view()
-        }
-
-        fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
-            cx.focusable();
-            cx.on_layout_changed(Self::layout_changed);
-            cx.key_commands(Self::command, Self::handle);
-        }
-    }
-
     #[test]
     fn routes_scroll_pane_locally_and_preserves_detachment_on_content_update() {
         let content = |count: usize| {
@@ -412,7 +380,7 @@ mod tests {
             )
         };
         let mut registry = ComponentRegistry::new();
-        let pane = registry.register(RoutedScrollPane(ScrollPane::new(content(30))));
+        let pane = registry.register(ScrollPane::new(content(30)));
         let scene = Scene::new(View::component(pane));
         let mut host = SceneHost::default();
         let _ = host
@@ -423,28 +391,16 @@ mod tests {
             host.dispatch_key_local(KeyStroke::new(Key::PageUp), &mut registry),
             InteractionResult::Consumed
         );
-        assert!(
-            registry
-                .with(pane, |pane| !pane.0.is_following_end())
-                .unwrap()
-        );
+        assert!(!registry.with(pane, ScrollPane::is_following_end).unwrap());
         registry
-            .with_mut(pane, |pane| pane.0.set_content(content(40)))
+            .with_mut(pane, |pane| pane.set_content(content(40)))
             .unwrap();
-        assert!(
-            registry
-                .with(pane, |pane| !pane.0.is_following_end())
-                .unwrap()
-        );
+        assert!(!registry.with(pane, ScrollPane::is_following_end).unwrap());
         assert_eq!(
             host.dispatch_key_local(KeyStroke::new(Key::End), &mut registry),
             InteractionResult::Consumed
         );
-        assert!(
-            registry
-                .with(pane, |pane| pane.0.is_following_end())
-                .unwrap()
-        );
+        assert!(registry.with(pane, ScrollPane::is_following_end).unwrap());
     }
 
     struct StatefulField;

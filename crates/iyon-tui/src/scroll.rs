@@ -14,7 +14,7 @@ enum ScrollMode {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ScrollCommand {
+enum ScrollCommand {
     LineUp,
     LineDown,
     PageUp,
@@ -146,7 +146,7 @@ impl ScrollPane {
         }
     }
 
-    pub(crate) fn on_layout_changed(&mut self, size: Size) {
+    fn on_layout_changed(&mut self, size: Size) {
         if self.layout_size == Some(size) {
             return;
         }
@@ -154,7 +154,7 @@ impl ScrollPane {
         self.repair_detached();
     }
 
-    pub(crate) fn map_command(&self, key: KeyStroke) -> Option<ScrollCommand> {
+    fn map_command(&self, key: KeyStroke) -> Option<ScrollCommand> {
         if key.modifiers() != Modifiers::NONE {
             return None;
         }
@@ -169,7 +169,7 @@ impl ScrollPane {
         }
     }
 
-    pub(crate) fn handle_command(
+    fn handle_command(
         &mut self,
         command: ScrollCommand,
         _cx: &mut crate::EventCx<'_>,
