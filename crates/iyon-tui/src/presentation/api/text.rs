@@ -1,7 +1,8 @@
 //! Typed semantic text construction backed by the canonical View IR.
 
 use super::style::{
-    BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, StyleSpec, TextAttribute,
+    BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, StyleSpec, StyleStateKey,
+    StyleStateValue, TextAttribute,
 };
 use crate::presentation::ir::{Decoration, HeightRule, TextView, View, ViewKind, WidthRule};
 
@@ -91,6 +92,8 @@ impl Text {
                 width: WidthRule::Fit,
                 height: HeightRule::Fit,
                 decoration: Decoration::default(),
+                style_states: Vec::new(),
+                component_scope: None,
                 kind: ViewKind::Text(text),
             },
         }
@@ -147,6 +150,23 @@ impl Text {
     }
 
     /// Sets the current text node's padding; repeated calls replace the prior value.
+    pub fn style_state(
+        mut self,
+        key: impl Into<StyleStateKey>,
+        value: impl Into<StyleStateValue>,
+    ) -> Self {
+        self.view = self.view.style_state(key, value);
+        self
+    }
+
+    pub fn style_states(
+        mut self,
+        states: impl IntoIterator<Item = (StyleStateKey, StyleStateValue)>,
+    ) -> Self {
+        self.view = self.view.style_states(states);
+        self
+    }
+
     pub fn padding(mut self, padding: impl Into<Insets>) -> Self {
         self.view.decoration.padding = padding.into();
         self

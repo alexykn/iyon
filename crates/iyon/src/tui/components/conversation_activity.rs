@@ -2,12 +2,13 @@ use std::time::{Duration, Instant};
 
 use iyon_tui::{
     Component, ComponentCx, ComponentHandle, EventCx, InteractionResult, IntoView, Key, KeyStroke,
-    Modifiers, Output, OverflowIndicator, StyleRef, View,
+    Modifiers, Output, ScrollPane, View,
 };
 
 use crate::transcript::{TimelineItem, ToolTimelineStatus, TuiFormatter};
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const MAX_TOOL_OUTPUT_ROWS: u16 = 16;
 
 #[derive(Debug, Clone)]
 pub(crate) enum ActivityState {
@@ -19,7 +20,7 @@ pub(crate) enum ActivityState {
         tool_name: String,
         arguments: serde_json::Value,
         status: ToolTimelineStatus,
-        output: ComponentHandle<ToolOutput>,
+        output: ComponentHandle<ScrollPane>,
     },
 }
 
@@ -35,42 +36,6 @@ struct ToolResultState {
     text: String,
     details: serde_json::Value,
     is_error: bool,
-}
-
-const MAX_TOOL_OUTPUT_ROWS: u16 = 16;
-
-#[derive(Debug, Default)]
-pub(crate) struct ToolOutput {
-    text: Option<String>,
-}
-
-impl ToolOutput {
-    pub(crate) fn set_text(&mut self, text: Option<String>) {
-        self.text = text;
-    }
-}
-
-impl Component for ToolOutput {
-    fn view(&self) -> View {
-        let Some(text) = &self.text else {
-            return View::spacer(0);
-        };
-        View::hanging(
-            View::text("  ").no_wrap(),
-            View::text("  ").no_wrap(),
-            View::text(text.clone())
-                .foreground(iyon_tui::ColorSpec::theme("text.muted"))
-                .fill_width(),
-        )
-        .fill_width()
-        .clamp_rows(
-            MAX_TOOL_OUTPUT_ROWS,
-            OverflowIndicator::Footer {
-                prefix: "… more lines (full result retained)".to_string(),
-                style: StyleRef::theme("truncation_footer"),
-            },
-        )
-    }
 }
 
 #[derive(Debug)]
@@ -102,7 +67,7 @@ impl ConversationActivity {
         arguments: serde_json::Value,
         status: ToolTimelineStatus,
         approval_id: Option<u64>,
-        output: ComponentHandle<ToolOutput>,
+        output: ComponentHandle<ScrollPane>,
     ) -> Self {
         Self {
             state: ActivityState::Tool {
@@ -131,7 +96,7 @@ impl ConversationActivity {
         arguments: serde_json::Value,
         status: ToolTimelineStatus,
         approval_id: Option<u64>,
-        output: ComponentHandle<ToolOutput>,
+        output: ComponentHandle<ScrollPane>,
     ) {
         self.state = ActivityState::Tool {
             tool_call_id,
@@ -203,7 +168,7 @@ impl ConversationActivity {
             return Some(
                 View::vertical(|column| {
                     column.child(call);
-                    column.child(View::component(*output).fill_width());
+                    column.flex_max(MAX_TOOL_OUTPUT_ROWS, View::component(*output).fill_width());
                 })
                 .fill_width(),
             );

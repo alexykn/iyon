@@ -123,6 +123,22 @@ fn history_and_body_use_remaining_height_and_terminal_width() {
 }
 
 #[test]
+fn history_tracks_all_space_left_by_intrinsic_body() {
+    let body = View::text("B1\nB2\nB3\nB4");
+    for (height, expected) in [(24, 20), (40, 36), (10, 6)] {
+        let mut history = History::new();
+        history.push("history").unwrap();
+        let resolved = resolve_root_scene(
+            &Scene::with_history(history, body.clone().into_view()),
+            &ComponentRegistry::new(),
+            Size::new(20, height),
+        )
+        .unwrap();
+        assert_eq!(resolved.history_height, expected);
+    }
+}
+
+#[test]
 fn history_follow_end_stays_above_body() {
     let mut history = History::new();
     history.push("H1\nH2\nH3\nH4\nH5\nH6").unwrap();

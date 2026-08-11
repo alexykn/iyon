@@ -144,6 +144,44 @@ async fn iyon_app_is_drivable_through_public_tui_harness() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn completed_tool_keeps_composer_below_history() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 60, 12).unwrap();
+    let handle = harness.handle();
+    for event in [
+        FrontendEvent::TurnStarted,
+        FrontendEvent::ToolCallStarted {
+            tool_call_id: "completed-tool".into(),
+            tool_name: "bash".into(),
+            arguments: serde_json::json!({"command":"printf output"}),
+        },
+        FrontendEvent::ToolCallUpdated {
+            tool_call_id: "completed-tool".into(),
+            update: ToolUpdatePresentation::Text(
+                (1..=30)
+                    .map(|row| format!("output {row}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+        },
+        FrontendEvent::ToolResult {
+            tool_call_id: "completed-tool".into(),
+            tool_name: "bash".into(),
+            text: "final output".into(),
+            details: serde_json::json!({}),
+            is_error: false,
+        },
+    ] {
+        handle.send(IyonAction::Backend(event)).unwrap();
+        while harness.step().unwrap() {}
+    }
+    let lines = harness.screen_lines();
+    assert!(lines.iter().any(|line| line.contains("final output")));
+    assert!(lines.last().is_some_and(|line| line.contains("effort")));
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn missing_tool_result_is_forced_finalized_at_turn_end() {
     let core = IyonCore::spawn_default_on_current_runtime();
     let (commands, _events) = core.split();

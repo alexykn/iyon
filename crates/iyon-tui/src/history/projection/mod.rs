@@ -482,10 +482,51 @@ fn select_end_following(
 ) {
     for item in items.iter().rev().copied() {
         let height = item_height(history, plans, units, item, width, top_padding);
-        take_selected(item, height, remaining, selected_units, selected_items);
+        if let FlowItem::Unit(index) = item
+            && let PlannedContent::Live(view) = &plans[index].content
+            && flexible_height(view)
+            && *remaining > 0
+            && height > *remaining
+        {
+            take_bounded(index, *remaining, remaining, selected_units);
+        } else {
+            take_selected(item, height, remaining, selected_units, selected_items);
+        }
         if *remaining == 0 {
             break;
         }
+    }
+}
+
+fn take_bounded(
+    index: usize,
+    height: usize,
+    remaining: &mut usize,
+    selected_units: &mut [Option<Selected>],
+) {
+    if height == 0 {
+        return;
+    }
+    selected_units[index] = Some(Selected { offset: 0, height });
+    *remaining = 0;
+}
+
+fn flexible_height(view: &View) -> bool {
+    if view.height == crate::presentation::ir::HeightRule::Fill {
+        return true;
+    }
+    match &view.kind {
+        crate::presentation::ir::ViewKind::Column(column) => column.children.iter().any(|child| {
+            matches!(
+                child.track,
+                crate::presentation::ir::TrackSize::Flex { .. }
+                    | crate::presentation::ir::TrackSize::FlexMax { .. }
+            ) || flexible_height(&child.view)
+        }),
+        crate::presentation::ir::ViewKind::Container(container) => {
+            flexible_height(&container.child)
+        }
+        _ => false,
     }
 }
 
@@ -662,11 +703,23 @@ fn unit_view(plan: &UnitPlan, unit: &super::HistoryUnit, selected: Selected) -> 
         PlannedContent::Frozen(_) => {
             View::spacer(selected.height.min(usize::from(u16::MAX)) as u16)
         }
-        PlannedContent::Live(view) => View::row_viewport_with_height(
-            view.clone(),
-            selected.offset.min(usize::from(u16::MAX)) as u16,
-            Some(selected.height.min(usize::from(u16::MAX)) as u16),
-        ),
+        PlannedContent::Live(view) => {
+            if selected.offset == 0
+                && selected.height < plan.height.unwrap_or(selected.height)
+                && flexible_height(view)
+            {
+                View::bounded_row_viewport(
+                    view.clone(),
+                    selected.height.min(usize::from(u16::MAX)) as u16,
+                )
+            } else {
+                View::row_viewport_with_height(
+                    view.clone(),
+                    selected.offset.min(usize::from(u16::MAX)) as u16,
+                    Some(selected.height.min(usize::from(u16::MAX)) as u16),
+                )
+            }
+        }
         PlannedContent::Stream { index, prefix, .. } => {
             let HistoryUnitContent::Stream(stream) = &unit.content else {
                 unreachable!("stream plan must match stream unit")

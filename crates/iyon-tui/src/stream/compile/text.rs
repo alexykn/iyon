@@ -9,6 +9,7 @@ use crate::{
     presentation::{
         ir::WidthRule,
         layout::{CompiledTextRow, ViewCompiler, row_from_graphemes, row_from_string},
+        paint::StyleContext,
         wrap::{StyledGrapheme, wrap_styled_lines},
     },
     stream::{ProjectedText, ProjectedTextLayout, projected_atoms},
@@ -62,7 +63,8 @@ impl ViewCompiler {
                     " ".repeat(usize::from(*body_column))
                 };
                 let prefix_style = if index == 0 && *show_prefix {
-                    self.theme.resolve_text_style(inherited, prefix_style)
+                    self.theme
+                        .resolve_text_style(inherited, prefix_style, &StyleContext::default())
                 } else {
                     inherited
                 };
@@ -122,7 +124,7 @@ fn projected_hard_lines(
         let mapped = StyledGrapheme {
             text: Cow::Owned(atom.display.clone()),
             width: UnicodeWidthStr::width(atom.display.as_str()),
-            style: theme.resolve_text_style(inherited, &atom.style),
+            style: theme.resolve_text_style(inherited, &atom.style, &StyleContext::default()),
             source: Some(
                 (atom.owned.start.as_u64() - text.content_range.start.as_u64()) as usize
                     ..(atom.owned.end.as_u64() - text.content_range.start.as_u64()) as usize,

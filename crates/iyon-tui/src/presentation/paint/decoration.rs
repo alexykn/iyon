@@ -5,19 +5,20 @@ use crate::{
     presentation::{BorderSpec, WidthRule, WrapMode, ir::TextView, layout::ViewCompiler},
 };
 
-use super::ThemeResolver;
+use super::{StyleContext, ThemeResolver};
 
 pub(crate) fn paint_border(
     surface: &mut Surface,
     border: &BorderSpec,
     theme: &ThemeResolver,
     inherited: PhysicalStyle,
+    context: &StyleContext,
 ) {
     if surface.width() == 0 || surface.height() == 0 {
         return;
     }
 
-    let style = border_style(border, theme, inherited);
+    let style = border_style(border, theme, inherited, context);
     let edges = border.edges;
     let glyphs = &border.glyphs;
     let last_x = surface.width().saturating_sub(1);
@@ -57,6 +58,7 @@ pub(crate) fn paint_border(
                 surface.width(),
                 WidthRule::Fill,
                 style,
+                context,
             );
             for x in 0..surface.width() {
                 let label_cell = painted.get(x, 0);
@@ -84,12 +86,13 @@ fn border_style(
     border: &BorderSpec,
     theme: &ThemeResolver,
     inherited: PhysicalStyle,
+    context: &StyleContext,
 ) -> PhysicalStyle {
     let mut style = border
         .color
         .as_ref()
         .map(|color| PhysicalStyle {
-            foreground: Some(theme.resolve_color(color)),
+            foreground: Some(theme.resolve_color(color, context)),
             ..PhysicalStyle::default()
         })
         .unwrap_or(inherited);

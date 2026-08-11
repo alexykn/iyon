@@ -47,7 +47,7 @@ impl FocusState {
         capabilities: &MountedCapabilities,
         geometry: Option<&ComponentGeometryMap>,
         registry: &mut ComponentRegistry,
-    ) {
+    ) -> bool {
         self.geometry = geometry.cloned();
         let previous_modal = self.active_modal;
         let next_modal = capabilities.modal_ids(graph.nodes.iter()).last();
@@ -86,7 +86,7 @@ impl FocusState {
             order.first().copied()
         };
 
-        self.set_focus(preferred, capabilities, registry);
+        self.set_focus(preferred, capabilities, registry)
     }
 
     fn prepare_new_modal(
@@ -184,21 +184,23 @@ impl FocusState {
         next: Option<ComponentId>,
         capabilities: &MountedCapabilities,
         registry: &mut ComponentRegistry,
-    ) {
+    ) -> bool {
         if self.focused == next {
             self.focused_handler = next
                 .and_then(|id| capabilities.get(id))
                 .and_then(|caps| caps.focus_changed.as_ref())
                 .cloned();
-            return;
+            return false;
         }
 
         let previous_handler = self.focused_handler.take();
         let previous = self.focused;
         self.focused = next;
 
+        let mut changed = false;
         if let (Some(id), Some(handler)) = (previous, previous_handler) {
             notify_focus_handler(id, handler, false, registry);
+            changed = true;
         }
 
         self.focused_handler = next
@@ -207,7 +209,9 @@ impl FocusState {
             .cloned();
         if let (Some(id), Some(handler)) = (next, self.focused_handler.as_ref()) {
             notify_focus_handler(id, handler.clone(), true, registry);
+            changed = true;
         }
+        changed
     }
 }
 

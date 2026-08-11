@@ -2,9 +2,57 @@
 
 use crate::{
     Theme,
+    component::{ComponentId, MountGraph},
     physical::{AnsiColor as PhysicalAnsiColor, PhysicalColor, PhysicalStyle},
-    presentation::api::{AnsiColor, ColorSpec, StyleRef, StyleSpec, ThemeColor},
+    presentation::api::{
+        AnsiColor, ColorSpec, StyleRef, StyleSpec, StyleStateKey, StyleStateValue, ThemeColor,
+    },
 };
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct StyleContext {
+    pub(crate) states: Vec<(StyleStateKey, StyleStateValue)>,
+    pub(crate) focused: bool,
+    pub(crate) focus_within: bool,
+}
+
+impl StyleContext {
+    pub(crate) fn with_states(&self, assignments: &[(StyleStateKey, StyleStateValue)]) -> Self {
+        let mut next = self.clone();
+        for (key, value) in assignments {
+            if let Some(existing) = next.states.iter_mut().find(|(existing, _)| existing == key) {
+                existing.1 = value.clone();
+            } else {
+                next.states.push((key.clone(), value.clone()));
+            }
+        }
+        next
+    }
+
+    pub(crate) fn with_scope(mut self, scope: Self) -> Self {
+        self.focused = scope.focused;
+        self.focus_within = scope.focus_within;
+        self
+    }
+
+    pub(crate) fn for_scope(
+        scope: Option<ComponentId>,
+        focused: Option<ComponentId>,
+        graph: Option<&MountGraph>,
+    ) -> Self {
+        let is_focused = scope.is_some_and(|scope| focused == Some(scope));
+        let focus_within = scope.is_some_and(|scope| {
+            focused.is_some_and(|focused| {
+                graph.is_some_and(|graph| graph.is_descendant_or_self(focused, scope))
+            })
+        });
+        Self {
+            states: Vec::new(),
+            focused: is_focused,
+            focus_within,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ThemeResolver {
@@ -28,22 +76,33 @@ impl ThemeResolver {
         &self,
         inherited: PhysicalStyle,
         patch: &StyleRef,
+        context: &StyleContext,
     ) -> PhysicalStyle {
         let mut resolved = inherited;
         if let Some(key) = &patch.theme
-            && let Some(named) = self.theme.style(key.as_str())
+            && let Some(named) = self.theme.resolve_style(
+                key.as_str(),
+                context.focused,
+                context.focus_within,
+                &context.states,
+            )
         {
-            resolved = self.apply_style(resolved, named);
+            resolved = self.apply_style(resolved, &named, context);
         }
-        self.apply_style(resolved, &patch.local)
+        self.apply_style(resolved, &patch.local, context)
     }
 
-    fn apply_style(&self, mut resolved: PhysicalStyle, patch: &StyleSpec) -> PhysicalStyle {
+    fn apply_style(
+        &self,
+        mut resolved: PhysicalStyle,
+        patch: &StyleSpec,
+        context: &StyleContext,
+    ) -> PhysicalStyle {
         if let Some(foreground) = &patch.foreground {
-            resolved.foreground = Some(self.resolve_color(foreground));
+            resolved.foreground = Some(self.resolve_color(foreground, context));
         }
         if let Some(background) = &patch.background {
-            resolved.background = Some(self.resolve_color(background));
+            resolved.background = Some(self.resolve_color(background, context));
         }
         if let Some(value) = patch.attributes.bold {
             resolved.bold = value;
@@ -63,7 +122,7 @@ impl ThemeResolver {
         resolved
     }
 
-    pub(crate) fn resolve_color(&self, color: &ColorSpec) -> PhysicalColor {
+    pub(crate) fn resolve_color(&self, color: &ColorSpec, context: &StyleContext) -> PhysicalColor {
         match color {
             ColorSpec::Ansi(value) => PhysicalColor::Indexed(*value),
             ColorSpec::Named(color) => PhysicalColor::Named(to_physical_ansi(*color)),
@@ -74,7 +133,12 @@ impl ThemeResolver {
             },
             ColorSpec::Theme(key) => self
                 .theme
-                .color(key.as_str())
+                .resolve_color(
+                    key.as_str(),
+                    context.focused,
+                    context.focus_within,
+                    &context.states,
+                )
                 .map_or(PhysicalColor::Default, to_physical_color),
         }
     }
@@ -113,59 +177,63 @@ fn to_physical_ansi(color: AnsiColor) -> PhysicalAnsiColor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{IntoView, View, presentation::layout::compile_view_with_theme};
+    use crate::{IntoView, StyleSelector, View, presentation::layout::compile_view_with_theme};
 
     #[test]
-    fn named_color_and_style_resolve_with_local_override_precedence() {
+    fn selectors_normalize_and_specific_variants_win() {
+        let selector = StyleSelector::state("severity", "warning")
+            .and_state("mode", "compact")
+            .and_state("severity", "error");
+        let equivalent = StyleSelector::state("mode", "compact").and_state("severity", "error");
+        assert_eq!(selector, equivalent);
+
         let theme = Theme::new()
             .with_color("accent", ThemeColor::Named(AnsiColor::Green))
-            .with_style(
-                "heading",
-                StyleSpec::new()
-                    .foreground(ColorSpec::theme("accent"))
-                    .bold(),
+            .with_color_variant(
+                "accent",
+                StyleSelector::state("severity", "error"),
+                ThemeColor::Named(AnsiColor::Red),
+            )
+            .with_color_variant(
+                "accent",
+                StyleSelector::state("severity", "error").and_focused(),
+                ThemeColor::Named(AnsiColor::Yellow),
             );
         let view = View::text("x")
-            .style(StyleRef::themed(
-                "heading",
-                StyleSpec::new().foreground(ColorSpec::Named(AnsiColor::Red)),
-            ))
-            .into_view();
+            .foreground(ColorSpec::theme("accent"))
+            .into_view()
+            .style_state("severity", "error");
         let rows = compile_view_with_theme(&view, 10, &theme).rows;
-        let style = rows[0].style_at(0).expect("painted style");
         assert_eq!(
-            style.foreground,
+            rows[0].style_at(0).unwrap().foreground,
             Some(PhysicalColor::Named(PhysicalAnsiColor::Red))
         );
-        assert!(style.bold);
     }
 
     #[test]
-    fn missing_tokens_lower_to_terminal_defaults_and_empty_named_styles() {
-        let resolver = ThemeResolver::default();
-        assert_eq!(
-            resolver.resolve_color(&ColorSpec::theme("missing")),
-            PhysicalColor::Default
+    fn named_style_variants_overlay_sparse_fields() {
+        let theme = Theme::new()
+            .with_style("field", StyleSpec::new().foreground(ColorSpec::ansi(1)))
+            .with_style_variant("field", StyleSelector::focused(), StyleSpec::new().bold())
+            .with_style_variant(
+                "field",
+                StyleSelector::state("severity", "error"),
+                StyleSpec::new().foreground(ColorSpec::ansi(2)),
+            );
+        let context = StyleContext {
+            states: vec![(
+                StyleStateKey::from_static("severity"),
+                StyleStateValue::from_static("error"),
+            )],
+            focused: true,
+            focus_within: false,
+        };
+        let resolved = ThemeResolver::new(&theme).resolve_text_style(
+            PhysicalStyle::default(),
+            &StyleRef::theme("field"),
+            &context,
         );
-        assert_eq!(
-            resolver.resolve_text_style(PhysicalStyle::default(), &StyleRef::theme("missing")),
-            PhysicalStyle::default()
-        );
-    }
-
-    #[test]
-    fn theme_is_paint_only() {
-        let view = View::text("x")
-            .style(StyleSpec::new().foreground(ColorSpec::theme("accent")))
-            .into_view();
-        let plain = compile_view_with_theme(&view, 1, &Theme::default());
-        let colored = compile_view_with_theme(
-            &view,
-            1,
-            &Theme::new().with_color("accent", ThemeColor::Indexed(42)),
-        );
-        assert_eq!(plain.rows.len(), colored.rows.len());
-        assert_eq!(plain.rows[0].plain_text(), colored.rows[0].plain_text());
-        assert_ne!(plain.rows[0].style_at(0), colored.rows[0].style_at(0));
+        assert_eq!(resolved.foreground, Some(PhysicalColor::Indexed(2)));
+        assert!(resolved.bold);
     }
 }

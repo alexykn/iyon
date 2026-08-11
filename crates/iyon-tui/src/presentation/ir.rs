@@ -6,7 +6,10 @@
 use crate::component::ComponentId;
 
 use super::api::{
-    style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, VerticalAlign},
+    style::{
+        BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, StyleStateKey, StyleStateValue,
+        VerticalAlign,
+    },
     text::{HorizontalAlign, TextSpan, WrapMode},
 };
 
@@ -20,6 +23,8 @@ pub struct View {
     pub(crate) width: WidthRule,
     pub(crate) height: HeightRule,
     pub(crate) decoration: Decoration,
+    pub(crate) style_states: Vec<(StyleStateKey, StyleStateValue)>,
+    pub(crate) component_scope: Option<ComponentId>,
     pub(crate) kind: ViewKind,
 }
 
@@ -200,6 +205,7 @@ pub(crate) enum TrackSize {
     Content { max: Option<u16> },
     Fixed(u16),
     Flex { min: u16 },
+    FlexMax { min: u16, max: u16 },
 }
 
 /// RETAINED SEMANTIC IR. Structural container holding one semantic child.
@@ -236,4 +242,7 @@ pub(crate) struct RowViewportView {
     /// When set, the viewport contributes this intrinsic height instead of
     /// the child's remaining height. `None` lets the parent provide it.
     pub(crate) visible_height: Option<u16>,
+    /// Internal bounded allocation for flexible child layout. This differs
+    /// from `visible_height`: the child itself receives this height.
+    pub(crate) layout_height: Option<u16>,
 }

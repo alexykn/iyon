@@ -11,6 +11,8 @@ impl View {
             width: WidthRule::Fit,
             height: HeightRule::Fit,
             decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
             kind: ViewKind::ComponentSlot(ComponentSlotNode { id: handle.id() }),
         }
     }

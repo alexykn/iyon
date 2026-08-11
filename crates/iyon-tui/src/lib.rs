@@ -47,6 +47,7 @@ mod output;
 mod physical;
 mod presentation;
 mod scene;
+mod scroll;
 mod stream;
 mod terminal;
 #[cfg(feature = "test-util")]
@@ -63,13 +64,14 @@ pub use history::{
 pub use interaction::{InteractionResult, Key, KeyStroke, MediaKey, ModifierKey, Modifiers};
 pub use output::{EventCx, Output, OutputRouter, RouteConflict};
 pub use scene::Scene;
+pub use scroll::ScrollPane;
 pub use theme::Theme;
 
 pub use presentation::api::{
     AnsiColor, BorderEdges, BorderGlyphError, BorderGlyphs, BorderSpec, BorderStyle, ColorSpec,
-    Horizontal, HorizontalAlign, Insets, IntoView, OverflowIndicator, StyleRef, StyleSpec, Text,
-    TextAttribute, TextAttributeSpec, TextSpan, ThemeColor, ThemeKey, Vertical, VerticalAlign,
-    View, WrapMode,
+    Horizontal, HorizontalAlign, Insets, IntoView, OverflowIndicator, StyleRef, StyleSelector,
+    StyleSpec, StyleStateKey, StyleStateValue, Text, TextAttribute, TextAttributeSpec, TextSpan,
+    ThemeColor, ThemeKey, Vertical, VerticalAlign, View, WrapMode,
 };
 pub use stream::{
     ProjectedText, ProjectedTextBuilder, ProjectedValidationError, StreamError, StreamOffset,

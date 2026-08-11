@@ -5,12 +5,37 @@
 
 use std::collections::HashMap;
 
-use crate::presentation::api::{StyleSpec, ThemeColor, ThemeKey};
+use crate::presentation::api::{
+    StyleSelector, StyleSpec, StyleStateKey, StyleStateValue, ThemeColor, ThemeKey,
+};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ThemeVariant<T> {
+    selector: StyleSelector,
+    value: T,
+    declaration_order: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ThemeEntry<T> {
+    base: Option<T>,
+    variants: Vec<ThemeVariant<T>>,
+}
+
+impl<T> Default for ThemeEntry<T> {
+    fn default() -> Self {
+        Self {
+            base: None,
+            variants: Vec::new(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Theme {
-    colors: HashMap<ThemeKey, ThemeColor>,
-    styles: HashMap<ThemeKey, StyleSpec>,
+    colors: HashMap<ThemeKey, ThemeEntry<ThemeColor>>,
+    styles: HashMap<ThemeKey, ThemeEntry<StyleSpec>>,
+    next_declaration_order: u64,
 }
 
 impl Theme {
@@ -19,32 +44,161 @@ impl Theme {
     }
 
     pub fn with_color(mut self, key: impl Into<ThemeKey>, color: ThemeColor) -> Self {
-        self.colors.insert(key.into(), color);
+        self.set_color(key, color);
+        self
+    }
+
+    pub fn with_color_variant(
+        mut self,
+        key: impl Into<ThemeKey>,
+        selector: StyleSelector,
+        color: ThemeColor,
+    ) -> Self {
+        self.set_color_variant(key, selector, color);
         self
     }
 
     pub fn with_style(mut self, key: impl Into<ThemeKey>, style: StyleSpec) -> Self {
-        self.styles.insert(key.into(), style);
+        self.set_style(key, style);
+        self
+    }
+
+    pub fn with_style_variant(
+        mut self,
+        key: impl Into<ThemeKey>,
+        selector: StyleSelector,
+        style: StyleSpec,
+    ) -> Self {
+        self.set_style_variant(key, selector, style);
         self
     }
 
     pub fn set_color(&mut self, key: impl Into<ThemeKey>, color: ThemeColor) -> Option<ThemeColor> {
-        self.colors.insert(key.into(), color)
+        self.colors
+            .entry(key.into())
+            .or_default()
+            .base
+            .replace(color)
+    }
+
+    pub fn set_color_variant(
+        &mut self,
+        key: impl Into<ThemeKey>,
+        selector: StyleSelector,
+        color: ThemeColor,
+    ) -> Option<ThemeColor> {
+        let order = self.next_order();
+        self.colors
+            .entry(key.into())
+            .or_default()
+            .variants
+            .push(ThemeVariant {
+                selector,
+                value: color,
+                declaration_order: order,
+            });
+        None
     }
 
     pub fn set_style(&mut self, key: impl Into<ThemeKey>, style: StyleSpec) -> Option<StyleSpec> {
-        self.styles.insert(key.into(), style)
+        self.styles
+            .entry(key.into())
+            .or_default()
+            .base
+            .replace(style)
+    }
+
+    pub fn set_style_variant(
+        &mut self,
+        key: impl Into<ThemeKey>,
+        selector: StyleSelector,
+        style: StyleSpec,
+    ) -> Option<StyleSpec> {
+        let order = self.next_order();
+        self.styles
+            .entry(key.into())
+            .or_default()
+            .variants
+            .push(ThemeVariant {
+                selector,
+                value: style,
+                declaration_order: order,
+            });
+        None
     }
 
     pub fn color(&self, key: &str) -> Option<ThemeColor> {
-        self.colors
-            .iter()
-            .find_map(|(name, color)| (name.as_str() == key).then_some(*color))
+        self.resolve_color(key, false, false, &[])
     }
 
     pub fn style(&self, key: &str) -> Option<&StyleSpec> {
         self.styles
             .iter()
-            .find_map(|(name, style)| (name.as_str() == key).then_some(style))
+            .find_map(|(name, entry)| (name.as_str() == key).then_some(entry.base.as_ref()))
+            .flatten()
+    }
+
+    pub(crate) fn resolve_color(
+        &self,
+        key: &str,
+        focused: bool,
+        focus_within: bool,
+        states: &[(StyleStateKey, StyleStateValue)],
+    ) -> Option<ThemeColor> {
+        let entry = self
+            .colors
+            .iter()
+            .find_map(|(name, entry)| (name.as_str() == key).then_some(entry))?;
+        let mut resolved = entry.base;
+        let mut variants = entry
+            .variants
+            .iter()
+            .filter(|variant| variant.selector.matches(focused, focus_within, states))
+            .collect::<Vec<_>>();
+        variants.sort_by_key(|variant| {
+            (
+                variant.selector.predicate_count(),
+                variant.declaration_order,
+            )
+        });
+        for variant in variants {
+            resolved = Some(variant.value);
+        }
+        resolved
+    }
+
+    pub(crate) fn resolve_style(
+        &self,
+        key: &str,
+        focused: bool,
+        focus_within: bool,
+        states: &[(StyleStateKey, StyleStateValue)],
+    ) -> Option<StyleSpec> {
+        let entry = self
+            .styles
+            .iter()
+            .find_map(|(name, entry)| (name.as_str() == key).then_some(entry))?;
+        let mut resolved = entry.base.clone().unwrap_or_default();
+        let mut variants = entry
+            .variants
+            .iter()
+            .filter(|variant| variant.selector.matches(focused, focus_within, states))
+            .collect::<Vec<_>>();
+        variants.sort_by_key(|variant| {
+            (
+                variant.selector.predicate_count(),
+                variant.declaration_order,
+            )
+        });
+        for variant in variants {
+            resolved.overlay(&variant.value);
+        }
+        Some(resolved)
+    }
+
+    fn next_order(&mut self) -> u64 {
+        let order = self.next_declaration_order;
+        self.next_declaration_order = self.next_declaration_order.saturating_add(1);
+        order
     }
 }

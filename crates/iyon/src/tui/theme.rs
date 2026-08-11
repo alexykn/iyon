@@ -1,4 +1,26 @@
-use iyon_tui::Theme;
+use iyon_api::ReasoningLevel;
+use iyon_tui::{StyleSelector, StyleStateKey, StyleStateValue, Theme};
+
+pub(crate) const AGENT_EFFORT: StyleStateKey = StyleStateKey::from_static("iyon.agent.effort");
+pub(crate) const EFFORT_NONE: StyleStateValue = StyleStateValue::from_static("none");
+pub(crate) const EFFORT_MINIMAL: StyleStateValue = StyleStateValue::from_static("minimal");
+pub(crate) const EFFORT_LOW: StyleStateValue = StyleStateValue::from_static("low");
+pub(crate) const EFFORT_MEDIUM: StyleStateValue = StyleStateValue::from_static("medium");
+pub(crate) const EFFORT_HIGH: StyleStateValue = StyleStateValue::from_static("high");
+pub(crate) const EFFORT_XHIGH: StyleStateValue = StyleStateValue::from_static("xhigh");
+pub(crate) const EFFORT_MAX: StyleStateValue = StyleStateValue::from_static("max");
+
+pub(crate) fn effort_style_value(level: ReasoningLevel) -> StyleStateValue {
+    match level {
+        ReasoningLevel::None => EFFORT_NONE.clone(),
+        ReasoningLevel::Minimal => EFFORT_MINIMAL.clone(),
+        ReasoningLevel::Low => EFFORT_LOW.clone(),
+        ReasoningLevel::Medium => EFFORT_MEDIUM.clone(),
+        ReasoningLevel::High => EFFORT_HIGH.clone(),
+        ReasoningLevel::XHigh => EFFORT_XHIGH.clone(),
+        ReasoningLevel::Max => EFFORT_MAX.clone(),
+    }
+}
 
 pub(crate) fn iyon_theme() -> Theme {
     Theme::new()
@@ -109,6 +131,31 @@ pub(crate) fn iyon_theme() -> Theme {
                 g: 216,
                 b: 230,
             },
+        )
+        .with_color_variant(
+            "input.border",
+            StyleSelector::state(AGENT_EFFORT.clone(), EFFORT_LOW.clone()),
+            iyon_tui::ThemeColor::Named(iyon_tui::AnsiColor::Green),
+        )
+        .with_color_variant(
+            "input.border",
+            StyleSelector::state(AGENT_EFFORT.clone(), EFFORT_MEDIUM.clone()),
+            iyon_tui::ThemeColor::Named(iyon_tui::AnsiColor::Yellow),
+        )
+        .with_color_variant(
+            "input.border",
+            StyleSelector::state(AGENT_EFFORT.clone(), EFFORT_HIGH.clone()),
+            iyon_tui::ThemeColor::Named(iyon_tui::AnsiColor::Magenta),
+        )
+        .with_color_variant(
+            "input.border",
+            StyleSelector::state(AGENT_EFFORT.clone(), EFFORT_LOW.clone()).and_focused(),
+            iyon_tui::ThemeColor::Named(iyon_tui::AnsiColor::LightGreen),
+        )
+        .with_color_variant(
+            "input.border",
+            StyleSelector::state(AGENT_EFFORT.clone(), EFFORT_HIGH.clone()).and_focused(),
+            iyon_tui::ThemeColor::Named(iyon_tui::AnsiColor::LightMagenta),
         )
         .with_style(
             "tool.running",

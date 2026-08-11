@@ -137,6 +137,7 @@ impl Resolver<'_> {
                     child: Box::new(self.resolve_view(&viewport.child, parent)?),
                     skip_rows: viewport.skip_rows,
                     visible_height: viewport.visible_height,
+                    layout_height: viewport.layout_height,
                 })
             }
             ViewKind::ComponentSlot(slot) => return self.resolve_slot(view, slot.id, parent),
@@ -144,6 +145,7 @@ impl Resolver<'_> {
 
         let mut resolved = view.clone();
         resolved.kind = kind;
+        resolved.component_scope = parent;
         Ok(resolved)
     }
 
@@ -187,6 +189,8 @@ impl Resolver<'_> {
             width: slot.width,
             height: slot.height,
             decoration: slot.decoration.clone(),
+            style_states: slot.style_states.clone(),
+            component_scope: Some(id),
             kind: ViewKind::Container(ContainerNode {
                 child: Box::new(resolved),
             }),

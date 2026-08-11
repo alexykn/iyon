@@ -2,7 +2,10 @@
 
 use super::{
     composition::{Horizontal, Vertical},
-    style::{BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, StyleSpec, TextAttribute},
+    style::{
+        BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, StyleSpec, StyleStateKey,
+        StyleStateValue, TextAttribute,
+    },
     text::{Text, TextSpan},
 };
 use crate::presentation::ir::{
@@ -31,6 +34,8 @@ impl View {
             width: WidthRule::Fit,
             height: HeightRule::Fit,
             decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
             kind: ViewKind::Row(RowView {
                 children,
                 gap,
@@ -51,6 +56,8 @@ impl View {
             width: WidthRule::Fit,
             height: HeightRule::Fit,
             decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
             kind: ViewKind::Column(ColumnView { children, gap }),
         }
     }
@@ -91,6 +98,8 @@ impl View {
             width: WidthRule::Fit,
             height: HeightRule::Fit,
             decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
             kind: ViewKind::Hanging(HangingView {
                 prefix: Box::new(prefix),
                 continuation_prefix: Box::new(continuation_prefix),
@@ -105,6 +114,8 @@ impl View {
             width: WidthRule::Fit,
             height: HeightRule::Fit,
             decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
             kind: ViewKind::Column(ColumnView {
                 children: children.into_iter().map(ColumnChild::content).collect(),
                 gap,
@@ -123,6 +134,8 @@ impl View {
             width,
             height,
             decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
             kind: ViewKind::Container(ContainerNode {
                 child: Box::new(child),
             }),
@@ -147,10 +160,30 @@ impl View {
             width: WidthRule::Fill,
             height: HeightRule::Fill,
             decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
             kind: ViewKind::RowViewport(crate::presentation::ir::RowViewportView {
                 child: Box::new(child),
                 skip_rows,
                 visible_height,
+                layout_height: None,
+            }),
+        }
+    }
+
+    pub(crate) fn bounded_row_viewport(child: View, height: u16) -> Self {
+        Self {
+            component: None,
+            width: WidthRule::Fill,
+            height: HeightRule::Fill,
+            decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
+            kind: ViewKind::RowViewport(crate::presentation::ir::RowViewportView {
+                child: Box::new(child),
+                skip_rows: 0,
+                visible_height: Some(height),
+                layout_height: Some(height),
             }),
         }
     }
@@ -166,6 +199,8 @@ impl View {
             width,
             height,
             decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
             kind: ViewKind::ClampRows(ClampRowsView {
                 child: Box::new(child),
                 max_rows,
@@ -180,8 +215,41 @@ impl View {
             width: WidthRule::Fit,
             height: HeightRule::Fit,
             decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
             kind: ViewKind::Spacer { rows },
         }
+    }
+
+    /// Assigns one application-owned semantic styling dimension to this View
+    /// subtree. Appearance is resolved later during painting.
+    pub fn style_state(
+        mut self,
+        key: impl Into<StyleStateKey>,
+        value: impl Into<StyleStateValue>,
+    ) -> Self {
+        let key = key.into();
+        if let Some(existing) = self
+            .style_states
+            .iter_mut()
+            .find(|(existing, _)| existing == &key)
+        {
+            existing.1 = value.into();
+        } else {
+            self.style_states.push((key, value.into()));
+        }
+        self
+    }
+
+    /// Assigns multiple application-owned semantic styling dimensions.
+    pub fn style_states(
+        mut self,
+        states: impl IntoIterator<Item = (StyleStateKey, StyleStateValue)>,
+    ) -> Self {
+        for (key, value) in states {
+            self = self.style_state(key, value);
+        }
+        self
     }
 
     /// Sets the current node's padding; repeated calls replace the prior value.

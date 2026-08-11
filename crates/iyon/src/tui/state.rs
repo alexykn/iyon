@@ -6,16 +6,15 @@ use serde_json::Value;
 
 use iyon_tui::{
     AppCx, BorderEdges, BorderSpec, ColorSpec, ComponentHandle, FlowBoundary, HistoryStreamHandle,
-    HistoryUnitId, Key, KeyStroke, Modifiers, Output, RouteConflict, TextInput, View,
+    HistoryUnitId, Key, KeyStroke, Modifiers, Output, RouteConflict, ScrollPane, TextInput, View,
 };
 
 use super::{
     backend::{BackendCommands, ToolUpdatePresentation},
-    components::{
-        ApprovalDecision, ConversationActivity, SteeringQueuePanel, ToolOutput, UserBatch,
-    },
+    components::{ApprovalDecision, ConversationActivity, SteeringQueuePanel, UserBatch},
     controller::IyonAction,
     stream_smoother::StreamSmoother,
+    theme::{AGENT_EFFORT, effort_style_value},
     transcript::{AssistantStream, SegmentKind, TimelineItem, ToolTimelineStatus, TuiFormatter},
 };
 
@@ -86,7 +85,7 @@ pub(crate) struct InfoState {
 struct LiveTool {
     unit: HistoryUnitId,
     component: ComponentHandle<ConversationActivity>,
-    output: ComponentHandle<ToolOutput>,
+    output: ComponentHandle<ScrollPane>,
 }
 
 pub(crate) struct ConversationState {
@@ -222,7 +221,12 @@ impl IyonState {
         if !self.body_visible {
             return View::spacer(0);
         }
-        let composer = View::component(self.composer).fill_width();
+        let composer = View::component(self.composer)
+            .style_state(
+                AGENT_EFFORT.clone(),
+                effort_style_value(self.info.reasoning_effort),
+            )
+            .fill_width();
         let steering = View::component(self.steering).fill_width();
         let footer = View::text(self.footer_text()).fill_width();
         View::vertical(|column| {
@@ -435,7 +439,7 @@ impl IyonState {
     ) -> Result<()> {
         self.freeze_user_batch(cx)?;
         self.seal_stream(cx)?;
-        let output = cx.register(ToolOutput::default());
+        let output = cx.register(ScrollPane::new(View::spacer(0)));
         let (unit, component) = if let Some((unit, component)) = self.conversation.working.take() {
             cx.with_component_mut(component, |activity| {
                 activity.transition_to_tool(
@@ -486,7 +490,7 @@ impl IyonState {
             return Ok(());
         };
         cx.with_component_mut(tool.output, |output| {
-            output.set_text(format_tool_update(update));
+            output.set_content(tool_output_view(format_tool_update(update)));
         })
         .ok_or_else(|| anyhow!("tool output disappeared"))?;
         Ok(())
@@ -644,7 +648,7 @@ impl IyonState {
         }
         if let Some(tool) = self.conversation.tools.get(&id).copied() {
             cx.with_component_mut(tool.output, |output| {
-                output.set_text(Some(text.clone()));
+                output.set_content(tool_output_view(Some(text.clone())));
             })
             .ok_or_else(|| anyhow!("tool output disappeared"))?;
             cx.with_component_mut(tool.component, |activity| {
@@ -694,6 +698,20 @@ impl IyonState {
         self.body_visible = false;
         Ok(())
     }
+}
+
+fn tool_output_view(text: Option<String>) -> View {
+    let Some(text) = text else {
+        return View::spacer(0);
+    };
+    View::hanging(
+        View::text("  ").no_wrap(),
+        View::text("  ").no_wrap(),
+        View::text(text)
+            .foreground(ColorSpec::theme("text.muted"))
+            .fill_width(),
+    )
+    .fill_width()
 }
 
 fn format_tool_update(update: ToolUpdatePresentation) -> Option<String> {
