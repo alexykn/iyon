@@ -112,12 +112,6 @@ async fn iyon_app_is_drivable_through_public_tui_harness() {
             arguments: serde_json::json!({"command":"echo hi"}),
         }))
         .unwrap();
-    handle
-        .send(IyonAction::Backend(FrontendEvent::ToolCallUpdated {
-            tool_call_id: "tool-1".into(),
-            update: ToolUpdatePresentation::Text("running".into()),
-        }))
-        .unwrap();
     while harness.step().unwrap() {}
     assert!(
         harness
@@ -125,11 +119,24 @@ async fn iyon_app_is_drivable_through_public_tui_harness() {
             .iter()
             .any(|line| line.contains("echo hi"))
     );
+    handle
+        .send(IyonAction::Backend(FrontendEvent::ToolCallUpdated {
+            tool_call_id: "tool-1".into(),
+            update: ToolUpdatePresentation::Text("running\nsecond".into()),
+        }))
+        .unwrap();
+    while harness.step().unwrap() {}
     assert!(
         harness
             .screen_lines()
             .iter()
             .any(|line| line.contains("running"))
+    );
+    assert!(
+        harness
+            .screen_lines()
+            .iter()
+            .any(|line| line.contains("second"))
     );
 
     handle.send(IyonAction::RequestExit).unwrap();
