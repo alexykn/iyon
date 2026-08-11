@@ -261,6 +261,30 @@ mod tests {
     }
 
     #[test]
+    fn missing_named_style_is_a_no_op_and_local_style_overrides_named_fields() {
+        let theme = Theme::new().with_style(
+            "heading",
+            StyleSpec::new().foreground(ColorSpec::ansi(1)).bold(),
+        );
+        let resolver = ThemeResolver::new(&theme);
+        assert_eq!(
+            resolver.resolve_text_style(
+                PhysicalStyle::default(),
+                &StyleRef::theme("missing"),
+                &StyleContext::default(),
+            ),
+            PhysicalStyle::default()
+        );
+        let resolved = resolver.resolve_text_style(
+            PhysicalStyle::default(),
+            &StyleRef::themed("heading", StyleSpec::new().foreground(ColorSpec::ansi(2))),
+            &StyleContext::default(),
+        );
+        assert_eq!(resolved.foreground, Some(PhysicalColor::Indexed(2)));
+        assert!(resolved.bold);
+    }
+
+    #[test]
     fn theme_changes_paint_without_changing_geometry() {
         let themed = View::text("hello")
             .foreground(ColorSpec::theme("accent"))
