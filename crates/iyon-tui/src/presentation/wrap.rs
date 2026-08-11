@@ -424,6 +424,10 @@ pub(crate) fn input_wrap_ranges(text: &str, width: u16) -> Vec<Range<usize>> {
                 }
             };
 
+            if range.start > consumed_abs {
+                push_input_remainder(&mut visual, text, consumed_abs, range.start, wrap_width);
+            }
+
             let piece_width = UnicodeWidthStr::width(&text[range.clone()]);
             let mut remaining = wrap_width.saturating_sub(piece_width);
             let mut end = range.end;
@@ -441,6 +445,12 @@ pub(crate) fn input_wrap_ranges(text: &str, width: u16) -> Vec<Range<usize>> {
             visual.push(range.start..end);
             consumed_abs = end;
         }
+
+        // `textwrap` trims trailing whitespace from each piece. If it does not
+        // fit in the remaining cells, that whitespace is not returned at all;
+        // retain it on following visual rows so cursor anchors still have a
+        // source range to inhabit.
+        push_input_remainder(&mut visual, text, consumed_abs, logical.end, wrap_width);
     }
 
     if visual.is_empty() {
@@ -509,6 +519,37 @@ fn cursor_position(
         wrapped.fits = wrapped.width <= max_columns;
     }
     (row, column)
+}
+
+fn push_input_remainder(
+    visual: &mut Vec<Range<usize>>,
+    text: &str,
+    mut start: usize,
+    end: usize,
+    width: usize,
+) {
+    while start < end {
+        let row_start = start;
+        let mut row_end = start;
+        let mut used = 0usize;
+        for (offset, character) in text[start..end].char_indices() {
+            let character_width = character.width().unwrap_or(0);
+            if row_end > row_start && used.saturating_add(character_width) > width {
+                break;
+            }
+            row_end = start + offset + character.len_utf8();
+            used = used.saturating_add(character_width);
+        }
+        if row_end == row_start {
+            let character = text[start..end]
+                .chars()
+                .next()
+                .expect("input remainder should contain a character");
+            row_end += character.len_utf8();
+        }
+        visual.push(row_start..row_end);
+        start = row_end;
+    }
 }
 
 fn input_map_owned_piece(
