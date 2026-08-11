@@ -7,8 +7,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures_util::task::noop_waker_ref;
-
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, error::TryRecvError};
 
 use super::{
@@ -1403,7 +1401,7 @@ async fn terminal_session_restores_when_run_future_is_dropped() {
     );
     let (backend, control) = fake_backend();
     let mut runtime = Box::pin(super::run::run_with_backend(app, backend));
-    let waker = noop_waker_ref();
+    let waker = std::task::Waker::noop();
     let mut context = Context::from_waker(waker);
     assert!(matches!(runtime.as_mut().poll(&mut context), Poll::Pending));
     drop(runtime);

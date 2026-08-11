@@ -12,20 +12,17 @@ use crate::{
 };
 
 pub(crate) fn desired_surface(frame: &PreparedSceneFrame) -> Surface {
-    let mut physical = frame.surface.clone();
-    if let Some(overlay) = &frame.history_overlay {
-        apply_overlay(&mut physical, overlay);
-    }
-
-    let mut desired = Surface::new(
-        usize::from(physical.width()),
-        usize::from(physical.height()),
-    );
-    desired.add_changes(surface_changes(&physical));
-    if physical.width() > 0 && physical.height() > 0 {
+    let width = frame.surface.width();
+    let height = frame.surface.height();
+    let mut desired = Surface::new(usize::from(width), usize::from(height));
+    desired.add_changes(surface_changes_with_overlay(
+        &frame.surface,
+        frame.history_overlay.as_ref(),
+    ));
+    if width > 0 && height > 0 {
         desired.add_change(Change::CursorPosition {
             x: Position::Absolute(0),
-            y: Position::Absolute(usize::from(physical.height().saturating_sub(1))),
+            y: Position::Absolute(usize::from(height.saturating_sub(1))),
         });
         desired.add_change(Change::CursorVisibility(
             termwiz::surface::CursorVisibility::Hidden,
@@ -34,17 +31,89 @@ pub(crate) fn desired_surface(frame: &PreparedSceneFrame) -> Surface {
     desired
 }
 
-pub(crate) fn surface_changes(surface: &crate::physical::Surface) -> Vec<Change> {
+fn surface_changes_with_overlay(
+    surface: &crate::physical::Surface,
+    overlay: Option<&crate::history::HistoryPhysicalOverlay>,
+) -> Vec<Change> {
     let mut changes = Vec::new();
     for y in 0..surface.height() {
-        let row = PhysicalRow::from_cells(
-            (0..surface.width())
-                .map(|x| surface.get(x, y).clone())
-                .collect(),
-        );
-        changes.extend(row_changes(&row, usize::from(y), true));
+        changes.extend(direct_row_changes(surface, overlay, y));
     }
     changes
+}
+
+fn direct_row_changes(
+    surface: &crate::physical::Surface,
+    overlay: Option<&crate::history::HistoryPhysicalOverlay>,
+    y: u16,
+) -> Vec<Change> {
+    let width = usize::from(surface.width());
+    let overlay_row = overlay.and_then(|overlay| {
+        let offset = usize::from(y).checked_sub(usize::from(overlay.row))?;
+        overlay.rows.get(offset)
+    });
+    let overlay_last_written =
+        overlay_row.and_then(|row| row.cells().iter().rposition(|cell| cell.painted));
+    let last_written = (0..width)
+        .filter(|&x| effective_cell(surface, overlay_row, overlay_last_written, x, y).painted)
+        .max();
+    let mut changes = vec![Change::CursorPosition {
+        x: Position::Absolute(0),
+        y: Position::Absolute(usize::from(y)),
+    }];
+    let Some(last_written) = last_written else {
+        return changes;
+    };
+
+    let mut active_style: Option<CellAttributes> = None;
+    let mut text = String::new();
+    for x in 0..=last_written {
+        let cell = effective_cell(surface, overlay_row, overlay_last_written, x, y);
+        if cell.continuation {
+            continue;
+        }
+        let style = if cell.painted {
+            physical_style(cell.style)
+        } else {
+            CellAttributes::default()
+        };
+        let grapheme = if cell.painted {
+            cell.grapheme.as_deref().unwrap_or(" ")
+        } else {
+            " "
+        };
+        if active_style.as_ref() != Some(&style) {
+            flush_text(&mut changes, &mut text, active_style.take());
+            active_style = Some(style);
+        }
+        text.push_str(grapheme);
+    }
+    flush_text(&mut changes, &mut text, active_style);
+    changes
+}
+
+fn effective_cell(
+    surface: &crate::physical::Surface,
+    overlay_row: Option<&PhysicalRow>,
+    overlay_last_written: Option<usize>,
+    x: usize,
+    y: u16,
+) -> PhysicalCell {
+    if overlay_last_written.is_some_and(|last| x <= last) {
+        if let Some(row) = overlay_row {
+            return row
+                .cell(x)
+                .cloned()
+                .filter(|cell| cell.painted)
+                .unwrap_or(PhysicalCell {
+                    grapheme: None,
+                    style: PhysicalStyle::default(),
+                    painted: true,
+                    continuation: false,
+                });
+        }
+    }
+    surface.get(x as u16, y).clone()
 }
 
 pub(crate) fn row_changes(row: &PhysicalRow, y: usize, clear_tail: bool) -> Vec<Change> {
@@ -163,42 +232,6 @@ fn ansi_color(value: IyonAnsiColor) -> AnsiColor {
         IyonAnsiColor::LightMagenta => AnsiColor::Fuchsia,
         IyonAnsiColor::LightCyan => AnsiColor::Aqua,
         IyonAnsiColor::White => AnsiColor::White,
-    }
-}
-
-fn apply_overlay(
-    surface: &mut crate::physical::Surface,
-    overlay: &crate::history::HistoryPhysicalOverlay,
-) {
-    if surface.width() == 0 {
-        return;
-    }
-    for (row_index, row) in overlay.rows.iter().enumerate() {
-        let y = usize::from(overlay.row).saturating_add(row_index);
-        if y >= usize::from(surface.height()) {
-            continue;
-        }
-        let Some(last_written) = row.cells().iter().rposition(|cell| cell.painted) else {
-            continue;
-        };
-        for x in 0..=last_written.min(usize::from(surface.width()).saturating_sub(1)) {
-            let cell = row.cell(x).cloned().unwrap_or_else(|| PhysicalCell {
-                grapheme: None,
-                style: PhysicalStyle::default(),
-                painted: true,
-                continuation: false,
-            });
-            *surface.get_mut(x as u16, y as u16) = if cell.painted {
-                cell
-            } else {
-                PhysicalCell {
-                    grapheme: None,
-                    style: PhysicalStyle::default(),
-                    painted: true,
-                    continuation: false,
-                }
-            };
-        }
     }
 }
 
