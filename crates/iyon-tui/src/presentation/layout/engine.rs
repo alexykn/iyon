@@ -127,6 +127,7 @@ impl Builder {
             core_width,
             requested_core_height,
             view.height == HeightRule::Fill,
+            height_bound.is_some(),
             clip,
         );
         let core_width = match view.width {
@@ -206,6 +207,7 @@ impl Builder {
         width: u16,
         height: u16,
         fill_height: bool,
+        bounded_height: bool,
         clip: Rect,
     ) -> (Vec<LayoutNodeId>, Size, bool) {
         match kind {
@@ -246,9 +248,18 @@ impl Builder {
                     vec![id],
                     Size::new(
                         width,
-                        viewport.visible_height.unwrap_or_else(|| {
-                            child_size.height.saturating_sub(viewport.skip_rows)
-                        }),
+                        if viewport.intrinsic_content_height {
+                            let remaining = child_size.height.saturating_sub(viewport.skip_rows);
+                            if bounded_height {
+                                height.min(remaining)
+                            } else {
+                                child_size.height
+                            }
+                        } else {
+                            viewport.visible_height.unwrap_or_else(|| {
+                                child_size.height.saturating_sub(viewport.skip_rows)
+                            })
+                        },
                     ),
                     child_complete,
                 )

@@ -144,7 +144,21 @@ impl View {
 
     /// Creates a private vertical viewport around a semantic view.
     pub(crate) fn row_viewport(child: View, skip_rows: u16) -> Self {
-        Self::row_viewport_with_height(child, skip_rows, None)
+        Self {
+            component: None,
+            width: WidthRule::Fill,
+            height: HeightRule::Fill,
+            decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
+            kind: ViewKind::RowViewport(crate::presentation::ir::RowViewportView {
+                child: Box::new(child),
+                skip_rows,
+                visible_height: None,
+                layout_height: None,
+                intrinsic_content_height: true,
+            }),
+        }
     }
 
     /// Creates a private vertical viewport with an explicit visible height.
@@ -167,6 +181,7 @@ impl View {
                 skip_rows,
                 visible_height,
                 layout_height: None,
+                intrinsic_content_height: false,
             }),
         }
     }
@@ -184,6 +199,7 @@ impl View {
                 skip_rows: 0,
                 visible_height: Some(height),
                 layout_height: Some(height),
+                intrinsic_content_height: false,
             }),
         }
     }

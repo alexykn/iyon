@@ -12,7 +12,7 @@ use crate::{
     geometry::Size,
     physical::PhysicalRow,
     scene::PreparedSceneFrame,
-    terminal::{TerminalBackend, TerminalEvent},
+    terminal::{PresentReceipt, TerminalBackend, TerminalEvent},
 };
 
 use super::worker::{Startup, TerminalCommand};
@@ -130,14 +130,14 @@ impl TerminalBackend for TermwizBackend {
         Ok(*self.size_receiver.borrow())
     }
 
-    async fn draw_frame(&mut self, frame: &PreparedSceneFrame) -> Result<()> {
+    fn begin_frame(&mut self, frame: &PreparedSceneFrame) -> Result<PresentReceipt> {
         let (reply, receiver) = oneshot::channel();
         let desired = super::lower::desired_surface(frame);
         self.commands
             .send(TerminalCommand::Present { desired, reply })
             .context("terminal worker stopped")?;
         self.waker.wake().context("wake terminal worker")?;
-        receiver.await.context("terminal worker reply lost")?
+        Ok(receiver)
     }
 
     fn position_after_final_frame(&mut self) -> Result<()> {

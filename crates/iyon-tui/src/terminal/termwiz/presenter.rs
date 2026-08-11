@@ -115,7 +115,6 @@ impl TermwizPresenter {
 
 fn native_transaction(presented: &Surface, rows: &[PhysicalRow]) -> Vec<Change> {
     let (_, height) = presented.dimensions();
-    let mut disturbed = presented.clone();
     let mut transaction = Vec::new();
     for chunk in rows.chunks(height) {
         for (row_index, row) in chunk.iter().enumerate() {
@@ -128,10 +127,10 @@ fn native_transaction(presented: &Surface, rows: &[PhysicalRow]) -> Vec<Change> 
         transaction.push(Change::Text("\r\n".repeat(chunk.len())));
     }
 
-    disturbed.add_changes(transaction.clone());
-    let repair = disturbed.diff_screens(presented);
-    transaction.extend(repair);
-    transaction.extend(canonical_cursor(height));
+    // Native scrolling invalidates the terminal's active-screen coordinates.
+    // Repaint every retained row before acknowledging the transfer instead of
+    // attempting to infer the terminal's post-scroll screen from a model.
+    transaction.extend(full_repaint_changes(presented));
     transaction
 }
 
@@ -257,6 +256,40 @@ mod tests {
         surface
     }
 
+    fn painted_row(text: &str, width: usize, style: PhysicalStyle) -> Vec<PhysicalCell> {
+        let mut cells = text
+            .chars()
+            .take(width)
+            .map(|character| PhysicalCell {
+                grapheme: Some(character.to_string()),
+                style,
+                painted: true,
+                continuation: false,
+            })
+            .collect::<Vec<_>>();
+        while cells.len() < width {
+            cells.push(PhysicalCell {
+                grapheme: Some(" ".into()),
+                style,
+                painted: true,
+                continuation: false,
+            });
+        }
+        cells
+    }
+
+    fn assert_virtual_screen_matches_surface(model: &VirtualTerminal, expected: &Surface) {
+        assert_eq!((model.width, model.height), expected.dimensions());
+        for (y, line) in expected.screen_lines().iter().enumerate() {
+            for x in 0..model.width {
+                let expected_cell = line.get_cell(x).expect("expected cell");
+                let actual = &model.screen[y][x];
+                assert_eq!(actual.text, expected_cell.str());
+                assert_eq!(actual.attrs, *expected_cell.attrs());
+            }
+        }
+    }
+
     fn assert_surface_state_equal(actual: &Surface, expected: &Surface) {
         assert_eq!(actual.dimensions(), expected.dimensions());
         let actual_lines = actual.screen_lines();
@@ -378,13 +411,24 @@ mod tests {
     }
 
     #[test]
-    fn native_transaction_matches_an_independent_main_screen_model() {
+    fn native_transaction_repairs_a_styled_active_screen_in_an_independent_model() {
+        let width = 8;
+        let bubble_style = PhysicalStyle {
+            background: Some(PhysicalColor::Indexed(4)),
+            ..PhysicalStyle::default()
+        };
         let presented = physical_surface(
             vec![
-                vec![PhysicalCell::transparent(); 4],
-                vec![PhysicalCell::transparent(); 4],
+                painted_row("USER", width, bubble_style),
+                painted_row("USER", width, bubble_style),
+                painted_row("model", width, PhysicalStyle::default()),
+                vec![PhysicalCell::transparent(); width],
+                painted_row("--------", width, PhysicalStyle::default()),
+                painted_row("input", width, PhysicalStyle::default()),
+                painted_row("--------", width, PhysicalStyle::default()),
+                painted_row("status", width, PhysicalStyle::default()),
             ],
-            4,
+            width as u16,
         );
         let rows = [
             PhysicalRow::from_cells(vec![PhysicalCell {
@@ -394,40 +438,44 @@ mod tests {
                 continuation: false,
             }]),
             PhysicalRow::from_cells(Vec::new()),
-            PhysicalRow::from_cells(vec![
-                PhysicalCell {
-                    grapheme: Some("b".into()),
-                    style: PhysicalStyle::default(),
-                    painted: true,
-                    continuation: false,
-                },
-                PhysicalCell {
-                    grapheme: Some("c".into()),
-                    style: PhysicalStyle::default(),
-                    painted: true,
-                    continuation: false,
-                },
-            ]),
+            PhysicalRow::from_cells(vec![PhysicalCell {
+                grapheme: Some("b".into()),
+                style: PhysicalStyle::default(),
+                painted: true,
+                continuation: false,
+            }]),
         ];
         let transaction = native_transaction(&presented, &rows);
-        let mut model = VirtualTerminal::new(4, 2);
+        let mut model = VirtualTerminal::new(width, 8);
         model.apply(&transaction);
+
         assert_eq!(
             model
                 .scrollback
                 .iter()
                 .map(|row| VirtualTerminal::row_text(row))
                 .collect::<Vec<_>>(),
-            ["a   ", "    ", "bc  "]
+            ["a       ", "        ", "b       "]
         );
-        assert_eq!(
-            model
-                .screen
-                .iter()
-                .map(|row| VirtualTerminal::row_text(row))
-                .collect::<Vec<_>>(),
-            ["    ", "    "]
+        assert_virtual_screen_matches_surface(&model, &presented);
+
+        let next = physical_surface(
+            vec![
+                painted_row("model", width, PhysicalStyle::default()),
+                vec![PhysicalCell::transparent(); width],
+                painted_row("--------", width, PhysicalStyle::default()),
+                painted_row("input", width, PhysicalStyle::default()),
+                painted_row("--------", width, PhysicalStyle::default()),
+                painted_row("status", width, PhysicalStyle::default()),
+                vec![PhysicalCell::transparent(); width],
+                vec![PhysicalCell::transparent(); width],
+            ],
+            width as u16,
         );
+        let mut actual = presented.clone();
+        actual.add_changes(transaction);
+        actual.add_changes(actual.diff_screens(&next));
+        assert_surface_state_equal(&actual, &next);
     }
 
     #[test]

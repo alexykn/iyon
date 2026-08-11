@@ -144,11 +144,11 @@ pub(crate) fn parse_assistant_tail(
     let raw_lines = flatten_lines(segments);
     let mut rows = Vec::with_capacity(raw_lines.len());
     for (i, line) in raw_lines.into_iter().enumerate() {
-        if i == 0 {
-            if let Some(cont) = continuation {
-                rows.push(parse_continuation_line(line, cont));
-                continue;
-            }
+        if i == 0
+            && let Some(cont) = continuation
+        {
+            rows.push(parse_continuation_line(line, cont));
+            continue;
         }
         rows.push(parse_line(line));
     }
@@ -214,7 +214,7 @@ fn open_egc_stable_prefix_len(source: &str) -> usize {
     source
         .grapheme_indices(true)
         .map(|(offset, _)| offset)
-        .last()
+        .next_back()
         .unwrap_or(0)
 }
 
@@ -316,7 +316,7 @@ fn classification_is_ambiguous(full: &str) -> bool {
 
     // 1. Ambiguous heading: 1..=6 '#' with nothing after
     let hash_count = trimmed.chars().take_while(|c| *c == '#').count();
-    if hash_count >= 1 && hash_count <= 6 && trimmed[hash_count..].is_empty() {
+    if (1..=6).contains(&hash_count) && trimmed[hash_count..].is_empty() {
         return true;
     }
 
@@ -756,14 +756,13 @@ fn ordered_separator_len(trimmed: &str) -> Option<usize> {
         return None;
     }
     let rest = &trimmed[digit_end..];
-    let sep_len = if let Some(c) = rest.chars().next() {
+    let sep_len = {
+        let c = rest.chars().next()?;
         if c == '.' || c == ')' {
             c.len_utf8()
         } else {
             return None;
         }
-    } else {
-        return None;
     };
     let after = &rest[sep_len..];
     if after.is_empty() {
@@ -851,8 +850,8 @@ fn is_detached(text: &str, i: usize, run_bytes: usize) -> bool {
     } else {
         None
     };
-    let left_ws = before.map_or(true, |c| c.is_whitespace());
-    let right_ws = after.map_or(true, |c| c.is_whitespace());
+    let left_ws = before.is_none_or(|c| c.is_whitespace());
+    let right_ws = after.is_none_or(|c| c.is_whitespace());
     left_ws && right_ws
 }
 

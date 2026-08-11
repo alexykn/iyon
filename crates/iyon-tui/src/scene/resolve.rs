@@ -138,6 +138,7 @@ impl Resolver<'_> {
                     skip_rows: viewport.skip_rows,
                     visible_height: viewport.visible_height,
                     layout_height: viewport.layout_height,
+                    intrinsic_content_height: viewport.intrinsic_content_height,
                 })
             }
             ViewKind::ComponentSlot(slot) => return self.resolve_slot(view, slot.id, parent),

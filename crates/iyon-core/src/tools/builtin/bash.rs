@@ -40,6 +40,7 @@ struct BashRunOutput {
     full_output_path: Option<PathBuf>,
 }
 
+#[derive(Default)]
 struct RollingOutput {
     chunks: VecDeque<Vec<u8>>,
     chunks_bytes: usize,
@@ -222,13 +223,13 @@ fn build_result(output: BashRunOutput) -> ToolResult {
     }
 
     let mut text = truncated.text;
-    if let Some(code) = output.exit_code {
-        if code != 0 {
-            if !text.is_empty() {
-                text.push('\n');
-            }
-            text.push_str(&format!("[Command exited with code {code}]"));
+    if let Some(code) = output.exit_code
+        && code != 0
+    {
+        if !text.is_empty() {
+            text.push('\n');
         }
+        text.push_str(&format!("[Command exited with code {code}]"));
     }
 
     ToolResult {
@@ -294,18 +295,6 @@ impl RollingOutput {
     fn rolling_text(&self) -> String {
         let bytes: Vec<u8> = self.chunks.iter().flatten().copied().collect();
         String::from_utf8_lossy(&bytes).to_string()
-    }
-}
-
-impl Default for RollingOutput {
-    fn default() -> Self {
-        Self {
-            chunks: VecDeque::new(),
-            chunks_bytes: 0,
-            total_bytes: 0,
-            full_output_path: None,
-            full_output_file: None,
-        }
     }
 }
 

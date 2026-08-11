@@ -273,4 +273,8 @@ pub(crate) struct RowViewportView {
     /// Internal bounded allocation for flexible child layout. This differs
     /// from `visible_height`: the child itself receives this height.
     pub(crate) layout_height: Option<u16>,
+    /// Lets a local scroll pane advertise its full content height during
+    /// width-only measurement while retaining its allocated viewport height
+    /// during bounded layout.
+    pub(crate) intrinsic_content_height: bool,
 }

@@ -469,7 +469,6 @@ async fn emit_tool_result_message(
         id,
         content,
         details,
-        is_error: _,
         ..
     } = message
     else {
