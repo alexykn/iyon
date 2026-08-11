@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, marker::PhantomData, time::Instant};
 
-use tokio::sync::mpsc::{UnboundedReceiver, error::TryRecvError};
+use tokio::sync::mpsc::{Receiver, error::TryRecvError};
 
 use anyhow::Result;
 
@@ -48,7 +48,7 @@ pub(crate) struct RunningApp<State, Action, Error, Update, ViewFn> {
     global_bindings: GlobalBindings<Action>,
     paste_interceptors: PasteInterceptors<Action>,
     deferred_pastes: VecDeque<String>,
-    ingress: Option<UnboundedReceiver<Action>>,
+    ingress: Option<Receiver<Action>>,
     handle: AppHandle<Action>,
     update: Update,
     view: ViewFn,

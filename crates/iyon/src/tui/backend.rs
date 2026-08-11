@@ -331,6 +331,62 @@ fn lower_tool_update(update: ToolUpdateEvent) -> ToolUpdatePresentation {
     }
 }
 
+fn coalesce_frontend_events(events: impl IntoIterator<Item = FrontendEvent>) -> Vec<FrontendEvent> {
+    let mut coalesced = Vec::new();
+    for event in events {
+        match event {
+            FrontendEvent::AssistantDelta { text } => {
+                if let Some(FrontendEvent::AssistantDelta { text: previous }) = coalesced.last_mut()
+                {
+                    previous.push_str(&text);
+                    continue;
+                }
+                coalesced.push(FrontendEvent::AssistantDelta { text });
+            }
+            FrontendEvent::ThinkingDelta { text } => {
+                if let Some(FrontendEvent::ThinkingDelta { text: previous }) = coalesced.last_mut()
+                {
+                    previous.push_str(&text);
+                    continue;
+                }
+                coalesced.push(FrontendEvent::ThinkingDelta { text });
+            }
+            FrontendEvent::ToolCallUpdated {
+                tool_call_id,
+                update,
+            } => {
+                if let Some(FrontendEvent::ToolCallUpdated {
+                    tool_call_id: previous_id,
+                    update: previous,
+                }) = coalesced.last_mut()
+                    && previous_id == &tool_call_id
+                {
+                    let same_snapshot_kind = matches!(
+                        (&*previous, &update),
+                        (
+                            ToolUpdatePresentation::Progress { .. },
+                            ToolUpdatePresentation::Progress { .. }
+                        ) | (
+                            ToolUpdatePresentation::Details(_),
+                            ToolUpdatePresentation::Details(_)
+                        )
+                    );
+                    if same_snapshot_kind {
+                        *previous = update;
+                        continue;
+                    }
+                }
+                coalesced.push(FrontendEvent::ToolCallUpdated {
+                    tool_call_id,
+                    update,
+                });
+            }
+            event => coalesced.push(event),
+        }
+    }
+    coalesced
+}
+
 pub(crate) struct CoreBridge {
     cancel: CancellationToken,
     task: Option<JoinHandle<()>>,
@@ -349,15 +405,29 @@ impl CoreBridge {
         let task = tokio::spawn(async move {
             let mut mapper = CoreEventMapper::default();
             loop {
-                tokio::select! {
+                let first = tokio::select! {
                     _ = child.cancelled() => break,
-                    event = receiver.recv_event() => {
-                        let Some(event) = event else { break; };
-                        let Some(frontend) = mapper.map(event) else { continue; };
-                        if handle.send(IyonAction::Backend(frontend)).is_err() { break; }
-                        tokio::task::yield_now().await;
+                    event = receiver.recv_event() => event,
+                };
+                let Some(first) = first else {
+                    break;
+                };
+                let mut events = vec![first];
+                events.extend(receiver.drain_events());
+                let frontend = coalesce_frontend_events(
+                    events.into_iter().filter_map(|event| mapper.map(event)),
+                );
+                for event in frontend {
+                    let action = IyonAction::Backend(event);
+                    let result = tokio::select! {
+                        _ = child.cancelled() => return,
+                        result = handle.send_async(action) => result,
+                    };
+                    if result.is_err() {
+                        return;
                     }
                 }
+                tokio::task::yield_now().await;
             }
         });
         Self {
@@ -468,6 +538,46 @@ mod tests {
         let handle = app.handle();
         let mut bridge = CoreBridge::spawn(receiver, handle);
         bridge.shutdown().await.unwrap();
+    }
+
+    #[test]
+    fn bridge_coalesces_only_safe_adjacent_events() {
+        let events = coalesce_frontend_events([
+            FrontendEvent::AssistantDelta { text: "a".into() },
+            FrontendEvent::AssistantDelta { text: "b".into() },
+            FrontendEvent::ThinkingDelta { text: "t".into() },
+            FrontendEvent::ThinkingDelta { text: "h".into() },
+            FrontendEvent::TurnFinished,
+            FrontendEvent::ToolCallUpdated {
+                tool_call_id: "tool".into(),
+                update: ToolUpdatePresentation::Progress {
+                    label: "one".into(),
+                    current: Some(1),
+                    total: Some(3),
+                },
+            },
+            FrontendEvent::ToolCallUpdated {
+                tool_call_id: "tool".into(),
+                update: ToolUpdatePresentation::Progress {
+                    label: "two".into(),
+                    current: Some(2),
+                    total: Some(3),
+                },
+            },
+        ]);
+        assert!(matches!(&events[0], FrontendEvent::AssistantDelta { text } if text == "ab"));
+        assert!(matches!(&events[1], FrontendEvent::ThinkingDelta { text } if text == "th"));
+        assert!(matches!(&events[2], FrontendEvent::TurnFinished));
+        assert!(matches!(
+            &events[3],
+            FrontendEvent::ToolCallUpdated {
+                update: ToolUpdatePresentation::Progress {
+                    current: Some(2),
+                    ..
+                },
+                ..
+            }
+        ));
     }
 
     #[test]

@@ -1,4 +1,7 @@
-use std::{future::pending, time::Instant};
+use std::{
+    future::pending,
+    time::{Duration, Instant},
+};
 
 use crate::terminal::{TerminalBackend, TerminalEvent};
 
@@ -105,6 +108,46 @@ where
     }
 }
 
+const INPUT_PUMP_BUDGET: usize = 32;
+const MIN_PRESENT_INTERVAL: Duration = Duration::from_millis(8);
+
+struct PresentationScheduler {
+    last_present: Instant,
+    deadline: Option<Instant>,
+}
+
+impl PresentationScheduler {
+    fn new(now: Instant) -> Self {
+        Self {
+            last_present: now,
+            deadline: None,
+        }
+    }
+
+    fn deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
+
+    fn should_present(&mut self, dirty: bool, now: Instant) -> bool {
+        if !dirty {
+            self.deadline = None;
+            return false;
+        }
+        let next = self.last_present + MIN_PRESENT_INTERVAL;
+        if now >= next {
+            self.deadline = None;
+            return true;
+        }
+        self.deadline.get_or_insert(next);
+        false
+    }
+
+    fn presented(&mut self, now: Instant) {
+        self.last_present = now;
+        self.deadline = None;
+    }
+}
+
 async fn drive<State, Action, Error, Update, ViewFn, Backend>(
     app: &mut RunningApp<State, Action, Error, Update, ViewFn>,
     session: &mut TerminalSession<Backend>,
@@ -115,16 +158,26 @@ where
     Backend: TerminalBackend,
 {
     prepare_and_draw(app, session, Instant::now()).await?;
+    let mut presentation = PresentationScheduler::new(Instant::now());
+    presentation.presented(Instant::now());
     app.drain_deferred_pastes().map_err(map_kernel_error)?;
     app.collect_external_pending();
 
     loop {
+        pump_terminal_input(app, session)?;
         let now = Instant::now();
         let status = app.advance_ready(now).map_err(map_kernel_error)?;
-        if status.dirty {
+        let mut presented = false;
+        if presentation.should_present(status.dirty, now) {
             prepare_and_draw(app, session, now).await?;
+            presentation.presented(Instant::now());
+            presented = true;
         }
         if status.exiting {
+            if status.dirty && !presented {
+                prepare_and_draw(app, session, now).await?;
+                presentation.presented(Instant::now());
+            }
             break;
         }
         if status.more_ready {
@@ -132,21 +185,15 @@ where
             continue;
         }
 
-        let deadline = app.next_deadline();
+        let deadline = [app.next_deadline(), presentation.deadline()]
+            .into_iter()
+            .flatten()
+            .min();
         tokio::select! {
             _ = wait_for_deadline(deadline) => {}
             event = session.next_event() => {
-                match event
-                    .map_err(|error| RunError::Runtime(runtime_error(error)))?
-                {
-                    TerminalEvent::Key(key) => {
-                        app.dispatch_key(key).map_err(map_kernel_error)?;
-                    }
-                    TerminalEvent::Paste(text) => {
-                        app.dispatch_paste(&text).map_err(map_kernel_error)?;
-                    }
-                    TerminalEvent::Resize => app.invalidate_frame(),
-                }
+                dispatch_terminal_event(app, event
+                    .map_err(|error| RunError::Runtime(runtime_error(error)))?)?;
             }
             action = app.recv_external(), if app.ingress_is_open() => {
                 match action {
@@ -157,6 +204,47 @@ where
         }
     }
 
+    Ok(())
+}
+
+fn dispatch_terminal_event<State, Action, Error, Update, ViewFn>(
+    app: &mut RunningApp<State, Action, Error, Update, ViewFn>,
+    event: TerminalEvent,
+) -> Result<(), RunError<Error>>
+where
+    Update: FnMut(&mut State, Action, &mut super::context::AppCx<'_, Action>) -> Result<(), Error>,
+    ViewFn: Fn(&State) -> crate::View,
+{
+    match event {
+        TerminalEvent::Key(key) => {
+            app.dispatch_key(key).map_err(map_kernel_error)?;
+        }
+        TerminalEvent::Paste(text) => {
+            app.dispatch_paste(&text).map_err(map_kernel_error)?;
+        }
+        TerminalEvent::Resize => app.invalidate_frame(),
+    }
+    Ok(())
+}
+
+fn pump_terminal_input<State, Action, Error, Update, ViewFn, Backend>(
+    app: &mut RunningApp<State, Action, Error, Update, ViewFn>,
+    session: &mut TerminalSession<Backend>,
+) -> Result<(), RunError<Error>>
+where
+    Update: FnMut(&mut State, Action, &mut super::context::AppCx<'_, Action>) -> Result<(), Error>,
+    ViewFn: Fn(&State) -> crate::View,
+    Backend: TerminalBackend,
+{
+    for _ in 0..INPUT_PUMP_BUDGET {
+        let Some(event) = session
+            .try_next_event()
+            .map_err(|error| RunError::Runtime(runtime_error(error)))?
+        else {
+            break;
+        };
+        dispatch_terminal_event(app, event)?;
+    }
     Ok(())
 }
 
@@ -210,6 +298,10 @@ where
         &mut self,
     ) -> impl std::future::Future<Output = anyhow::Result<TerminalEvent>> + '_ {
         self.backend.next_event()
+    }
+
+    fn try_next_event(&mut self) -> anyhow::Result<Option<TerminalEvent>> {
+        self.backend.try_next_event()
     }
 
     fn draw_frame(&mut self, frame: &crate::scene::PreparedSceneFrame) -> anyhow::Result<()> {

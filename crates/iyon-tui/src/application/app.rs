@@ -1,4 +1,4 @@
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::Receiver;
 
 use crate::{History, Theme, View};
 
@@ -16,7 +16,7 @@ pub struct App<State, Action, Error, Init, Update, ViewFn> {
     pub(crate) history: Option<History>,
     pub(crate) theme: Theme,
     pub(crate) handle: AppHandle<Action>,
-    pub(crate) ingress: Option<UnboundedReceiver<Action>>,
+    pub(crate) ingress: Option<Receiver<Action>>,
     pub(crate) marker: std::marker::PhantomData<fn(State, Action) -> Error>,
 }
 

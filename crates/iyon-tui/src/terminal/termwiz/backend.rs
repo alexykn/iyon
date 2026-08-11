@@ -92,6 +92,14 @@ impl TerminalBackend for TermwizBackend {
             .ok_or_else(|| anyhow!("terminal worker event stream closed"))?
     }
 
+    fn try_next_event(&mut self) -> Result<Option<TerminalEvent>> {
+        match self.events.try_recv() {
+            Ok(event) => event.map(Some),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => Ok(None),
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => Ok(None),
+        }
+    }
+
     fn viewport(&mut self) -> Result<Size> {
         let (reply, receiver) = mpsc::channel();
         self.send(TerminalCommand::Viewport { reply }, receiver)
