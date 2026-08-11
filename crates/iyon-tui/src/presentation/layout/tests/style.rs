@@ -411,9 +411,11 @@ fn transparent_padding_shows_ancestor_surface_background() {
 fn surface_background_does_not_enter_text_style_cascade() {
     let mut view = View::text("x").into_view();
     view.decoration.surface_background = Some(ColorSpec::Ansi(1));
-    let resolved = ViewCompiler::default()
-        .theme
-        .resolve_text_style(PhysicalStyle::default(), &view.decoration.text_style);
+    let resolved = ViewCompiler::default().theme.resolve_text_style(
+        PhysicalStyle::default(),
+        &view.decoration.text_style,
+        &crate::presentation::paint::StyleContext::default(),
+    );
     assert_eq!(resolved.background, None);
 }
 

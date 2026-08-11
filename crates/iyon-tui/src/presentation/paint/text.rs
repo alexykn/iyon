@@ -16,6 +16,7 @@ use crate::{
 
 use crate::presentation::{
     layout::ViewCompiler,
+    paint::StyleContext,
     wrap::{StyledGrapheme, styled_hard_lines, text_flow},
 };
 
@@ -35,9 +36,10 @@ impl ViewCompiler {
         max_width: u16,
         width_rule: WidthRule,
         inherited: PhysicalStyle,
+        context: &StyleContext,
     ) -> Surface {
         let (width, rows) =
-            self.compile_text_with_metadata(text, max_width, width_rule, inherited, true);
+            self.compile_text_with_metadata(text, max_width, width_rule, inherited, true, context);
         let all_fit = rows.iter().all(|row| row.fits);
         let mut surface = Surface::new(width, rows.len().max(1) as u16);
         surface.physically_complete = all_fit;
@@ -95,6 +97,7 @@ impl ViewCompiler {
         width_rule: WidthRule,
         inherited: PhysicalStyle,
         track_source: bool,
+        context: &StyleContext,
     ) -> (u16, Vec<CompiledTextRow>) {
         let mut relative_source = 0usize;
         let spans = text.spans.iter().map(|span| {
@@ -107,7 +110,8 @@ impl ViewCompiler {
             };
             (
                 span.text.as_str(),
-                self.theme.resolve_text_style(inherited, &span.style),
+                self.theme
+                    .resolve_text_style(inherited, &span.style, context),
                 base,
             )
         });

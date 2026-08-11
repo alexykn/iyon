@@ -214,8 +214,14 @@ impl Builder {
             }
             ViewKind::RowViewport(viewport) => {
                 let child_clip = Rect::new(clip.x, 0, clip.width, u16::MAX);
-                let (id, child_size, child_complete) =
-                    self.build(&viewport.child, x, y, Some(width), None, child_clip);
+                let (id, child_size, child_complete) = self.build(
+                    &viewport.child,
+                    x,
+                    y,
+                    Some(width),
+                    viewport.layout_height,
+                    child_clip,
+                );
                 (
                     vec![id],
                     Size::new(

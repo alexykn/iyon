@@ -29,6 +29,8 @@ fn row_view(children: Vec<RowChild>, gap: u16) -> View {
         width: WidthRule::Fill,
         height: crate::presentation::ir::HeightRule::Fit,
         decoration: Decoration::default(),
+        style_states: Vec::new(),
+        component_scope: None,
         kind: crate::presentation::ir::ViewKind::Row(crate::presentation::ir::RowView {
             children,
             gap,
@@ -47,6 +49,8 @@ fn box_view(child: View, decoration: Decoration) -> View {
         width,
         height,
         decoration,
+        style_states: Vec::new(),
+        component_scope: None,
         kind: crate::presentation::ir::ViewKind::Container(
             crate::presentation::ir::ContainerNode {
                 child: Box::new(child),

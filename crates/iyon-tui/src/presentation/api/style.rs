@@ -1,6 +1,10 @@
 //! Backend-neutral semantic styling and decoration vocabulary.
 
-use std::{error::Error, fmt};
+use std::{
+    error::Error,
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -91,7 +95,7 @@ impl StyleSpec {
 
     /// Applies the explicitly specified fields from `incoming`; it is the
     /// more-specific patch and never clears unspecified fields.
-    pub(in crate::presentation::api) fn overlay(&mut self, incoming: &Self) {
+    pub(crate) fn overlay(&mut self, incoming: &Self) {
         if incoming.foreground.is_some() {
             self.foreground = incoming.foreground.clone();
         }
@@ -179,6 +183,199 @@ pub enum AnsiColor {
     LightMagenta,
     LightCyan,
     White,
+}
+
+/// An application-owned semantic styling dimension name.
+#[derive(Clone, Debug)]
+pub struct StyleStateKey(StyleAtom);
+
+impl StyleStateKey {
+    pub const fn from_static(value: &'static str) -> Self {
+        Self(StyleAtom::Static(value))
+    }
+
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(StyleAtom::Owned(value.into()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl From<&str> for StyleStateKey {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<String> for StyleStateKey {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl PartialEq for StyleStateKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl Eq for StyleStateKey {}
+
+impl Hash for StyleStateKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state);
+    }
+}
+
+/// An application-owned semantic styling value.
+#[derive(Clone, Debug)]
+pub struct StyleStateValue(StyleAtom);
+
+impl StyleStateValue {
+    pub const fn from_static(value: &'static str) -> Self {
+        Self(StyleAtom::Static(value))
+    }
+
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(StyleAtom::Owned(value.into()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl From<&str> for StyleStateValue {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<String> for StyleStateValue {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl PartialEq for StyleStateValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl Eq for StyleStateValue {}
+
+impl Hash for StyleStateValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state);
+    }
+}
+
+#[derive(Clone, Debug)]
+enum StyleAtom {
+    Static(&'static str),
+    Owned(String),
+}
+
+impl StyleAtom {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Static(value) => value,
+            Self::Owned(value) => value,
+        }
+    }
+}
+
+/// A positive conjunction of framework interaction predicates and semantic
+/// application-owned key/value requirements.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct StyleSelector {
+    focused: bool,
+    focus_within: bool,
+    states: Vec<(StyleStateKey, StyleStateValue)>,
+}
+
+impl StyleSelector {
+    pub fn focused() -> Self {
+        Self {
+            focused: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn focus_within() -> Self {
+        Self {
+            focus_within: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn state(key: impl Into<StyleStateKey>, value: impl Into<StyleStateValue>) -> Self {
+        Self::default().and_state(key, value)
+    }
+
+    pub fn and_focused(mut self) -> Self {
+        self.focused = true;
+        self
+    }
+
+    pub fn and_focus_within(mut self) -> Self {
+        self.focus_within = true;
+        self
+    }
+
+    pub fn and_state(
+        mut self,
+        key: impl Into<StyleStateKey>,
+        value: impl Into<StyleStateValue>,
+    ) -> Self {
+        let key = key.into();
+        if let Some(existing) = self
+            .states
+            .iter_mut()
+            .find(|(existing, _)| existing == &key)
+        {
+            existing.1 = value.into();
+        } else {
+            self.states.push((key, value.into()));
+        }
+        self.states
+            .sort_by(|left, right| left.0.as_str().cmp(right.0.as_str()));
+        self
+    }
+
+    pub(crate) fn predicate_count(&self) -> usize {
+        usize::from(self.focused) + usize::from(self.focus_within) + self.states.len()
+    }
+
+    pub(crate) fn matches(
+        &self,
+        focused: bool,
+        focus_within: bool,
+        states: &[(StyleStateKey, StyleStateValue)],
+    ) -> bool {
+        (!self.focused || focused)
+            && (!self.focus_within || focus_within)
+            && self.states.iter().all(|(key, value)| {
+                states
+                    .iter()
+                    .rev()
+                    .find(|(candidate, _)| candidate == key)
+                    .is_some_and(|(_, candidate)| candidate == value)
+            })
+    }
+}
+
+impl Default for StyleSelector {
+    fn default() -> Self {
+        Self {
+            focused: false,
+            focus_within: false,
+            states: Vec::new(),
+        }
+    }
 }
 
 /// A backend-neutral theme color.

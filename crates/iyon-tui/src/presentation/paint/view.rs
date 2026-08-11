@@ -25,7 +25,13 @@ impl ViewPainter {
         tree: &LayoutTree,
         inherited: PhysicalStyle,
     ) -> Surface {
-        let mut surface = self.paint_node(compiler, tree, tree.root, inherited);
+        let mut surface = self.paint_node(
+            compiler,
+            tree,
+            tree.root,
+            inherited,
+            compiler.style_context(tree.node(tree.root).view.component_scope),
+        );
         surface.physically_complete = tree.physically_complete;
         surface
     }
@@ -36,18 +42,28 @@ impl ViewPainter {
         tree: &LayoutTree,
         id: LayoutNodeId,
         inherited: PhysicalStyle,
+        inherited_context: crate::presentation::paint::StyleContext,
     ) -> Surface {
         let node = tree.node(id);
         let view = &node.view;
-        let resolved = compiler
-            .theme
-            .resolve_text_style(inherited, &view.decoration.text_style);
+        let context = inherited_context
+            .with_states(&view.style_states)
+            .with_scope(compiler.style_context(node.view.component_scope));
+        let resolved =
+            compiler
+                .theme
+                .resolve_text_style(inherited, &view.decoration.text_style, &context);
         let mut output = Surface::new(node.rect.width, node.rect.height);
 
         match &view.kind {
             ViewKind::Text(text) => {
-                let painted =
-                    compiler.paint_text(text, node.content_rect.width, view.width, resolved);
+                let painted = compiler.paint_text(
+                    text,
+                    node.content_rect.width,
+                    view.width,
+                    resolved,
+                    &context,
+                );
                 let x = node.content_rect.x.saturating_sub(node.rect.x);
                 let y = node.content_rect.y.saturating_sub(node.rect.y);
                 output.composite(&painted, x, y);
@@ -67,7 +83,8 @@ impl ViewPainter {
             | ViewKind::ClampRows(_) => {
                 for child in &node.children {
                     let child_node = tree.node(*child);
-                    let painted = self.paint_node(compiler, tree, *child, resolved);
+                    let painted =
+                        self.paint_node(compiler, tree, *child, resolved, context.clone());
                     let x = child_node.rect.x.saturating_sub(node.rect.x);
                     let y = child_node.rect.y.saturating_sub(node.rect.y);
                     output.composite(&painted, x, y);
@@ -78,7 +95,14 @@ impl ViewPainter {
                         .first()
                         .is_some_and(|child| tree.node(*child).rect.height > node.rect.height);
                     if truncated {
-                        self.paint_overflow_indicator(compiler, &mut output, node, clamp, resolved);
+                        self.paint_overflow_indicator(
+                            compiler,
+                            &mut output,
+                            node,
+                            clamp,
+                            resolved,
+                            &context,
+                        );
                     }
                 }
             }
@@ -89,7 +113,8 @@ impl ViewPainter {
                         .first()
                         .copied()
                         .expect("row viewport must have one child");
-                    let painted = self.paint_node(compiler, tree, child_id, resolved);
+                    let painted =
+                        self.paint_node(compiler, tree, child_id, resolved, context.clone());
                     for y in 0..output.height() {
                         let source_y =
                             usize::from(viewport.skip_rows).saturating_add(usize::from(y));
@@ -103,13 +128,11 @@ impl ViewPainter {
                     output.physically_complete = painted.physically_complete;
                 }
             }
-            ViewKind::ComponentSlot(_) => {
-                unreachable!("component slot reached painting")
-            }
+            ViewKind::ComponentSlot(_) => unreachable!("component slot reached painting"),
         }
 
         if let Some(color) = &view.decoration.surface_background {
-            output.apply_surface_background(compiler.theme.resolve_color(color));
+            output.apply_surface_background(compiler.theme.resolve_color(color, &context));
         }
         if let Some(border) = &view.decoration.border {
             crate::presentation::paint::paint_border(
@@ -117,6 +140,7 @@ impl ViewPainter {
                 border,
                 &compiler.theme,
                 resolved,
+                &context,
             );
         }
         output
@@ -129,6 +153,7 @@ impl ViewPainter {
         node: &crate::presentation::layout::LayoutNode,
         clamp: &crate::presentation::ir::ClampRowsView,
         inherited: PhysicalStyle,
+        context: &crate::presentation::paint::StyleContext,
     ) {
         if output.height() == 0 {
             return;
@@ -152,6 +177,7 @@ impl ViewPainter {
             node.rect.width,
             crate::presentation::WidthRule::Fill,
             inherited,
+            context,
         );
         let row = output.height() - 1;
         for x in 0..output.width() {

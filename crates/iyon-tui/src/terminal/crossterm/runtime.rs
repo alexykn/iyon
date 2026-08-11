@@ -24,7 +24,10 @@ pub(crate) struct CrosstermRatatuiBackend {
 impl CrosstermRatatuiBackend {
     pub(crate) fn enter() -> Result<Self> {
         let terminal = ratatui::try_init_with_options(TerminalOptions {
-            viewport: Viewport::Inline(20),
+            // Ratatui clamps an inline viewport to the current terminal height.
+            // Request the semantic full-available inline policy without
+            // exposing a backend-specific sentinel outside this adapter.
+            viewport: Viewport::Inline(u16::MAX),
         })
         .context("initialize inline terminal")?;
 

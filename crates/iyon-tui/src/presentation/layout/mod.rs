@@ -13,6 +13,7 @@ mod tests;
 
 use crate::{
     Theme,
+    component::{ComponentId, MountGraph},
     geometry::LayoutConstraints,
     physical::{PhysicalRow, Surface},
     presentation::View,
@@ -24,7 +25,7 @@ pub(crate) use tree::{ComponentGeometryMap, LayoutNode, LayoutNodeId, LayoutTree
 #[cfg(test)]
 use crate::geometry::Size;
 
-use super::paint::{ThemeResolver, ViewPainter};
+use super::paint::{StyleContext, ThemeResolver, ViewPainter};
 
 pub(crate) use super::paint::{CompiledTextRow, row_from_graphemes, row_from_string};
 
@@ -38,19 +39,41 @@ pub(crate) struct LayoutBlock {
 #[derive(Debug, Default)]
 pub(crate) struct ViewCompiler {
     pub(crate) theme: ThemeResolver,
+    pub(crate) focused: Option<ComponentId>,
+    pub(crate) graph: Option<MountGraph>,
 }
 
 impl ViewCompiler {
     pub(crate) fn new(theme: &Theme) -> Self {
         Self {
             theme: ThemeResolver::new(theme),
+            focused: None,
+            graph: None,
+        }
+    }
+
+    pub(crate) fn with_interaction(
+        theme: &Theme,
+        focused: Option<ComponentId>,
+        graph: &MountGraph,
+    ) -> Self {
+        Self {
+            theme: ThemeResolver::new(theme),
+            focused,
+            graph: Some(graph.clone()),
         }
     }
 
     pub(crate) fn with_resolver(theme: &ThemeResolver) -> Self {
         Self {
             theme: theme.clone(),
+            focused: None,
+            graph: None,
         }
+    }
+
+    pub(crate) fn style_context(&self, scope: Option<ComponentId>) -> StyleContext {
+        StyleContext::for_scope(scope, self.focused, self.graph.as_ref())
     }
 
     pub(crate) fn compile(&self, view: &View, max_width: u16) -> LayoutBlock {

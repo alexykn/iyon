@@ -14,6 +14,24 @@ struct LabelComponent {
     label: &'static str,
 }
 
+struct FlexibleUnit;
+
+impl Component for FlexibleUnit {
+    fn view(&self) -> View {
+        View::vertical(|column| {
+            column.fixed(1, View::text("header"));
+            column.flex(View::text(
+                (1..=20)
+                    .map(|row| format!("body {row}\n"))
+                    .collect::<String>(),
+            ));
+        })
+        .fill_width()
+    }
+
+    fn capabilities(&self, _cx: &mut ComponentCx<'_, Self>) {}
+}
+
 impl Component for LabelComponent {
     fn view(&self) -> View {
         View::text(self.label).into_view()
@@ -29,6 +47,22 @@ fn rows(history: &History, registry: &ComponentRegistry, size: Size) -> Vec<Stri
         .into_iter()
         .map(|row| row.plain_text())
         .collect()
+}
+
+#[test]
+fn bounded_live_unit_allocates_header_before_flexible_body() {
+    let mut history = History::new();
+    let mut registry = ComponentRegistry::new();
+    let component = registry.register(FlexibleUnit);
+    history.push(View::component(component)).unwrap();
+
+    let rendered = rows(&history, &registry, Size::new(20, 8));
+    assert_eq!(rendered[0], "header");
+    assert!(rendered[1].contains("body 1"));
+
+    let rendered = rows(&history, &registry, Size::new(20, 5));
+    assert_eq!(rendered[0], "header");
+    assert!(rendered[1].contains("body 1"));
 }
 
 #[test]

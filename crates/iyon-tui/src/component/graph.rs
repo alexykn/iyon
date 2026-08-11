@@ -25,4 +25,19 @@ impl MountGraph {
     pub(crate) fn ids(&self) -> impl Iterator<Item = ComponentId> + '_ {
         self.nodes.iter().map(|node| node.id)
     }
+
+    pub(crate) fn is_descendant_or_self(&self, id: ComponentId, ancestor: ComponentId) -> bool {
+        let mut current = Some(id);
+        while let Some(candidate) = current {
+            if candidate == ancestor {
+                return true;
+            }
+            current = self
+                .nodes
+                .iter()
+                .find(|node| node.id == candidate)
+                .and_then(|node| node.parent);
+        }
+        false
+    }
 }

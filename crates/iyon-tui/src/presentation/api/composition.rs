@@ -112,6 +112,17 @@ impl Vertical {
         self
     }
 
+    pub fn flex_max(&mut self, max_rows: u16, child: impl IntoView) -> &mut Self {
+        self.children.push(ColumnChild {
+            track: crate::presentation::ir::TrackSize::FlexMax {
+                min: 1,
+                max: max_rows,
+            },
+            view: child.into_view(),
+        });
+        self
+    }
+
     pub fn children<I, V>(&mut self, children: I) -> &mut Self
     where
         I: IntoIterator<Item = V>,
@@ -430,6 +441,8 @@ mod tests {
             width: WidthRule::Fit,
             height: HeightRule::Fit,
             decoration: Default::default(),
+            style_states: Vec::new(),
+            component_scope: None,
             kind: ViewKind::Row(RowView {
                 children: vec![
                     RowChild::content(View::text("a").into_view()),

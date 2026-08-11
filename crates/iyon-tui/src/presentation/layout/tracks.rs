@@ -49,13 +49,16 @@ pub(crate) fn allocate_tracks(
                 allocation[index] = amount as u16;
                 used += amount;
             }
-            TrackSize::Flex { min } => flex.push((index, usize::from(min))),
+            TrackSize::Flex { min } => flex.push((index, usize::from(min), None)),
+            TrackSize::FlexMax { min, max } => {
+                flex.push((index, usize::from(min), Some(usize::from(max))))
+            }
         }
     }
 
     let mut remaining = capacity.saturating_sub(used);
-    for (index, minimum) in flex.iter().copied() {
-        let amount = minimum.min(remaining);
+    for (index, minimum, maximum) in flex.iter().copied() {
+        let amount = minimum.min(maximum.unwrap_or(usize::MAX)).min(remaining);
         allocation[index] = amount as u16;
         remaining -= amount;
     }
@@ -63,9 +66,13 @@ pub(crate) fn allocate_tracks(
     if !flex.is_empty() && remaining > 0 {
         let each = remaining / flex.len();
         let remainder = remaining % flex.len();
-        for (order, (index, _)) in flex.iter().enumerate() {
+        for (order, (index, _, maximum)) in flex.iter().enumerate() {
             let extra = each + usize::from(order < remainder);
-            allocation[*index] = allocation[*index].saturating_add(extra as u16);
+            let capacity = maximum.map_or(extra, |maximum| {
+                maximum.saturating_sub(usize::from(allocation[*index]))
+            });
+            let granted = extra.min(capacity);
+            allocation[*index] = allocation[*index].saturating_add(granted as u16);
         }
     }
 

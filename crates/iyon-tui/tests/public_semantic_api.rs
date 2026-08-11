@@ -1,8 +1,8 @@
 use iyon_tui::{
     BorderSpec, ColorSpec, Component, ComponentCx, ComponentHandle, EventCx, Horizontal,
     HorizontalAlign, InteractionResult, IntoView, Key, KeyStroke, Modifiers, Output, OutputRouter,
-    StyleSpec, TextAttribute, TextChange, TextInput, TextSpan, Vertical, VerticalAlign, View,
-    WrapMode,
+    ScrollPane, StyleSelector, StyleSpec, StyleStateKey, StyleStateValue, TextAttribute,
+    TextChange, TextInput, TextSpan, Theme, ThemeColor, Vertical, VerticalAlign, View, WrapMode,
 };
 
 struct Status(String);
@@ -169,6 +169,29 @@ impl Component for Counter {
 
 fn component_view<C>(handle: ComponentHandle<C>) -> View {
     View::component(handle)
+}
+
+#[test]
+fn public_stateful_theme_and_scroll_contract_is_backend_free() {
+    let key = StyleStateKey::from_static("severity");
+    let warning = StyleStateValue::from_static("warning");
+    let selector = StyleSelector::state(key.clone(), warning.clone()).and_focused();
+    let theme = Theme::new()
+        .with_color("field.border", ThemeColor::Named(iyon_tui::AnsiColor::Gray))
+        .with_color_variant(
+            "field.border",
+            selector,
+            ThemeColor::Named(iyon_tui::AnsiColor::Cyan),
+        );
+    fn stateful<C: Component>(handle: ComponentHandle<C>) -> View {
+        View::component(handle).style_state("severity", "warning")
+    }
+    let _: fn(ComponentHandle<Counter>) -> View = stateful::<Counter>;
+    let _: View = View::text("field")
+        .into_view()
+        .style_state("mode", "insert");
+    let _: ScrollPane = ScrollPane::new("long content");
+    let _ = theme;
 }
 
 #[test]

@@ -242,12 +242,15 @@ impl SceneHost {
             let transitions = self.mounted.reconcile(self.graph.clone());
             self.ticker
                 .sync_capabilities(&self.graph, &self.capabilities, &transitions, now);
-            self.focus.reconcile_with_geometry(
+            let focus_changed = self.focus.reconcile_with_geometry(
                 &self.graph,
                 &self.capabilities,
                 Some(&layout.components),
                 registry,
             );
+            if focus_changed {
+                continue;
+            }
             return Ok(StableScene {
                 root: resolved,
                 layout,
@@ -257,7 +260,7 @@ impl SceneHost {
     }
 
     fn paint(&self, resolved: StableScene, theme: &Theme) -> PreparedSceneFrame {
-        let compiler = ViewCompiler::new(theme);
+        let compiler = ViewCompiler::with_interaction(theme, self.focus.focused(), &self.graph);
         let surface = ViewPainter.paint_tree(&compiler, &resolved.layout.tree);
         PreparedSceneFrame {
             surface,
@@ -286,7 +289,8 @@ impl<E: std::fmt::Debug + 'static> std::error::Error for SceneHostError<E> {}
 mod tests {
     use super::*;
     use crate::{
-        Component, ComponentCx, IntoView, Scene, StreamingSource, TextSpan, View,
+        BorderSpec, ColorSpec, Component, ComponentCx, IntoView, Scene, StreamingSource,
+        StyleSelector, TextSpan, ThemeColor, View,
         backend::NativeHistorySink,
         component::ComponentRegistry,
         geometry::Size,
@@ -363,6 +367,86 @@ mod tests {
             self.rows.extend(rows.iter().cloned());
             Ok(rows.len())
         }
+    }
+
+    struct ThemedField;
+
+    impl Component for ThemedField {
+        fn view(&self) -> View {
+            View::text("field")
+                .border(BorderSpec::plain().color(ColorSpec::theme("field.border")))
+                .fill_width()
+                .into_view()
+        }
+
+        fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+            cx.focusable();
+        }
+    }
+
+    struct FocusMutatingField {
+        focused: bool,
+    }
+
+    impl FocusMutatingField {
+        fn focus_changed(&mut self, focused: bool) {
+            self.focused = focused;
+        }
+    }
+
+    impl Component for FocusMutatingField {
+        fn view(&self) -> View {
+            View::text(if self.focused { "focused" } else { "unfocused" }).into_view()
+        }
+
+        fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+            cx.focusable();
+            cx.on_focus_changed(Self::focus_changed);
+        }
+    }
+
+    #[test]
+    fn focus_callback_mutation_converges_before_paint() {
+        let mut registry = ComponentRegistry::new();
+        let field = registry.register(FocusMutatingField { focused: false });
+        let scene = Scene::new(View::component(field));
+        let mut host = SceneHost::default();
+        let stable = host
+            .resolve_stable::<()>(&scene, &mut registry, Size::new(20, 4))
+            .unwrap();
+        let frame = host.paint(stable, &Theme::default());
+
+        assert_eq!(frame.surface.get(0, 0).grapheme.as_deref(), Some("f"));
+        assert_eq!(registry.with(field, |field| field.focused), Some(true));
+    }
+
+    #[test]
+    fn paints_framework_focus_variant_without_component_revision_change() {
+        let mut registry = ComponentRegistry::new();
+        let field = registry.register(ThemedField);
+        let scene = Scene::new(View::component(field));
+        let theme = Theme::new()
+            .with_color("field.border", ThemeColor::Named(crate::AnsiColor::Gray))
+            .with_color_variant(
+                "field.border",
+                StyleSelector::focused(),
+                ThemeColor::Named(crate::AnsiColor::Cyan),
+            );
+        let revision = registry.revision(field).expect("field revision");
+        let mut host = SceneHost::default();
+        let stable = host
+            .resolve_stable::<()>(&scene, &mut registry, Size::new(20, 4))
+            .unwrap();
+        let frame = host.paint(stable, &theme);
+
+        assert_eq!(host.focused(), Some(field.id()));
+        assert_eq!(registry.revision(field), Some(revision));
+        assert_eq!(
+            frame.surface.get(0, 0).style.foreground,
+            Some(crate::physical::PhysicalColor::Named(
+                crate::physical::AnsiColor::Cyan,
+            ))
+        );
     }
 
     #[test]

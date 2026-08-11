@@ -158,6 +158,8 @@ fn root_view(history: Option<View>, body: View) -> View {
         width: WidthRule::Fill,
         height: HeightRule::Fill,
         decoration: Default::default(),
+        style_states: Vec::new(),
+        component_scope: None,
         kind: ViewKind::Column(ColumnView { children, gap: 0 }),
     }
 }
