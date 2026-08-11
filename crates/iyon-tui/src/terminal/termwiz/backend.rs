@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use termwiz::terminal::TerminalWaker;
+use tokio::sync::{oneshot, watch};
 
 use crate::{
     backend::NativeHistorySink,
@@ -19,6 +20,7 @@ use super::worker::{Startup, TerminalCommand};
 pub(crate) struct TermwizBackend {
     commands: Sender<TerminalCommand>,
     events: tokio::sync::mpsc::UnboundedReceiver<Result<TerminalEvent>>,
+    size_receiver: watch::Receiver<Size>,
     waker: TerminalWaker,
     worker: Option<JoinHandle<()>>,
     restored: bool,
@@ -29,9 +31,12 @@ impl TermwizBackend {
         let (commands, command_receiver) = mpsc::channel();
         let (startup_sender, startup_receiver) = mpsc::sync_channel(1);
         let (events_sender, events) = tokio::sync::mpsc::unbounded_channel();
+        let (size_sender, size_receiver) = watch::channel(Size::new(0, 0));
         let worker = thread::Builder::new()
             .name("iyon-terminal".to_string())
-            .spawn(move || super::worker::run(command_receiver, events_sender, startup_sender))
+            .spawn(move || {
+                super::worker::run(command_receiver, events_sender, startup_sender, size_sender)
+            })
             .context("spawn terminal worker")?;
 
         let startup = match startup_receiver.recv() {
@@ -42,18 +47,26 @@ impl TermwizBackend {
             }
         }?;
 
-        Ok(Self::from_startup(commands, events, worker, startup))
+        Ok(Self::from_startup(
+            commands,
+            events,
+            size_receiver,
+            worker,
+            startup,
+        ))
     }
 
     fn from_startup(
         commands: Sender<TerminalCommand>,
         events: tokio::sync::mpsc::UnboundedReceiver<Result<TerminalEvent>>,
+        size_receiver: watch::Receiver<Size>,
         worker: JoinHandle<()>,
         startup: Startup,
     ) -> Self {
         Self {
             commands,
             events,
+            size_receiver,
             waker: startup.waker,
             worker: Some(worker),
             restored: false,
@@ -86,29 +99,44 @@ impl NativeHistorySink for TermwizBackend {
 
 impl TerminalBackend for TermwizBackend {
     async fn next_event(&mut self) -> Result<TerminalEvent> {
-        self.events
-            .recv()
-            .await
-            .ok_or_else(|| anyhow!("terminal worker event stream closed"))?
+        tokio::select! {
+            event = self.events.recv() => event
+                .ok_or_else(|| anyhow!("terminal worker event stream closed"))?,
+            changed = self.size_receiver.changed() => {
+                changed.context("terminal size stream closed")?;
+                self.size_receiver.borrow_and_update();
+                Ok(TerminalEvent::Resize)
+            }
+        }
     }
 
     fn try_next_event(&mut self) -> Result<Option<TerminalEvent>> {
         match self.events.try_recv() {
-            Ok(event) => event.map(Some),
-            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => Ok(None),
-            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => Ok(None),
+            Ok(event) => return event.map(Some),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+            | Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {}
+        }
+        match self.size_receiver.has_changed() {
+            Ok(true) => {
+                self.size_receiver.borrow_and_update();
+                Ok(Some(TerminalEvent::Resize))
+            }
+            Ok(false) | Err(_) => Ok(None),
         }
     }
 
     fn viewport(&mut self) -> Result<Size> {
-        let (reply, receiver) = mpsc::channel();
-        self.send(TerminalCommand::Viewport { reply }, receiver)
+        Ok(*self.size_receiver.borrow())
     }
 
-    fn draw_frame(&mut self, frame: &PreparedSceneFrame) -> Result<()> {
-        let (reply, receiver) = mpsc::channel();
+    async fn draw_frame(&mut self, frame: &PreparedSceneFrame) -> Result<()> {
+        let (reply, receiver) = oneshot::channel();
         let desired = super::lower::desired_surface(frame);
-        self.send(TerminalCommand::Present { desired, reply }, receiver)
+        self.commands
+            .send(TerminalCommand::Present { desired, reply })
+            .context("terminal worker stopped")?;
+        self.waker.wake().context("wake terminal worker")?;
+        receiver.await.context("terminal worker reply lost")?
     }
 
     fn position_after_final_frame(&mut self) -> Result<()> {
