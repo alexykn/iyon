@@ -294,6 +294,54 @@ fn bounded_compiler_preserves_fit_height_inside_fixed_track() {
     assert!(block.rows[1].plain_text().is_empty());
 }
 
+#[test]
+fn view_bounds_apply_to_fit_and_fill_outer_dimensions() {
+    let fit = View::text("x").into_view().min_width(5);
+    let fit_block = crate::presentation::layout::compile_bounded_view(&fit, Size::new(20, 20));
+    assert_eq!(fit_block.width, 5);
+
+    let fill = View::text("abcdefgh")
+        .into_view()
+        .fill_width()
+        .max_width(4)
+        .fill_height()
+        .max_height(3);
+    let fill_block = crate::presentation::layout::compile_bounded_view(&fill, Size::new(20, 20));
+    assert_eq!(fill_block.width, 4);
+    assert_eq!(fill_block.rows.len(), 3);
+}
+
+#[test]
+fn view_width_bounds_change_wrapping_and_height() {
+    let view = View::text("abcdefgh").into_view().max_width(4);
+    let block = crate::presentation::layout::compile_bounded_view(&view, Size::new(20, 20));
+    assert_eq!(block.width, 4);
+    assert_eq!(block.rows.len(), 2);
+}
+
+#[test]
+fn view_bounds_normalize_contradictions_and_respect_hard_capacity() {
+    let contradictory = View::text("x").into_view().min_height(4).max_height(2);
+    let block =
+        crate::presentation::layout::compile_bounded_view(&contradictory, Size::new(20, 10));
+    assert_eq!(block.rows.len(), 4);
+
+    let constrained = View::text("x").into_view().min_height(5);
+    let block = crate::presentation::layout::compile_bounded_view(&constrained, Size::new(20, 3));
+    assert_eq!(block.rows.len(), 3);
+}
+
+#[test]
+fn view_height_bounds_include_padding_and_border() {
+    let view = View::text("x")
+        .into_view()
+        .padding(1)
+        .border(BorderSpec::plain())
+        .max_height(5);
+    let block = crate::presentation::layout::compile_bounded_view(&view, Size::new(20, 20));
+    assert_eq!(block.rows.len(), 5);
+}
+
 mod flow;
 mod style;
 mod text;

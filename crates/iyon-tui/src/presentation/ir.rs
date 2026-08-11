@@ -216,9 +216,37 @@ pub(crate) struct ContainerNode {
 
 /// RETAINED SEMANTIC IR. Common semantic decoration applied by the compiler
 /// around a View node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AxisBounds {
+    pub(crate) min: u16,
+    pub(crate) max: u16,
+}
+
+impl Default for AxisBounds {
+    fn default() -> Self {
+        Self {
+            min: 0,
+            max: u16::MAX,
+        }
+    }
+}
+
+impl AxisBounds {
+    pub(crate) fn normalized_max(self) -> u16 {
+        self.max.max(self.min)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ViewBounds {
+    pub(crate) width: AxisBounds,
+    pub(crate) height: AxisBounds,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Decoration {
     pub(crate) padding: Insets,
+    pub(crate) bounds: ViewBounds,
     /// Paints the allocated physical surface, including transparent geometry.
     pub(crate) surface_background: Option<ColorSpec>,
     pub(crate) border: Option<BorderSpec>,

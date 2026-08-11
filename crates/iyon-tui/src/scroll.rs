@@ -206,11 +206,7 @@ impl Component for ScrollPane {
             return self.content.clone().fill_width().fill_height();
         }
         let top = self.top_row(self.content_height(size.width), usize::from(size.height));
-        View::row_viewport_with_height(
-            self.content.clone(),
-            top.min(usize::from(u16::MAX)) as u16,
-            Some(size.height),
-        )
+        View::row_viewport(self.content.clone(), top.min(usize::from(u16::MAX)) as u16)
     }
 
     fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
@@ -260,6 +256,20 @@ mod tests {
         pane.follow_end();
         assert!(pane.is_following_end());
         assert!(rendered(&pane)[0].contains("row 26"));
+    }
+
+    #[test]
+    fn allocation_growth_is_not_fixed_by_the_previous_viewport_height() {
+        let mut pane = ScrollPane::new(content(20));
+        pane.on_layout_changed(Size::new(12, 1));
+        let one_row = compile_bounded_view(&Component::view(&pane), Size::new(12, 1));
+        assert_eq!(one_row.rows.len(), 1);
+        assert!(one_row.rows[0].plain_text().contains("row 20"));
+
+        pane.on_layout_changed(Size::new(12, 8));
+        let eight_rows = compile_bounded_view(&Component::view(&pane), Size::new(12, 8));
+        assert_eq!(eight_rows.rows.len(), 8);
+        assert!(eight_rows.rows[0].plain_text().contains("row 13"));
     }
 
     #[test]
