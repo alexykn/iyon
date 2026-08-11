@@ -17,6 +17,8 @@ pub(crate) enum TerminalEvent {
 pub(crate) trait TerminalBackend: NativeHistorySink<Error = anyhow::Error> {
     async fn next_event(&mut self) -> Result<TerminalEvent>;
 
+    fn try_next_event(&mut self) -> Result<Option<TerminalEvent>>;
+
     fn viewport(&mut self) -> Result<Size>;
 
     fn draw_frame(&mut self, frame: &PreparedSceneFrame) -> Result<()>;

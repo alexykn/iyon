@@ -54,7 +54,9 @@ mod terminal;
 pub mod testing;
 mod theme;
 
-pub use application::{App, AppClosed, AppCx, AppHandle, RunError, RuntimeError, TimerHandle};
+pub use application::{
+    App, AppClosed, AppCx, AppHandle, AppSendError, RunError, RuntimeError, TimerHandle,
+};
 
 pub use component::{Component, ComponentCx, ComponentHandle};
 pub use controls::{TextChange, TextInput};

@@ -20,7 +20,7 @@ mod tests;
 pub use app::App;
 pub use context::AppCx;
 pub use error::{RunError, RuntimeError};
-pub use handle::{AppClosed, AppHandle};
+pub use handle::{AppClosed, AppHandle, AppSendError};
 #[cfg(feature = "test-util")]
 pub(crate) use kernel::{KernelError, RunningApp};
 pub use timer::TimerHandle;

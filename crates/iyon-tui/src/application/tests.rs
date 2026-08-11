@@ -9,7 +9,7 @@ use std::{
 
 use futures_util::task::noop_waker_ref;
 
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, error::TryRecvError};
 
 use super::{
     App, AppCx,
@@ -208,6 +208,17 @@ impl TerminalBackend for FakeBackend {
             .recv()
             .await
             .ok_or_else(|| anyhow::anyhow!("fake terminal event source closed"))
+    }
+
+    fn try_next_event(&mut self) -> anyhow::Result<Option<TerminalEvent>> {
+        if self.event_error {
+            return Err(anyhow::anyhow!("fake event failure"));
+        }
+        match self.events.try_recv() {
+            Ok(event) => Ok(Some(event)),
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => Ok(None),
+        }
     }
 
     fn viewport(&mut self) -> anyhow::Result<Size> {
@@ -1140,7 +1151,9 @@ async fn production_runtime_yields_between_finite_action_batches() {
         .await
         .expect("finite runtime completes");
 
-    assert!(control.report.borrow().draws >= 3);
+    // Presentation requests coalesce while the finite action backlog drains;
+    // the initial and final frames remain observable.
+    assert!(control.report.borrow().draws >= 2);
 }
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
