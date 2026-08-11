@@ -8,7 +8,6 @@ test-util = []
 
 [dependencies]
 anyhow.workspace = true
-futures-util.workspace = true
 termwiz.workspace = true
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
