@@ -73,31 +73,49 @@ impl Builder {
                     border.bottom_height(),
                 )
             });
+        let width_capacity = width_bound
+            .unwrap_or(u16::MAX)
+            .min(view.decoration.bounds.width.normalized_max());
         let (left_padding, _right_padding, horizontal_decoration) =
-            horizontal_decoration(view, width_bound.unwrap_or(u16::MAX));
+            horizontal_decoration(view, width_capacity);
         let vertical_decoration = top_border
             .saturating_add(bottom_border)
             .saturating_add(view.decoration.padding.top)
             .saturating_add(view.decoration.padding.bottom);
-        let inner_width_bound =
-            width_bound.map(|value| value.saturating_sub(horizontal_decoration));
-        let intrinsic = intrinsic_size(view, width_bound.unwrap_or(u16::MAX));
+        let inner_width_bound = width_capacity.saturating_sub(horizontal_decoration);
+        let intrinsic = intrinsic_size(view, width_capacity);
         let intrinsic_core = Size::new(
             intrinsic.width.saturating_sub(horizontal_decoration),
             intrinsic.height.saturating_sub(vertical_decoration),
         );
-        let core_width = match (view.width, inner_width_bound) {
-            (WidthRule::Fill, Some(width)) => width,
-            (_, Some(width)) => intrinsic_core.width.min(width),
-            (_, None) => intrinsic_core.width,
-        };
-        let core_height_bound =
-            height_bound.map(|height| height.saturating_sub(vertical_decoration));
-        let requested_core_height = match (view.height, core_height_bound) {
-            (HeightRule::Fill, Some(height)) => height,
-            (_, Some(height)) => intrinsic_core.height.min(height),
-            (_, None) => intrinsic_core.height,
-        };
+        let minimum_core_width = view
+            .decoration
+            .bounds
+            .width
+            .min
+            .saturating_sub(horizontal_decoration)
+            .min(inner_width_bound);
+        let core_width = match view.width {
+            WidthRule::Fill => inner_width_bound,
+            WidthRule::Fit => intrinsic_core.width.min(inner_width_bound),
+        }
+        .max(minimum_core_width);
+        let height_capacity = height_bound
+            .unwrap_or(u16::MAX)
+            .min(view.decoration.bounds.height.normalized_max());
+        let core_height_bound = height_capacity.saturating_sub(vertical_decoration);
+        let minimum_core_height = view
+            .decoration
+            .bounds
+            .height
+            .min
+            .saturating_sub(vertical_decoration)
+            .min(core_height_bound);
+        let requested_core_height = match (view.height, height_bound) {
+            (HeightRule::Fill, Some(_)) => core_height_bound,
+            _ => intrinsic_core.height.min(core_height_bound),
+        }
+        .max(minimum_core_height);
         let content_x = x.saturating_add(left_border).saturating_add(left_padding);
         let content_y = y
             .saturating_add(top_border)
@@ -122,10 +140,12 @@ impl Builder {
         let size = Size::new(
             core_width
                 .saturating_add(horizontal_decoration)
-                .min(width_bound.unwrap_or(u16::MAX)),
+                .max(view.decoration.bounds.width.min)
+                .min(width_capacity),
             core_height
                 .saturating_add(vertical_decoration)
-                .min(height_bound.unwrap_or(u16::MAX)),
+                .max(view.decoration.bounds.height.min)
+                .min(height_capacity),
         );
         let rect = Rect::new(x, y, size.width, size.height);
         let node_clip = clip

@@ -30,6 +30,8 @@ pub(crate) fn horizontal_decoration(view: &View, width: u16) -> (u16, u16, u16) 
 
 pub(crate) fn intrinsic_size(view: &View, width: u16) -> Size {
     let decoration = &view.decoration;
+    let bounds = decoration.bounds;
+    let width = width.min(bounds.width.normalized_max());
     let (_, _, horizontal) = horizontal_decoration(view, width);
     let (left_border, right_border, top_border, bottom_border) =
         decoration.border.as_ref().map_or((0, 0, 0, 0), |border| {
@@ -125,17 +127,22 @@ pub(crate) fn intrinsic_size(view: &View, width: u16) -> Size {
     } else {
         core.width
     };
+    let outer_width = core_width
+        .saturating_add(decoration.padding.left)
+        .saturating_add(decoration.padding.right)
+        .saturating_add(left_border)
+        .saturating_add(right_border);
+    let outer_height = core
+        .height
+        .saturating_add(decoration.padding.top)
+        .saturating_add(decoration.padding.bottom)
+        .saturating_add(top_border)
+        .saturating_add(bottom_border);
     Size::new(
-        core_width
-            .saturating_add(decoration.padding.left)
-            .saturating_add(decoration.padding.right)
-            .saturating_add(left_border)
-            .saturating_add(right_border),
-        core.height
-            .saturating_add(decoration.padding.top)
-            .saturating_add(decoration.padding.bottom)
-            .saturating_add(top_border)
-            .saturating_add(bottom_border),
+        outer_width.max(bounds.width.min).min(width),
+        outer_height
+            .max(bounds.height.min)
+            .min(bounds.height.normalized_max()),
     )
 }
 

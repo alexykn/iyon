@@ -168,7 +168,13 @@ impl ConversationActivity {
             return Some(
                 View::vertical(|column| {
                     column.child(call);
-                    column.flex_max(MAX_TOOL_OUTPUT_ROWS, View::component(*output).fill_width());
+                    column.flex_max(
+                        MAX_TOOL_OUTPUT_ROWS,
+                        View::component(*output)
+                            .fill_width()
+                            .min_height(1)
+                            .max_height(MAX_TOOL_OUTPUT_ROWS),
+                    );
                 })
                 .fill_width(),
             );

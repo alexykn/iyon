@@ -336,6 +336,30 @@ impl View {
         self.height = HeightRule::Fill;
         self
     }
+
+    /// Sets the minimum outer width this View may receive.
+    pub fn min_width(mut self, width: u16) -> Self {
+        self.decoration.bounds.width.min = width;
+        self
+    }
+
+    /// Sets the maximum outer width this View may receive.
+    pub fn max_width(mut self, width: u16) -> Self {
+        self.decoration.bounds.width.max = width;
+        self
+    }
+
+    /// Sets the minimum outer height this View may receive.
+    pub fn min_height(mut self, height: u16) -> Self {
+        self.decoration.bounds.height.min = height;
+        self
+    }
+
+    /// Sets the maximum outer height this View may receive.
+    pub fn max_height(mut self, height: u16) -> Self {
+        self.decoration.bounds.height.max = height;
+        self
+    }
 }
 
 /// Explicit conversion from semantic construction values into the canonical
