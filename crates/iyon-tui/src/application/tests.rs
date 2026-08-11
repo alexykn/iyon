@@ -21,7 +21,7 @@ use crate::{
     geometry::Size,
     physical::PhysicalRow,
     scene::PreparedSceneFrame,
-    terminal::{TerminalBackend, TerminalEvent},
+    terminal::{PresentReceipt, TerminalBackend, TerminalEvent},
 };
 
 #[derive(Debug)]
@@ -139,6 +139,8 @@ impl NativeHistorySink for HeadlessSink {
 #[derive(Default)]
 struct FakeReport {
     draws: usize,
+    pending_presentations: Vec<tokio::sync::oneshot::Sender<anyhow::Result<()>>>,
+    frame_texts: Vec<String>,
     viewport_calls: usize,
     viewport_sizes: Vec<Size>,
     native_rows: Vec<PhysicalRow>,
@@ -154,6 +156,7 @@ struct FakeBackend {
     viewport_error: bool,
     draw_error: bool,
     restore_error: bool,
+    delay_presentations: bool,
 }
 
 #[derive(Clone)]
@@ -161,6 +164,18 @@ struct FakeTerminalControl {
     events: UnboundedSender<TerminalEvent>,
     report: Rc<RefCell<FakeReport>>,
     viewport: Rc<Cell<Size>>,
+}
+
+impl FakeTerminalControl {
+    fn release_next_presentation(&self) {
+        let sender = self
+            .report
+            .borrow_mut()
+            .pending_presentations
+            .pop()
+            .expect("pending presentation");
+        sender.send(Ok(())).expect("presentation receiver");
+    }
 }
 
 fn fake_backend() -> (FakeBackend, FakeTerminalControl) {
@@ -176,6 +191,7 @@ fn fake_backend() -> (FakeBackend, FakeTerminalControl) {
             viewport_error: false,
             draw_error: false,
             restore_error: false,
+            delay_presentations: false,
         },
         FakeTerminalControl {
             events,
@@ -230,12 +246,28 @@ impl TerminalBackend for FakeBackend {
         Ok(viewport)
     }
 
-    async fn draw_frame(&mut self, _frame: &PreparedSceneFrame) -> anyhow::Result<()> {
+    fn begin_frame(&mut self, _frame: &PreparedSceneFrame) -> anyhow::Result<PresentReceipt> {
         if self.draw_error {
             return Err(anyhow::anyhow!("fake draw failure"));
         }
-        self.report.borrow_mut().draws += 1;
-        Ok(())
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let delayed = self.delay_presentations;
+        let mut report = self.report.borrow_mut();
+        report.draws += 1;
+        report.frame_texts.push(
+            _frame
+                .surface
+                .cells
+                .iter()
+                .filter_map(|cell| cell.grapheme.as_deref())
+                .collect(),
+        );
+        if delayed {
+            report.pending_presentations.push(sender);
+        } else {
+            sender.send(Ok(())).expect("fake presentation receiver");
+        }
+        Ok(receiver)
     }
 
     fn position_after_final_frame(&mut self) -> anyhow::Result<()> {
@@ -1205,6 +1237,78 @@ async fn buffered_terminal_input_is_serviced_between_action_batches() {
     assert!(
         processed >= 128,
         "input was handled before the first batch ended"
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn input_updates_state_while_presentation_is_in_flight() {
+    let observed = Rc::new(RefCell::new(String::new()));
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| {
+            cx.bind_key(KeyStroke::new(Key::Char('a')), || Action::A);
+            cx.bind_key(KeyStroke::new(Key::Char('b')), || Action::B);
+            cx.bind_key(KeyStroke::new(Key::Char('c')), || Action::C);
+            cx.bind_key(KeyStroke::new(Key::Escape), || Action::Exit);
+            Ok::<_, TestError>(String::new())
+        },
+        {
+            let observed = Rc::clone(&observed);
+            move |state: &mut String, action, cx| {
+                match action {
+                    Action::A => state.push('a'),
+                    Action::B => state.push('b'),
+                    Action::C => state.push('c'),
+                    Action::Exit => cx.exit(),
+                    _ => {}
+                }
+                observed.replace(state.clone());
+                Ok(())
+            }
+        },
+        |state: &String| View::text(state.clone()).into_view(),
+    );
+    let (mut backend, control) = fake_backend();
+    backend.delay_presentations = true;
+    let runtime = super::run::run_with_backend(app, backend);
+    let producer_control = control.clone();
+    let producer = async move {
+        while producer_control.report.borrow().draws < 1 {
+            tokio::task::yield_now().await;
+        }
+        producer_control.release_next_presentation();
+        for key in ['a', 'b', 'c'] {
+            producer_control
+                .events
+                .send(TerminalEvent::Key(KeyStroke::new(Key::Char(key))))
+                .unwrap();
+        }
+        while observed.borrow().as_str() != "abc" {
+            tokio::task::yield_now().await;
+        }
+        while producer_control.report.borrow().draws < 2 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(producer_control.report.borrow().draws, 2);
+        producer_control.release_next_presentation();
+        producer_control
+            .events
+            .send(TerminalEvent::Key(KeyStroke::new(Key::Escape)))
+            .unwrap();
+        while producer_control.report.borrow().draws < 3 {
+            tokio::task::yield_now().await;
+        }
+        producer_control.release_next_presentation();
+    };
+    let (result, ()) = tokio::join!(runtime, producer);
+
+    result.expect("runtime completes");
+    assert!(
+        control
+            .report
+            .borrow()
+            .frame_texts
+            .iter()
+            .any(|frame| frame.contains("abc"))
     );
 }
 

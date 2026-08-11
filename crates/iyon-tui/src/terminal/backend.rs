@@ -1,6 +1,9 @@
 use anyhow::Result;
+use tokio::sync::oneshot;
 
 use crate::{backend::NativeHistorySink, geometry::Size, scene::PreparedSceneFrame};
+
+pub(crate) type PresentReceipt = oneshot::Receiver<Result<()>>;
 
 /// Semantic terminal input understood by the runtime driver.
 #[derive(Debug)]
@@ -21,7 +24,7 @@ pub(crate) trait TerminalBackend: NativeHistorySink<Error = anyhow::Error> {
 
     fn viewport(&mut self) -> Result<Size>;
 
-    async fn draw_frame(&mut self, frame: &PreparedSceneFrame) -> Result<()>;
+    fn begin_frame(&mut self, frame: &PreparedSceneFrame) -> Result<PresentReceipt>;
 
     fn position_after_final_frame(&mut self) -> Result<()>;
 

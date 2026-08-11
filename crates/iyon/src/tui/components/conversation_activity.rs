@@ -176,7 +176,8 @@ impl ConversationActivity {
                             .max_height(MAX_TOOL_OUTPUT_ROWS),
                     );
                 })
-                .fill_width(),
+                .fill_width()
+                .fill_height(),
             );
         };
         let result = self.formatter.format(&TimelineItem::ToolResult {
@@ -227,9 +228,7 @@ impl ConversationActivity {
     }
 
     fn map_key(activity: &Self, key: KeyStroke) -> Option<ActivityCommand> {
-        if activity.approval_id.is_none() {
-            return None;
-        }
+        activity.approval_id?;
         match (key.key(), key.modifiers()) {
             (Key::Enter, Modifiers::NONE) | (Key::Char('y'), Modifiers::NONE) => {
                 Some(ActivityCommand::Approve)

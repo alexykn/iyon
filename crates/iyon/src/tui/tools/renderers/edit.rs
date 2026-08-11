@@ -25,12 +25,11 @@ impl ToolRenderer for EditRenderer {
         )];
         // Debug-only: surface the raw edits payload; the normal view keeps the
         // call compact and lets the result's diff carry the detail.
-        if input.show_arg_preview {
-            if let Some(edits) = input.arguments.get("edits") {
-                let preview =
-                    serde_json::to_string_pretty(edits).unwrap_or_else(|_| edits.to_string());
-                children.extend(result_lines(&preview, super::tool_style(input.status)));
-            }
+        if input.show_arg_preview
+            && let Some(edits) = input.arguments.get("edits")
+        {
+            let preview = serde_json::to_string_pretty(edits).unwrap_or_else(|_| edits.to_string());
+            children.extend(result_lines(&preview, super::tool_style(input.status)));
         }
         column(children)
     }

@@ -146,18 +146,10 @@ impl BackendCommands {
     }
 }
 
+#[derive(Default)]
 pub(crate) struct CoreEventMapper {
     message_roles: HashMap<u64, MessageRole>,
     tool_results: HashMap<u64, PendingToolResultPresentation>,
-}
-
-impl Default for CoreEventMapper {
-    fn default() -> Self {
-        Self {
-            message_roles: HashMap::new(),
-            tool_results: HashMap::new(),
-        }
-    }
 }
 
 impl CoreEventMapper {

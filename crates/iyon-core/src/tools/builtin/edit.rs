@@ -118,14 +118,12 @@ fn normalize_legacy_edit_input(input: &mut Value) {
     let Some(object) = input.as_object_mut() else {
         return;
     };
-    if let Some(edits) = object.get_mut("edits") {
-        if let Some(text) = edits.as_str() {
-            if let Ok(parsed) = serde_json::from_str::<Value>(text) {
-                if parsed.is_array() {
-                    *edits = parsed;
-                }
-            }
-        }
+    if let Some(edits) = object.get_mut("edits")
+        && let Some(text) = edits.as_str()
+        && let Ok(parsed) = serde_json::from_str::<Value>(text)
+        && parsed.is_array()
+    {
+        *edits = parsed;
     }
 
     let Some(old_text) = object.remove("oldText") else {
@@ -136,11 +134,13 @@ fn normalize_legacy_edit_input(input: &mut Value) {
         return;
     };
     let edit = json!({ "oldText": old_text, "newText": new_text });
-    object
+    if let Some(edits) = object
         .entry("edits".to_string())
         .or_insert_with(|| json!([]))
         .as_array_mut()
-        .map(|edits| edits.push(edit));
+    {
+        edits.push(edit)
+    }
 }
 
 fn validate_input(input: &EditInput) -> anyhow::Result<()> {

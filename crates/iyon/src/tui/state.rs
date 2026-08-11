@@ -88,6 +88,7 @@ struct LiveTool {
     output: ComponentHandle<ScrollPane>,
 }
 
+#[derive(Default)]
 pub(crate) struct ConversationState {
     formatter: TuiFormatter,
     user_batch: Option<(HistoryUnitId, ComponentHandle<UserBatch>)>,
@@ -98,34 +99,11 @@ pub(crate) struct ConversationState {
     turn_started: bool,
 }
 
-impl Default for ConversationState {
-    fn default() -> Self {
-        Self {
-            formatter: TuiFormatter::default(),
-            user_batch: None,
-            working: None,
-            tools: HashMap::new(),
-            stream: None,
-            last_completed_tool: None,
-            turn_started: false,
-        }
-    }
-}
-
+#[derive(Default)]
 pub(crate) struct StreamPacer {
     pub(crate) smoother: StreamSmoother,
     pub(crate) timer: Option<iyon_tui::TimerHandle>,
     pub(crate) generation: u64,
-}
-
-impl Default for StreamPacer {
-    fn default() -> Self {
-        Self {
-            smoother: StreamSmoother::default(),
-            timer: None,
-            generation: 0,
-        }
-    }
 }
 
 impl StreamPacer {
@@ -329,7 +307,7 @@ impl IyonState {
         let unit = cx
             .history_mut()
             .ok_or_else(|| anyhow!("history unavailable"))?
-            .push(View::component(component).fill_width())?;
+            .push(View::component(component).fill_width().fill_height())?;
         self.conversation.working = Some((unit, component));
         Ok(())
     }
@@ -471,7 +449,7 @@ impl IyonState {
             let unit = cx
                 .history_mut()
                 .ok_or_else(|| anyhow!("history unavailable"))?
-                .push(View::component(component).fill_width())?;
+                .push(View::component(component).fill_width().fill_height())?;
             (unit, component)
         };
         self.conversation.tools.insert(
@@ -664,9 +642,11 @@ impl IyonState {
             self.freeze_completed_tool(cx, &id, true)?;
             return Ok(());
         }
-        let boundary = (self.conversation.last_completed_tool.as_ref() == Some(&id))
-            .then_some(FlowBoundary::AttachToPrevious)
-            .unwrap_or(FlowBoundary::Default);
+        let boundary = if self.conversation.last_completed_tool.as_ref() == Some(&id) {
+            FlowBoundary::AttachToPrevious
+        } else {
+            FlowBoundary::Default
+        };
         let view = self
             .conversation
             .formatter
@@ -735,4 +715,101 @@ fn format_tool_update(update: ToolUpdatePresentation) -> Option<String> {
         ToolUpdatePresentation::Details(details) => details.to_string(),
     };
     (!text.is_empty()).then_some(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use iyon_tui::{App, AppCx, ComponentHandle, History, ScrollPane, View, testing};
+
+    use super::{ConversationActivity, ToolTimelineStatus, TuiFormatter, tool_output_view};
+
+    #[derive(Debug)]
+    enum Action {
+        Snapshot(String),
+    }
+
+    struct State {
+        output: ComponentHandle<ScrollPane>,
+    }
+
+    fn snapshot(count: usize, prefix: &str) -> String {
+        (1..=count)
+            .map(|row| format!("{prefix} {row}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn live_tool_snapshots_keep_the_mounted_scroll_pane_visible() {
+        let app = App::new(
+            |cx: &mut AppCx<'_, Action>| {
+                let output = cx.register(ScrollPane::new(View::spacer(0)));
+                let activity = cx.register(ConversationActivity::tool(
+                    TuiFormatter::default(),
+                    "call".into(),
+                    "bash".into(),
+                    serde_json::json!({"command": "printf"}),
+                    ToolTimelineStatus::Running,
+                    None,
+                    output,
+                ));
+                cx.history_mut()
+                    .ok_or_else(|| anyhow::anyhow!("history unavailable"))?
+                    .push(View::component(activity).fill_width().fill_height())?;
+                Ok::<State, anyhow::Error>(State { output })
+            },
+            |state: &mut State, Action::Snapshot(text), cx| {
+                // The update uses the same full rolling snapshot path as the
+                // production tool action; it never appends individual chunks.
+                cx.with_component_mut(state.output, |output| {
+                    output.set_content(tool_output_view(Some(text)))
+                })
+                .ok_or_else(|| anyhow::anyhow!("tool output disappeared"))?;
+                Ok::<(), anyhow::Error>(())
+            },
+            |_state: &State| {
+                View::vertical(|column| {
+                    column.child(View::text("composer\nfooter"));
+                })
+            },
+        )
+        .with_history(History::new());
+        let mut harness = testing::start(app, 40, 24).expect("start harness");
+
+        let mut apply = |text: String| {
+            harness
+                .handle()
+                .send(Action::Snapshot(text))
+                .expect("snapshot action");
+            harness.step().expect("snapshot step");
+            harness.screen_lines()
+        };
+
+        let one = apply(snapshot(1, "line"));
+        assert_eq!(one.iter().filter(|line| line.contains("line 1")).count(), 1);
+
+        let five = apply(snapshot(5, "line"));
+        assert_eq!(
+            five.iter()
+                .filter(|line| line.starts_with("  line "))
+                .count(),
+            5
+        );
+
+        let twenty = apply(snapshot(20, "line"));
+        let visible_twenty = twenty
+            .iter()
+            .filter(|line| line.starts_with("  line "))
+            .count();
+        assert_eq!(visible_twenty, 16);
+        assert!(twenty.iter().any(|line| line.contains("line 20")));
+
+        let rolling = apply(snapshot(20, "next"));
+        let visible_rolling = rolling
+            .iter()
+            .filter(|line| line.starts_with("  next "))
+            .count();
+        assert_eq!(visible_rolling, 16);
+        assert!(rolling.iter().any(|line| line.contains("next 20")));
+    }
 }

@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::terminal::{TerminalBackend, TerminalEvent};
+use crate::terminal::{PresentReceipt, TerminalBackend, TerminalEvent};
 
 use super::{
     app::App,
@@ -158,6 +158,7 @@ where
     Backend: TerminalBackend,
 {
     prepare_and_draw(app, session, Instant::now()).await?;
+    let mut in_flight = None;
     let mut presentation = PresentationScheduler::new(Instant::now());
     presentation.presented(Instant::now());
     app.drain_deferred_pastes().map_err(map_kernel_error)?;
@@ -167,16 +168,21 @@ where
         pump_terminal_input(app, session)?;
         let now = Instant::now();
         let status = app.advance_ready(now).map_err(map_kernel_error)?;
-        let mut presented = false;
-        if presentation.should_present(status.dirty, now) {
-            prepare_and_draw(app, session, now).await?;
-            presentation.presented(Instant::now());
-            presented = true;
+        if in_flight.is_none() && presentation.should_present(status.dirty, now) {
+            in_flight = Some(prepare_and_begin(app, session, now)?);
         }
         if status.exiting {
-            if status.dirty && !presented {
-                prepare_and_draw(app, session, now).await?;
-                presentation.presented(Instant::now());
+            if let Some(receipt) = in_flight.take() {
+                receipt
+                    .await
+                    .map_err(|error| RunError::Runtime(runtime_error(error)))?
+                    .map_err(|error| RunError::Runtime(runtime_error(error)))?;
+            }
+            let final_status = app
+                .advance_ready(Instant::now())
+                .map_err(map_kernel_error)?;
+            if final_status.dirty {
+                prepare_and_draw(app, session, Instant::now()).await?;
             }
             break;
         }
@@ -190,6 +196,11 @@ where
             .flatten()
             .min();
         tokio::select! {
+            result = wait_for_present(&mut in_flight) => {
+                result.map_err(|error| RunError::Runtime(runtime_error(error)))?;
+                in_flight = None;
+                presentation.presented(Instant::now());
+            }
             _ = wait_for_deadline(deadline) => {}
             event = session.next_event() => {
                 dispatch_terminal_event(app, event
@@ -258,13 +269,37 @@ where
     ViewFn: Fn(&State) -> crate::View,
     Backend: TerminalBackend,
 {
+    prepare_and_begin(app, session, now)?
+        .await
+        .map_err(|error| RunError::Runtime(runtime_error(error)))?
+        .map_err(|error| RunError::Runtime(runtime_error(error)))
+}
+
+fn prepare_and_begin<State, Action, Error, Update, ViewFn, Backend>(
+    app: &mut RunningApp<State, Action, Error, Update, ViewFn>,
+    session: &mut TerminalSession<Backend>,
+    now: Instant,
+) -> Result<PresentReceipt, RunError<Error>>
+where
+    Update: FnMut(&mut State, Action, &mut super::context::AppCx<'_, Action>) -> Result<(), Error>,
+    ViewFn: Fn(&State) -> crate::View,
+    Backend: TerminalBackend,
+{
     let frame = app
         .prepare_frame(now, session.backend_mut(), |backend| backend.viewport())
         .map_err(|error| RunError::Runtime(runtime_error(error)))?;
     session
-        .draw_frame(&frame)
-        .await
+        .begin_frame(&frame)
         .map_err(|error| RunError::Runtime(runtime_error(error)))
+}
+
+async fn wait_for_present(pending: &mut Option<PresentReceipt>) -> anyhow::Result<()> {
+    let Some(receipt) = pending.as_mut() else {
+        return std::future::pending().await;
+    };
+    receipt
+        .await
+        .map_err(|error| anyhow::anyhow!("terminal presentation reply lost: {error}"))?
 }
 
 async fn wait_for_deadline(deadline: Option<Instant>) {
@@ -305,8 +340,11 @@ where
         self.backend.try_next_event()
     }
 
-    async fn draw_frame(&mut self, frame: &crate::scene::PreparedSceneFrame) -> anyhow::Result<()> {
-        self.backend.draw_frame(frame).await
+    fn begin_frame(
+        &mut self,
+        frame: &crate::scene::PreparedSceneFrame,
+    ) -> anyhow::Result<PresentReceipt> {
+        self.backend.begin_frame(frame)
     }
 
     fn position_after_final_frame(&mut self) -> anyhow::Result<()> {
