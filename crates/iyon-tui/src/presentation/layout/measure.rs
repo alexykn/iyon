@@ -143,7 +143,8 @@ fn track_intrinsic_height(track: TrackSize, height: u16) -> u16 {
     match track {
         TrackSize::Fixed(value) => value,
         TrackSize::Content { max } => max.map_or(height, |value| height.min(value)),
-        TrackSize::Flex { .. } | TrackSize::FlexMax { .. } => height,
+        TrackSize::Flex { .. } => height,
+        TrackSize::FlexMax { max, .. } => height.min(max),
     }
 }
 

@@ -729,5 +729,5 @@ fn format_tool_update(update: ToolUpdatePresentation) -> Option<String> {
         },
         ToolUpdatePresentation::Details(details) => details.to_string(),
     };
-    (!text.is_empty()).then(|| text.chars().take(1000).collect())
+    (!text.is_empty()).then_some(text)
 }

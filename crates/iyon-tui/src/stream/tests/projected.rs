@@ -36,13 +36,102 @@ fn exact_fragments_share_one_egc_barrier() {
 
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::physical::PhysicalColor;
 use crate::physical::PhysicalRow;
 use crate::presentation::layout::ViewCompiler;
+use crate::presentation::paint::StyleContext;
 use crate::presentation::{HorizontalAlign, StyleSpec, ThemeKey, WidthRule, WrapMode};
 use crate::stream::*;
+use crate::{StyleSelector, StyleStateKey, StyleStateValue, Theme, ThemeColor};
 
 fn range(start: u64, end: u64) -> StreamRange {
     StreamRange::new(StreamOffset::new(start), StreamOffset::new(end))
+}
+
+fn stateful_theme() -> Theme {
+    Theme::new()
+        .with_color("accent", ThemeColor::Indexed(2))
+        .with_color_variant(
+            "accent",
+            StyleSelector::state("kind", "warning"),
+            ThemeColor::Indexed(1),
+        )
+}
+
+fn warning_context() -> StyleContext {
+    StyleContext {
+        states: vec![(
+            StyleStateKey::from_static("kind"),
+            StyleStateValue::from_static("warning"),
+        )],
+        ..StyleContext::default()
+    }
+}
+
+#[test]
+fn projected_runs_resolve_theme_variants_from_effective_context() {
+    let projected = ProjectedText {
+        content_range: range(0, 1),
+        terminator: ExactTerminator::None,
+        width: WidthRule::Fill,
+        wrap: WrapMode::WordThenGrapheme,
+        align: HorizontalAlign::Start,
+        layout: ProjectedTextLayout::Plain,
+        runs: vec![ProjectedTextRun {
+            display: "x".into(),
+            style: StyleSpec::new()
+                .foreground(crate::ColorSpec::theme("accent"))
+                .into(),
+            owned: range(0, 1),
+            exact_visible: Some(range(0, 1)),
+        }],
+    };
+    let compiler = ViewCompiler::new(&stateful_theme());
+    let (_, rows) = compiler.compile_projected_text_with_metadata_and_context(
+        &projected,
+        10,
+        &warning_context(),
+    );
+    assert_eq!(
+        rows[0].row.cell(0).unwrap().style.foreground,
+        Some(PhysicalColor::Indexed(1))
+    );
+}
+
+#[test]
+fn projected_hanging_prefix_resolves_theme_variants_from_effective_context() {
+    let projected = ProjectedText {
+        content_range: range(0, 1),
+        terminator: ExactTerminator::None,
+        width: WidthRule::Fill,
+        wrap: WrapMode::WordThenGrapheme,
+        align: HorizontalAlign::Start,
+        layout: ProjectedTextLayout::Hanging {
+            body_column: 2,
+            prefix: "> ".into(),
+            prefix_style: StyleSpec::new()
+                .foreground(crate::ColorSpec::theme("accent"))
+                .into(),
+            prefix_source: range(0, 0),
+            show_prefix: true,
+        },
+        runs: vec![ProjectedTextRun {
+            display: "x".into(),
+            style: StyleSpec::default().into(),
+            owned: range(0, 1),
+            exact_visible: Some(range(0, 1)),
+        }],
+    };
+    let compiler = ViewCompiler::new(&stateful_theme());
+    let (_, rows) = compiler.compile_projected_text_with_metadata_and_context(
+        &projected,
+        10,
+        &warning_context(),
+    );
+    assert_eq!(
+        rows[0].row.cell(0).unwrap().style.foreground,
+        Some(PhysicalColor::Indexed(1))
+    );
 }
 
 fn text(row: &PhysicalRow) -> String {

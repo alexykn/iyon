@@ -21,7 +21,20 @@ impl ViewCompiler {
         text: &ProjectedText,
         max_width: u16,
     ) -> (u16, Vec<CompiledTextRow>) {
-        self.compile_projected_text_with_style(text, max_width, PhysicalStyle::default())
+        self.compile_projected_text_with_metadata_and_context(
+            text,
+            max_width,
+            &StyleContext::default(),
+        )
+    }
+
+    pub(crate) fn compile_projected_text_with_metadata_and_context(
+        &self,
+        text: &ProjectedText,
+        max_width: u16,
+        context: &StyleContext,
+    ) -> (u16, Vec<CompiledTextRow>) {
+        self.compile_projected_text_with_style(text, max_width, PhysicalStyle::default(), context)
     }
 
     fn compile_projected_text_with_style(
@@ -29,6 +42,7 @@ impl ViewCompiler {
         text: &ProjectedText,
         max_width: u16,
         inherited: PhysicalStyle,
+        context: &StyleContext,
     ) -> (u16, Vec<CompiledTextRow>) {
         if let ProjectedTextLayout::Hanging {
             body_column,
@@ -53,7 +67,7 @@ impl ViewCompiler {
             };
             let body_width = max_width.saturating_sub(*body_column).max(1);
             let (_, body_rows) =
-                self.compile_projected_text_with_style(&body, body_width, inherited);
+                self.compile_projected_text_with_style(&body, body_width, inherited, context);
             let prefix_width = UnicodeWidthStr::width(prefix.as_str());
             let mut rows = Vec::with_capacity(body_rows.len());
             for (index, mut row) in body_rows.into_iter().enumerate() {
@@ -64,7 +78,7 @@ impl ViewCompiler {
                 };
                 let prefix_style = if index == 0 && *show_prefix {
                     self.theme
-                        .resolve_text_style(inherited, prefix_style, &StyleContext::default())
+                        .resolve_text_style(inherited, prefix_style, context)
                 } else {
                     inherited
                 };
@@ -86,7 +100,7 @@ impl ViewCompiler {
             return (max_width, rows);
         }
 
-        let hard_lines = projected_hard_lines(&self.theme, text, inherited);
+        let hard_lines = projected_hard_lines(&self.theme, text, inherited, context);
         let intrinsic_width = hard_lines
             .iter()
             .map(|line| line.iter().map(|atom| atom.width).sum::<usize>())
@@ -118,13 +132,14 @@ fn projected_hard_lines(
     theme: &crate::presentation::paint::ThemeResolver,
     text: &ProjectedText,
     inherited: PhysicalStyle,
+    context: &StyleContext,
 ) -> Vec<Vec<StyledGrapheme<'static>>> {
     let mut hard_lines = vec![Vec::new()];
     for atom in projected_atoms(text) {
         let mapped = StyledGrapheme {
             text: Cow::Owned(atom.display.clone()),
             width: UnicodeWidthStr::width(atom.display.as_str()),
-            style: theme.resolve_text_style(inherited, &atom.style, &StyleContext::default()),
+            style: theme.resolve_text_style(inherited, &atom.style, context),
             source: Some(
                 (atom.owned.start.as_u64() - text.content_range.start.as_u64()) as usize
                     ..(atom.owned.end.as_u64() - text.content_range.start.as_u64()) as usize,

@@ -38,6 +38,15 @@ pub struct Theme {
     next_declaration_order: u64,
 }
 
+fn sort_variants<T>(variants: &mut [ThemeVariant<T>]) {
+    variants.sort_by_key(|variant| {
+        (
+            variant.selector.predicate_count(),
+            variant.declaration_order,
+        )
+    });
+}
+
 impl Theme {
     pub fn new() -> Self {
         Self::default()
@@ -88,16 +97,24 @@ impl Theme {
         color: ThemeColor,
     ) -> Option<ThemeColor> {
         let order = self.next_order();
-        self.colors
-            .entry(key.into())
-            .or_default()
+        let entry = self.colors.entry(key.into()).or_default();
+        let old = if let Some(variant) = entry
             .variants
-            .push(ThemeVariant {
+            .iter_mut()
+            .find(|variant| variant.selector == selector)
+        {
+            variant.declaration_order = order;
+            Some(std::mem::replace(&mut variant.value, color))
+        } else {
+            entry.variants.push(ThemeVariant {
                 selector,
                 value: color,
                 declaration_order: order,
             });
-        None
+            None
+        };
+        sort_variants(&mut entry.variants);
+        old
     }
 
     pub fn set_style(&mut self, key: impl Into<ThemeKey>, style: StyleSpec) -> Option<StyleSpec> {
@@ -115,16 +132,24 @@ impl Theme {
         style: StyleSpec,
     ) -> Option<StyleSpec> {
         let order = self.next_order();
-        self.styles
-            .entry(key.into())
-            .or_default()
+        let entry = self.styles.entry(key.into()).or_default();
+        let old = if let Some(variant) = entry
             .variants
-            .push(ThemeVariant {
+            .iter_mut()
+            .find(|variant| variant.selector == selector)
+        {
+            variant.declaration_order = order;
+            Some(std::mem::replace(&mut variant.value, style))
+        } else {
+            entry.variants.push(ThemeVariant {
                 selector,
                 value: style,
                 declaration_order: order,
             });
-        None
+            None
+        };
+        sort_variants(&mut entry.variants);
+        old
     }
 
     pub fn color(&self, key: &str) -> Option<ThemeColor> {
@@ -150,18 +175,11 @@ impl Theme {
             .iter()
             .find_map(|(name, entry)| (name.as_str() == key).then_some(entry))?;
         let mut resolved = entry.base;
-        let mut variants = entry
+        for variant in entry
             .variants
             .iter()
             .filter(|variant| variant.selector.matches(focused, focus_within, states))
-            .collect::<Vec<_>>();
-        variants.sort_by_key(|variant| {
-            (
-                variant.selector.predicate_count(),
-                variant.declaration_order,
-            )
-        });
-        for variant in variants {
+        {
             resolved = Some(variant.value);
         }
         resolved
@@ -179,18 +197,11 @@ impl Theme {
             .iter()
             .find_map(|(name, entry)| (name.as_str() == key).then_some(entry))?;
         let mut resolved = entry.base.clone().unwrap_or_default();
-        let mut variants = entry
+        for variant in entry
             .variants
             .iter()
             .filter(|variant| variant.selector.matches(focused, focus_within, states))
-            .collect::<Vec<_>>();
-        variants.sort_by_key(|variant| {
-            (
-                variant.selector.predicate_count(),
-                variant.declaration_order,
-            )
-        });
-        for variant in variants {
+        {
             resolved.overlay(&variant.value);
         }
         Some(resolved)
