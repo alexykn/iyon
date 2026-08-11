@@ -99,19 +99,19 @@ fn effective_cell(
     x: usize,
     y: u16,
 ) -> PhysicalCell {
-    if overlay_last_written.is_some_and(|last| x <= last) {
-        if let Some(row) = overlay_row {
-            return row
-                .cell(x)
-                .cloned()
-                .filter(|cell| cell.painted)
-                .unwrap_or(PhysicalCell {
-                    grapheme: None,
-                    style: PhysicalStyle::default(),
-                    painted: true,
-                    continuation: false,
-                });
-        }
+    if overlay_last_written.is_some_and(|last| x <= last)
+        && let Some(row) = overlay_row
+    {
+        return row
+            .cell(x)
+            .cloned()
+            .filter(|cell| cell.painted)
+            .unwrap_or(PhysicalCell {
+                grapheme: None,
+                style: PhysicalStyle::default(),
+                painted: true,
+                continuation: false,
+            });
     }
     surface.get(x as u16, y).clone()
 }

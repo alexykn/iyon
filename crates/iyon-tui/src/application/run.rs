@@ -19,7 +19,7 @@ where
     Update: FnMut(&mut State, Action, &mut super::context::AppCx<'_, Action>) -> Result<(), Error>,
     ViewFn: Fn(&State) -> crate::View,
 {
-    run_with_factory(app, || crate::terminal::enter_default()).await
+    run_with_factory(app, crate::terminal::enter_default).await
 }
 
 async fn run_with_factory<State, Action, Error, Init, Update, ViewFn, Backend, Factory>(
