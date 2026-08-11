@@ -1154,6 +1154,60 @@ async fn production_runtime_yields_between_finite_action_batches() {
     assert!(control.report.borrow().draws >= 2);
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn buffered_terminal_input_is_serviced_between_action_batches() {
+    let exit_after = Rc::new(Cell::new(None));
+    let app = App::new(
+        |cx: &mut AppCx<'_, Action>| {
+            cx.bind_key(KeyStroke::new(Key::Escape), || Action::Exit);
+            cx.schedule_after(Duration::ZERO, Action::Loop);
+            Ok::<_, TestError>(0usize)
+        },
+        {
+            let exit_after = Rc::clone(&exit_after);
+            move |state, action, cx| {
+                match action {
+                    Action::Loop if *state < 400 => {
+                        *state += 1;
+                        cx.schedule_after(Duration::ZERO, Action::Loop);
+                    }
+                    Action::Loop => {
+                        cx.schedule_after(Duration::ZERO, Action::Exit);
+                    }
+                    Action::Exit => {
+                        exit_after.set(Some(*state));
+                        cx.exit();
+                    }
+                    _ => {}
+                }
+                Ok(())
+            }
+        },
+        |state: &usize| View::text(state.to_string()).into_view(),
+    );
+    let (backend, control) = fake_backend();
+    let runtime = super::run::run_with_backend(app, backend);
+    let producer = async move {
+        tokio::task::yield_now().await;
+        control
+            .events
+            .send(TerminalEvent::Key(KeyStroke::new(Key::Escape)))
+            .unwrap();
+    };
+    let (result, ()) = tokio::join!(runtime, producer);
+
+    assert!(result.is_ok());
+    let processed = exit_after.get().expect("Escape should exit the app");
+    assert!(
+        processed < 400,
+        "input was delayed until the action backlog drained"
+    );
+    assert!(
+        processed >= 128,
+        "input was handled before the first batch ended"
+    );
+}
+
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn production_runtime_wakes_on_application_timer_deadline() {
     let fired = Rc::new(Cell::new(false));
