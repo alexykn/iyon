@@ -199,8 +199,11 @@ impl Component for ScrollPane {
         let Some(size) = self.layout_size else {
             return self.content.clone().fill_width().fill_height();
         };
+        // An empty initial content view can give the slot a zero geometry. Keep
+        // the intrinsic content visible in that state so a later retained
+        // update can remeasure the pane instead of being permanently clipped.
         if size.width == 0 || size.height == 0 {
-            return View::spacer(0).fill_width().fill_height();
+            return self.content.clone().fill_width().fill_height();
         }
         let top = self.top_row(self.content_height(size.width), usize::from(size.height));
         View::row_viewport_with_height(
