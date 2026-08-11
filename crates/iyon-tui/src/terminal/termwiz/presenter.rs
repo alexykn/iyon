@@ -181,7 +181,7 @@ fn canonical_cursor(height: usize) -> Vec<Change> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::physical::{PhysicalCell, PhysicalRow};
+    use crate::physical::{PhysicalCell, PhysicalColor, PhysicalRow, PhysicalStyle};
     use termwiz::surface::Change;
 
     fn surface(text: &str, width: usize, height: usize) -> Surface {
@@ -247,6 +247,322 @@ mod tests {
             actual.screen_chars_to_string(),
             presented.screen_chars_to_string()
         );
+    }
+
+    fn physical_surface(rows: Vec<Vec<PhysicalCell>>, width: u16) -> Surface {
+        let mut surface = Surface::new(usize::from(width), rows.len());
+        for (y, cells) in rows.into_iter().enumerate() {
+            surface.add_changes(row_changes(&PhysicalRow::from_cells(cells), y, true));
+        }
+        surface
+    }
+
+    fn assert_surface_state_equal(actual: &Surface, expected: &Surface) {
+        assert_eq!(actual.dimensions(), expected.dimensions());
+        let actual_lines = actual.screen_lines();
+        let expected_lines = expected.screen_lines();
+        for (actual_line, expected_line) in actual_lines.iter().zip(expected_lines.iter()) {
+            for x in 0..actual.dimensions().0 {
+                let actual_cell = actual_line.get_cell(x).expect("actual cell");
+                let expected_cell = expected_line.get_cell(x).expect("expected cell");
+                assert_eq!(actual_cell.str(), expected_cell.str());
+                assert_eq!(actual_cell.attrs(), expected_cell.attrs());
+            }
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct VirtualCell {
+        text: String,
+        attrs: CellAttributes,
+    }
+
+    struct VirtualTerminal {
+        width: usize,
+        height: usize,
+        screen: Vec<Vec<VirtualCell>>,
+        scrollback: Vec<Vec<VirtualCell>>,
+        x: usize,
+        y: usize,
+        attrs: CellAttributes,
+    }
+
+    impl VirtualTerminal {
+        fn new(width: usize, height: usize) -> Self {
+            let blank = || VirtualCell {
+                text: " ".into(),
+                attrs: CellAttributes::default(),
+            };
+            Self {
+                width,
+                height,
+                screen: (0..height)
+                    .map(|_| (0..width).map(|_| blank()).collect())
+                    .collect(),
+                scrollback: Vec::new(),
+                x: 0,
+                y: 0,
+                attrs: CellAttributes::default(),
+            }
+        }
+
+        fn scroll_up(&mut self) {
+            if self.height == 0 {
+                return;
+            }
+            self.scrollback.push(self.screen.remove(0));
+            self.screen.push(
+                (0..self.width)
+                    .map(|_| VirtualCell {
+                        text: " ".into(),
+                        attrs: CellAttributes::default(),
+                    })
+                    .collect(),
+            );
+            self.y = self.height - 1;
+        }
+
+        fn apply(&mut self, changes: &[Change]) {
+            for change in changes {
+                match change {
+                    Change::CursorPosition { x, y } => {
+                        self.x = match x {
+                            Position::Absolute(value) => *value,
+                            _ => panic!("test model only supports absolute x"),
+                        };
+                        self.y = match y {
+                            Position::Absolute(value) => *value,
+                            _ => panic!("test model only supports absolute y"),
+                        };
+                    }
+                    Change::AllAttributes(attrs) => self.attrs = attrs.clone(),
+                    Change::ClearToEndOfLine(_) => {
+                        for cell in self.screen[self.y][self.x..].iter_mut() {
+                            *cell = VirtualCell {
+                                text: " ".into(),
+                                attrs: self.attrs.clone(),
+                            };
+                        }
+                    }
+                    Change::Text(text) => {
+                        for character in text.chars() {
+                            match character {
+                                '\r' => self.x = 0,
+                                '\n' => {
+                                    if self.y + 1 >= self.height {
+                                        self.scroll_up();
+                                    } else {
+                                        self.y += 1;
+                                    }
+                                }
+                                character => {
+                                    if self.x < self.width && self.y < self.height {
+                                        self.screen[self.y][self.x] = VirtualCell {
+                                            text: character.to_string(),
+                                            attrs: self.attrs.clone(),
+                                        };
+                                    }
+                                    self.x += 1;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        fn row_text(row: &[VirtualCell]) -> String {
+            row.iter().map(|cell| cell.text.as_str()).collect()
+        }
+    }
+
+    #[test]
+    fn native_transaction_matches_an_independent_main_screen_model() {
+        let presented = physical_surface(
+            vec![
+                vec![PhysicalCell::transparent(); 4],
+                vec![PhysicalCell::transparent(); 4],
+            ],
+            4,
+        );
+        let rows = [
+            PhysicalRow::from_cells(vec![PhysicalCell {
+                grapheme: Some("a".into()),
+                style: PhysicalStyle::default(),
+                painted: true,
+                continuation: false,
+            }]),
+            PhysicalRow::from_cells(Vec::new()),
+            PhysicalRow::from_cells(vec![
+                PhysicalCell {
+                    grapheme: Some("b".into()),
+                    style: PhysicalStyle::default(),
+                    painted: true,
+                    continuation: false,
+                },
+                PhysicalCell {
+                    grapheme: Some("c".into()),
+                    style: PhysicalStyle::default(),
+                    painted: true,
+                    continuation: false,
+                },
+            ]),
+        ];
+        let transaction = native_transaction(&presented, &rows);
+        let mut model = VirtualTerminal::new(4, 2);
+        model.apply(&transaction);
+        assert_eq!(
+            model
+                .scrollback
+                .iter()
+                .map(|row| VirtualTerminal::row_text(row))
+                .collect::<Vec<_>>(),
+            ["a   ", "    ", "bc  "]
+        );
+        assert_eq!(
+            model
+                .screen
+                .iter()
+                .map(|row| VirtualTerminal::row_text(row))
+                .collect::<Vec<_>>(),
+            ["    ", "    "]
+        );
+    }
+
+    #[test]
+    fn differential_present_clears_styled_bubble_cells_and_attributes() {
+        let bubble_style = PhysicalStyle {
+            foreground: Some(PhysicalColor::Indexed(4)),
+            background: Some(PhysicalColor::Indexed(7)),
+            bold: true,
+            italic: true,
+            underline: true,
+            ..PhysicalStyle::default()
+        };
+        let a = physical_surface(
+            vec![vec![
+                PhysicalCell {
+                    grapheme: Some("A".into()),
+                    style: bubble_style,
+                    painted: true,
+                    continuation: false,
+                },
+                PhysicalCell {
+                    grapheme: Some("B".into()),
+                    style: bubble_style,
+                    painted: true,
+                    continuation: false,
+                },
+                PhysicalCell::transparent(),
+                PhysicalCell::transparent(),
+            ]],
+            4,
+        );
+        let b = physical_surface(
+            vec![vec![
+                PhysicalCell {
+                    grapheme: Some("x".into()),
+                    style: PhysicalStyle::default(),
+                    painted: true,
+                    continuation: false,
+                },
+                PhysicalCell::transparent(),
+                PhysicalCell::transparent(),
+                PhysicalCell::transparent(),
+            ]],
+            4,
+        );
+        let mut actual = a.clone();
+        let changes = actual.diff_screens(&b);
+        actual.add_changes(changes);
+        assert_surface_state_equal(&actual, &b);
+    }
+
+    #[test]
+    fn native_repair_then_changed_frame_reaches_exact_styled_state() {
+        let a = physical_surface(
+            vec![vec![
+                PhysicalCell {
+                    grapheme: Some("A".into()),
+                    style: PhysicalStyle {
+                        background: Some(PhysicalColor::Indexed(2)),
+                        ..PhysicalStyle::default()
+                    },
+                    painted: true,
+                    continuation: false,
+                },
+                PhysicalCell {
+                    grapheme: Some("B".into()),
+                    style: PhysicalStyle::default(),
+                    painted: true,
+                    continuation: false,
+                },
+                PhysicalCell::transparent(),
+                PhysicalCell::transparent(),
+            ]],
+            4,
+        );
+        let native = PhysicalRow::from_cells(vec![PhysicalCell {
+            grapheme: Some("n".into()),
+            style: PhysicalStyle::default(),
+            painted: true,
+            continuation: false,
+        }]);
+        let mut actual = a.clone();
+        actual.add_changes(native_transaction(&a, &[native]));
+        assert_surface_state_equal(&actual, &a);
+
+        let b = physical_surface(
+            vec![vec![
+                PhysicalCell {
+                    grapheme: Some("z".into()),
+                    style: PhysicalStyle::default(),
+                    painted: true,
+                    continuation: false,
+                },
+                PhysicalCell::transparent(),
+                PhysicalCell::transparent(),
+                PhysicalCell::transparent(),
+            ]],
+            4,
+        );
+        let changes = actual.diff_screens(&b);
+        actual.add_changes(changes);
+        assert_surface_state_equal(&actual, &b);
+    }
+
+    #[test]
+    fn resize_preserves_retained_overlap_for_native_repair() {
+        let mut retained = physical_surface(
+            vec![vec![
+                PhysicalCell {
+                    grapheme: Some("A".into()),
+                    style: PhysicalStyle::default(),
+                    painted: true,
+                    continuation: false,
+                },
+                PhysicalCell {
+                    grapheme: Some("B".into()),
+                    style: PhysicalStyle::default(),
+                    painted: true,
+                    continuation: false,
+                },
+            ]],
+            2,
+        );
+        retained.resize(3, 2);
+        let expected = retained.clone();
+        retained.add_changes(native_transaction(
+            &expected,
+            &[PhysicalRow::from_cells(vec![PhysicalCell {
+                grapheme: Some("n".into()),
+                style: PhysicalStyle::default(),
+                painted: true,
+                continuation: false,
+            }])],
+        ));
+        assert_surface_state_equal(&retained, &expected);
     }
 
     #[test]
