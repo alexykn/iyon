@@ -411,9 +411,10 @@ pub(crate) fn input_wrap_ranges(text: &str, width: u16) -> Vec<Range<usize>> {
             continue;
         }
 
+        let logical_visual_start = visual.len();
         let mut consumed_abs = logical.start;
         for piece in textwrap::wrap(slice, &opts) {
-            let range = match piece {
+            let mut range = match piece {
                 std::borrow::Cow::Borrowed(piece) => {
                     // Safety: textwrap's borrowed piece is a subslice of text.
                     let start = unsafe { piece.as_ptr().offset_from(text.as_ptr()) as usize };
@@ -424,32 +425,50 @@ pub(crate) fn input_wrap_ranges(text: &str, width: u16) -> Vec<Range<usize>> {
                 }
             };
 
-            if range.start > consumed_abs {
-                push_input_remainder(&mut visual, text, consumed_abs, range.start, wrap_width);
+            // textwrap can return an empty piece for leading whitespace that
+            // cannot share a row with the following word. Do not materialize
+            // that piece: the next real word will absorb the skipped source
+            // whitespace below.
+            if range.is_empty() {
+                continue;
             }
 
-            let piece_width = UnicodeWidthStr::width(&text[range.clone()]);
-            let mut remaining = wrap_width.saturating_sub(piece_width);
+            if range.start > consumed_abs {
+                let gap = &text[consumed_abs..range.start];
+                if gap
+                    .chars()
+                    .all(|character| character == ' ' || character == '\t')
+                {
+                    if visual.len() > logical_visual_start {
+                        let previous = visual
+                            .last_mut()
+                            .expect("logical visual rows should have a previous row");
+                        // Keep the source anchor in the preceding row without
+                        // creating a row whose only visible content is space.
+                        previous.end = range.start;
+                    } else {
+                        // Preserve leading whitespace on the first real row.
+                        range.start = consumed_abs;
+                    }
+                } else {
+                    push_input_remainder(&mut visual, text, consumed_abs, range.start, wrap_width);
+                }
+            }
+
+            // `textwrap` trims trailing whitespace from each piece. Keep all
+            // of that whitespace attached to the piece instead of allowing an
+            // overflow separator to become its own visual row.
             let mut end = range.end;
             for character in text[range.end..logical.end].chars() {
                 if character != ' ' && character != '\t' {
                     break;
                 }
-                let width = character.width().unwrap_or(0);
-                if width > remaining {
-                    break;
-                }
                 end += character.len_utf8();
-                remaining -= width;
             }
             visual.push(range.start..end);
             consumed_abs = end;
         }
 
-        // `textwrap` trims trailing whitespace from each piece. If it does not
-        // fit in the remaining cells, that whitespace is not returned at all;
-        // retain it on following visual rows so cursor anchors still have a
-        // source range to inhabit.
         push_input_remainder(&mut visual, text, consumed_abs, logical.end, wrap_width);
     }
 
@@ -622,6 +641,16 @@ mod tests {
                     .collect::<String>()
             })
             .collect()
+    }
+
+    #[test]
+    fn input_wrap_attaches_overflow_space_to_the_adjacent_word() {
+        assert_eq!(input_wrap_ranges("one two", 4), vec![0..4, 4..7]);
+    }
+
+    #[test]
+    fn input_wrap_keeps_leading_whitespace_on_its_logical_line() {
+        assert_eq!(input_wrap_ranges("one\n  two", 4), vec![0..3, 4..9]);
     }
 
     #[test]
