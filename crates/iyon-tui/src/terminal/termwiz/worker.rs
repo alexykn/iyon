@@ -7,18 +7,17 @@ use termwiz::{
     surface::{Change, CursorVisibility, Surface},
     terminal::{Terminal, TerminalWaker, new_terminal},
 };
+use tokio::sync::{oneshot, watch};
 
 type EventSender = tokio::sync::mpsc::UnboundedSender<Result<crate::terminal::TerminalEvent>>;
 
 type Reply<T> = Sender<Result<T>>;
+type AsyncReply<T> = oneshot::Sender<Result<T>>;
 
 pub(crate) enum TerminalCommand {
-    Viewport {
-        reply: Reply<crate::geometry::Size>,
-    },
     Present {
         desired: Surface,
-        reply: Reply<()>,
+        reply: AsyncReply<()>,
     },
     InsertHistory {
         rows: Vec<crate::physical::PhysicalRow>,
@@ -40,9 +39,10 @@ pub(crate) fn run(
     commands: Receiver<TerminalCommand>,
     events: EventSender,
     startup: SyncSender<Result<Startup>>,
+    size_sender: watch::Sender<crate::geometry::Size>,
 ) {
     let setup = setup_terminal();
-    let (mut terminal, waker, mut presenter) = match setup {
+    let (mut terminal, waker, mut presenter, size) = match setup {
         Ok(value) => value,
         Err(error) => {
             let _ = startup.send(Err(error));
@@ -50,6 +50,7 @@ pub(crate) fn run(
         }
     };
 
+    size_sender.send_replace(size);
     if startup.send(Ok(Startup { waker })).is_err() {
         let _ = restore_terminal(&mut *terminal);
         return;
@@ -69,6 +70,29 @@ pub(crate) fn run(
 
         match terminal.poll_input(None) {
             Ok(Some(InputEvent::Wake)) => {}
+            Ok(Some(InputEvent::Resized { .. })) => {
+                let result = terminal
+                    .get_screen_size()
+                    .and_then(|size| {
+                        presenter.resize(size.cols, size.rows);
+                        Ok(crate::geometry::Size::new(
+                            u16::try_from(size.cols)
+                                .context("terminal width exceeds framework range")?,
+                            u16::try_from(size.rows)
+                                .context("terminal height exceeds framework range")?,
+                        ))
+                    })
+                    .map_err(anyhow::Error::from);
+                match result {
+                    Ok(size) => {
+                        size_sender.send_replace(size);
+                    }
+                    Err(error) => {
+                        let _ = events.send(Err(error));
+                        stopping = true;
+                    }
+                }
+            }
             Ok(Some(event)) => {
                 if let Some(event) = super::input::map_input(event)
                     && events.send(Ok(event)).is_err()
@@ -91,6 +115,7 @@ fn setup_terminal() -> Result<(
     Box<dyn Terminal + Send>,
     TerminalWaker,
     super::presenter::TermwizPresenter,
+    crate::geometry::Size,
 )> {
     let hints = ProbeHints::new_from_env().mouse_reporting(Some(false));
     let capabilities =
@@ -121,7 +146,15 @@ fn setup_terminal() -> Result<(
         return setup_error(&mut *terminal, error);
     }
     let waker = terminal.waker();
-    Ok((terminal, waker, presenter))
+    Ok((
+        terminal,
+        waker,
+        presenter,
+        crate::geometry::Size::new(
+            u16::try_from(size.cols).context("terminal width exceeds framework range")?,
+            u16::try_from(size.rows).context("terminal height exceeds framework range")?,
+        ),
+    ))
 }
 
 fn setup_error<T>(terminal: &mut dyn Terminal, error: anyhow::Error) -> Result<T> {
@@ -135,22 +168,6 @@ fn handle_command(
     presenter: &mut super::presenter::TermwizPresenter,
 ) -> bool {
     match command {
-        TerminalCommand::Viewport { reply } => {
-            let result = terminal
-                .get_screen_size()
-                .and_then(|size| {
-                    presenter.resize(size.cols, size.rows);
-                    Ok(crate::geometry::Size::new(
-                        u16::try_from(size.cols)
-                            .context("terminal width exceeds framework range")?,
-                        u16::try_from(size.rows)
-                            .context("terminal height exceeds framework range")?,
-                    ))
-                })
-                .map_err(anyhow::Error::from);
-            let _ = reply.send(result);
-            false
-        }
         TerminalCommand::Present { desired, reply } => {
             let result = presenter.present(terminal, desired);
             let _ = reply.send(result);

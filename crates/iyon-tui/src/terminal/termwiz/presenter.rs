@@ -30,7 +30,7 @@ impl TermwizPresenter {
         if self.dimensions() == (width, height) {
             return;
         }
-        self.presented = Surface::new(width, height);
+        self.presented.resize(width, height);
         self.known = false;
     }
 
@@ -70,9 +70,9 @@ impl TermwizPresenter {
             return Ok(0);
         }
         if !self.known {
-            let blank = Surface::new(width, height);
-            let changes = full_repaint_changes(&blank);
-            self.apply(terminal, changes, blank)?;
+            let retained = self.presented.clone();
+            let changes = full_repaint_changes(&retained);
+            self.apply(terminal, changes, retained)?;
         }
 
         let transaction = native_transaction(&self.presented, rows);

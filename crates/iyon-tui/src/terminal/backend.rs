@@ -21,7 +21,7 @@ pub(crate) trait TerminalBackend: NativeHistorySink<Error = anyhow::Error> {
 
     fn viewport(&mut self) -> Result<Size>;
 
-    fn draw_frame(&mut self, frame: &PreparedSceneFrame) -> Result<()>;
+    async fn draw_frame(&mut self, frame: &PreparedSceneFrame) -> Result<()>;
 
     fn position_after_final_frame(&mut self) -> Result<()>;
 

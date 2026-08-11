@@ -263,6 +263,7 @@ where
         .map_err(|error| RunError::Runtime(runtime_error(error)))?;
     session
         .draw_frame(&frame)
+        .await
         .map_err(|error| RunError::Runtime(runtime_error(error)))
 }
 
@@ -304,8 +305,8 @@ where
         self.backend.try_next_event()
     }
 
-    fn draw_frame(&mut self, frame: &crate::scene::PreparedSceneFrame) -> anyhow::Result<()> {
-        self.backend.draw_frame(frame)
+    async fn draw_frame(&mut self, frame: &crate::scene::PreparedSceneFrame) -> anyhow::Result<()> {
+        self.backend.draw_frame(frame).await
     }
 
     fn position_after_final_frame(&mut self) -> anyhow::Result<()> {

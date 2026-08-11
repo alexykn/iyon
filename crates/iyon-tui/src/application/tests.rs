@@ -232,7 +232,7 @@ impl TerminalBackend for FakeBackend {
         Ok(viewport)
     }
 
-    fn draw_frame(&mut self, _frame: &PreparedSceneFrame) -> anyhow::Result<()> {
+    async fn draw_frame(&mut self, _frame: &PreparedSceneFrame) -> anyhow::Result<()> {
         if self.draw_error {
             return Err(anyhow::anyhow!("fake draw failure"));
         }
