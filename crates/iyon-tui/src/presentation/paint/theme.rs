@@ -208,6 +208,75 @@ mod tests {
             rows[0].style_at(0).unwrap().foreground,
             Some(PhysicalColor::Named(PhysicalAnsiColor::Red))
         );
+        let focused_context = StyleContext {
+            states: vec![(
+                StyleStateKey::from_static("severity"),
+                StyleStateValue::from_static("error"),
+            )],
+            focused: true,
+            focus_within: false,
+        };
+        assert_eq!(
+            ThemeResolver::new(&theme)
+                .resolve_color(&ColorSpec::theme("accent"), &focused_context,),
+            PhysicalColor::Named(PhysicalAnsiColor::Yellow)
+        );
+    }
+
+    #[test]
+    fn setting_same_variant_replaces_and_returns_previous_value() {
+        let mut theme = Theme::new();
+        let selector = StyleSelector::focused();
+        assert_eq!(
+            theme.set_color_variant("accent", selector.clone(), ThemeColor::Indexed(1)),
+            None
+        );
+        assert_eq!(
+            theme.set_color_variant("accent", selector, ThemeColor::Indexed(2)),
+            Some(ThemeColor::Indexed(1))
+        );
+        assert_eq!(
+            theme.resolve_color("accent", true, false, &[]),
+            Some(ThemeColor::Indexed(2))
+        );
+
+        let selector = StyleSelector::focus_within();
+        assert_eq!(
+            theme.set_style_variant("field", selector.clone(), StyleSpec::new().bold()),
+            None
+        );
+        assert_eq!(
+            theme.set_style_variant("field", selector, StyleSpec::new().italic()),
+            Some(StyleSpec::new().bold())
+        );
+    }
+
+    #[test]
+    fn missing_theme_tokens_fall_back_to_default_physical_color() {
+        let resolver = ThemeResolver::default();
+        assert_eq!(
+            resolver.resolve_color(&ColorSpec::theme("missing"), &StyleContext::default()),
+            PhysicalColor::Default
+        );
+    }
+
+    #[test]
+    fn theme_changes_paint_without_changing_geometry() {
+        let themed = View::text("hello")
+            .foreground(ColorSpec::theme("accent"))
+            .into_view();
+        let plain = View::text("hello").into_view();
+        let theme = Theme::new().with_color("accent", ThemeColor::Indexed(1));
+        let themed = compile_view_with_theme(&themed, 20, &theme);
+        let plain = crate::presentation::layout::compile_view(&plain, 20);
+        assert_eq!(
+            (themed.width, themed.rows.len()),
+            (plain.width, plain.rows.len())
+        );
+        assert_eq!(
+            themed.rows[0].style_at(0).unwrap().foreground,
+            Some(PhysicalColor::Indexed(1))
+        );
     }
 
     #[test]

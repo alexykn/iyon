@@ -289,8 +289,8 @@ impl<E: std::fmt::Debug + 'static> std::error::Error for SceneHostError<E> {}
 mod tests {
     use super::*;
     use crate::{
-        BorderSpec, ColorSpec, Component, ComponentCx, IntoView, Scene, StreamingSource,
-        StyleSelector, TextSpan, ThemeColor, View,
+        BorderSpec, ColorSpec, Component, ComponentCx, InteractionResult, IntoView, Key, KeyStroke,
+        Scene, ScrollPane, StreamingSource, StyleSelector, TextSpan, ThemeColor, View,
         backend::NativeHistorySink,
         component::ComponentRegistry,
         geometry::Size,
@@ -369,6 +369,122 @@ mod tests {
         }
     }
 
+    struct RoutedScrollPane(ScrollPane);
+
+    impl RoutedScrollPane {
+        fn layout_changed(&mut self, size: Size) {
+            self.0.on_layout_changed(size);
+        }
+
+        fn command(&self, key: KeyStroke) -> Option<crate::scroll::ScrollCommand> {
+            self.0.map_command(key)
+        }
+
+        fn handle(
+            &mut self,
+            command: crate::scroll::ScrollCommand,
+            cx: &mut crate::EventCx<'_>,
+        ) -> InteractionResult {
+            self.0.handle_command(command, cx)
+        }
+    }
+
+    impl Component for RoutedScrollPane {
+        fn view(&self) -> View {
+            self.0.view()
+        }
+
+        fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+            cx.focusable();
+            cx.on_layout_changed(Self::layout_changed);
+            cx.key_commands(Self::command, Self::handle);
+        }
+    }
+
+    #[test]
+    fn routes_scroll_pane_locally_and_preserves_detachment_on_content_update() {
+        let content = |count: usize| {
+            View::text(
+                (1..=count)
+                    .map(|row| format!("row {row}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+        };
+        let mut registry = ComponentRegistry::new();
+        let pane = registry.register(RoutedScrollPane(ScrollPane::new(content(30))));
+        let scene = Scene::new(View::component(pane));
+        let mut host = SceneHost::default();
+        let _ = host
+            .resolve_stable::<()>(&scene, &mut registry, Size::new(12, 5))
+            .unwrap();
+
+        assert_eq!(
+            host.dispatch_key_local(KeyStroke::new(Key::PageUp), &mut registry),
+            InteractionResult::Consumed
+        );
+        assert!(
+            registry
+                .with(pane, |pane| !pane.0.is_following_end())
+                .unwrap()
+        );
+        registry
+            .with_mut(pane, |pane| pane.0.set_content(content(40)))
+            .unwrap();
+        assert!(
+            registry
+                .with(pane, |pane| !pane.0.is_following_end())
+                .unwrap()
+        );
+        assert_eq!(
+            host.dispatch_key_local(KeyStroke::new(Key::End), &mut registry),
+            InteractionResult::Consumed
+        );
+        assert!(
+            registry
+                .with(pane, |pane| pane.0.is_following_end())
+                .unwrap()
+        );
+    }
+
+    struct StatefulField;
+
+    impl Component for StatefulField {
+        fn view(&self) -> View {
+            View::text("state")
+                .foreground(ColorSpec::theme("accent"))
+                .into_view()
+        }
+    }
+
+    struct FocusWithinShell {
+        child: crate::component::ComponentHandle<ThemedField>,
+    }
+
+    impl Component for FocusWithinShell {
+        fn view(&self) -> View {
+            View::component(self.child)
+                .border(BorderSpec::plain().color(ColorSpec::theme("shell.border")))
+                .fill_width()
+        }
+    }
+
+    struct FocusableShell {
+        child: crate::component::ComponentHandle<ThemedField>,
+    }
+
+    impl Component for FocusableShell {
+        fn view(&self) -> View {
+            View::component(self.child)
+                .border(BorderSpec::plain().color(ColorSpec::theme("shell.border")))
+                .fill_width()
+        }
+
+        fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+            cx.focusable();
+        }
+    }
+
     struct ThemedField;
 
     impl Component for ThemedField {
@@ -403,6 +519,57 @@ mod tests {
             cx.focusable();
             cx.on_focus_changed(Self::focus_changed);
         }
+    }
+
+    #[test]
+    fn semantic_state_crosses_component_boundary_and_nearest_override_wins() {
+        let mut registry = ComponentRegistry::new();
+        let field = registry.register(StatefulField);
+        let scene = Scene::new(
+            View::component(field)
+                .style_state("severity", "warning")
+                .into_view(),
+        );
+        let theme = Theme::new()
+            .with_color("accent", ThemeColor::Indexed(2))
+            .with_color_variant(
+                "accent",
+                StyleSelector::state("severity", "warning"),
+                ThemeColor::Indexed(1),
+            )
+            .with_color_variant(
+                "accent",
+                StyleSelector::state("severity", "error"),
+                ThemeColor::Indexed(3),
+            );
+        let mut host = SceneHost::default();
+        let stable = host
+            .resolve_stable::<()>(&scene, &mut registry, Size::new(20, 4))
+            .unwrap();
+        let frame = host.paint(stable, &theme);
+        assert_eq!(
+            frame.surface.get(0, 0).style.foreground,
+            Some(crate::physical::PhysicalColor::Indexed(1))
+        );
+
+        let nested = Scene::new(
+            View::vertical(|column| {
+                column.child(
+                    View::component(field)
+                        .style_state("severity", "error")
+                        .into_view(),
+                );
+            })
+            .style_state("severity", "warning"),
+        );
+        let stable = host
+            .resolve_stable::<()>(&nested, &mut registry, Size::new(20, 4))
+            .unwrap();
+        let frame = host.paint(stable, &theme);
+        assert_eq!(
+            frame.surface.get(0, 0).style.foreground,
+            Some(crate::physical::PhysicalColor::Indexed(3))
+        );
     }
 
     #[test]
@@ -445,6 +612,63 @@ mod tests {
             frame.surface.get(0, 0).style.foreground,
             Some(crate::physical::PhysicalColor::Named(
                 crate::physical::AnsiColor::Cyan,
+            ))
+        );
+    }
+
+    #[test]
+    fn paints_focus_within_on_a_component_parent_without_leaking_focus() {
+        let mut registry = ComponentRegistry::new();
+        let child = registry.register(ThemedField);
+        let shell = registry.register(FocusWithinShell { child });
+        let scene = Scene::new(View::component(shell));
+        let theme = Theme::new()
+            .with_color("shell.border", ThemeColor::Named(crate::AnsiColor::Gray))
+            .with_color_variant(
+                "shell.border",
+                StyleSelector::focus_within(),
+                ThemeColor::Named(crate::AnsiColor::Cyan),
+            );
+        let mut host = SceneHost::default();
+        let stable = host
+            .resolve_stable::<()>(&scene, &mut registry, Size::new(20, 4))
+            .unwrap();
+        let frame = host.paint(stable, &theme);
+
+        assert_eq!(host.focused(), Some(child.id()));
+        assert_eq!(
+            frame.surface.get(0, 0).style.foreground,
+            Some(crate::physical::PhysicalColor::Named(
+                crate::physical::AnsiColor::Cyan,
+            ))
+        );
+    }
+
+    #[test]
+    fn parent_focused_does_not_mark_nested_child_focused() {
+        let mut registry = ComponentRegistry::new();
+        let child = registry.register(ThemedField);
+        let shell = registry.register(FocusableShell { child });
+        let scene = Scene::new(View::component(shell));
+        let theme = Theme::new()
+            .with_color("shell.border", ThemeColor::Named(crate::AnsiColor::Gray))
+            .with_color("field.border", ThemeColor::Named(crate::AnsiColor::Gray))
+            .with_color_variant(
+                "field.border",
+                StyleSelector::focused(),
+                ThemeColor::Named(crate::AnsiColor::Cyan),
+            );
+        let mut host = SceneHost::default();
+        let stable = host
+            .resolve_stable::<()>(&scene, &mut registry, Size::new(20, 5))
+            .unwrap();
+        let frame = host.paint(stable, &theme);
+
+        assert_eq!(host.focused(), Some(shell.id()));
+        assert_eq!(
+            frame.surface.get(0, 1).style.foreground,
+            Some(crate::physical::PhysicalColor::Named(
+                crate::physical::AnsiColor::Gray,
             ))
         );
     }

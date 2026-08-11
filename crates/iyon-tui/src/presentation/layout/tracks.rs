@@ -63,17 +63,42 @@ pub(crate) fn allocate_tracks(
         remaining -= amount;
     }
 
-    if !flex.is_empty() && remaining > 0 {
-        let each = remaining / flex.len();
-        let remainder = remaining % flex.len();
-        for (order, (index, _, maximum)) in flex.iter().enumerate() {
-            let extra = each + usize::from(order < remainder);
-            let capacity = maximum.map_or(extra, |maximum| {
-                maximum.saturating_sub(usize::from(allocation[*index]))
+    // Distribute the remaining capacity in rounds. A capped track leaves the
+    // active set as soon as it saturates, so its unused share is redistributed
+    // to the tracks that can still grow.
+    let mut active = flex
+        .iter()
+        .filter(|(index, _, maximum)| {
+            maximum.is_none_or(|maximum| usize::from(allocation[*index]) < maximum)
+        })
+        .map(|(index, _, _)| *index)
+        .collect::<Vec<_>>();
+    while remaining > 0 && !active.is_empty() {
+        let each = remaining / active.len();
+        let remainder = remaining % active.len();
+        let mut granted_total = 0;
+        let mut next_active = Vec::with_capacity(active.len());
+        for (order, index) in active.into_iter().enumerate() {
+            let requested = each + usize::from(order < remainder);
+            let maximum = flex
+                .iter()
+                .find(|(candidate, _, _)| *candidate == index)
+                .and_then(|(_, _, maximum)| *maximum);
+            let available = maximum.map_or(requested, |maximum| {
+                maximum.saturating_sub(usize::from(allocation[index]))
             });
-            let granted = extra.min(capacity);
-            allocation[*index] = allocation[*index].saturating_add(granted as u16);
+            let granted = requested.min(available).min(remaining);
+            allocation[index] = allocation[index].saturating_add(granted as u16);
+            granted_total += granted;
+            if maximum.is_none_or(|maximum| usize::from(allocation[index]) < maximum) {
+                next_active.push(index);
+            }
         }
+        if granted_total == 0 {
+            break;
+        }
+        remaining -= granted_total;
+        active = next_active;
     }
 
     TrackAllocation {

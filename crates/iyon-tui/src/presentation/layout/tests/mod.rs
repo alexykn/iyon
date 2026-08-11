@@ -101,6 +101,46 @@ fn assert_block_shape(block: &LayoutBlock, width: u16, height: usize) {
     assert_eq!(block.rows.len(), height);
 }
 
+#[test]
+fn flex_max_intrinsic_height_respects_its_cap() {
+    let view = View::vertical(|column| {
+        column.fixed(1, View::text("header"));
+        column.flex_max(
+            16,
+            View::text((1..=40).map(|row| format!("{row}\n")).collect::<String>()),
+        );
+    });
+    assert_eq!(ViewCompiler::default().compile(&view, 20).rows.len(), 17);
+}
+
+#[test]
+fn capped_flex_redistributes_capacity_to_uncapped_tracks() {
+    let allocation = crate::presentation::layout::tracks::allocate_tracks(
+        20,
+        0,
+        &[
+            crate::presentation::ir::TrackSize::FlexMax { min: 1, max: 5 },
+            crate::presentation::ir::TrackSize::Flex { min: 1 },
+        ],
+        |_, _| 0,
+    );
+    assert_eq!(allocation.tracks, [5, 15]);
+}
+
+#[test]
+fn capped_flex_tracks_leave_only_intentional_slack() {
+    let allocation = crate::presentation::layout::tracks::allocate_tracks(
+        20,
+        0,
+        &[
+            crate::presentation::ir::TrackSize::FlexMax { min: 1, max: 3 },
+            crate::presentation::ir::TrackSize::FlexMax { min: 1, max: 4 },
+        ],
+        |_, _| 0,
+    );
+    assert_eq!(allocation.tracks, [3, 4]);
+}
+
 fn empty_vertical() -> View {
     View::vertical(|_| {})
 }

@@ -521,7 +521,7 @@ fn flexible_height(view: &View) -> bool {
                 child.track,
                 crate::presentation::ir::TrackSize::Flex { .. }
                     | crate::presentation::ir::TrackSize::FlexMax { .. }
-            ) || flexible_height(&child.view)
+            )
         }),
         crate::presentation::ir::ViewKind::Container(container) => {
             flexible_height(&container.child)
