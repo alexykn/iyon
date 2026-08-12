@@ -78,7 +78,7 @@ pub struct MarkdownProjector {
     required_restart_from: Option<StreamOffset>,
     last_stable: Option<StreamOffset>,
     checkpoints: Vec<StreamRange>,
-    cache: Option<CachedDomain>,
+    caches: Vec<CachedDomain>,
 }
 
 #[derive(Clone, Debug)]
@@ -110,7 +110,7 @@ impl MarkdownProjector {
             required_restart_from: None,
             last_stable: None,
             checkpoints: Vec::new(),
-            cache: None,
+            caches: Vec::new(),
         }
     }
 
@@ -246,13 +246,14 @@ impl MarkdownProjector {
         &mut self,
         domain: &RawDomain,
     ) -> Result<ParsedDomain, MarkdownProjectionError> {
-        if let Some(cache) = &self.cache {
-            let cache_valid = cache.source_base == domain.source_base()
+        if let Some(cache) = self.caches.iter().find(|cache| {
+            cache.source_base == domain.source_base()
                 && cache.stable_end <= domain.source_end()
                 && domain
                     .text_prefix(cache.stable_end)
-                    .is_some_and(|prefix| prefix == cache.prefix);
-            if cache_valid && cache.stable_end > domain.source_base() {
+                    .is_some_and(|prefix| prefix == cache.prefix)
+        }) {
+            if cache.stable_end > domain.source_base() {
                 if cache.stable_end == domain.source_end() && !cache.has_reference_context {
                     return Ok(ParsedDomain {
                         projection: cached_projection(cache)?,
@@ -306,13 +307,22 @@ impl MarkdownProjector {
                 values: span.values().to_vec(),
             })
             .collect();
-        self.cache = Some(CachedDomain {
+        let cached = CachedDomain {
             source_base: domain.source_base(),
             stable_end,
             prefix,
             spans,
             has_reference_context: parsed.has_reference_context,
-        });
+        };
+        if let Some(existing) = self
+            .caches
+            .iter_mut()
+            .find(|cache| cache.source_base == cached.source_base)
+        {
+            *existing = cached;
+        } else {
+            self.caches.push(cached);
+        }
         if parsed.has_reference_context && !sealed {
             self.required_restart_from = Some(
                 self.required_restart_from
@@ -525,9 +535,7 @@ impl<'a> Builder<'a> {
             Tag::Paragraph => {
                 if self
                     .frames
-                    .iter()
-                    .rev()
-                    .nth(1)
+                    .last()
                     .is_some_and(|frame| matches!(frame, Frame::Item { .. }))
                 {
                     if let Some(Frame::List { tight, .. }) = self
