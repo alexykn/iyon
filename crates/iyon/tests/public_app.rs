@@ -151,6 +151,70 @@ async fn iyon_app_is_drivable_through_public_tui_harness() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn pending_assistant_smoothing_flushes_before_tool_call() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 60, 20).unwrap();
+    let handle = harness.handle();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::AssistantDelta {
+            text: "assistant tail".into(),
+        }))
+        .unwrap();
+    while harness.step().unwrap() {}
+    handle
+        .send(IyonAction::Backend(FrontendEvent::ToolCallStarted {
+            tool_call_id: "boundary-tool".into(),
+            tool_name: "bash".into(),
+            arguments: serde_json::json!({"command":"true"}),
+        }))
+        .unwrap();
+    while harness.step().unwrap() {}
+
+    assert!(
+        harness
+            .screen_lines()
+            .iter()
+            .any(|line| line.contains("assistant tail"))
+    );
+    let after_tool = harness.screen_lines();
+    harness
+        .advance_time(std::time::Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(harness.screen_lines(), after_tool);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn pending_assistant_smoothing_survives_turn_cancellation() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 60, 20).unwrap();
+    let handle = harness.handle();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::AssistantDelta {
+            text: "cancelled assistant tail".into(),
+        }))
+        .unwrap();
+    while harness.step().unwrap() {}
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnCancelled))
+        .unwrap();
+    while harness.step().unwrap() {}
+
+    assert!(
+        harness
+            .screen_lines()
+            .iter()
+            .any(|line| line.contains("cancelled assistant tail"))
+    );
+    let after_cancel = harness.screen_lines();
+    harness
+        .advance_time(std::time::Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(harness.screen_lines(), after_cancel);
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn completed_tool_keeps_composer_below_history() {
     let core = IyonCore::spawn_default_on_current_runtime();
     let (commands, _events) = core.split();
