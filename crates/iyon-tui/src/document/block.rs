@@ -1,0 +1,384 @@
+use std::{fmt, num::NonZeroU16, sync::Arc};
+
+use super::{Annotations, FormatId, InlineContent, LanguageId, LiteralText, TextIrError};
+
+/// Validated heading levels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HeadingLevel(u8);
+
+impl HeadingLevel {
+    pub fn new(level: u8) -> Result<Self, TextIrError> {
+        (1..=6)
+            .contains(&level)
+            .then_some(Self(level))
+            .ok_or(TextIrError::InvalidHeadingLevel)
+    }
+
+    pub fn get(self) -> u8 {
+        self.0
+    }
+}
+
+/// Generic list marker semantics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ListMarker {
+    Bullet,
+    Ordered {
+        start: u64,
+        style: NumberStyle,
+        delimiter: NumberDelimiter,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum NumberStyle {
+    Decimal,
+    LowerAlpha,
+    UpperAlpha,
+    LowerRoman,
+    UpperRoman,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum NumberDelimiter {
+    Period,
+    Paren,
+    TwoParens,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct List {
+    marker: ListMarker,
+    tight: bool,
+    items: Arc<[ListItem]>,
+}
+
+impl List {
+    pub fn new(marker: ListMarker, tight: bool, items: impl IntoIterator<Item = ListItem>) -> Self {
+        Self {
+            marker,
+            tight,
+            items: items.into_iter().collect(),
+        }
+    }
+    pub fn marker(&self) -> ListMarker {
+        self.marker
+    }
+    pub fn tight(&self) -> bool {
+        self.tight
+    }
+    pub fn items(&self) -> &[ListItem] {
+        &self.items
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListItem {
+    annotations: Annotations,
+    checked: Option<bool>,
+    blocks: Arc<[Block]>,
+}
+
+impl ListItem {
+    pub fn new(blocks: impl IntoIterator<Item = Block>) -> Self {
+        Self {
+            annotations: Annotations::default(),
+            checked: None,
+            blocks: blocks.into_iter().collect(),
+        }
+    }
+    pub fn annotations(&self) -> &Annotations {
+        &self.annotations
+    }
+    pub fn checked(&self) -> Option<bool> {
+        self.checked
+    }
+    pub fn blocks(&self) -> &[Block] {
+        &self.blocks
+    }
+    pub fn with_annotations(mut self, annotations: Annotations) -> Self {
+        self.annotations = annotations;
+        self
+    }
+    pub fn with_checked(mut self, checked: Option<bool>) -> Self {
+        self.checked = checked;
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Alignment {
+    Default,
+    Start,
+    Center,
+    End,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Table {
+    caption: Option<Arc<[Block]>>,
+    columns: Arc<[TableColumn]>,
+    header_rows: usize,
+    rows: Arc<[TableRow]>,
+}
+
+impl Table {
+    pub fn new(
+        caption: Option<impl IntoIterator<Item = Block>>,
+        columns: impl IntoIterator<Item = TableColumn>,
+        header_rows: usize,
+        rows: impl IntoIterator<Item = TableRow>,
+    ) -> Self {
+        Self {
+            caption: caption.map(|value| value.into_iter().collect()),
+            columns: columns.into_iter().collect(),
+            header_rows,
+            rows: rows.into_iter().collect(),
+        }
+    }
+    pub fn caption(&self) -> Option<&[Block]> {
+        self.caption.as_deref()
+    }
+    pub fn columns(&self) -> &[TableColumn] {
+        &self.columns
+    }
+    pub fn header_rows(&self) -> usize {
+        self.header_rows
+    }
+    pub fn rows(&self) -> &[TableRow] {
+        &self.rows
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableColumn {
+    alignment: Alignment,
+}
+impl TableColumn {
+    pub fn new(alignment: Alignment) -> Self {
+        Self { alignment }
+    }
+    pub fn alignment(&self) -> Alignment {
+        self.alignment
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableRow {
+    annotations: Annotations,
+    cells: Arc<[TableCell]>,
+}
+impl TableRow {
+    pub fn new(cells: impl IntoIterator<Item = TableCell>) -> Self {
+        Self {
+            annotations: Annotations::default(),
+            cells: cells.into_iter().collect(),
+        }
+    }
+    pub fn annotations(&self) -> &Annotations {
+        &self.annotations
+    }
+    pub fn cells(&self) -> &[TableCell] {
+        &self.cells
+    }
+    pub fn with_annotations(mut self, annotations: Annotations) -> Self {
+        self.annotations = annotations;
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableCell {
+    annotations: Annotations,
+    alignment: Option<Alignment>,
+    row_span: NonZeroU16,
+    col_span: NonZeroU16,
+    blocks: Arc<[Block]>,
+}
+impl TableCell {
+    pub fn new(
+        blocks: impl IntoIterator<Item = Block>,
+        alignment: Option<Alignment>,
+        row_span: NonZeroU16,
+        col_span: NonZeroU16,
+    ) -> Self {
+        Self {
+            annotations: Annotations::default(),
+            alignment,
+            row_span,
+            col_span,
+            blocks: blocks.into_iter().collect(),
+        }
+    }
+    pub fn plain(blocks: impl IntoIterator<Item = Block>) -> Self {
+        Self::new(blocks, None, NonZeroU16::MIN, NonZeroU16::MIN)
+    }
+    pub fn annotations(&self) -> &Annotations {
+        &self.annotations
+    }
+    pub fn alignment(&self) -> Option<Alignment> {
+        self.alignment
+    }
+    pub fn row_span(&self) -> NonZeroU16 {
+        self.row_span
+    }
+    pub fn col_span(&self) -> NonZeroU16 {
+        self.col_span
+    }
+    pub fn blocks(&self) -> &[Block] {
+        &self.blocks
+    }
+    pub fn with_annotations(mut self, annotations: Annotations) -> Self {
+        self.annotations = annotations;
+        self
+    }
+}
+
+/// Generic block-level semantic kind.
+#[non_exhaustive]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BlockKind {
+    Paragraph(InlineContent),
+    Heading {
+        level: HeadingLevel,
+        content: InlineContent,
+    },
+    BlockQuote {
+        blocks: Arc<[Block]>,
+    },
+    List(List),
+    CodeBlock(CodeBlock),
+    Table(Table),
+    ThematicBreak,
+    RawBlock {
+        format: FormatId,
+        body: LiteralText,
+    },
+    Container {
+        blocks: Arc<[Block]>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CodeBlock {
+    language: Option<LanguageId>,
+    info: Option<Arc<str>>,
+    body: LiteralText,
+}
+impl CodeBlock {
+    pub fn new(
+        language: Option<LanguageId>,
+        info: Option<impl Into<Arc<str>>>,
+        body: LiteralText,
+    ) -> Self {
+        Self {
+            language,
+            info: info.map(Into::into),
+            body,
+        }
+    }
+    pub fn language(&self) -> Option<&LanguageId> {
+        self.language.as_ref()
+    }
+    pub fn info(&self) -> Option<&str> {
+        self.info.as_deref()
+    }
+    pub fn body(&self) -> &LiteralText {
+        &self.body
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct Block(Arc<BlockData>);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BlockData {
+    kind: BlockKind,
+    annotations: Annotations,
+}
+
+impl fmt::Debug for Block {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Block").field(&self.0.kind).finish()
+    }
+}
+
+impl Block {
+    pub fn new(kind: BlockKind) -> Self {
+        Self(Arc::new(BlockData {
+            kind,
+            annotations: Annotations::default(),
+        }))
+    }
+    pub fn paragraph(content: InlineContent) -> Self {
+        Self::new(BlockKind::Paragraph(content))
+    }
+    pub fn heading(level: HeadingLevel, content: InlineContent) -> Self {
+        Self::new(BlockKind::Heading { level, content })
+    }
+    pub fn block_quote(blocks: impl IntoIterator<Item = Block>) -> Self {
+        Self::new(BlockKind::BlockQuote {
+            blocks: blocks.into_iter().collect(),
+        })
+    }
+    pub fn list(list: List) -> Self {
+        Self::new(BlockKind::List(list))
+    }
+    pub fn code(code: CodeBlock) -> Self {
+        Self::new(BlockKind::CodeBlock(code))
+    }
+    pub fn table(table: Table) -> Self {
+        Self::new(BlockKind::Table(table))
+    }
+    pub fn thematic_break() -> Self {
+        Self::new(BlockKind::ThematicBreak)
+    }
+    pub fn raw(format: FormatId, body: LiteralText) -> Self {
+        Self::new(BlockKind::RawBlock { format, body })
+    }
+    pub fn container(blocks: impl IntoIterator<Item = Block>) -> Self {
+        Self::new(BlockKind::Container {
+            blocks: blocks.into_iter().collect(),
+        })
+    }
+    pub fn kind(&self) -> &BlockKind {
+        &self.0.kind
+    }
+    pub fn annotations(&self) -> &Annotations {
+        &self.0.annotations
+    }
+    pub fn with_annotations(&self, annotations: Annotations) -> Self {
+        Self(Arc::new(BlockData {
+            kind: self.0.kind.clone(),
+            annotations,
+        }))
+    }
+    pub fn map_annotations(&self, map: impl FnOnce(Annotations) -> Annotations) -> Self {
+        self.with_annotations(map(self.annotations().clone()))
+    }
+    pub fn as_code_block(&self) -> Option<&CodeBlock> {
+        match &self.0.kind {
+            BlockKind::CodeBlock(code) => Some(code),
+            _ => None,
+        }
+    }
+    pub fn as_list(&self) -> Option<&List> {
+        match &self.0.kind {
+            BlockKind::List(list) => Some(list),
+            _ => None,
+        }
+    }
+    pub fn as_container(&self) -> Option<&[Block]> {
+        match &self.0.kind {
+            BlockKind::Container { blocks } => Some(blocks),
+            _ => None,
+        }
+    }
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
+    pub(crate) fn from_parts(kind: BlockKind, annotations: Annotations) -> Self {
+        Self(Arc::new(BlockData { kind, annotations }))
+    }
+}
