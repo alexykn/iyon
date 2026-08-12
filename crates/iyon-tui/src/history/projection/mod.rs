@@ -1,12 +1,9 @@
 //! Width-dependent semantic projection of History into one vertical View.
 
 use crate::{
-    geometry::{LayoutConstraints, Size},
+    geometry::Size,
     physical::PhysicalRow,
-    presentation::{
-        Insets, View,
-        layout::{LayoutEngine, ManualLayoutEngine},
-    },
+    presentation::{Insets, View, layout::measure_view},
     scene::{ResolveError, ResolveSession},
     stream::StreamRowIndex,
 };
@@ -758,10 +755,5 @@ fn push_spacer(children: &mut Vec<View>, rows: usize) {
 }
 
 fn view_height(view: &View, width: u16) -> usize {
-    usize::from(
-        ManualLayoutEngine
-            .layout(view, LayoutConstraints::width_only(width))
-            .size
-            .height,
-    )
+    usize::from(measure_view(view, width).height)
 }

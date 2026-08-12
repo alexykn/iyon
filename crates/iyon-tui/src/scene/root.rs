@@ -61,11 +61,11 @@ impl Scene {
 
 use crate::{
     component::ComponentRegistry,
-    geometry::{LayoutConstraints, Size},
+    geometry::Size,
     history::{HistoryPhysicalOverlay, project_into_session_for_host},
     presentation::{
         ir::{ColumnChild, ColumnView, HeightRule, TrackSize, ViewKind, WidthRule},
-        layout::{LayoutEngine, ManualLayoutEngine},
+        layout::measure_view,
     },
 };
 
@@ -137,8 +137,7 @@ fn body_height(
 ) -> Result<u16, ResolveError> {
     let mut session = ResolveSession::new(registry);
     let resolved = session.resolve_root(body)?;
-    let tree = ManualLayoutEngine.layout(&resolved, LayoutConstraints::width_only(width));
-    Ok(tree.size.height.min(terminal_height))
+    Ok(measure_view(&resolved, width).height.min(terminal_height))
 }
 
 fn root_view(history: Option<View>, body: View) -> View {
