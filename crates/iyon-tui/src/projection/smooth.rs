@@ -43,6 +43,7 @@ pub enum SmoothConfigError {
     NonFiniteRate,
     NegativeRate,
     MinimumExceedsMaximum,
+    NoProgressRate,
 }
 
 impl std::fmt::Display for SmoothConfigError {
@@ -125,6 +126,11 @@ impl SmoothConfig {
         if self.min_units_per_second > self.max_units_per_second {
             return Err(SmoothConfigError::MinimumExceedsMaximum);
         }
+        if self.max_units_per_second <= 0.0
+            || (self.spring <= 0.0 && self.min_units_per_second <= 0.0)
+        {
+            return Err(SmoothConfigError::NoProgressRate);
+        }
         Ok(())
     }
 }
@@ -145,7 +151,12 @@ pub struct Smooth {
     config: SmoothConfig,
     published_end: StreamOffset,
     input_sealed: bool,
+    input_base: Option<StreamOffset>,
+    input_stable: StreamOffset,
+    input_end: StreamOffset,
+    queued_through: StreamOffset,
     pending: VecDeque<PendingSpan>,
+    pending_units: usize,
     credit_units: f64,
     last_advance: Option<Instant>,
     next_wakeup: Option<Instant>,
@@ -164,7 +175,12 @@ impl Smooth {
             config,
             published_end: StreamOffset::ZERO,
             input_sealed: false,
+            input_base: None,
+            input_stable: StreamOffset::ZERO,
+            input_end: StreamOffset::ZERO,
+            queued_through: StreamOffset::ZERO,
             pending: VecDeque::new(),
+            pending_units: 0,
             credit_units: 0.0,
             last_advance: None,
             next_wakeup: None,
@@ -178,6 +194,10 @@ impl Smooth {
 
     pub fn next_wakeup(&self) -> Option<Instant> {
         self.next_wakeup
+    }
+
+    pub fn published_through(&self) -> StreamOffset {
+        self.published_end
     }
 
     pub fn advance(&mut self, now: Instant) -> bool {
@@ -202,8 +222,7 @@ impl Smooth {
             .last_advance
             .map_or(Duration::ZERO, |last| now.saturating_duration_since(last));
         self.last_advance = Some(now);
-        let pending_units: usize = self.pending.iter().map(|span| span.weight).sum();
-        let rate = (pending_units as f32 * self.config.spring).clamp(
+        let rate = (self.pending_units as f32 * self.config.spring).clamp(
             self.config.min_units_per_second,
             self.config.max_units_per_second,
         );
@@ -229,6 +248,7 @@ impl Smooth {
                 self.credit_units -= span.weight as f64;
             }
             self.published_end = span.source.end();
+            self.pending_units = self.pending_units.saturating_sub(span.weight);
             self.pending.pop_front();
         }
     }
@@ -243,23 +263,49 @@ impl Smooth {
                 weighted = true;
             }
             self.published_end = span.source.end();
+            self.pending_units = self.pending_units.saturating_sub(span.weight);
             self.pending.pop_front();
         }
     }
 
     fn rebuild_pending<T>(&mut self, input: &Projection<T>) {
-        self.pending = input
-            .spans()
-            .iter()
-            .filter(|span| {
-                span.source.end() > self.published_end
-                    && span.source.end() <= input.stable_through()
-            })
-            .map(|span| PendingSpan {
-                source: span.source,
-                weight: span.values.len(),
-            })
-            .collect();
+        let metadata_unchanged = self.input_base == Some(input.source_base())
+            && self.input_stable == input.stable_through()
+            && self.input_end == input.source_end();
+        if metadata_unchanged && self.input_sealed == input.is_sealed() {
+            return;
+        }
+        let reset_queue = self.input_base != Some(input.source_base())
+            || input.source_base() > self.queued_through;
+        if reset_queue {
+            self.pending.clear();
+            self.pending_units = 0;
+            self.queued_through = input.source_base().max(self.published_end);
+        }
+        let mut added_units: usize = 0;
+        for span in input.spans() {
+            if span.source().start() < self.queued_through
+                || span.source().end() <= self.published_end
+                || span.source().end() > input.stable_through()
+            {
+                continue;
+            }
+            let pending = PendingSpan {
+                source: span.source(),
+                weight: span.values().len(),
+            };
+            self.queued_through = pending.source.end();
+            added_units = added_units.saturating_add(pending.weight);
+            self.pending.push_back(pending);
+        }
+        if reset_queue {
+            self.pending_units = added_units;
+        } else {
+            self.pending_units = self.pending_units.saturating_add(added_units);
+        }
+        self.input_base = Some(input.source_base());
+        self.input_stable = input.stable_through();
+        self.input_end = input.source_end();
     }
 
     fn output<T: Clone>(&self, input: &Projection<T>) -> Projection<T> {
@@ -305,6 +351,7 @@ impl<T: Clone> Projector<T> for Smooth {
         if input.is_sealed() {
             self.published_end = input.source_end();
             self.pending.clear();
+            self.pending_units = 0;
             self.credit_units = 0.0;
             self.last_advance = None;
             self.next_wakeup = None;
@@ -325,5 +372,9 @@ impl<T: Clone> Projector<T> for Smooth {
 
     fn next_wakeup(&self) -> Option<Instant> {
         self.next_wakeup
+    }
+
+    fn advance(&mut self, now: Instant) -> bool {
+        Smooth::advance(self, now)
     }
 }
