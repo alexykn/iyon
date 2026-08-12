@@ -17,6 +17,9 @@ pub trait Projector<Input> {
 
     /// Returns the earliest root coordinate needed to reconstruct output from
     /// `output_from` using the projector's currently retained state.
+    ///
+    /// The result is conservative and remains in the shared root coordinate
+    /// space. Implementors must always return `restart_from(X) <= X`.
     fn restart_from(&self, output_from: crate::StreamOffset) -> crate::StreamOffset {
         output_from
     }

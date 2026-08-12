@@ -351,7 +351,7 @@ fn hanging_width_diagnostic_is_reachable_and_structural_errors_are_distinct() {
 #[test]
 fn projected_replacement_remains_one_indivisible_atom() {
     let projected = ProjectedText {
-        content_range: range(0, 7),
+        content_range: range(0, 9),
         terminator: ExactTerminator::None,
         width: WidthRule::Fit,
         wrap: WrapMode::WordThenGrapheme,
@@ -367,19 +367,26 @@ fn projected_replacement_remains_one_indivisible_atom() {
             ProjectedTextRun {
                 display: "    ".to_string(),
                 style: StyleSpec::default().into(),
-                owned: range(3, 4),
+                owned: range(3, 6),
                 exact_visible: None,
             },
             ProjectedTextRun {
                 display: "bar".to_string(),
                 style: StyleSpec::default().into(),
-                owned: range(4, 7),
-                exact_visible: Some(range(4, 7)),
+                owned: range(6, 9),
+                exact_visible: Some(range(6, 9)),
             },
         ],
     };
     let (_, rows) = ViewCompiler::default().compile_projected_text_with_metadata(&projected, 1);
     assert!(rows.iter().any(|row| text(&row.row) == "    "));
+    assert!(
+        std::panic::catch_unwind(|| {
+            StreamView::new(vec![StreamNode::projected_text(projected)])
+                .suffix_from(StreamOffset::new(4));
+        })
+        .is_err()
+    );
 }
 
 #[test]

@@ -80,7 +80,10 @@ where
     }
 
     fn restart_from(&self, output_from: crate::StreamOffset) -> crate::StreamOffset {
-        self.first
-            .restart_from(self.second.restart_from(output_from))
+        let second = self.second.restart_from(output_from);
+        debug_assert!(second <= output_from);
+        let first = self.first.restart_from(second);
+        debug_assert!(first <= second);
+        first
     }
 }
