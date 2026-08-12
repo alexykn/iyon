@@ -199,13 +199,29 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
     }
 
     fn advance(&mut self, now: Instant) -> Result<bool, HistoryError> {
-        if self.sealed || !self.model.source_mut().advance(now) {
+        if self.sealed {
             return Ok(false);
         }
-        self.model
-            .refresh()
-            .map(|()| true)
-            .map_err(HistoryError::Stream)
+        let before_deadline = self.model.source().next_wakeup();
+        let due = before_deadline.is_some_and(|deadline| deadline <= now);
+        let source_changed = self.model.source_mut().advance(now);
+        let after_advance_deadline = self.model.source().next_wakeup();
+        if !source_changed {
+            debug_assert!(
+                !due || after_advance_deadline.is_none_or(|deadline| deadline > now),
+                "temporal stream must progress or move its deadline"
+            );
+            return Ok(false);
+        }
+        let before_revision = self.model.snapshot().revision();
+        self.model.refresh().map_err(HistoryError::Stream)?;
+        let after_deadline = self.model.source().next_wakeup();
+        debug_assert!(
+            !due || self.model.snapshot().revision() > before_revision
+                || after_deadline.is_none_or(|deadline| deadline > now),
+            "temporal stream must progress or move its deadline"
+        );
+        Ok(true)
     }
 
     fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex {

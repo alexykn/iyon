@@ -30,6 +30,8 @@ pub(crate) struct AssistantStream {
     source_end: StreamOffset,
     received_end: StreamOffset,
     pacing_atoms: Vec<(StreamRange, AssistantPacingAtom)>,
+    pacing_cursor: usize,
+    pacing_input: Option<iyon_tui::Projection<AssistantPacingAtom>>,
     smoother: Smooth,
     continuation: Option<AssistantContinuation>,
     revision: StreamRevision,
@@ -67,6 +69,8 @@ impl AssistantStream {
             source_end: StreamOffset::ZERO,
             received_end: StreamOffset::ZERO,
             pacing_atoms: Vec::new(),
+            pacing_cursor: 0,
+            pacing_input: None,
             smoother: Smooth::default(),
             continuation: None,
             revision: StreamRevision::ZERO,
@@ -120,26 +124,35 @@ impl AssistantStream {
             self.received_end,
             self.sealed,
         );
-        for (range, atom) in self
-            .pacing_atoms
-            .iter()
-            .filter(|(range, _)| range.end() > self.source_base)
-        {
-            builder = builder.emit_many(*range, [atom.clone()]);
+        for (range, atom) in &self.pacing_atoms {
+            builder = builder.emit(*range, atom.clone());
         }
         let input = builder
             .finish()
             .expect("assistant pacing projection must be valid");
         let output = self.smoother.project(&input).expect("Smooth is infallible");
+        self.pacing_input = Some(input);
+        self.append_released(&output);
+    }
+
+    fn append_released(&mut self, output: &iyon_tui::Projection<AssistantPacingAtom>) {
+        self.append_released_through(
+            output
+                .spans()
+                .last()
+                .map_or(self.source_end, |span| span.source().end()),
+        );
+    }
+
+    fn append_released_through(&mut self, end: StreamOffset) {
         let previous_end = self.source_end;
-        for span in output.spans() {
-            if span.source().end() <= previous_end {
-                continue;
+        while let Some((range, atom)) = self.pacing_atoms.get(self.pacing_cursor) {
+            if range.end() > end {
+                break;
             }
-            for atom in span.values() {
-                append_segment(&mut self.segments, atom.kind, &atom.text);
-            }
-            self.source_end = span.source().end();
+            append_segment(&mut self.segments, atom.kind, &atom.text);
+            self.source_end = range.end();
+            self.pacing_cursor += 1;
         }
         if self.source_end != previous_end {
             self.revision = self.revision.next();
@@ -255,7 +268,11 @@ impl StreamingSource for AssistantStream {
         let (restart, continuation) = self.restart_plan_at(offset);
         self.continuation = continuation;
         self.source_base = restart;
-        self.pacing_atoms.retain(|(range, _)| range.end() > restart);
+        let removed = self
+            .pacing_atoms
+            .partition_point(|(range, _)| range.end() <= restart);
+        self.pacing_atoms.drain(..removed);
+        self.pacing_cursor = self.pacing_cursor.saturating_sub(removed);
         self.revision = self.revision.next();
     }
 
@@ -283,7 +300,8 @@ impl StreamingSource for AssistantStream {
             return false;
         }
         let previous = self.source_end;
-        self.refresh_smoothing();
+        debug_assert!(self.pacing_input.is_some());
+        self.append_released_through(self.smoother.published_through());
         self.source_end > previous
     }
 }

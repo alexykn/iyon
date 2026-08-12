@@ -614,6 +614,7 @@ fn composition_reports_each_stage_and_contract() {
 struct TemporalProbe {
     deadline: Option<Instant>,
     advances: Rc<RefCell<Vec<Instant>>>,
+    changed: bool,
 }
 
 impl Projector<u8> for TemporalProbe {
@@ -641,6 +642,7 @@ impl Projector<u8> for TemporalProbe {
         self.advances.borrow_mut().push(now);
         if self.deadline.is_some_and(|deadline| now >= deadline) {
             self.deadline = None;
+            self.changed = true;
             return true;
         }
         false
@@ -655,10 +657,12 @@ fn temporal_then_uses_the_minimum_deadline_and_shared_now() {
     let mut pipeline = TemporalProbe {
         deadline: Some(now + std::time::Duration::from_millis(10)),
         advances: first_log.clone(),
+        changed: false,
     }
     .then(TemporalProbe {
         deadline: Some(now + std::time::Duration::from_millis(20)),
         advances: second_log.clone(),
+        changed: false,
     });
     assert_eq!(
         pipeline.next_wakeup(),
@@ -679,10 +683,36 @@ fn temporal_then_uses_the_minimum_deadline_and_shared_now() {
 }
 
 #[test]
+fn smooth_composes_temporally_and_project_observes_release() {
+    let input = ProjectionBuilder::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(3),
+        StreamOffset::new(3),
+        false,
+    )
+    .emit(range(0, 1), 1u8)
+    .emit(range(1, 2), 2u8)
+    .emit(range(2, 3), 3u8)
+    .finish()
+    .unwrap();
+    let mut pipeline = Smooth::default().then(Identity);
+    let first = pipeline.project(&input).unwrap();
+    assert_eq!(first.source_end(), StreamOffset::new(1));
+    let now = Instant::now();
+    assert!(!pipeline.advance(now));
+    assert!(pipeline.next_wakeup().is_some());
+    let _ = pipeline.advance(now + std::time::Duration::from_millis(16));
+    let output = pipeline.project(&input).unwrap();
+    assert!(output.source_end() >= StreamOffset::new(1));
+}
+
+#[test]
 fn smooth_config_rejects_invalid_temporal_values() {
     assert!(SmoothConfig::new(std::time::Duration::ZERO, 1.0, 1.0, 1.0).is_err());
     assert!(SmoothConfig::new(std::time::Duration::from_millis(1), -1.0, 1.0, 1.0).is_err());
     assert!(SmoothConfig::new(std::time::Duration::from_millis(1), 1.0, 2.0, 1.0).is_err());
+    assert!(SmoothConfig::new(std::time::Duration::from_millis(1), 0.0, 0.0, 0.0).is_err());
+    assert!(SmoothConfig::new(std::time::Duration::from_millis(1), 0.0, 0.0, 1.0).is_err());
 }
 
 struct LocalProjector(Rc<RefCell<u32>>);
