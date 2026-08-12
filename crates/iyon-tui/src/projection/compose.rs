@@ -1,5 +1,7 @@
 //! Static composition of projection stages.
 
+use std::time::Instant;
+
 use super::{Projection, ProjectionRelationError, Projector, validate_projection_relation};
 
 /// A statically typed two-stage projector composition.
@@ -77,6 +79,19 @@ where
         let output = self.second.project(&middle).map_err(ThenError::Second)?;
         validate_projection_relation(&middle, &output).map_err(ThenError::SecondRelation)?;
         Ok(output)
+    }
+
+    fn next_wakeup(&self) -> Option<Instant> {
+        match (self.first.next_wakeup(), self.second.next_wakeup()) {
+            (Some(first), Some(second)) => Some(first.min(second)),
+            (first, None) | (None, first) => first,
+        }
+    }
+
+    fn advance(&mut self, now: Instant) -> bool {
+        let first_changed = self.first.advance(now);
+        let second_changed = self.second.advance(now);
+        first_changed || second_changed
     }
 
     fn restart_from(&self, output_from: crate::StreamOffset) -> crate::StreamOffset {

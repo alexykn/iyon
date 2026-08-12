@@ -70,8 +70,9 @@ pub use interaction::{InteractionResult, Key, KeyStroke, MediaKey, ModifierKey, 
 pub use output::{EventCx, Output, OutputRouter, RouteConflict};
 pub use projection::{
     Projection, ProjectionBuilder, ProjectionRelationError, ProjectionSpan,
-    ProjectionTransitionError, ProjectionValidationError, Projector, ProjectorExt, Then, ThenError,
-    validate_projection_relation, validate_projection_transition,
+    ProjectionTransitionError, ProjectionValidationError, Projector, ProjectorExt, Smooth,
+    SmoothConfig, SmoothConfigError, Then, ThenError, validate_projection_relation,
+    validate_projection_transition,
 };
 pub use scene::Scene;
 pub use scroll::ScrollPane;

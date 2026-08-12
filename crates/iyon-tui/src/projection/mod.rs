@@ -5,6 +5,7 @@
 
 mod compose;
 mod projector;
+mod smooth;
 mod validate;
 mod value;
 
@@ -13,6 +14,7 @@ mod tests;
 
 pub use compose::{Then, ThenError};
 pub use projector::{Projector, ProjectorExt};
+pub use smooth::{Smooth, SmoothConfig, SmoothConfigError};
 pub use validate::{
     ProjectionRelationError, ProjectionTransitionError, ProjectionValidationError,
     validate_projection_relation, validate_projection_transition,

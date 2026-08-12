@@ -1,6 +1,6 @@
 //! Type-erased semantic stream units for ordered History.
 
-use std::{any::Any, marker::PhantomData};
+use std::{any::Any, marker::PhantomData, time::Instant};
 
 use crate::{
     View,
@@ -31,6 +31,14 @@ impl ErasedHistoryStream {
 
     pub(crate) fn is_sealed(&self) -> bool {
         self.state.is_sealed()
+    }
+
+    pub(crate) fn next_wakeup(&self) -> Option<Instant> {
+        self.state.next_wakeup()
+    }
+
+    pub(crate) fn advance(&mut self, now: Instant) -> Result<bool, HistoryError> {
+        self.state.advance(now)
     }
 
     pub(crate) fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex {
@@ -106,6 +114,8 @@ trait ErasedHistoryStreamState: Any {
     #[cfg(test)]
     fn snapshot(&self) -> &StreamSnapshot;
     fn is_sealed(&self) -> bool;
+    fn next_wakeup(&self) -> Option<Instant>;
+    fn advance(&mut self, now: Instant) -> Result<bool, HistoryError>;
     fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex;
     fn window_view(&self, index: &StreamRowIndex, top_row: usize, height: u16) -> View;
     fn compile_from(
@@ -180,6 +190,22 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
 
     fn is_sealed(&self) -> bool {
         self.sealed
+    }
+
+    fn next_wakeup(&self) -> Option<Instant> {
+        (!self.sealed)
+            .then(|| self.model.source().next_wakeup())
+            .flatten()
+    }
+
+    fn advance(&mut self, now: Instant) -> Result<bool, HistoryError> {
+        if self.sealed || !self.model.source_mut().advance(now) {
+            return Ok(false);
+        }
+        self.model
+            .refresh()
+            .map(|()| true)
+            .map_err(HistoryError::Stream)
     }
 
     fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex {

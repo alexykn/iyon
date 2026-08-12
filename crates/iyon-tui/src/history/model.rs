@@ -1,6 +1,6 @@
 //! Ordered semantic History model.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, time::Instant};
 
 use crate::{presentation::IntoView, stream::StreamingSource};
 
@@ -180,6 +180,26 @@ impl History {
             });
         };
         stream.refresh::<S>(handle.unit())
+    }
+
+    pub(crate) fn next_stream_wakeup(&self) -> Option<Instant> {
+        self.units
+            .iter()
+            .filter_map(|unit| match &unit.content {
+                HistoryUnitContent::Stream(stream) => stream.next_wakeup(),
+                _ => None,
+            })
+            .min()
+    }
+
+    pub(crate) fn advance_streams(&mut self, now: Instant) -> Result<bool, HistoryError> {
+        let mut changed = false;
+        for unit in &mut self.units {
+            if let HistoryUnitContent::Stream(stream) = &mut unit.content {
+                changed |= stream.advance(now)?;
+            }
+        }
+        Ok(changed)
     }
 
     pub fn seal_stream<S: StreamingSource>(

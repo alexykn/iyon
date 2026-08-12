@@ -12,70 +12,145 @@ use crate::transcript::markdown::{
 use crate::transcript::semantic::{
     AssistantSegment, SegmentKind, slice_segments, think_to_text_newline,
 };
+use std::time::Instant;
+
 use iyon_tui::{
-    HorizontalAlign, ProjectedText, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
-    StreamSnapshotBuilder, StreamingSource, StyleRef, WrapMode,
+    HorizontalAlign, ProjectedText, ProjectionBuilder, Projector, Smooth, StreamOffset,
+    StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder, StreamingSource, StyleRef,
+    WrapMode,
 };
 
 #[derive(Debug)]
 pub(crate) struct AssistantStream {
+    /// Semantic segments already released by Smooth and visible to History.
     segments: Vec<AssistantSegment>,
+    /// Full received semantic input, retained for normalization and projection.
+    received_segments: Vec<AssistantSegment>,
     source_base: StreamOffset,
     source_end: StreamOffset,
+    received_end: StreamOffset,
+    pacing_atoms: Vec<(StreamRange, AssistantPacingAtom)>,
+    smoother: Smooth,
     continuation: Option<AssistantContinuation>,
     revision: StreamRevision,
     sealed: bool,
+}
+
+#[derive(Debug, Clone)]
+struct AssistantPacingAtom {
+    kind: SegmentKind,
+    text: String,
+}
+
+fn append_segment(segments: &mut Vec<AssistantSegment>, kind: SegmentKind, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    match kind {
+        SegmentKind::Text => match segments.last_mut() {
+            Some(AssistantSegment::Text(existing)) => existing.push_str(text),
+            _ => segments.push(AssistantSegment::Text(text.to_owned())),
+        },
+        SegmentKind::Thinking => match segments.last_mut() {
+            Some(AssistantSegment::Thinking(existing)) => existing.push_str(text),
+            _ => segments.push(AssistantSegment::Thinking(text.to_owned())),
+        },
+    }
 }
 
 impl AssistantStream {
     pub(crate) fn new() -> Self {
         Self {
             segments: Vec::new(),
+            received_segments: Vec::new(),
             source_base: StreamOffset::ZERO,
             source_end: StreamOffset::ZERO,
+            received_end: StreamOffset::ZERO,
+            pacing_atoms: Vec::new(),
+            smoother: Smooth::default(),
             continuation: None,
             revision: StreamRevision::ZERO,
             sealed: false,
         }
     }
 
+    /// Appends and exposes a complete delta. This remains the unsmoothed semantic
+    /// helper used by the Markdown oracle tests; the application uses the paced
+    /// variant below.
     pub(crate) fn push_delta(&mut self, kind: SegmentKind, chunk: &str) {
+        self.receive_delta(kind, chunk);
+        self.segments = self.received_segments.clone();
+        self.source_end = self.received_end;
+        self.smoother = Smooth::default();
+        self.revision = self.revision.next();
+    }
+
+    pub(crate) fn push_delta_paced(&mut self, kind: SegmentKind, chunk: &str) {
+        self.receive_delta(kind, chunk);
+        self.refresh_smoothing();
+    }
+
+    fn receive_delta(&mut self, kind: SegmentKind, chunk: &str) {
         assert!(!self.sealed, "cannot append to sealed AssistantStream");
         if chunk.is_empty() {
             return;
         }
 
-        let chunk = think_to_text_newline(&self.segments, kind, chunk);
-        let chunk_len = chunk.len() as u64;
-
-        match kind {
-            SegmentKind::Text => {
-                if let Some(AssistantSegment::Text(text)) = self.segments.last_mut() {
-                    text.push_str(&chunk);
-                } else {
-                    self.segments
-                        .push(AssistantSegment::Text(chunk.into_owned()));
-                }
-            }
-            SegmentKind::Thinking => {
-                if let Some(AssistantSegment::Thinking(text)) = self.segments.last_mut() {
-                    text.push_str(&chunk);
-                } else {
-                    self.segments
-                        .push(AssistantSegment::Thinking(chunk.into_owned()));
-                }
-            }
+        let chunk = think_to_text_newline(&self.received_segments, kind, chunk).into_owned();
+        append_segment(&mut self.received_segments, kind, &chunk);
+        let mut cursor = self.received_end;
+        for character in chunk.chars() {
+            let end = cursor.saturating_add(character.len_utf8() as u64);
+            self.pacing_atoms.push((
+                StreamRange::new(cursor, end),
+                AssistantPacingAtom {
+                    kind,
+                    text: character.to_string(),
+                },
+            ));
+            cursor = end;
         }
+        self.received_end = cursor;
+    }
 
-        self.source_end = self.source_end.saturating_add(chunk_len);
-        self.revision = self.revision.next();
+    fn refresh_smoothing(&mut self) {
+        let mut builder = ProjectionBuilder::new(
+            self.source_base,
+            self.received_end,
+            self.received_end,
+            self.sealed,
+        );
+        for (range, atom) in self
+            .pacing_atoms
+            .iter()
+            .filter(|(range, _)| range.end() > self.source_base)
+        {
+            builder = builder.emit_many(*range, [atom.clone()]);
+        }
+        let input = builder
+            .finish()
+            .expect("assistant pacing projection must be valid");
+        let output = self.smoother.project(&input).expect("Smooth is infallible");
+        let previous_end = self.source_end;
+        for span in output.spans() {
+            if span.source().end() <= previous_end {
+                continue;
+            }
+            for atom in span.values() {
+                append_segment(&mut self.segments, atom.kind, &atom.text);
+            }
+            self.source_end = span.source().end();
+        }
+        if self.source_end != previous_end {
+            self.revision = self.revision.next();
+        }
     }
 
     fn restart_plan_at(
         &self,
         offset: StreamOffset,
     ) -> (StreamOffset, Option<AssistantContinuation>) {
-        let doc = parse_assistant(&self.segments);
+        let doc = parse_assistant(&self.received_segments);
         let target = offset.as_u64() as usize;
         let mut cursor = 0usize;
 
@@ -180,6 +255,7 @@ impl StreamingSource for AssistantStream {
         let (restart, continuation) = self.restart_plan_at(offset);
         self.continuation = continuation;
         self.source_base = restart;
+        self.pacing_atoms.retain(|(range, _)| range.end() > restart);
         self.revision = self.revision.next();
     }
 
@@ -188,11 +264,27 @@ impl StreamingSource for AssistantStream {
             return;
         }
         self.sealed = true;
+        self.refresh_smoothing();
         self.revision = self.revision.next();
     }
 
     fn is_sealed(&self) -> bool {
         self.sealed
+    }
+
+    fn next_wakeup(&self) -> Option<Instant> {
+        (!self.sealed)
+            .then(|| self.smoother.next_wakeup())
+            .flatten()
+    }
+
+    fn advance(&mut self, now: Instant) -> bool {
+        if self.sealed || !self.smoother.advance(now) {
+            return false;
+        }
+        let previous = self.source_end;
+        self.refresh_smoothing();
+        self.source_end > previous
     }
 }
 

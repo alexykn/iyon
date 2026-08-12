@@ -1,5 +1,7 @@
 //! Generic stateful projection stages.
 
+use std::time::Instant;
+
 use super::value::Projection;
 
 /// Transforms one root-coordinate projection into another projection.
@@ -22,6 +24,17 @@ pub trait Projector<Input> {
     /// space. Implementors must always return `restart_from(X) <= X`.
     fn restart_from(&self, output_from: crate::StreamOffset) -> crate::StreamOffset {
         output_from
+    }
+
+    /// Returns the absolute deadline at which temporal state may change.
+    fn next_wakeup(&self) -> Option<Instant> {
+        None
+    }
+
+    /// Advances only temporal state using the caller-supplied clock.
+    /// The owner reruns [`Projector::project`] when this returns `true`.
+    fn advance(&mut self, _now: Instant) -> bool {
+        false
     }
 }
 
