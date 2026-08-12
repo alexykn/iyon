@@ -166,14 +166,14 @@ impl ViewPainter {
             return;
         };
         let indicator_view = View::styled_text(vec![TextSpan::styled(text, style)])
-            .width(crate::presentation::WidthRule::Fill)
+            .fill_width()
             .no_wrap()
             .into_view();
         let ViewKind::Text(indicator_text) = &indicator_view.kind else {
             unreachable!("overflow indicator must be text")
         };
         let indicator = compiler.paint_text(
-            indicator_text,
+            &indicator_text,
             node.rect.width,
             crate::presentation::WidthRule::Fill,
             inherited,
