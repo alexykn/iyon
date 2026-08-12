@@ -10,8 +10,10 @@ pub(crate) struct ComponentId(NonZeroU64);
 
 impl ComponentId {
     pub(crate) fn allocate() -> Self {
-        let value = next_nonzero_id(&NEXT_COMPONENT_ID, "component id exhausted");
-        Self(NonZeroU64::new(value).expect("component id must be nonzero"))
+        Self(next_nonzero_id(
+            &NEXT_COMPONENT_ID,
+            "component id exhausted",
+        ))
     }
 
     pub(crate) const fn value(self) -> u64 {

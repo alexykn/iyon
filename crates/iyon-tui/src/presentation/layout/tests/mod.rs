@@ -105,10 +105,39 @@ fn assert_measurement_parity(view: &View, width: u16) {
     let measured = measure_view(view, width);
     let laid_out = super::layout_view(view, LayoutConstraints::width_only(width));
     assert_eq!(
-        measured,
-        laid_out.size,
+        measured, laid_out.size,
         "standalone measurement diverged from layout at width {width}: {view:#?}",
     );
+}
+
+#[test]
+fn layout_stage_counters_match_semantic_nodes() {
+    let view = View::vertical(|column| {
+        column.fixed(1, View::text("one"));
+        column.flex(View::horizontal(|row| {
+            row.fixed(3, View::text("two"));
+            row.flex(View::text("three"));
+        }));
+    });
+    reset_layout_counters();
+    let tree = super::layout_view(&view, LayoutConstraints::width_only(20));
+    let counters = layout_counters();
+    assert_eq!(counters.0, counters.1);
+    assert_eq!(counters.1, counters.2);
+    assert_eq!(counters.2, tree.nodes.len());
+
+    let hanging = View::hanging(
+        View::text("> ").no_wrap(),
+        View::text("  ").no_wrap(),
+        View::text("one two three").fill_width(),
+    )
+    .fill_width();
+    reset_layout_counters();
+    let hanging_tree = super::layout_view(&hanging, LayoutConstraints::width_only(8));
+    let hanging_counters = layout_counters();
+    assert!(hanging_counters.0 < hanging_counters.1);
+    assert_eq!(hanging_counters.1, hanging_counters.2);
+    assert_eq!(hanging_counters.2, hanging_tree.nodes.len());
 }
 
 #[test]

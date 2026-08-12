@@ -3,18 +3,36 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     component::ComponentId,
     geometry::{Rect, Size},
-    presentation::{OverflowIndicator, View},
+    presentation::api::style::{StyleStateKey, StyleStateValue},
+    presentation::ir::{Decoration, TextView},
+    presentation::{OverflowIndicator, WidthRule},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct LayoutNodeId(pub(crate) usize);
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum LayoutPayload {
-    View(View),
+pub(crate) struct LayoutStyle {
+    pub(crate) component_scope: Option<ComponentId>,
+    pub(crate) style_states: Vec<(StyleStateKey, StyleStateValue)>,
+    pub(crate) decoration: Decoration,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum LayoutContent {
+    Text {
+        text: TextView,
+        width_rule: WidthRule,
+    },
+    Spacer {
+        rows: u16,
+    },
+    Children,
     Clamp {
-        max_rows: u16,
         overflow: OverflowIndicator,
+    },
+    RowViewport {
+        skip_rows: u16,
     },
 }
 
@@ -25,8 +43,8 @@ pub(crate) struct LayoutNode {
     pub(crate) clip_rect: Rect,
     pub(crate) component: Option<ComponentId>,
     pub(crate) children: Vec<LayoutNodeId>,
-    pub(crate) view: View,
-    pub(crate) payload: LayoutPayload,
+    pub(crate) style: LayoutStyle,
+    pub(crate) content: LayoutContent,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -164,9 +182,9 @@ impl LayoutTree {
             );
         }
 
-        let child_offset = match &node.view.kind {
-            crate::presentation::ir::ViewKind::RowViewport(viewport) => {
-                offset_y.saturating_sub(i32::from(viewport.skip_rows))
+        let child_offset = match node.content {
+            LayoutContent::RowViewport { skip_rows } => {
+                offset_y.saturating_sub(i32::from(skip_rows))
             }
             _ => offset_y,
         };
@@ -215,10 +233,7 @@ impl LayoutTree {
     fn has_viewport_ancestor(&self, id: LayoutNodeId, parents: &[Option<LayoutNodeId>]) -> bool {
         let mut current = parents[id.0];
         while let Some(parent) = current {
-            if matches!(
-                self.node(parent).view.kind,
-                crate::presentation::ir::ViewKind::RowViewport(_)
-            ) {
+            if matches!(self.node(parent).content, LayoutContent::RowViewport { .. }) {
                 return true;
             }
             current = parents[parent.0];

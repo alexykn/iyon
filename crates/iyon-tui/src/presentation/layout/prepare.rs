@@ -1,0 +1,304 @@
+//! Bounded allocation over measured semantic facts.
+
+use crate::{geometry::Size, presentation::ir::HeightRule};
+
+use super::{
+    measure::{MeasuredKind, MeasuredNode},
+    tracks::allocate_tracks,
+};
+
+#[derive(Debug)]
+pub(super) struct PreparedNode<'m, 'v> {
+    pub(super) measured: &'m MeasuredNode<'v>,
+    pub(super) size: Size,
+    pub(super) core_size: Size,
+    pub(super) content_offset_x: u16,
+    pub(super) content_offset_y: u16,
+    pub(super) complete: bool,
+    pub(super) kind: PreparedKind<'m, 'v>,
+}
+
+#[derive(Debug)]
+pub(super) struct PreparedChild<'m, 'v> {
+    pub(super) x: u16,
+    pub(super) y: u16,
+    pub(super) node: PreparedNode<'m, 'v>,
+}
+
+#[derive(Debug)]
+pub(super) enum PreparedKind<'m, 'v> {
+    Leaf,
+    Children(Vec<PreparedChild<'m, 'v>>),
+    Clamp {
+        child: Box<PreparedChild<'m, 'v>>,
+    },
+    RowViewport {
+        child: Box<PreparedChild<'m, 'v>>,
+        skip_rows: u16,
+    },
+}
+
+pub(super) fn prepare_node<'m, 'v>(
+    measured: &'m MeasuredNode<'v>,
+    height_bound: Option<u16>,
+) -> PreparedNode<'m, 'v> {
+    #[cfg(test)]
+    super::record_prepare_node();
+    let view = measured.view;
+    let decoration = measured.decoration;
+    let height_capacity = height_bound
+        .unwrap_or(u16::MAX)
+        .min(view.decoration.bounds.height.normalized_max());
+    let core_height_capacity = height_capacity.saturating_sub(decoration.vertical);
+    let minimum_core_height = view
+        .decoration
+        .bounds
+        .height
+        .min
+        .saturating_sub(decoration.vertical)
+        .min(core_height_capacity);
+    let requested_core_height = match (view.height, height_bound) {
+        (HeightRule::Fill, Some(_)) => core_height_capacity,
+        _ => measured.core_size.height.min(core_height_capacity),
+    }
+    .max(minimum_core_height);
+    let (kind, kind_size, complete) = prepare_kind(measured, requested_core_height, height_bound);
+    let core_width = measured.size.width.saturating_sub(decoration.horizontal);
+    let core_height = match view.height {
+        HeightRule::Fill => requested_core_height,
+        HeightRule::Fit => kind_size.height.min(requested_core_height),
+    };
+    PreparedNode {
+        measured,
+        size: Size::new(
+            core_width
+                .saturating_add(decoration.horizontal)
+                .max(view.decoration.bounds.width.min)
+                .min(measured.width_capacity),
+            core_height
+                .saturating_add(decoration.vertical)
+                .max(view.decoration.bounds.height.min)
+                .min(height_capacity),
+        ),
+        core_size: Size::new(core_width, core_height),
+        content_offset_x: decoration
+            .left_border
+            .saturating_add(decoration.left_padding),
+        content_offset_y: decoration.top_border.saturating_add(decoration.top_padding),
+        complete,
+        kind,
+    }
+}
+
+fn prepare_kind<'m, 'v>(
+    measured: &'m MeasuredNode<'v>,
+    requested_core_height: u16,
+    height_bound: Option<u16>,
+) -> (PreparedKind<'m, 'v>, Size, bool) {
+    match &measured.kind {
+        MeasuredKind::Text { metrics, .. } => (
+            PreparedKind::Leaf,
+            Size::new(metrics.width, metrics.row_count),
+            metrics.fits && metrics.row_count <= requested_core_height,
+        ),
+        MeasuredKind::Spacer { rows } => (
+            PreparedKind::Leaf,
+            Size::new(0, (*rows).min(requested_core_height)),
+            true,
+        ),
+        MeasuredKind::Container { child } => {
+            let prepared = prepare_node(child, Some(requested_core_height));
+            let size = prepared.size;
+            let complete = prepared.complete;
+            (
+                PreparedKind::Children(vec![PreparedChild {
+                    x: 0,
+                    y: 0,
+                    node: prepared,
+                }]),
+                size,
+                complete,
+            )
+        }
+        MeasuredKind::ClampRows {
+            child, max_rows, ..
+        } => {
+            let prepared = prepare_node(child, None);
+            let size = Size::new(prepared.size.width, prepared.size.height.min(*max_rows));
+            let complete = prepared.complete;
+            (
+                PreparedKind::Clamp {
+                    child: Box::new(PreparedChild {
+                        x: 0,
+                        y: 0,
+                        node: prepared,
+                    }),
+                },
+                size,
+                complete,
+            )
+        }
+        MeasuredKind::RowViewport {
+            width: _,
+            child,
+            skip_rows,
+            visible_height,
+            layout_height,
+            intrinsic_content_height,
+        } => {
+            let prepared = prepare_node(child, *layout_height);
+            let child_height = prepared.size.height;
+            let height = if *intrinsic_content_height {
+                let remaining = child_height.saturating_sub(*skip_rows);
+                if height_bound.is_some() {
+                    requested_core_height.min(remaining)
+                } else {
+                    child_height
+                }
+            } else {
+                visible_height.unwrap_or_else(|| child_height.saturating_sub(*skip_rows))
+            };
+            let complete = prepared.complete;
+            (
+                PreparedKind::RowViewport {
+                    child: Box::new(PreparedChild {
+                        x: 0,
+                        y: 0,
+                        node: prepared,
+                    }),
+                    skip_rows: *skip_rows,
+                },
+                Size::new(measured.decoration.inner_width, height),
+                complete,
+            )
+        }
+        MeasuredKind::Column { children, gap } => {
+            let tracks = children.iter().map(|child| child.track).collect::<Vec<_>>();
+            let allocation = allocate_tracks(requested_core_height, *gap, &tracks, |index, _| {
+                children[index].node.size.height
+            });
+            let mut prepared_children = Vec::with_capacity(children.len());
+            let mut y = 0;
+            let mut complete = true;
+            for (index, child) in children.iter().enumerate() {
+                let track = allocation.tracks[index];
+                let prepared = prepare_node(&child.node, Some(track));
+                if child.node.size.height > track && !child.node.kind.is_clamp() {
+                    complete = false;
+                }
+                complete &= prepared.complete;
+                prepared_children.push(PreparedChild {
+                    x: 0,
+                    y,
+                    node: prepared,
+                });
+                y = y.saturating_add(track).saturating_add(allocation.gap);
+            }
+            let used_height = allocation
+                .tracks
+                .iter()
+                .map(|track| usize::from(*track))
+                .sum::<usize>()
+                .saturating_add(usize::from(allocation.gap) * tracks.len().saturating_sub(1));
+            (
+                PreparedKind::Children(prepared_children),
+                Size::new(
+                    measured.decoration.inner_width,
+                    used_height.min(usize::from(u16::MAX)) as u16,
+                ),
+                complete,
+            )
+        }
+        MeasuredKind::Row {
+            children,
+            allocation: _,
+            gap,
+            vertical_align,
+        } => {
+            let row_height = if measured.view.height == HeightRule::Fill {
+                requested_core_height
+            } else {
+                measured.core_size.height.min(requested_core_height)
+            };
+            let mut prepared_children = Vec::with_capacity(children.len());
+            let mut x = 0;
+            let mut complete = true;
+            for child in children {
+                let child_height = child.node.size.height.min(row_height);
+                let y = match vertical_align {
+                    crate::presentation::VerticalAlign::Top => 0,
+                    crate::presentation::VerticalAlign::Center => {
+                        row_height.saturating_sub(child_height) / 2
+                    }
+                    crate::presentation::VerticalAlign::Bottom => {
+                        row_height.saturating_sub(child_height)
+                    }
+                };
+                let prepared = prepare_node(&child.node, Some(row_height));
+                complete &= prepared.complete;
+                prepared_children.push(PreparedChild {
+                    x,
+                    y,
+                    node: prepared,
+                });
+                x = x.saturating_add(child.track_width).saturating_add(*gap);
+            }
+            (
+                PreparedKind::Children(prepared_children),
+                Size::new(measured.core_size.width, row_height),
+                complete,
+            )
+        }
+        MeasuredKind::Hanging {
+            prefix_width,
+            prefix,
+            continuation_prefix,
+            body,
+        } => {
+            if requested_core_height == 0 {
+                return (
+                    PreparedKind::Children(Vec::new()),
+                    Size::new(measured.decoration.inner_width, 0),
+                    true,
+                );
+            }
+            let body = prepare_node(body, Some(requested_core_height));
+            let row_height = body.size.height.max(1).min(requested_core_height);
+            let prefix_node = prepare_node(prefix, Some(1));
+            let prefix_complete = prefix_node.complete;
+            let mut children = vec![PreparedChild {
+                x: 0,
+                y: 0,
+                node: prefix_node,
+            }];
+            let mut complete =
+                body.complete && prefix_complete && *prefix_width < measured.decoration.inner_width;
+            for row in 1..row_height {
+                let continuation = prepare_node(continuation_prefix, Some(1));
+                complete &= continuation.complete;
+                children.push(PreparedChild {
+                    x: 0,
+                    y: row,
+                    node: continuation,
+                });
+            }
+            children.push(PreparedChild {
+                x: *prefix_width,
+                y: 0,
+                node: body,
+            });
+            (
+                PreparedKind::Children(children),
+                Size::new(
+                    measured.decoration.inner_width,
+                    if measured.view.height == HeightRule::Fill {
+                        requested_core_height
+                    } else {
+                        row_height
+                    },
+                ),
+                complete,
+            )
+        }
+    }
+}

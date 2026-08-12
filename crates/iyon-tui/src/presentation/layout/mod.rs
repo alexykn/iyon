@@ -2,9 +2,22 @@
 //!
 //! This module owns backend-neutral constraints, retained layout geometry, and
 //! the compiler facade. Physical lowering lives in painting.
+//!
+//! Layout is a three-stage pipeline:
+//!
+//! 1. Measure semantic Views into width-dependent MeasuredNodes.
+//! 2. Resolve bounded allocation into PreparedNodes using only measured facts.
+//! 3. Place PreparedNodes into a LayoutTree without performing measurement or
+//!    layout allocation.
+//!
+//! A semantic View subtree must never be re-measured merely because placement
+//! needs geometry, and LayoutTree must not retain recursive clones of semantic
+//! View subtrees.
 
 mod engine;
 mod measure;
+mod place;
+mod prepare;
 mod tracks;
 mod tree;
 
@@ -20,7 +33,7 @@ use crate::{
 };
 
 pub(crate) use engine::{layout_view, measure_view};
-pub(crate) use tree::{ComponentGeometryMap, LayoutNode, LayoutNodeId, LayoutTree};
+pub(crate) use tree::{ComponentGeometryMap, LayoutContent, LayoutNode, LayoutNodeId, LayoutTree};
 
 #[cfg(test)]
 use crate::geometry::Size;
@@ -28,6 +41,47 @@ use crate::geometry::Size;
 use super::paint::{StyleContext, ThemeResolver, ViewPainter};
 
 pub(crate) use super::paint::{CompiledTextRow, row_from_graphemes, row_from_string};
+
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+thread_local! {
+    static MEASURE_NODES: Cell<usize> = const { Cell::new(0) };
+    static PREPARE_NODES: Cell<usize> = const { Cell::new(0) };
+    static EMITTED_NODES: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(super) fn record_measure_node() {
+    MEASURE_NODES.with(|count| count.set(count.get() + 1));
+}
+
+#[cfg(test)]
+pub(super) fn record_prepare_node() {
+    PREPARE_NODES.with(|count| count.set(count.get() + 1));
+}
+
+#[cfg(test)]
+pub(super) fn record_emitted_node() {
+    EMITTED_NODES.with(|count| count.set(count.get() + 1));
+}
+
+#[cfg(test)]
+pub(super) fn reset_layout_counters() {
+    MEASURE_NODES.with(|count| count.set(0));
+    PREPARE_NODES.with(|count| count.set(0));
+    EMITTED_NODES.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(super) fn layout_counters() -> (usize, usize, usize) {
+    (
+        MEASURE_NODES.with(Cell::get),
+        PREPARE_NODES.with(Cell::get),
+        EMITTED_NODES.with(Cell::get),
+    )
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LayoutBlock {
