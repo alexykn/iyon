@@ -9,8 +9,7 @@ pub(super) struct OutputId(NonZeroU64);
 
 impl OutputId {
     fn allocate() -> Self {
-        let value = next_nonzero_id(&NEXT_OUTPUT_ID, "output id exhausted");
-        Self(NonZeroU64::new(value).expect("output id must be nonzero"))
+        Self(next_nonzero_id(&NEXT_OUTPUT_ID, "output id exhausted"))
     }
 }
 

@@ -1,12 +1,11 @@
 use crate::{
     physical::{PhysicalStyle, Surface},
-    presentation::ir::ViewKind,
-    presentation::{IntoView, OverflowIndicator, TextSpan, View},
+    presentation::{IntoView, TextSpan, View},
 };
 
 use crate::presentation::{
-    ir::ContainerNode,
-    layout::{LayoutNodeId, LayoutTree, ViewCompiler},
+    ir::WidthRule,
+    layout::{LayoutContent, LayoutNode, LayoutNodeId, LayoutTree, ViewCompiler},
 };
 
 /// Physical lowering facade. The compiler supplies root bounds; bounded
@@ -30,7 +29,7 @@ impl ViewPainter {
             tree,
             tree.root,
             inherited,
-            compiler.style_context(tree.node(tree.root).view.component_scope),
+            compiler.style_context(tree.node(tree.root).style.component_scope),
         );
         surface.physically_complete = tree.physically_complete;
         surface
@@ -45,22 +44,22 @@ impl ViewPainter {
         inherited_context: crate::presentation::paint::StyleContext,
     ) -> Surface {
         let node = tree.node(id);
-        let view = &node.view;
         let context = inherited_context
-            .with_states(&view.style_states)
-            .with_scope(compiler.style_context(node.view.component_scope));
-        let resolved =
-            compiler
-                .theme
-                .resolve_text_style(inherited, &view.decoration.text_style, &context);
+            .with_states(&node.style.style_states)
+            .with_scope(compiler.style_context(node.style.component_scope));
+        let resolved = compiler.theme.resolve_text_style(
+            inherited,
+            &node.style.decoration.text_style,
+            &context,
+        );
         let mut output = Surface::new(node.rect.width, node.rect.height);
 
-        match &view.kind {
-            ViewKind::Text(text) => {
+        match &node.content {
+            LayoutContent::Text { text, width_rule } => {
                 let painted = compiler.paint_text(
                     text,
                     node.content_rect.width,
-                    view.width,
+                    *width_rule,
                     resolved,
                     &context,
                 );
@@ -69,44 +68,32 @@ impl ViewPainter {
                 output.composite(&painted, x, y);
                 output.physically_complete = painted.physically_complete;
             }
-            ViewKind::Spacer { rows } => {
+            LayoutContent::Spacer { rows } => {
                 let height = (*rows).min(node.content_rect.height);
                 let painted = Surface::new(node.content_rect.width, height);
                 let x = node.content_rect.x.saturating_sub(node.rect.x);
                 let y = node.content_rect.y.saturating_sub(node.rect.y);
                 output.composite(&painted, x, y);
             }
-            ViewKind::Container(ContainerNode { .. })
-            | ViewKind::Column(_)
-            | ViewKind::Row(_)
-            | ViewKind::Hanging(_)
-            | ViewKind::ClampRows(_) => {
-                for child in &node.children {
-                    let child_node = tree.node(*child);
-                    let painted =
-                        self.paint_node(compiler, tree, *child, resolved, context.clone());
-                    let x = child_node.rect.x.saturating_sub(node.rect.x);
-                    let y = child_node.rect.y.saturating_sub(node.rect.y);
-                    output.composite(&painted, x, y);
-                }
-                if let ViewKind::ClampRows(clamp) = &view.kind {
-                    let truncated = node
+            LayoutContent::Children | LayoutContent::Clamp { .. } => {
+                self.paint_children(compiler, tree, node, &mut output, resolved, &context);
+                if let LayoutContent::Clamp { overflow } = &node.content
+                    && node
                         .children
                         .first()
-                        .is_some_and(|child| tree.node(*child).rect.height > node.rect.height);
-                    if truncated {
-                        self.paint_overflow_indicator(
-                            compiler,
-                            &mut output,
-                            node,
-                            clamp,
-                            resolved,
-                            &context,
-                        );
-                    }
+                        .is_some_and(|child| tree.node(*child).rect.height > node.rect.height)
+                {
+                    self.paint_overflow_indicator(
+                        compiler,
+                        &mut output,
+                        node,
+                        overflow,
+                        resolved,
+                        &context,
+                    );
                 }
             }
-            ViewKind::RowViewport(viewport) => {
+            LayoutContent::RowViewport { skip_rows } => {
                 if output.width() != 0 && output.height() != 0 {
                     let child_id = node
                         .children
@@ -116,8 +103,7 @@ impl ViewPainter {
                     let painted =
                         self.paint_node(compiler, tree, child_id, resolved, context.clone());
                     for y in 0..output.height() {
-                        let source_y =
-                            usize::from(viewport.skip_rows).saturating_add(usize::from(y));
+                        let source_y = usize::from(*skip_rows).saturating_add(usize::from(y));
                         if source_y >= usize::from(painted.height()) {
                             continue;
                         }
@@ -128,13 +114,12 @@ impl ViewPainter {
                     output.physically_complete = painted.physically_complete;
                 }
             }
-            ViewKind::ComponentSlot(_) => unreachable!("component slot reached painting"),
         }
 
-        if let Some(color) = &view.decoration.surface_background {
+        if let Some(color) = &node.style.decoration.surface_background {
             output.apply_surface_background(compiler.theme.resolve_color(color, &context));
         }
-        if let Some(border) = &view.decoration.border {
+        if let Some(border) = &node.style.decoration.border {
             crate::presentation::paint::paint_border(
                 &mut output,
                 border,
@@ -146,22 +131,44 @@ impl ViewPainter {
         output
     }
 
+    fn paint_children(
+        &self,
+        compiler: &ViewCompiler,
+        tree: &LayoutTree,
+        node: &LayoutNode,
+        output: &mut Surface,
+        resolved: PhysicalStyle,
+        context: &crate::presentation::paint::StyleContext,
+    ) {
+        for child in &node.children {
+            let child_node = tree.node(*child);
+            let painted = self.paint_node(compiler, tree, *child, resolved, context.clone());
+            let x = child_node.rect.x.saturating_sub(node.rect.x);
+            let y = child_node.rect.y.saturating_sub(node.rect.y);
+            output.composite(&painted, x, y);
+        }
+    }
+
     fn paint_overflow_indicator(
         &self,
         compiler: &ViewCompiler,
         output: &mut Surface,
-        node: &crate::presentation::layout::LayoutNode,
-        clamp: &crate::presentation::ir::ClampRowsView,
+        node: &LayoutNode,
+        overflow: &crate::presentation::OverflowIndicator,
         inherited: PhysicalStyle,
         context: &crate::presentation::paint::StyleContext,
     ) {
         if output.height() == 0 {
             return;
         }
-        let Some((text, style)) = (match &clamp.overflow {
-            OverflowIndicator::None => None,
-            OverflowIndicator::Ellipsis { style } => Some(("…".to_owned(), style.clone())),
-            OverflowIndicator::Footer { prefix, style } => Some((prefix.clone(), style.clone())),
+        let Some((text, style)) = (match overflow {
+            crate::presentation::OverflowIndicator::None => None,
+            crate::presentation::OverflowIndicator::Ellipsis { style } => {
+                Some(("…".to_owned(), style.clone()))
+            }
+            crate::presentation::OverflowIndicator::Footer { prefix, style } => {
+                Some((prefix.clone(), style.clone()))
+            }
         }) else {
             return;
         };
@@ -169,13 +176,13 @@ impl ViewPainter {
             .fill_width()
             .no_wrap()
             .into_view();
-        let ViewKind::Text(indicator_text) = &indicator_view.kind else {
+        let crate::presentation::ir::ViewKind::Text(indicator_text) = &indicator_view.kind else {
             unreachable!("overflow indicator must be text")
         };
         let indicator = compiler.paint_text(
             indicator_text,
             node.rect.width,
-            crate::presentation::WidthRule::Fill,
+            WidthRule::Fill,
             inherited,
             context,
         );

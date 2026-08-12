@@ -1,8 +1,11 @@
 //! Generic retained local scrolling for arbitrary semantic Views.
 
 use crate::{
-    Component, ComponentCx, InteractionResult, KeyStroke, View, geometry::Size,
-    presentation::IntoView, presentation::layout::measure_view,
+    Component, ComponentCx, InteractionResult, KeyStroke, View,
+    geometry::Size,
+    presentation::IntoView,
+    presentation::layout::measure_view,
+    scroll_command::{ScrollCommand, map_scroll_key},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,29 +141,29 @@ impl ScrollPane {
     }
 
     fn map_command(&self, key: KeyStroke) -> Option<crate::scroll_command::ScrollCommand> {
-        crate::scroll_command::map_scroll_key(key)
+        map_scroll_key(key)
     }
 
     fn handle_command(
         &mut self,
-        command: crate::scroll_command::ScrollCommand,
+        command: ScrollCommand,
         _cx: &mut crate::EventCx<'_>,
     ) -> InteractionResult {
         match command {
-            crate::scroll_command::ScrollCommand::LineUp => {
+            ScrollCommand::LineUp => {
                 self.scroll_up(1);
             }
-            crate::scroll_command::ScrollCommand::LineDown => {
+            ScrollCommand::LineDown => {
                 self.scroll_down(1);
             }
-            crate::scroll_command::ScrollCommand::PageUp => {
+            ScrollCommand::PageUp => {
                 self.page_up();
             }
-            crate::scroll_command::ScrollCommand::PageDown => {
+            ScrollCommand::PageDown => {
                 self.page_down();
             }
-            crate::scroll_command::ScrollCommand::Start => self.scroll_to_start(),
-            crate::scroll_command::ScrollCommand::End => self.follow_end(),
+            ScrollCommand::Start => self.scroll_to_start(),
+            ScrollCommand::End => self.follow_end(),
         }
         InteractionResult::Consumed
     }

@@ -12,8 +12,10 @@ pub struct HistoryUnitId(NonZeroU64);
 
 impl HistoryUnitId {
     pub(crate) fn allocate() -> Self {
-        let value = next_nonzero_id(&NEXT_HISTORY_UNIT_ID, "history unit id exhausted");
-        Self(NonZeroU64::new(value).expect("history unit id must be nonzero"))
+        Self(next_nonzero_id(
+            &NEXT_HISTORY_UNIT_ID,
+            "history unit id exhausted",
+        ))
     }
 
     pub(crate) const fn value(self) -> u64 {
