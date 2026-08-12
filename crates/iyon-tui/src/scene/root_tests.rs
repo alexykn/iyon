@@ -1,4 +1,9 @@
 use super::*;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+
 use crate::{
     History, HistoryLayout, Insets, IntoView, StreamingSource, TextSpan, View,
     backend::NativeHistorySink,
@@ -11,6 +16,17 @@ use crate::{
 
 #[derive(Debug)]
 struct RootComponent(&'static str);
+
+struct CountingRootComponent(Arc<AtomicUsize>);
+
+impl Component for CountingRootComponent {
+    fn view(&self) -> View {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        View::text("counted").into_view()
+    }
+
+    fn capabilities(&self, _cx: &mut ComponentCx<'_, Self>) {}
+}
 
 impl Component for RootComponent {
     fn view(&self) -> View {
@@ -86,6 +102,24 @@ impl StreamingSource for RootSource {
     fn is_sealed(&self) -> bool {
         self.sealed
     }
+}
+
+#[test]
+fn body_component_is_resolved_once_per_root_pass() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(CountingRootComponent(calls.clone()));
+    let mut history = History::new();
+    history.push("history").unwrap();
+
+    resolve_root_scene(
+        &Scene::with_history(history, View::component(handle)),
+        &registry,
+        Size::new(20, 6),
+    )
+    .unwrap();
+
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
 }
 
 #[test]

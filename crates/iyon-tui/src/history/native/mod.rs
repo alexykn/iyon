@@ -132,15 +132,26 @@ fn outcome(
     }
 }
 
-fn prepare_top_padding(history: &mut History, width: u16) -> Option<Vec<PhysicalRow>> {
-    match &history.native.top_padding {
+fn spacing_rows(
+    state: &SpacingTransferState,
+    width: u16,
+    semantic_count: usize,
+) -> Option<Vec<PhysicalRow>> {
+    match state {
         SpacingTransferState::Native => None,
         SpacingTransferState::Frozen(rows) => Some(rows.as_slice().to_vec()),
         SpacingTransferState::Semantic => {
-            let count = usize::from(history.layout().padding.top);
-            (count > 0).then(|| NativeFrontier::blank_rows(width, count))
+            (semantic_count > 0).then(|| NativeFrontier::blank_rows(width, semantic_count))
         }
     }
+}
+
+fn prepare_top_padding(history: &mut History, width: u16) -> Option<Vec<PhysicalRow>> {
+    spacing_rows(
+        &history.native.top_padding,
+        width,
+        usize::from(history.layout().padding.top),
+    )
 }
 
 fn prepare_leading_gap(history: &mut History, width: u16) -> Option<Vec<PhysicalRow>> {
@@ -158,14 +169,33 @@ fn prepare_leading_gap(history: &mut History, width: u16) -> Option<Vec<Physical
         history.native.leading_gap = Some(SpacingTransferState::Semantic);
     }
     let state = history.native.leading_gap.as_ref().expect("gap state");
-    match state {
-        SpacingTransferState::Native => None,
-        SpacingTransferState::Frozen(rows) => Some(rows.as_slice().to_vec()),
-        SpacingTransferState::Semantic => {
-            let count = usize::from(history.layout().gap);
-            (count > 0).then(|| NativeFrontier::blank_rows(width, count))
-        }
+    spacing_rows(state, width, usize::from(history.layout().gap))
+}
+
+struct InsertAck {
+    requested: usize,
+    accepted: usize,
+}
+
+fn insert_prefix<S: NativeHistorySink>(
+    sink: &mut S,
+    rows: &[PhysicalRow],
+    max_rows: usize,
+) -> Result<InsertAck, NativeTransferError<S::Error>> {
+    let requested = rows.len().min(max_rows);
+    let accepted = sink
+        .insert_history_rows(&rows[..requested])
+        .map_err(NativeTransferError::Sink)?;
+    if accepted > requested {
+        return Err(NativeTransferError::InvalidAcknowledgement {
+            requested,
+            accepted,
+        });
     }
+    Ok(InsertAck {
+        requested,
+        accepted,
+    })
 }
 
 fn transfer_spacing<S: NativeHistorySink>(
@@ -174,25 +204,21 @@ fn transfer_spacing<S: NativeHistorySink>(
     rows: Vec<PhysicalRow>,
     max_rows: usize,
 ) -> Result<NativeTransferOutcome, NativeTransferError<S::Error>> {
-    let request = rows.len().min(max_rows);
-    let accepted = sink
-        .insert_history_rows(&rows[..request])
-        .map_err(NativeTransferError::Sink)?;
-    if accepted > request {
-        return Err(NativeTransferError::InvalidAcknowledgement {
-            requested: request,
-            accepted,
-        });
+    let ack = insert_prefix(sink, &rows, max_rows)?;
+    if ack.accepted == 0 {
+        return Ok(outcome(ack.requested, 0, NativeTransferStatus::SinkBlocked));
     }
-    if accepted == 0 {
-        return Ok(outcome(request, 0, NativeTransferStatus::SinkBlocked));
-    }
-    if accepted == rows.len() {
+    if ack.accepted == rows.len() {
         *state = SpacingTransferState::Native;
     } else {
-        *state = SpacingTransferState::Frozen(FrozenPhysicalRows::new(rows[accepted..].to_vec()));
+        *state =
+            SpacingTransferState::Frozen(FrozenPhysicalRows::new(rows[ack.accepted..].to_vec()));
     }
-    Ok(outcome(request, accepted, NativeTransferStatus::Progress))
+    Ok(outcome(
+        ack.requested,
+        ack.accepted,
+        NativeTransferStatus::Progress,
+    ))
 }
 
 fn transfer_static<S: NativeHistorySink>(
@@ -201,30 +227,25 @@ fn transfer_static<S: NativeHistorySink>(
     rows: Vec<PhysicalRow>,
     max_rows: usize,
 ) -> Result<NativeTransferOutcome, NativeTransferError<S::Error>> {
-    let request = rows.len().min(max_rows);
-    let accepted = sink
-        .insert_history_rows(&rows[..request])
-        .map_err(NativeTransferError::Sink)?;
-    if accepted > request {
-        return Err(NativeTransferError::InvalidAcknowledgement {
-            requested: request,
-            accepted,
-        });
+    let ack = insert_prefix(sink, &rows, max_rows)?;
+    if ack.accepted == 0 {
+        return Ok(outcome(ack.requested, 0, NativeTransferStatus::SinkBlocked));
     }
-    if accepted == 0 {
-        return Ok(outcome(request, 0, NativeTransferStatus::SinkBlocked));
-    }
-    if accepted == rows.len() {
+    if ack.accepted == rows.len() {
         cross_zero_spacing(history);
         retire_front(history);
     } else {
         cross_zero_spacing(history);
         history.native.frozen_static = Some(FrozenStaticRemainder {
             unit: history.units.front().expect("static unit").id,
-            rows: FrozenPhysicalRows::new(rows[accepted..].to_vec()),
+            rows: FrozenPhysicalRows::new(rows[ack.accepted..].to_vec()),
         });
     }
-    Ok(outcome(request, accepted, NativeTransferStatus::Progress))
+    Ok(outcome(
+        ack.requested,
+        ack.accepted,
+        NativeTransferStatus::Progress,
+    ))
 }
 
 fn transfer_frozen_static<S: NativeHistorySink>(
@@ -238,26 +259,21 @@ fn transfer_frozen_static<S: NativeHistorySink>(
         .as_ref()
         .expect("frozen static");
     let rows = frozen.rows.as_slice();
-    let request = rows.len().min(max_rows);
-    let accepted = sink
-        .insert_history_rows(&rows[..request])
-        .map_err(NativeTransferError::Sink)?;
-    if accepted > request {
-        return Err(NativeTransferError::InvalidAcknowledgement {
-            requested: request,
-            accepted,
-        });
+    let ack = insert_prefix(sink, rows, max_rows)?;
+    if ack.accepted == 0 {
+        return Ok(outcome(ack.requested, 0, NativeTransferStatus::SinkBlocked));
     }
-    if accepted == 0 {
-        return Ok(outcome(request, 0, NativeTransferStatus::SinkBlocked));
-    }
-    if accepted == rows.len() {
+    if ack.accepted == rows.len() {
         retire_front(history);
     } else {
-        let remainder = rows[accepted..].to_vec();
+        let remainder = rows[ack.accepted..].to_vec();
         history.native.frozen_static.as_mut().unwrap().rows = FrozenPhysicalRows::new(remainder);
     }
-    Ok(outcome(request, accepted, NativeTransferStatus::Progress))
+    Ok(outcome(
+        ack.requested,
+        ack.accepted,
+        NativeTransferStatus::Progress,
+    ))
 }
 
 fn transfer_stream<S: NativeHistorySink>(
@@ -344,23 +360,14 @@ fn transfer_stream<S: NativeHistorySink>(
         ));
     }
 
-    let request = rows.len();
-    let accepted = sink
-        .insert_history_rows(&rows)
-        .map_err(NativeTransferError::Sink)?;
-    if accepted > request {
-        return Err(NativeTransferError::InvalidAcknowledgement {
-            requested: request,
-            accepted,
-        });
-    }
-    if accepted == 0 {
-        return Ok(outcome(request, 0, NativeTransferStatus::SinkBlocked));
+    let ack = insert_prefix(sink, &rows, max_rows)?;
+    if ack.accepted == 0 {
+        return Ok(outcome(ack.requested, 0, NativeTransferStatus::SinkBlocked));
     }
 
     let accepted_plan = plan_stream_transfer(
         &compiled,
-        accepted,
+        ack.accepted,
         starting_partial.as_ref(),
         starting_cursor,
     );
@@ -384,7 +391,11 @@ fn transfer_stream<S: NativeHistorySink>(
     if sealed && state.partial.is_none() && new_cursor >= source_end {
         retire_front(history);
     }
-    Ok(outcome(request, accepted, NativeTransferStatus::Progress))
+    Ok(outcome(
+        ack.requested,
+        ack.accepted,
+        NativeTransferStatus::Progress,
+    ))
 }
 
 fn payload_rows(compiled: &CompiledStream, payload: &StreamTransferPayload) -> Vec<PhysicalRow> {
