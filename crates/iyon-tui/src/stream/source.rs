@@ -1,5 +1,7 @@
 //! Generic synchronous stream source contract.
 
+use std::time::Instant;
+
 use super::{coord::StreamOffset, snapshot::StreamSnapshot};
 
 /// Trait for synchronous append-only streaming content.
@@ -22,4 +24,14 @@ pub trait StreamingSource: 'static {
 
     /// Whether the stream has been sealed.
     fn is_sealed(&self) -> bool;
+
+    /// Returns the absolute deadline for pending temporal semantic work.
+    fn next_wakeup(&self) -> Option<Instant> {
+        None
+    }
+
+    /// Advances temporal state. A true result requires the owner to refresh the snapshot.
+    fn advance(&mut self, _now: Instant) -> bool {
+        false
+    }
 }

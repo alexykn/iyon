@@ -13,7 +13,6 @@ use super::{
     backend::{BackendCommands, ToolUpdatePresentation},
     components::{ApprovalDecision, ConversationActivity, SteeringQueuePanel, UserBatch},
     controller::IyonAction,
-    stream_smoother::StreamSmoother,
     theme::{AGENT_EFFORT, effort_style_value},
     transcript::{AssistantStream, SegmentKind, TimelineItem, ToolTimelineStatus, TuiFormatter},
 };
@@ -99,46 +98,6 @@ pub(crate) struct ConversationState {
     turn_started: bool,
 }
 
-#[derive(Default)]
-pub(crate) struct StreamPacer {
-    pub(crate) smoother: StreamSmoother,
-    pub(crate) timer: Option<iyon_tui::TimerHandle>,
-    pub(crate) generation: u64,
-}
-
-impl StreamPacer {
-    pub(crate) fn invalidate(&mut self, cx: &mut AppCx<'_, IyonAction>) {
-        if let Some(timer) = self.timer.take() {
-            cx.cancel_timer(timer);
-        }
-        self.generation = self.generation.wrapping_add(1);
-    }
-
-    pub(crate) fn clear(&mut self, cx: &mut AppCx<'_, IyonAction>) {
-        self.invalidate(cx);
-        self.smoother.clear();
-    }
-
-    pub(crate) fn flush(
-        &mut self,
-        cx: &mut AppCx<'_, IyonAction>,
-    ) -> Option<Vec<(SegmentKind, String)>> {
-        self.invalidate(cx);
-        self.smoother.flush()
-    }
-
-    pub(crate) fn schedule(&mut self, cx: &mut AppCx<'_, IyonAction>) {
-        if self.timer.is_some() || !self.smoother.has_pending() {
-            return;
-        }
-        let generation = self.generation;
-        self.timer = self
-            .smoother
-            .next_tick_interval()
-            .map(|delay| cx.schedule_after(delay, IyonAction::StreamTick { generation }));
-    }
-}
-
 pub struct IyonState {
     pub(crate) backend: BackendCommands,
     pub(crate) composer: ComponentHandle<TextInput>,
@@ -147,7 +106,6 @@ pub struct IyonState {
     pub(crate) conversation: ConversationState,
     pub(crate) pending_tool_approval: Option<PendingToolApproval>,
     pub(crate) info: InfoState,
-    pub(crate) stream_pacer: StreamPacer,
     pub(crate) body_visible: bool,
 }
 
@@ -190,7 +148,6 @@ impl IyonState {
                 model_id: selection.model_id.clone(),
                 ..InfoState::default()
             },
-            stream_pacer: StreamPacer::default(),
             body_visible: true,
         })
     }
@@ -363,7 +320,7 @@ impl IyonState {
             .ok_or_else(|| anyhow!("history unavailable"))?
             .update_stream(stream, |source| {
                 for (kind, text) in chunks {
-                    source.push_delta(kind, &text);
+                    source.push_delta_paced(kind, &text);
                 }
             })?;
         Ok(())
@@ -669,9 +626,6 @@ impl IyonState {
     }
 
     pub(crate) fn prepare_goodbye(&mut self, cx: &mut AppCx<'_, IyonAction>) -> Result<()> {
-        if let Some(chunks) = self.stream_pacer.flush(cx) {
-            self.start_assistant_delta(cx, chunks)?;
-        }
         self.freeze_user_batch(cx)?;
         self.seal_stream(cx)?;
         self.conversation.turn_started = false;

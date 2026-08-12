@@ -2,8 +2,6 @@ mod backend;
 mod components;
 mod controller;
 mod state;
-mod stream_smoother;
-
 mod theme;
 pub(crate) mod tools;
 pub(crate) mod transcript;
@@ -107,16 +105,6 @@ fn update(state: &mut IyonState, action: IyonAction, cx: &mut AppCx<'_, IyonActi
             let display = state.paste_store.display_text(&current, &text);
             cx.forward_paste(display);
         }
-        IyonAction::StreamTick { generation } => {
-            if generation != state.stream_pacer.generation {
-                return Ok(());
-            }
-            state.stream_pacer.timer = None;
-            if let Some(chunks) = state.stream_pacer.smoother.drain_ready(cx.now()) {
-                state.start_assistant_delta(cx, chunks)?;
-            }
-            state.stream_pacer.schedule(cx);
-        }
         IyonAction::Backend(event) => apply_backend_event(state, event, cx)?,
     }
     Ok(())
@@ -135,30 +123,14 @@ fn apply_backend_event(
         FrontendEvent::ThinkingDelta { text } => {
             push_stream(state, cx, SegmentKind::Thinking, text)?
         }
-        FrontendEvent::TurnFinished => {
-            if let Some(chunks) = state.stream_pacer.flush(cx) {
-                state.start_assistant_delta(cx, chunks)?;
-            }
-            state.finish_turn(cx)?;
-        }
-        FrontendEvent::TurnFailed { message } => {
-            if let Some(chunks) = state.stream_pacer.flush(cx) {
-                state.start_assistant_delta(cx, chunks)?;
-            }
-            state.fail_turn(cx, message)?;
-        }
-        FrontendEvent::TurnCancelled => {
-            state.stream_pacer.clear(cx);
-            state.finish_turn(cx)?;
-        }
+        FrontendEvent::TurnFinished => state.finish_turn(cx)?,
+        FrontendEvent::TurnFailed { message } => state.fail_turn(cx, message)?,
+        FrontendEvent::TurnCancelled => state.finish_turn(cx)?,
         FrontendEvent::ToolCallStarted {
             tool_call_id,
             tool_name,
             arguments,
         } => {
-            if let Some(chunks) = state.stream_pacer.flush(cx) {
-                state.start_assistant_delta(cx, chunks)?;
-            }
             state.start_tool_call(cx, tool_call_id, tool_name, arguments)?;
         }
         FrontendEvent::ToolCallUpdated {
@@ -203,9 +175,7 @@ fn push_stream(
     kind: SegmentKind,
     text: String,
 ) -> Result<()> {
-    state.stream_pacer.smoother.push(kind, &text);
-    state.stream_pacer.schedule(cx);
-    Ok(())
+    state.start_assistant_delta(cx, vec![(kind, text)])
 }
 
 pub async fn run_with_core(core: iyon_core::IyonCore, selection: ModelSelection) -> Result<()> {

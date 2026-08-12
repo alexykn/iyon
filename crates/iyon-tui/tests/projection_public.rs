@@ -1,8 +1,12 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use iyon_tui::{
-    Projection, ProjectionBuilder, Projector, ProjectorExt, StreamOffset, StreamRange,
-    validate_projection_relation,
+    Projection, ProjectionBuilder, Projector, ProjectorExt, Smooth, SmoothConfig, StreamOffset,
+    StreamRange, validate_projection_relation,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,6 +135,64 @@ fn fields_are_exposed_only_through_accessors() {
     let projection = source();
     assert_eq!(projection.spans().len(), 2);
     assert_eq!(projection.spans()[0].source().len(), 1);
+}
+
+#[test]
+fn smooth_has_deterministic_deadlines_and_sealed_identity() {
+    let input = ProjectionBuilder::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(3),
+        StreamOffset::new(3),
+        false,
+    )
+    .emit(
+        StreamRange::new(StreamOffset::ZERO, StreamOffset::new(1)),
+        1u8,
+    )
+    .emit(
+        StreamRange::new(StreamOffset::new(1), StreamOffset::new(2)),
+        2u8,
+    )
+    .emit(
+        StreamRange::new(StreamOffset::new(2), StreamOffset::new(3)),
+        3u8,
+    )
+    .finish()
+    .unwrap();
+    let config = SmoothConfig::new(Duration::from_millis(10), 1.0, 20.0, 20.0).unwrap();
+    let mut smooth = Smooth::new(config);
+    let first = smooth.project(&input).unwrap();
+    assert_eq!(first.source_end(), StreamOffset::new(1));
+    assert_eq!(smooth.next_wakeup(), None);
+
+    let t0 = Instant::now();
+    assert!(!smooth.advance(t0));
+    assert_eq!(smooth.next_wakeup(), Some(t0 + Duration::from_millis(10)));
+    assert!(!smooth.advance(t0 + Duration::from_millis(9)));
+    let _ = smooth.advance(t0 + Duration::from_millis(10));
+
+    let sealed = ProjectionBuilder::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(3),
+        StreamOffset::new(3),
+        true,
+    )
+    .emit(
+        StreamRange::new(StreamOffset::ZERO, StreamOffset::new(1)),
+        1u8,
+    )
+    .emit(
+        StreamRange::new(StreamOffset::new(1), StreamOffset::new(2)),
+        2u8,
+    )
+    .emit(
+        StreamRange::new(StreamOffset::new(2), StreamOffset::new(3)),
+        3u8,
+    )
+    .finish()
+    .unwrap();
+    assert_eq!(smooth.project(&sealed).unwrap(), sealed);
+    assert_eq!(smooth.next_wakeup(), None);
 }
 
 #[test]

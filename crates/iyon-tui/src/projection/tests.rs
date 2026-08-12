@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use super::*;
 use crate::{StreamOffset, StreamRange};
@@ -14,6 +14,81 @@ fn complete<T>(stable: u64, sealed: bool) -> ProjectionBuilder<T> {
         StreamOffset::new(4),
         sealed,
     )
+}
+
+fn smooth_input(stable: u64, end: u64, sealed: bool, weights: &[usize]) -> Projection<i32> {
+    let mut builder = ProjectionBuilder::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(stable),
+        StreamOffset::new(end),
+        sealed,
+    );
+    let mut cursor = 0;
+    for &weight in weights {
+        let next = cursor + weight as u64;
+        builder = builder.emit_many(range(cursor, next), (0..weight).map(|value| value as i32));
+        cursor = next;
+    }
+    builder.finish().unwrap()
+}
+
+#[test]
+fn smooth_only_publishes_upstream_stable_spans_and_seals_to_identity() {
+    let input = smooth_input(2, 4, false, &[1, 1, 1, 1]);
+    let mut smooth = Smooth::default();
+    let output = smooth.project(&input).unwrap();
+    assert_eq!(output.source_end(), StreamOffset::new(1));
+    assert_eq!(output.stable_through(), output.source_end());
+
+    let sealed = smooth_input(4, 4, true, &[1, 1, 1, 1]);
+    assert_eq!(smooth.project(&sealed).unwrap(), sealed);
+    assert_eq!(smooth.next_wakeup(), None);
+}
+
+#[test]
+fn smooth_preserves_atomic_spans_and_accumulates_credit() {
+    let input = smooth_input(11, 11, false, &[1, 10]);
+    let config =
+        SmoothConfig::new(std::time::Duration::from_millis(1), 1.0, 3000.0, 3000.0).unwrap();
+    let mut smooth = Smooth::new(config);
+    assert_eq!(
+        smooth.project(&input).unwrap().source_end(),
+        StreamOffset::new(1)
+    );
+    let t0 = std::time::Instant::now();
+    assert!(!smooth.advance(t0));
+    for index in 1..4 {
+        let _ = smooth.advance(t0 + std::time::Duration::from_millis(index));
+    }
+    let _ = smooth.advance(t0 + std::time::Duration::from_millis(4));
+    let _ = smooth.project(&input);
+    for index in 5..11 {
+        let _ = smooth.advance(t0 + std::time::Duration::from_millis(index));
+    }
+    let _ = smooth.advance(t0 + std::time::Duration::from_millis(12));
+    assert!(smooth.next_wakeup().is_none());
+    assert_eq!(
+        smooth.project(&input).unwrap().source_end(),
+        StreamOffset::new(11)
+    );
+}
+
+#[test]
+fn smooth_handles_elision_without_pacing_cost() {
+    let input = ProjectionBuilder::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(3),
+        StreamOffset::new(3),
+        false,
+    )
+    .elide(range(0, 1))
+    .emit(range(1, 3), 7)
+    .finish()
+    .unwrap();
+    let mut smooth = Smooth::default();
+    let output = smooth.project(&input).unwrap();
+    assert_eq!(output.source_end(), StreamOffset::new(3));
+    assert_eq!(output.spans().len(), 2);
 }
 
 #[test]
@@ -534,6 +609,80 @@ fn composition_reports_each_stage_and_contract() {
         second_relation.project(&input),
         Err(ThenError::SecondRelation(_))
     ));
+}
+
+struct TemporalProbe {
+    deadline: Option<Instant>,
+    advances: Rc<RefCell<Vec<Instant>>>,
+}
+
+impl Projector<u8> for TemporalProbe {
+    type Output = u8;
+    type Error = std::convert::Infallible;
+
+    fn project(&mut self, input: &Projection<u8>) -> Result<Projection<u8>, Self::Error> {
+        let mut builder = ProjectionBuilder::new(
+            input.source_base(),
+            input.stable_through(),
+            input.source_end(),
+            input.is_sealed(),
+        );
+        for span in input.spans() {
+            builder = builder.emit_many(span.source(), span.values().iter().copied());
+        }
+        Ok(builder.finish().unwrap())
+    }
+
+    fn next_wakeup(&self) -> Option<Instant> {
+        self.deadline
+    }
+
+    fn advance(&mut self, now: Instant) -> bool {
+        self.advances.borrow_mut().push(now);
+        if self.deadline.is_some_and(|deadline| now >= deadline) {
+            self.deadline = None;
+            return true;
+        }
+        false
+    }
+}
+
+#[test]
+fn temporal_then_uses_the_minimum_deadline_and_shared_now() {
+    let now = Instant::now();
+    let first_log = Rc::new(RefCell::new(Vec::new()));
+    let second_log = Rc::new(RefCell::new(Vec::new()));
+    let mut pipeline = TemporalProbe {
+        deadline: Some(now + std::time::Duration::from_millis(10)),
+        advances: first_log.clone(),
+    }
+    .then(TemporalProbe {
+        deadline: Some(now + std::time::Duration::from_millis(20)),
+        advances: second_log.clone(),
+    });
+    assert_eq!(
+        pipeline.next_wakeup(),
+        Some(now + std::time::Duration::from_millis(10))
+    );
+    assert!(!pipeline.advance(now));
+    assert_eq!(first_log.borrow().as_slice(), &[now]);
+    assert_eq!(second_log.borrow().as_slice(), &[now]);
+    assert!(pipeline.advance(now + std::time::Duration::from_millis(10)));
+    assert_eq!(
+        first_log.borrow().as_slice(),
+        &[now, now + std::time::Duration::from_millis(10)]
+    );
+    assert_eq!(
+        second_log.borrow().as_slice(),
+        &[now, now + std::time::Duration::from_millis(10)]
+    );
+}
+
+#[test]
+fn smooth_config_rejects_invalid_temporal_values() {
+    assert!(SmoothConfig::new(std::time::Duration::ZERO, 1.0, 1.0, 1.0).is_err());
+    assert!(SmoothConfig::new(std::time::Duration::from_millis(1), -1.0, 1.0, 1.0).is_err());
+    assert!(SmoothConfig::new(std::time::Duration::from_millis(1), 1.0, 2.0, 1.0).is_err());
 }
 
 struct LocalProjector(Rc<RefCell<u32>>);

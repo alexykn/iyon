@@ -12,5 +12,4 @@ pub enum IyonAction {
     CycleReasoningEffort,
     ComposerPaste(String),
     Backend(FrontendEvent),
-    StreamTick { generation: u64 },
 }

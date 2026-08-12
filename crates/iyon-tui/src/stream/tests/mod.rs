@@ -7,7 +7,10 @@ mod compile;
 mod coord;
 mod model;
 mod projected;
+
 mod snapshot;
+#[cfg(test)]
+mod temporal;
 use crate::stream::append::append_only_text_stable_frontier;
 use crate::stream::*;
 use crate::{ColorSpec, HorizontalAlign, IntoView, StyleSpec, TextSpan, ThemeKey, View, WrapMode};
