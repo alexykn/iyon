@@ -1,10 +1,8 @@
 //! Generic retained local scrolling for arbitrary semantic Views.
 
 use crate::{
-    Component, ComponentCx, InteractionResult, Key, KeyStroke, Modifiers, View,
-    geometry::{LayoutConstraints, Size},
-    presentation::IntoView,
-    presentation::layout::{LayoutEngine, ManualLayoutEngine},
+    Component, ComponentCx, InteractionResult, Key, KeyStroke, Modifiers, View, geometry::Size,
+    presentation::IntoView, presentation::layout::measure_view,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,12 +124,7 @@ impl ScrollPane {
     }
 
     fn content_height(&self, width: u16) -> usize {
-        usize::from(
-            ManualLayoutEngine
-                .layout(&self.content, LayoutConstraints::width_only(width.max(1)))
-                .size
-                .height,
-        )
+        usize::from(measure_view(&self.content, width.max(1)).height)
     }
 
     fn repair_detached(&mut self) {

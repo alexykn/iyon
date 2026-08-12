@@ -4,7 +4,7 @@ use crate::{
     component::{ComponentId, ComponentRegistry, MountGraph},
     geometry::{LayoutConstraints, Size},
     interaction::MountedCapabilities,
-    presentation::layout::{ComponentGeometryMap, LayoutEngine, LayoutTree, ManualLayoutEngine},
+    presentation::layout::{ComponentGeometryMap, LayoutTree, layout_view},
 };
 
 use super::ResolvedScene;
@@ -17,7 +17,7 @@ pub(crate) struct ResolvedSceneLayout {
 }
 
 pub(crate) fn layout_resolved_scene(scene: &ResolvedScene, size: Size) -> ResolvedSceneLayout {
-    let tree = ManualLayoutEngine.layout(&scene.view, LayoutConstraints::bounded(size));
+    let tree = layout_view(&scene.view, LayoutConstraints::bounded(size));
     let components = tree.component_geometry();
     ResolvedSceneLayout { tree, components }
 }

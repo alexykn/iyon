@@ -19,7 +19,7 @@ use crate::{
     presentation::View,
 };
 
-pub(crate) use engine::{LayoutEngine, ManualLayoutEngine};
+pub(crate) use engine::{layout_view, measure_view};
 pub(crate) use tree::{ComponentGeometryMap, LayoutNode, LayoutNodeId, LayoutTree};
 
 #[cfg(test)]
@@ -88,7 +88,7 @@ impl ViewCompiler {
     }
 
     pub(crate) fn layout_tree(&self, view: &View, constraints: LayoutConstraints) -> LayoutTree {
-        ManualLayoutEngine.layout(view, constraints)
+        layout_view(view, constraints)
     }
 }
 
