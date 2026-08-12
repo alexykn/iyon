@@ -102,11 +102,10 @@ impl TermwizPresenter {
 
         let begin_sync = !self.sync_output_active;
         let transaction = native_transaction(rows, height, begin_sync);
-        let next_presented = model_after_native_scroll(&self.presented, rows.len());
 
         match terminal.render(&transaction).and_then(|_| terminal.flush()) {
             Ok(()) => {
-                self.presented = next_presented;
+                apply_native_scroll_model(&mut self.presented, rows.len());
                 self.known = true;
                 #[cfg(unix)]
                 if begin_sync {
@@ -193,17 +192,22 @@ fn native_transaction(rows: &[PhysicalRow], height: usize, begin_sync: bool) -> 
             y: Position::Absolute(height - 1),
         });
         transaction.push(Change::Text("\r\n".repeat(chunk.len())));
+        transaction.push(Change::CursorPosition {
+            x: Position::Absolute(0),
+            y: Position::Absolute(height - chunk.len()),
+        });
+        transaction.push(Change::AllAttributes(CellAttributes::default()));
+        transaction.push(Change::ClearToEndOfScreen(Default::default()));
     }
 
     transaction.extend(canonical_terminal_state(height));
     transaction
 }
 
-fn model_after_native_scroll(presented: &Surface, rows: usize) -> Surface {
+fn apply_native_scroll_model(presented: &mut Surface, rows: usize) {
     let (_, height) = presented.dimensions();
-    let mut next = presented.clone();
     if height == 0 {
-        return next;
+        return;
     }
 
     let mut remaining = rows;
@@ -214,13 +218,19 @@ fn model_after_native_scroll(presented: &Surface, rows: usize) -> Surface {
         // This Change is applied exclusively to an in-memory Termwiz Surface.
         // Native terminal scrollback is created only by ordinary full-screen
         // CRLF. Never emit this ScrollRegionUp to the real terminal.
-        next.add_change(Change::ScrollRegionUp {
+        presented.add_change(Change::ScrollRegionUp {
             first_row: 0,
             region_size: height,
             scroll_count: count,
         });
         remaining -= count;
     }
+}
+
+#[cfg(test)]
+fn model_after_native_scroll(presented: &Surface, rows: usize) -> Surface {
+    let mut next = presented.clone();
+    apply_native_scroll_model(&mut next, rows);
     next
 }
 
@@ -272,6 +282,7 @@ mod tests {
     #[cfg(unix)]
     struct RecordingTerminal {
         renders: Vec<Vec<Change>>,
+        fail_next_render: bool,
     }
 
     #[cfg(unix)]
@@ -279,7 +290,12 @@ mod tests {
         fn new() -> Self {
             Self {
                 renders: Vec::new(),
+                fail_next_render: false,
             }
+        }
+
+        fn fail_next_render(&mut self) {
+            self.fail_next_render = true;
         }
 
         fn text(&self) -> String {
@@ -326,6 +342,10 @@ mod tests {
         }
 
         fn render(&mut self, changes: &[Change]) -> termwiz::Result<()> {
+            if self.fail_next_render {
+                self.fail_next_render = false;
+                return Err(std::io::Error::other("recording render failure").into());
+            }
             self.renders.push(changes.to_vec());
             Ok(())
         }
@@ -391,6 +411,136 @@ mod tests {
         let text = terminal.text();
         assert_eq!(text.matches(SYNC_BEGIN).count(), 1);
         assert_eq!(text.matches(SYNC_END).count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_insert_failure_ends_sync_output() {
+        let initial = physical_surface(
+            vec![
+                painted_row("one", 4, PhysicalStyle::default()),
+                painted_row("two", 4, PhysicalStyle::default()),
+            ],
+            4,
+        );
+        let row = PhysicalRow::from_cells(vec![PhysicalCell {
+            grapheme: Some("n".into()),
+            style: PhysicalStyle::default(),
+            painted: true,
+            continuation: false,
+        }]);
+        let mut terminal = RecordingTerminal::new();
+        let mut presenter = TermwizPresenter::new(4, 2);
+        presenter.present(&mut terminal, initial).unwrap();
+        presenter
+            .insert_history(&mut terminal, std::slice::from_ref(&row))
+            .unwrap();
+        terminal.renders.clear();
+        terminal.fail_next_render();
+
+        assert!(
+            presenter
+                .insert_history(&mut terminal, std::slice::from_ref(&row))
+                .is_err()
+        );
+        assert_eq!(terminal.text().matches(SYNC_END).count(), 1);
+
+        terminal.renders.clear();
+        presenter
+            .present(&mut terminal, Surface::new(4, 2))
+            .unwrap();
+        assert_eq!(terminal.text().matches(SYNC_END).count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn present_failure_ends_sync_output() {
+        let mut terminal = RecordingTerminal::new();
+        let mut presenter = TermwizPresenter::new(4, 2);
+        presenter
+            .present(&mut terminal, Surface::new(4, 2))
+            .unwrap();
+        presenter
+            .insert_history(
+                &mut terminal,
+                &[PhysicalRow::from_cells(vec![PhysicalCell {
+                    grapheme: Some("x".into()),
+                    style: PhysicalStyle::default(),
+                    painted: true,
+                    continuation: false,
+                }])],
+            )
+            .unwrap();
+        terminal.renders.clear();
+        terminal.fail_next_render();
+
+        assert!(
+            presenter
+                .present(&mut terminal, Surface::new(4, 2))
+                .is_err()
+        );
+        assert_eq!(terminal.text().matches(SYNC_END).count(), 1);
+
+        terminal.renders.clear();
+        presenter
+            .present(&mut terminal, Surface::new(4, 2))
+            .unwrap();
+        assert_eq!(terminal.text().matches(SYNC_END).count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resize_cleanup_ends_sync_output_before_geometry_changes() {
+        let mut terminal = RecordingTerminal::new();
+        let mut presenter = TermwizPresenter::new(4, 2);
+        presenter
+            .present(&mut terminal, Surface::new(4, 2))
+            .unwrap();
+        presenter
+            .insert_history(
+                &mut terminal,
+                &[PhysicalRow::from_cells(vec![PhysicalCell {
+                    grapheme: Some("x".into()),
+                    style: PhysicalStyle::default(),
+                    painted: true,
+                    continuation: false,
+                }])],
+            )
+            .unwrap();
+        terminal.renders.clear();
+
+        presenter
+            .present(&mut terminal, Surface::new(8, 4))
+            .unwrap();
+
+        assert_eq!(terminal.text().matches(SYNC_END).count(), 1);
+        assert_eq!(presenter.dimensions(), (8, 4));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finish_sync_is_idempotent() {
+        let mut terminal = RecordingTerminal::new();
+        let mut presenter = TermwizPresenter::new(4, 2);
+        presenter
+            .present(&mut terminal, Surface::new(4, 2))
+            .unwrap();
+        presenter
+            .insert_history(
+                &mut terminal,
+                &[PhysicalRow::from_cells(vec![PhysicalCell {
+                    grapheme: Some("x".into()),
+                    style: PhysicalStyle::default(),
+                    painted: true,
+                    continuation: false,
+                }])],
+            )
+            .unwrap();
+        terminal.renders.clear();
+
+        presenter.finish_sync_output_best_effort(&mut terminal);
+        presenter.finish_sync_output_best_effort(&mut terminal);
+        assert_eq!(terminal.text().matches(SYNC_END).count(), 1);
     }
 
     #[test]
@@ -612,6 +762,16 @@ mod tests {
                                 text: " ".into(),
                                 attrs: self.attrs.clone(),
                             };
+                        }
+                    }
+                    Change::ClearToEndOfScreen(_) => {
+                        for row in self.screen.iter_mut().skip(self.y) {
+                            for cell in row.iter_mut() {
+                                *cell = VirtualCell {
+                                    text: " ".into(),
+                                    attrs: self.attrs.clone(),
+                                };
+                            }
                         }
                     }
                     Change::Text(text) => {
@@ -857,7 +1017,7 @@ mod tests {
                 x: Position::Absolute(0),
                 y: Position::Absolute(1),
             },
-            Change::Text("\\r\\n".into()),
+            Change::Text("\r\n".into()),
         ]);
         assert!(broken.screen[1][0].attrs != CellAttributes::default());
 
