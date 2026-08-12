@@ -220,20 +220,12 @@ fn modal_parent(
     graph: &MountGraph,
     capabilities: &MountedCapabilities,
 ) -> Option<ComponentId> {
-    let mut current = graph
-        .nodes
-        .iter()
-        .find(|node| node.id == modal)
-        .and_then(|node| node.parent);
+    let mut current = graph.parent(modal);
     while let Some(id) = current {
         if capabilities.get(id).is_some_and(|caps| caps.modal_scope) {
             return Some(id);
         }
-        current = graph
-            .nodes
-            .iter()
-            .find(|node| node.id == id)
-            .and_then(|node| node.parent);
+        current = graph.parent(id);
     }
     None
 }
@@ -265,18 +257,7 @@ pub(crate) fn is_descendant_or_self(
     ancestor: ComponentId,
     graph: &MountGraph,
 ) -> bool {
-    let mut current = Some(id);
-    while let Some(candidate) = current {
-        if candidate == ancestor {
-            return true;
-        }
-        current = graph
-            .nodes
-            .iter()
-            .find(|node| node.id == candidate)
-            .and_then(|node| node.parent);
-    }
-    false
+    graph.is_descendant_or_self(id, ancestor)
 }
 
 fn notify_focus_handler(

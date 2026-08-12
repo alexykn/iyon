@@ -31,6 +31,33 @@ impl<T> Default for ThemeEntry<T> {
     }
 }
 
+impl<T> ThemeEntry<T> {
+    fn set_variant(
+        &mut self,
+        selector: StyleSelector,
+        value: T,
+        declaration_order: u64,
+    ) -> Option<T> {
+        let old = if let Some(variant) = self
+            .variants
+            .iter_mut()
+            .find(|variant| variant.selector == selector)
+        {
+            variant.declaration_order = declaration_order;
+            Some(std::mem::replace(&mut variant.value, value))
+        } else {
+            self.variants.push(ThemeVariant {
+                selector,
+                value,
+                declaration_order,
+            });
+            None
+        };
+        sort_variants(&mut self.variants);
+        old
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Theme {
     colors: HashMap<ThemeKey, ThemeEntry<ThemeColor>>,
@@ -97,24 +124,10 @@ impl Theme {
         color: ThemeColor,
     ) -> Option<ThemeColor> {
         let order = self.next_order();
-        let entry = self.colors.entry(key.into()).or_default();
-        let old = if let Some(variant) = entry
-            .variants
-            .iter_mut()
-            .find(|variant| variant.selector == selector)
-        {
-            variant.declaration_order = order;
-            Some(std::mem::replace(&mut variant.value, color))
-        } else {
-            entry.variants.push(ThemeVariant {
-                selector,
-                value: color,
-                declaration_order: order,
-            });
-            None
-        };
-        sort_variants(&mut entry.variants);
-        old
+        self.colors
+            .entry(key.into())
+            .or_default()
+            .set_variant(selector, color, order)
     }
 
     pub fn set_style(&mut self, key: impl Into<ThemeKey>, style: StyleSpec) -> Option<StyleSpec> {
@@ -132,24 +145,10 @@ impl Theme {
         style: StyleSpec,
     ) -> Option<StyleSpec> {
         let order = self.next_order();
-        let entry = self.styles.entry(key.into()).or_default();
-        let old = if let Some(variant) = entry
-            .variants
-            .iter_mut()
-            .find(|variant| variant.selector == selector)
-        {
-            variant.declaration_order = order;
-            Some(std::mem::replace(&mut variant.value, style))
-        } else {
-            entry.variants.push(ThemeVariant {
-                selector,
-                value: style,
-                declaration_order: order,
-            });
-            None
-        };
-        sort_variants(&mut entry.variants);
-        old
+        self.styles
+            .entry(key.into())
+            .or_default()
+            .set_variant(selector, style, order)
     }
 
     pub fn color(&self, key: &str) -> Option<ThemeColor> {
@@ -157,10 +156,7 @@ impl Theme {
     }
 
     pub fn style(&self, key: &str) -> Option<&StyleSpec> {
-        self.styles
-            .iter()
-            .find_map(|(name, entry)| (name.as_str() == key).then_some(entry.base.as_ref()))
-            .flatten()
+        self.styles.get(key)?.base.as_ref()
     }
 
     pub(crate) fn resolve_color(
@@ -170,10 +166,7 @@ impl Theme {
         focus_within: bool,
         states: &[(StyleStateKey, StyleStateValue)],
     ) -> Option<ThemeColor> {
-        let entry = self
-            .colors
-            .iter()
-            .find_map(|(name, entry)| (name.as_str() == key).then_some(entry))?;
+        let entry = self.colors.get(key)?;
         let mut resolved = entry.base;
         for variant in entry
             .variants
@@ -192,10 +185,7 @@ impl Theme {
         focus_within: bool,
         states: &[(StyleStateKey, StyleStateValue)],
     ) -> Option<StyleSpec> {
-        let entry = self
-            .styles
-            .iter()
-            .find_map(|(name, entry)| (name.as_str() == key).then_some(entry))?;
+        let entry = self.styles.get(key)?;
         let mut resolved = entry.base.clone().unwrap_or_default();
         for variant in entry
             .variants

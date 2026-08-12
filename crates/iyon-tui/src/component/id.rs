@@ -1,10 +1,6 @@
-use std::{
-    fmt,
-    hash::Hash,
-    marker::PhantomData,
-    num::NonZeroU64,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{fmt, hash::Hash, marker::PhantomData, num::NonZeroU64, sync::atomic::AtomicU64};
+
+use crate::id::next_nonzero_id;
 
 static NEXT_COMPONENT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -14,11 +10,7 @@ pub(crate) struct ComponentId(NonZeroU64);
 
 impl ComponentId {
     pub(crate) fn allocate() -> Self {
-        let value = NEXT_COMPONENT_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                current.checked_add(1)
-            })
-            .unwrap_or_else(|_| panic!("component id exhausted"));
+        let value = next_nonzero_id(&NEXT_COMPONENT_ID, "component id exhausted");
         Self(NonZeroU64::new(value).expect("component id must be nonzero"))
     }
 

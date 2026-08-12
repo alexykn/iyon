@@ -42,12 +42,14 @@ mod component;
 mod controls;
 mod geometry;
 mod history;
+mod id;
 mod interaction;
 mod output;
 mod physical;
 mod presentation;
 mod scene;
 mod scroll;
+mod scroll_command;
 mod stream;
 mod terminal;
 #[cfg(feature = "test-util")]
