@@ -22,6 +22,10 @@ pub fn validate_text_content(
 }
 
 /// Validates P1 projection contracts plus generic text IR provenance rules.
+///
+/// Exact provenance is checked for structural plausibility, UTF-8-compatible
+/// length, and containment. This function has no root source witness and
+/// therefore cannot prove that Exact display bytes equal the source bytes.
 pub fn validate_text_projection(
     projection: &crate::Projection<TextContent>,
 ) -> Result<(), TextProjectionError> {
@@ -77,6 +81,7 @@ fn validate_block(block: &super::Block, owner: StreamRange) -> Result<(), TextPr
         }
         super::BlockKind::CodeBlock(code) => validate_literal(code.body(), owner)?,
         super::BlockKind::Table(table) => {
+            table.validate().map_err(TextProjectionError::Ir)?;
             if let Some(caption) = table.caption() {
                 for block in caption {
                     validate_block(block, owner)?;

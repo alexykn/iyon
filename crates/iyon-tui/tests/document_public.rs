@@ -7,7 +7,7 @@ use iyon_tui::{
     SemanticKey, SemanticTag, SemanticValue, StreamOffset, StreamRange, Table, TableCell,
     TableColumn, TableRow, TextContent as Content, TextIrError, TextProjectionError,
     TextProvenance, TextRewriter, TextRun, TextVisitor, validate_text_projection, walk_block,
-    walk_rewrite_block,
+    walk_rewrite_block, walk_rewrite_inline,
 };
 
 fn range(start: usize, end: usize) -> StreamRange {
@@ -71,7 +71,11 @@ impl Projector<RawText> for OuterProbe {
         let json_block = Block::code(CodeBlock::new(
             Some(json_language),
             Some("json"),
-            LiteralText::from_exact(json, range(json_start, json_end)).unwrap(),
+            LiteralText::new([TextRun::exact(json, range(json_start, json_end))
+                .unwrap()
+                .with_annotations(
+                    Annotations::new().with_tag(SemanticTag::new("app", "thinking").unwrap()),
+                )]),
         ));
         let after_block = Block::paragraph(InlineContent::new([
             Inline::text(exact("After", after_start)),
@@ -112,6 +116,12 @@ impl TextRewriter for JsonProbe {
         if code.language().map(LanguageId::as_str) != Some("json") {
             return walk_rewrite_block(self, block);
         }
+        let inherited_annotations = code
+            .body()
+            .runs()
+            .first()
+            .map(|run| run.annotations().clone())
+            .unwrap_or_default();
         let start = code
             .body()
             .runs()
@@ -127,7 +137,9 @@ impl TextRewriter for JsonProbe {
         let body = LiteralText::new([
             TextRun::exact("{", range(start, start + 1)).unwrap(),
             TextRun::synthetic("\n  "),
-            TextRun::exact("\"ok\"", range(start + 1, start + 5)).unwrap(),
+            TextRun::exact("\"ok\"", range(start + 1, start + 5))
+                .unwrap()
+                .with_annotations(inherited_annotations),
             TextRun::synthetic(" "),
             TextRun::exact(":", range(start + 5, start + 6)).unwrap(),
             TextRun::synthetic(" "),
@@ -155,18 +167,19 @@ impl Projector<Content> for JsonProbe {
             input.is_sealed(),
         );
         for span in input.spans() {
-            for value in span.values() {
-                let value = match value {
-                    Content::Raw(raw) => Content::Raw(raw.clone()),
-                    Content::Block(block) => {
-                        self.rewrite_block(block.clone()).map(Content::Block)?
-                    }
-                };
-                output = output.emit(span.source(), value);
-            }
-            if span.values().is_empty() {
-                output = output.elide(span.source());
-            }
+            let values = span
+                .values()
+                .iter()
+                .map(|value| match value {
+                    Content::Raw(raw) => Ok(Content::Raw(raw.clone())),
+                    Content::Block(block) => self.rewrite_block(block.clone()).map(Content::Block),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            output = if values.is_empty() {
+                output.elide(span.source())
+            } else {
+                output.emit_many(span.source(), values)
+            };
         }
         Ok(output.finish().unwrap())
     }
@@ -184,7 +197,7 @@ impl TextRewriter for SyntaxProbe {
             if run.text().contains("ok") {
                 runs.push(
                     run.clone()
-                        .with_annotations(Annotations::new().with_tag(key.clone())),
+                        .map_annotations(|annotations| annotations.with_tag(key.clone())),
                 );
             } else {
                 runs.push(run.clone());
@@ -209,18 +222,19 @@ impl Projector<Content> for SyntaxProbe {
             input.is_sealed(),
         );
         for span in input.spans() {
-            for value in span.values() {
-                let value = match value {
-                    Content::Raw(raw) => Content::Raw(raw.clone()),
-                    Content::Block(block) => {
-                        self.rewrite_block(block.clone()).map(Content::Block)?
-                    }
-                };
-                output = output.emit(span.source(), value);
-            }
-            if span.values().is_empty() {
-                output = output.elide(span.source());
-            }
+            let values = span
+                .values()
+                .iter()
+                .map(|value| match value {
+                    Content::Raw(raw) => Ok(Content::Raw(raw.clone())),
+                    Content::Block(block) => self.rewrite_block(block.clone()).map(Content::Block),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            output = if values.is_empty() {
+                output.elide(span.source())
+            } else {
+                output.emit_many(span.source(), values)
+            };
         }
         Ok(output.finish().unwrap())
     }
@@ -269,20 +283,19 @@ impl Projector<Content> for MermaidProbe {
             input.is_sealed(),
         );
         for span in input.spans() {
-            for value in span.values() {
-                output = output.emit(
-                    span.source(),
-                    match value {
-                        Content::Raw(raw) => Content::Raw(raw.clone()),
-                        Content::Block(block) => {
-                            self.rewrite_block(block.clone()).map(Content::Block)?
-                        }
-                    },
-                );
-            }
-            if span.values().is_empty() {
-                output = output.elide(span.source());
-            }
+            let values = span
+                .values()
+                .iter()
+                .map(|value| match value {
+                    Content::Raw(raw) => Ok(Content::Raw(raw.clone())),
+                    Content::Block(block) => self.rewrite_block(block.clone()).map(Content::Block),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            output = if values.is_empty() {
+                output.elide(span.source())
+            } else {
+                output.emit_many(span.source(), values)
+            };
         }
         Ok(output.finish().unwrap())
     }
@@ -318,12 +331,26 @@ fn public_ir_supports_generic_composition_and_nested_portals() {
             .iter()
             .any(|run| matches!(run.provenance(), TextProvenance::Synthetic))
     );
-    assert!(code.body().runs().iter().any(|run| {
-        run.annotations()
+    let key_run = code
+        .body()
+        .runs()
+        .iter()
+        .find(|run| run.text().contains("ok"))
+        .unwrap();
+    assert!(
+        key_run
+            .annotations()
             .tags()
             .iter()
             .any(|tag| tag.name() == "key")
-    }));
+    );
+    assert!(
+        key_run
+            .annotations()
+            .tags()
+            .iter()
+            .any(|tag| tag.namespace() == "app" && tag.name() == "thinking")
+    );
 
     let mermaid = output.spans()[3].values()[0].clone();
     let Content::Block(mermaid) = mermaid else {
@@ -413,6 +440,9 @@ fn text_provenance_and_raw_validation_are_explicit() {
     let (left, right) = run.split_at(2).unwrap();
     assert_eq!(left.provenance(), &TextProvenance::Exact(range(4, 6)));
     assert_eq!(right.text(), "");
+    let raw = RawText::new("héllo");
+    assert_eq!(raw.exact_slice(range(10, 16), 1..3).unwrap().text(), "é");
+    assert!(raw.exact_slice(range(10, 16), 0..2).is_err());
     assert_eq!(
         TextRun::exact("é", range(0, 1)),
         Err(TextIrError::InvalidExactLength {
@@ -492,16 +522,28 @@ fn annotations_marks_and_persistent_rewriting_are_canonical() {
         None::<&str>,
         LiteralText::from_exact("x", range(0, 1)).unwrap(),
     ));
-    let root = Block::container([unchanged.clone(), changed]);
+    let root = Block::container([unchanged.clone(), changed.clone()]);
     let mut rewriter = JsonProbe;
+    let rewritten = rewriter.rewrite_block(root.clone()).unwrap();
+    assert!(rewritten.ptr_eq(&root));
+
+    let json = Block::code(CodeBlock::new(
+        Some(LanguageId::new("json").unwrap()),
+        None::<&str>,
+        LiteralText::from_exact("x", range(0, 1)).unwrap(),
+    ));
+    let root = Block::container([unchanged.clone(), json]);
     let rewritten = rewriter.rewrite_block(root).unwrap();
     let children = rewritten.as_container().unwrap();
     assert!(children[0].ptr_eq(&unchanged));
+    assert!(!rewritten.ptr_eq(&Block::container([])));
 }
 
 struct CountingVisitor {
     blocks: usize,
     inlines: usize,
+    raws: usize,
+    runs: usize,
     literals: usize,
 }
 impl TextVisitor for CountingVisitor {
@@ -513,9 +555,94 @@ impl TextVisitor for CountingVisitor {
         self.inlines += 1;
         iyon_tui::walk_inline(self, inline);
     }
-    fn visit_literal(&mut self, _literal: &LiteralText) {
-        self.literals += 1;
+    fn visit_raw(&mut self, _raw: &RawText) {
+        self.raws += 1;
     }
+    fn visit_text_run(&mut self, _run: &TextRun) {
+        self.runs += 1;
+    }
+    fn visit_literal(&mut self, literal: &LiteralText) {
+        self.literals += 1;
+        iyon_tui::walk_literal(self, literal);
+    }
+}
+
+#[test]
+fn sequence_rewriting_and_inline_structural_sharing_are_public() {
+    struct Splitter;
+
+    impl TextRewriter for Splitter {
+        type Error = Infallible;
+
+        fn rewrite_inline_content(
+            &mut self,
+            content: InlineContent,
+        ) -> Result<InlineContent, Self::Error> {
+            let mut items = Vec::new();
+            for inline in content.iter() {
+                if inline
+                    .as_text()
+                    .is_some_and(|run| run.text() == "hello @alex")
+                {
+                    items.push(Inline::text(TextRun::exact("hello ", range(0, 6)).unwrap()));
+                    items.push(Inline::text(TextRun::exact("@alex", range(6, 11)).unwrap()));
+                } else {
+                    items.push(inline.clone());
+                }
+            }
+            Ok(InlineContent::new(items))
+        }
+    }
+
+    let unchanged = Inline::text(TextRun::exact("tail", range(11, 15)).unwrap());
+    let mention_paragraph = Block::paragraph(InlineContent::new([
+        Inline::text(TextRun::exact("hello @alex", range(0, 11)).unwrap()),
+        unchanged.clone(),
+    ]));
+    let mut splitter = Splitter;
+    let rewritten = splitter.rewrite_block(mention_paragraph.clone()).unwrap();
+    let BlockKind::Paragraph(content) = rewritten.kind() else {
+        panic!("expected paragraph")
+    };
+    assert_eq!(content.len(), 3);
+    assert!(content.items()[2].ptr_eq(&unchanged));
+    assert_eq!(content.items()[0].as_text().unwrap().text(), "hello ");
+    assert_eq!(content.items()[1].as_text().unwrap().text(), "@alex");
+
+    struct AnnotateTarget;
+    impl TextRewriter for AnnotateTarget {
+        type Error = Infallible;
+        fn rewrite_inline(&mut self, inline: Inline) -> Result<Inline, Self::Error> {
+            if inline.as_text().is_some_and(|run| run.text() == "target") {
+                Ok(inline.map_annotations(|annotations| {
+                    annotations.with_tag(SemanticTag::new("probe", "changed").unwrap())
+                }))
+            } else {
+                walk_rewrite_inline(self, inline)
+            }
+        }
+    }
+
+    let first = Inline::text(TextRun::exact("keep", range(0, 4)).unwrap());
+    let second = Inline::text(TextRun::exact("target", range(4, 10)).unwrap());
+    let sibling = paragraph("sibling", 10);
+    let root = Block::container([
+        Block::paragraph(InlineContent::new([first.clone(), second])),
+        sibling.clone(),
+    ]);
+    let mut annotator = AnnotateTarget;
+    let rewritten = annotator.rewrite_block(root).unwrap();
+    let children = rewritten.as_container().unwrap();
+    assert!(children[1].ptr_eq(&sibling));
+    let BlockKind::Paragraph(content) = children[0].kind() else {
+        panic!("expected paragraph")
+    };
+    assert!(content.items()[0].ptr_eq(&first));
+    assert!(
+        content.items()[1]
+            .annotations()
+            .contains_tag(&SemanticTag::new("probe", "changed").unwrap())
+    );
 }
 
 #[test]
@@ -526,8 +653,8 @@ fn public_visitor_reaches_nested_lists_tables_images_and_literal_portals() {
         None::<&str>,
         InlineContent::new([text.clone()]),
     ));
-    let paragraph = Block::paragraph(InlineContent::new([image]));
-    let item = ListItem::new([paragraph.clone()]).with_checked(Some(true));
+    let cell_paragraph = Block::paragraph(InlineContent::new([image]));
+    let item = ListItem::new([cell_paragraph.clone()]).with_checked(Some(true));
     let list = Block::new(BlockKind::List(List::new(
         ListMarker::Ordered {
             start: 1,
@@ -537,12 +664,15 @@ fn public_visitor_reaches_nested_lists_tables_images_and_literal_portals() {
         true,
         [item],
     )));
-    let table = Block::new(BlockKind::Table(Table::new(
-        None::<Vec<Block>>,
-        [TableColumn::new(Alignment::Start)],
-        1,
-        [TableRow::new([TableCell::plain([paragraph])])],
-    )));
+    let table = Block::new(BlockKind::Table(
+        Table::new(
+            None::<Vec<Block>>,
+            [TableColumn::new(Alignment::Start)],
+            1,
+            [TableRow::new([TableCell::plain([cell_paragraph])])],
+        )
+        .unwrap(),
+    ));
     let raw = Block::new(BlockKind::RawBlock {
         format: FormatId::new("html").unwrap(),
         body: LiteralText::from_exact("x", range(0, 1)).unwrap(),
@@ -551,10 +681,113 @@ fn public_visitor_reaches_nested_lists_tables_images_and_literal_portals() {
     let mut visitor = CountingVisitor {
         blocks: 0,
         inlines: 0,
+        raws: 0,
+        runs: 0,
         literals: 0,
     };
     visitor.visit_block(&root);
+    visitor.visit_content(&Content::raw("raw"));
     assert!(visitor.blocks >= 6);
     assert_eq!(visitor.inlines, 4);
+    assert_eq!(visitor.raws, 1);
+    assert_eq!(visitor.runs, 3);
     assert_eq!(visitor.literals, 1);
+}
+
+#[test]
+fn table_invariants_are_validated_at_construction() {
+    let column = TableColumn::new(Alignment::Start);
+    assert!(matches!(
+        Table::new(None::<Vec<Block>>, [column], 1, []),
+        Err(TextIrError::InvalidTableHeaderRows { .. })
+    ));
+
+    assert!(
+        Table::new(
+            None::<Vec<Block>>,
+            [
+                TableColumn::new(Alignment::Start),
+                TableColumn::new(Alignment::End)
+            ],
+            0,
+            [TableRow::new([TableCell::plain([])])],
+        )
+        .is_ok()
+    );
+
+    assert!(matches!(
+        Table::new(
+            None::<Vec<Block>>,
+            [TableColumn::new(Alignment::Start)],
+            0,
+            [TableRow::new([TableCell::new(
+                [],
+                None,
+                std::num::NonZeroU16::MIN,
+                std::num::NonZeroU16::new(2).unwrap(),
+            )])],
+        ),
+        Err(TextIrError::TableCellDoesNotFit { .. })
+    ));
+
+    assert!(matches!(
+        Table::new(
+            None::<Vec<Block>>,
+            [TableColumn::new(Alignment::Start)],
+            0,
+            [TableRow::new([TableCell::new(
+                [],
+                None,
+                std::num::NonZeroU16::new(2).unwrap(),
+                std::num::NonZeroU16::MIN,
+            )])],
+        ),
+        Err(TextIrError::TableSpanExceedsRows { .. })
+    ));
+}
+
+#[test]
+fn probe_projectors_preserve_multi_value_span_segmentation() {
+    let first = Block::paragraph(InlineContent::empty());
+    let second = Block::thematic_break();
+    let input = ProjectionBuilder::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(4),
+        StreamOffset::new(4),
+        true,
+    )
+    .emit_many(
+        range(0, 4),
+        [
+            Content::block(first.clone()),
+            Content::block(second.clone()),
+        ],
+    )
+    .finish()
+    .unwrap();
+    let mut probes = JsonProbe.then(SyntaxProbe).then(MermaidProbe);
+    let output = probes.project(&input).unwrap();
+    validate_text_projection(&output).unwrap();
+    assert_eq!(output.spans().len(), 1);
+    assert_eq!(output.spans()[0].source(), range(0, 4));
+    assert_eq!(output.spans()[0].values().len(), 2);
+    let Content::Block(output_first) = &output.spans()[0].values()[0] else {
+        panic!("expected block")
+    };
+    let Content::Block(output_second) = &output.spans()[0].values()[1] else {
+        panic!("expected block")
+    };
+    assert!(output_first.ptr_eq(&first));
+    assert!(output_second.ptr_eq(&second));
+}
+
+#[test]
+fn no_op_rewriting_preserves_large_persistent_trees() {
+    let blocks = (0..10_000)
+        .map(|index| paragraph("x", index * 2))
+        .collect::<Vec<_>>();
+    let root = Block::container(blocks);
+    let mut rewriter = JsonProbe;
+    let rewritten = rewriter.rewrite_block(root.clone()).unwrap();
+    assert!(rewritten.ptr_eq(&root));
 }

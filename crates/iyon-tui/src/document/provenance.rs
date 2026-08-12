@@ -34,6 +34,10 @@ impl fmt::Debug for TextRun {
 }
 
 impl TextRun {
+    /// Asserts that `text` is an exact source slice described by `range`.
+    ///
+    /// This constructor checks UTF-8 boundaries and byte length only. It has
+    /// no source witness and therefore cannot verify byte equality.
     pub fn exact(text: impl Into<Arc<str>>, range: StreamRange) -> Result<Self, TextIrError> {
         let text = text.into();
         if !text.is_char_boundary(0) || !text.is_char_boundary(text.len()) {
@@ -66,6 +70,12 @@ impl TextRun {
             provenance: TextProvenance::Synthetic,
             annotations: super::Annotations::default(),
         }
+    }
+
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.text, &other.text)
+            && self.provenance == other.provenance
+            && self.annotations == other.annotations
     }
 
     pub fn text(&self) -> &str {

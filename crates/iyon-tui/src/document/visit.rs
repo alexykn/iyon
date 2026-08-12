@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
-use super::{Block, BlockKind, Inline, InlineContent, InlineKind, LiteralText, TextContent};
+use super::{
+    Block, BlockKind, Inline, InlineContent, InlineKind, LiteralText, RawText, TextContent, TextRun,
+};
 
 /// Read-only traversal over all generic text IR descendants.
 pub trait TextVisitor {
     fn visit_content(&mut self, content: &TextContent) {
         walk_content(self, content);
     }
+    fn visit_raw(&mut self, _raw: &RawText) {}
+    fn visit_text_run(&mut self, _run: &TextRun) {}
     fn visit_block(&mut self, block: &Block) {
         walk_block(self, block);
     }
@@ -19,8 +23,9 @@ pub trait TextVisitor {
 }
 
 pub fn walk_content<V: TextVisitor + ?Sized>(visitor: &mut V, content: &TextContent) {
-    if let TextContent::Block(block) = content {
-        visitor.visit_block(block);
+    match content {
+        TextContent::Raw(raw) => visitor.visit_raw(raw),
+        TextContent::Block(block) => visitor.visit_block(block),
     }
 }
 
@@ -69,13 +74,18 @@ pub fn walk_inline_content<V: TextVisitor + ?Sized>(visitor: &mut V, content: &I
 
 pub fn walk_inline<V: TextVisitor + ?Sized>(visitor: &mut V, inline: &Inline) {
     match inline.kind() {
-        InlineKind::Text(_) | InlineKind::Break(_) => {}
+        InlineKind::Text(run) => visitor.visit_text_run(run),
+        InlineKind::Break(_) => {}
         InlineKind::Image(image) => walk_inline_content(visitor, image.alt()),
         InlineKind::RawInline { body, .. } => visitor.visit_literal(body),
     }
 }
 
-pub fn walk_literal<V: TextVisitor + ?Sized>(_visitor: &mut V, _literal: &LiteralText) {}
+pub fn walk_literal<V: TextVisitor + ?Sized>(visitor: &mut V, literal: &LiteralText) {
+    for run in literal.runs() {
+        visitor.visit_text_run(run);
+    }
+}
 
 /// Persistent recursive rewriting with identity preservation for unchanged paths.
 pub trait TextRewriter {
@@ -89,6 +99,15 @@ pub trait TextRewriter {
     }
     fn rewrite_inline(&mut self, inline: Inline) -> Result<Inline, Self::Error> {
         walk_rewrite_inline(self, inline)
+    }
+    fn rewrite_inline_content(
+        &mut self,
+        content: InlineContent,
+    ) -> Result<InlineContent, Self::Error> {
+        walk_rewrite_inline_content(self, content)
+    }
+    fn rewrite_blocks(&mut self, blocks: Vec<Block>) -> Result<Vec<Block>, Self::Error> {
+        walk_rewrite_blocks(self, blocks)
     }
     fn rewrite_literal(&mut self, literal: LiteralText) -> Result<LiteralText, Self::Error> {
         walk_rewrite_literal(self, literal)
@@ -127,7 +146,7 @@ pub fn walk_rewrite_block<R: TextRewriter + ?Sized>(
         BlockKind::List(mut list) => {
             let mut items = Vec::with_capacity(list.items().len());
             for item in list.items() {
-                let blocks = rewrite_blocks(rewriter, item.blocks().into())?;
+                let blocks = rewrite_blocks(rewriter, item.blocks())?;
                 items.push(
                     super::ListItem::new(blocks.iter().cloned())
                         .with_annotations(item.annotations().clone())
@@ -163,21 +182,31 @@ fn rewrite_blocks<R: TextRewriter + ?Sized>(
     rewriter: &mut R,
     blocks: &[Block],
 ) -> Result<Arc<[Block]>, R::Error> {
+    Ok(rewriter.rewrite_blocks(blocks.to_vec())?.into())
+}
+
+pub fn walk_rewrite_blocks<R: TextRewriter + ?Sized>(
+    rewriter: &mut R,
+    blocks: Vec<Block>,
+) -> Result<Vec<Block>, R::Error> {
     let mut changed = false;
     let mut output = Vec::with_capacity(blocks.len());
-    for block in blocks {
+    for block in &blocks {
         let rewritten = rewriter.rewrite_block(block.clone())?;
         changed |= !rewritten.ptr_eq(block);
         output.push(rewritten);
     }
-    Ok(if changed {
-        output.into()
-    } else {
-        blocks.to_vec().into()
-    })
+    Ok(if changed { output } else { blocks })
 }
 
 fn rewrite_inline_content<R: TextRewriter + ?Sized>(
+    rewriter: &mut R,
+    content: InlineContent,
+) -> Result<InlineContent, R::Error> {
+    rewriter.rewrite_inline_content(content)
+}
+
+pub fn walk_rewrite_inline_content<R: TextRewriter + ?Sized>(
     rewriter: &mut R,
     content: InlineContent,
 ) -> Result<InlineContent, R::Error> {
@@ -185,7 +214,7 @@ fn rewrite_inline_content<R: TextRewriter + ?Sized>(
     let mut items = Vec::with_capacity(content.len());
     for inline in content.items() {
         let rewritten = rewriter.rewrite_inline(inline.clone())?;
-        changed |= rewritten != *inline;
+        changed |= !rewritten.ptr_eq(inline);
         items.push(rewritten);
     }
     Ok(if changed {
@@ -199,7 +228,10 @@ fn rewrite_table<R: TextRewriter + ?Sized>(
     rewriter: &mut R,
     table: super::Table,
 ) -> Result<super::Table, R::Error> {
-    let caption = table.caption().map(|blocks| blocks.to_vec());
+    let caption = table
+        .caption()
+        .map(|blocks| rewriter.rewrite_blocks(blocks.to_vec()))
+        .transpose()?;
     let mut rows = Vec::with_capacity(table.rows().len());
     for row in table.rows() {
         let mut cells = Vec::with_capacity(row.cells().len());
@@ -221,7 +253,8 @@ fn rewrite_table<R: TextRewriter + ?Sized>(
         table.columns().iter().copied(),
         table.header_rows(),
         rows,
-    ))
+    )
+    .expect("rewriting a valid table must preserve table validity"))
 }
 
 pub fn walk_rewrite_inline<R: TextRewriter + ?Sized>(

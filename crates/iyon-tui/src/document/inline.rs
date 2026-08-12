@@ -1,6 +1,4 @@
-use std::{fmt, sync::Arc};
-
-use crate::StreamRange;
+use std::sync::Arc;
 
 use super::{Annotations, LiteralText, TextIrError, TextRun};
 
@@ -224,6 +222,9 @@ impl Inline {
             annotations,
         }))
     }
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
     pub fn map_annotations(&self, map: impl FnOnce(Annotations) -> Annotations) -> Self {
         self.with_annotations(map(self.annotations().clone()))
     }
@@ -268,14 +269,3 @@ impl Image {
         &self.alt
     }
 }
-
-impl fmt::Display for LanguageId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-// Keep this import part of the public module's conceptual API without exposing
-// the coordinate fields of provenance-bearing values.
-#[allow(dead_code)]
-fn _range_type_is_text_coordinate(_: StreamRange) {}

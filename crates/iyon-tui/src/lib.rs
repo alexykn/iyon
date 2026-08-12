@@ -71,8 +71,8 @@ pub use document::{
     SemanticValue, Table, TableCell, TableColumn, TableRow, TextContent, TextIrError,
     TextProjectionError, TextProvenance, TextRewriter, TextRun, TextVisitor, validate_text_content,
     validate_text_projection, walk_block, walk_content, walk_inline, walk_inline_content,
-    walk_literal, walk_rewrite_block, walk_rewrite_content, walk_rewrite_inline,
-    walk_rewrite_literal,
+    walk_literal, walk_rewrite_block, walk_rewrite_blocks, walk_rewrite_content,
+    walk_rewrite_inline, walk_rewrite_inline_content, walk_rewrite_literal,
 };
 pub use history::{
     FlowBoundary, History, HistoryError, HistoryLayout, HistoryStreamHandle, HistoryUnitId,
@@ -82,8 +82,8 @@ pub use output::{EventCx, Output, OutputRouter, RouteConflict};
 pub use projection::{
     Projection, ProjectionBuilder, ProjectionRelationError, ProjectionSpan,
     ProjectionTransitionError, ProjectionValidationError, Projector, ProjectorExt, Smooth,
-    SmoothConfig, SmoothConfigError, Then, ThenError, validate_projection,
-    validate_projection_relation, validate_projection_transition,
+    SmoothConfig, SmoothConfigError, Then, ThenError, validate_projection_relation,
+    validate_projection_transition,
 };
 pub use scene::Scene;
 pub use scroll::ScrollPane;
