@@ -123,7 +123,7 @@ impl TextRenderer {
 
     pub fn render_block(&self, block: &Block) -> View {
         let mut view = match block.kind() {
-            BlockKind::Paragraph(content) => self.render_inline_content(content),
+            BlockKind::Paragraph(content) => self.render_inline_content(content).into_view(),
             BlockKind::Heading { level, content } => {
                 let heading = self
                     .style
@@ -131,20 +131,26 @@ impl TextRenderer {
                     .get(&level.get())
                     .cloned()
                     .unwrap_or_else(|| crate::StyleSpec::new().bold().into());
-                self.render_inline_content(content).style(heading)
+                self.render_inline_content(content)
+                    .style(heading)
+                    .into_view()
             }
             BlockKind::BlockQuote { blocks } => {
                 View::hanging("> ", "> ", self.render_blocks(blocks))
             }
             BlockKind::List(list) => self.render_list(list),
-            BlockKind::CodeBlock(code) => View::text(code.body().text()).no_wrap().into_view(),
+            BlockKind::CodeBlock(code) => self
+                .render_literal(&code.body())
+                .no_wrap()
+                .style(self.style.code.clone())
+                .into_view(),
             BlockKind::Table(table) => self.render_table(table),
             BlockKind::ThematicBreak => View::text("───").no_wrap().into_view(),
-            BlockKind::RawBlock { body, .. } => View::text(body.text()).no_wrap().into_view(),
+            BlockKind::RawBlock { body, .. } => self.render_literal(body).no_wrap().into_view(),
             BlockKind::Container { blocks } => self.render_blocks(blocks),
         };
         let annotation_style = self.annotation_style(block.annotations());
-        if annotation_style != crate::StyleSpec::default() {
+        if annotation_style != crate::StyleRef::default() {
             view = view.style(annotation_style);
         }
         view
@@ -159,31 +165,49 @@ impl TextRenderer {
         })
     }
 
-    fn render_inline_content(&self, content: &crate::InlineContent) -> View {
+    fn render_literal(&self, literal: &crate::LiteralText) -> crate::Text {
         let mut spans = Vec::new();
-        for inline in content.iter() {
-            self.push_inline(&mut spans, inline);
+        for run in literal.runs() {
+            let mut style = crate::StyleRef::default();
+            let run_annotations = self.annotation_style(run.annotations());
+            overlay_style(&mut style, &run_annotations);
+            spans.push(crate::TextSpan::styled(run.text(), style));
         }
-        View::styled_text(spans).into_view()
+        View::styled_text(spans)
     }
 
-    fn push_inline(&self, spans: &mut Vec<crate::TextSpan>, inline: &Inline) {
-        let mut style = crate::StyleSpec::new();
+    fn render_inline_content(&self, content: &crate::InlineContent) -> crate::Text {
+        let mut spans = Vec::new();
+        for inline in content.iter() {
+            self.push_inline(&mut spans, inline, crate::StyleRef::default());
+        }
+        View::styled_text(spans)
+    }
+
+    fn push_inline(
+        &self,
+        spans: &mut Vec<crate::TextSpan>,
+        inline: &Inline,
+        inherited: crate::StyleRef,
+    ) {
+        let mut style = inherited;
         for mark in inline.marks().marks() {
             match mark {
-                Mark::Strong => style = style.bold(),
-                Mark::Emphasis => style = style.italic(),
-                Mark::Underline => style = style.underline(),
-                Mark::Link(_) => style.overlay(&self.style.link.local),
-                Mark::Code => style.overlay(&self.style.code.local),
-                Mark::Strikethrough => style.overlay(&self.style.strikethrough.local),
+                Mark::Strong => style.local = style.local.clone().bold(),
+                Mark::Emphasis => style.local = style.local.clone().italic(),
+                Mark::Underline => style.local = style.local.clone().underline(),
+                Mark::Link(_) => overlay_style(&mut style, &self.style.link),
+                Mark::Code => overlay_style(&mut style, &self.style.code),
+                Mark::Strikethrough => overlay_style(&mut style, &self.style.strikethrough),
                 Mark::Superscript | Mark::Subscript | Mark::SmallCaps => {}
             }
         }
-        style.overlay(&self.annotation_style(inline.annotations()));
+        let inline_annotations = self.annotation_style(inline.annotations());
+        overlay_style(&mut style, &inline_annotations);
         match inline.kind() {
             InlineKind::Text(run) => {
-                style.overlay(&self.annotation_style(run.annotations()));
+                let run_annotations = self.annotation_style(run.annotations());
+                overlay_style(&mut style, &run_annotations);
                 spans.push(crate::TextSpan::styled(run.text(), style));
             }
             InlineKind::Break(BreakKind::Soft) => match self.style.soft_break {
@@ -193,20 +217,25 @@ impl TextRenderer {
             InlineKind::Break(BreakKind::Hard) => spans.push(crate::TextSpan::plain("\n")),
             InlineKind::Image(image) => {
                 for child in image.alt().iter() {
-                    self.push_inline(spans, child);
+                    self.push_inline(spans, child, style.clone());
                 }
             }
             InlineKind::RawInline { body, .. } => {
-                spans.push(crate::TextSpan::styled(body.text(), style));
+                for run in body.runs() {
+                    let mut run_style = style.clone();
+                    let run_annotations = self.annotation_style(run.annotations());
+                    overlay_style(&mut run_style, &run_annotations);
+                    spans.push(crate::TextSpan::styled(run.text(), run_style));
+                }
             }
         }
     }
 
-    fn annotation_style(&self, annotations: &crate::Annotations) -> crate::StyleSpec {
-        let mut style = crate::StyleSpec::new();
+    fn annotation_style(&self, annotations: &crate::Annotations) -> crate::StyleRef {
+        let mut style = crate::StyleRef::default();
         for tag in annotations.tags() {
             if let Some(patch) = self.style.annotation_tags.get(&tag.to_string()) {
-                style.overlay(&patch.local);
+                overlay_style(&mut style, patch);
             }
         }
         style
@@ -224,30 +253,25 @@ impl TextRenderer {
                     crate::ListMarker::Bullet => "- ".to_owned(),
                     crate::ListMarker::Ordered {
                         start,
-                        delimiter: crate::NumberDelimiter::Period,
-                        ..
-                    } => format!("{}. ", start + index as u64),
-                    crate::ListMarker::Ordered {
-                        start,
-                        delimiter: crate::NumberDelimiter::Paren,
-                        ..
-                    } => format!("{}) ", start + index as u64),
-                    crate::ListMarker::Ordered {
-                        start,
-                        delimiter: crate::NumberDelimiter::TwoParens,
-                        ..
-                    } => format!("({}) ", start + index as u64),
+                        style,
+                        delimiter,
+                    } => format_marker(start.saturating_add(index as u64), style, delimiter),
                 };
                 let marker = match item.checked() {
                     Some(true) => format!("[x] {marker}"),
                     Some(false) => format!("[ ] {marker}"),
                     None => marker,
                 };
-                column.child(View::hanging(
+                let mut item_view = View::hanging(
                     marker.clone(),
                     " ".repeat(marker.chars().count()),
                     self.render_blocks(item.blocks()),
-                ));
+                );
+                let annotation_style = self.annotation_style(item.annotations());
+                if annotation_style != crate::StyleRef::default() {
+                    item_view = item_view.style(annotation_style);
+                }
+                column.child(item_view);
             }
         })
     }
@@ -255,18 +279,141 @@ impl TextRenderer {
     fn render_table(&self, table: &crate::Table) -> View {
         View::vertical(|column| {
             column.gap(self.style.block_gap);
+            if let Some(caption) = table.caption() {
+                column.child(self.render_blocks(caption));
+            }
             for (row_index, row) in table.rows().iter().enumerate() {
-                column.child(View::horizontal(|horizontal| {
-                    for cell in row.cells() {
-                        let mut cell_view = self.render_blocks(cell.blocks());
+                let mut row_view = View::horizontal(|horizontal| {
+                    for (column_index, cell) in row.cells().iter().enumerate() {
+                        let mut cell_view = self.render_cell(cell, table, column_index);
                         if row_index < table.header_rows() {
                             cell_view = cell_view.bold();
                         }
                         horizontal.flex(cell_view);
                     }
-                }));
+                });
+                let annotation_style = self.annotation_style(row.annotations());
+                if annotation_style != crate::StyleRef::default() {
+                    row_view = row_view.style(annotation_style);
+                }
+                column.child(row_view);
             }
         })
+    }
+
+    fn render_cell(
+        &self,
+        cell: &crate::TableCell,
+        table: &crate::Table,
+        column_index: usize,
+    ) -> View {
+        let mut view = if cell.blocks().len() == 1 {
+            match cell.blocks()[0].kind() {
+                BlockKind::Paragraph(content) => {
+                    let alignment = cell.alignment().or_else(|| {
+                        table
+                            .columns()
+                            .get(column_index)
+                            .map(|column| column.alignment())
+                    });
+                    let text = alignment.map_or_else(
+                        || self.render_inline_content(content),
+                        |alignment| {
+                            self.render_inline_content(content)
+                                .text_align(to_horizontal_align(alignment))
+                        },
+                    );
+                    text.into_view()
+                }
+                _ => self.render_blocks(cell.blocks()),
+            }
+        } else {
+            self.render_blocks(cell.blocks())
+        };
+        let annotation_style = self.annotation_style(cell.annotations());
+        if annotation_style != crate::StyleRef::default() {
+            view = view.style(annotation_style);
+        }
+        view
+    }
+}
+
+fn overlay_style(target: &mut crate::StyleRef, incoming: &crate::StyleRef) {
+    if target.theme.is_none() {
+        if let Some(theme) = &incoming.theme {
+            target.theme = Some(theme.clone());
+        }
+    }
+    target.local.overlay(&incoming.local);
+}
+
+fn format_marker(
+    value: u64,
+    style: crate::NumberStyle,
+    delimiter: crate::NumberDelimiter,
+) -> String {
+    let number = format_number(value, style);
+    match delimiter {
+        crate::NumberDelimiter::Period => format!("{number}. "),
+        crate::NumberDelimiter::Paren => format!("{number}) "),
+        crate::NumberDelimiter::TwoParens => format!("({number}) "),
+    }
+}
+
+fn format_number(value: u64, style: crate::NumberStyle) -> String {
+    match style {
+        crate::NumberStyle::Decimal => value.to_string(),
+        crate::NumberStyle::LowerAlpha => alpha_number(value, b'a'),
+        crate::NumberStyle::UpperAlpha => alpha_number(value, b'A'),
+        crate::NumberStyle::LowerRoman => roman_number(value).to_lowercase(),
+        crate::NumberStyle::UpperRoman => roman_number(value),
+    }
+}
+
+fn alpha_number(mut value: u64, first: u8) -> String {
+    if value == 0 {
+        return String::new();
+    }
+    let mut result = Vec::new();
+    while value != 0 {
+        value -= 1;
+        result.push((first + (value % 26) as u8) as char);
+        value /= 26;
+    }
+    result.into_iter().rev().collect()
+}
+
+fn roman_number(mut value: u64) -> String {
+    const VALUES: &[(u64, &str)] = &[
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ];
+    let mut result = String::new();
+    for &(unit, text) in VALUES {
+        while value >= unit {
+            value -= unit;
+            result.push_str(text);
+        }
+    }
+    result
+}
+
+fn to_horizontal_align(alignment: crate::Alignment) -> crate::HorizontalAlign {
+    match alignment {
+        crate::Alignment::Default | crate::Alignment::Start => crate::HorizontalAlign::Start,
+        crate::Alignment::Center => crate::HorizontalAlign::Center,
+        crate::Alignment::End => crate::HorizontalAlign::End,
     }
 }
 

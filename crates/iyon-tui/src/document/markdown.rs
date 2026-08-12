@@ -79,6 +79,10 @@ pub struct MarkdownProjector {
     last_stable: Option<StreamOffset>,
     checkpoints: Vec<StreamRange>,
     caches: Vec<CachedDomain>,
+    #[cfg(feature = "test-util")]
+    parser_invocations: usize,
+    #[cfg(feature = "test-util")]
+    parser_bytes: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -111,11 +115,21 @@ impl MarkdownProjector {
             last_stable: None,
             checkpoints: Vec::new(),
             caches: Vec::new(),
+            #[cfg(feature = "test-util")]
+            parser_invocations: 0,
+            #[cfg(feature = "test-util")]
+            parser_bytes: 0,
         }
     }
 
     pub fn options(&self) -> MarkdownOptions {
         self.options
+    }
+
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub fn parser_work(&self) -> (usize, usize) {
+        (self.parser_invocations, self.parser_bytes)
     }
 }
 
@@ -181,20 +195,10 @@ impl Projector<TextContent> for MarkdownProjector {
                 && input.spans()[index].source().end() <= input.stable_through();
             let domain_stable = if input.is_sealed() && domain.source_end() == input.source_end() {
                 domain.source_end()
-            } else if input.stable_through() < domain.source_end() {
-                domain.source_base()
             } else if barrier_stable {
                 domain.source_end()
             } else {
-                parsed
-                    .projection
-                    .spans()
-                    .iter()
-                    .rev()
-                    .filter(|span| !span.values().is_empty())
-                    .nth(1)
-                    .map_or(domain.source_base(), |span| span.source().end())
-                    .min(parsed.unstable_from.unwrap_or(domain.source_end()))
+                self.stable_prefix_end(input.stable_through(), &domain, &parsed)
             };
             if prefix_open && domain_stable >= global_stable {
                 global_stable = domain_stable;
@@ -234,35 +238,164 @@ impl Projector<TextContent> for MarkdownProjector {
     }
 
     fn restart_from(&self, output_from: StreamOffset) -> StreamOffset {
-        self.checkpoints
+        let block_restart = self
+            .checkpoints
             .iter()
             .find(|range| range.contains_offset(output_from) || range.start() == output_from)
-            .map_or(output_from, |range| range.start())
+            .map_or(output_from, |range| range.start());
+        self.required_restart_from
+            .map_or(block_restart, |required| block_restart.min(required))
+            .min(output_from)
     }
 }
 
 impl MarkdownProjector {
+    fn stable_prefix_end(
+        &mut self,
+        input_stable: StreamOffset,
+        domain: &RawDomain,
+        parsed: &ParsedDomain,
+    ) -> StreamOffset {
+        let mut last_semantic_start = domain.source_base();
+        for span in parsed.projection.spans() {
+            if !span.values().is_empty() {
+                last_semantic_start = span.source().start();
+            }
+        }
+        if last_semantic_start == domain.source_base() {
+            return domain.source_base();
+        }
+
+        let limit = parsed
+            .unstable_from
+            .unwrap_or(input_stable)
+            .min(input_stable)
+            .min(last_semantic_start);
+        let Some(candidate) = parsed
+            .projection
+            .spans()
+            .iter()
+            .map(|span| span.source().end())
+            .filter(|end| *end <= limit)
+            .max()
+        else {
+            return domain.source_base();
+        };
+        if candidate == domain.source_base() {
+            return candidate;
+        }
+
+        let prefix_parsed = if let Some(cache) = self
+            .caches
+            .iter()
+            .find(|cache| {
+                cache.source_base == domain.source_base()
+                    && !cache.has_reference_context
+                    && cache.stable_end <= candidate
+                    && domain
+                        .text_prefix(cache.stable_end)
+                        .is_some_and(|prefix| prefix == cache.prefix)
+            })
+            .cloned()
+        {
+            let local_cache_end = usize::try_from(
+                cache
+                    .stable_end
+                    .as_u64()
+                    .saturating_sub(domain.source_base().as_u64()),
+            )
+            .unwrap_or(usize::MAX);
+            if cache.stable_end == candidate {
+                cached_projection(&cache).ok()
+            } else {
+                let Ok(suffix) = domain.suffix(local_cache_end) else {
+                    return domain.source_base();
+                };
+                let suffix_end =
+                    usize::try_from(candidate.as_u64().saturating_sub(cache.stable_end.as_u64()))
+                        .unwrap_or(usize::MAX);
+                let Ok(suffix) = suffix.prefix(suffix_end) else {
+                    return domain.source_base();
+                };
+                self.parse_uncached(&suffix)
+                    .ok()
+                    .and_then(|parsed| prepend_cached(&cache, parsed.projection).ok())
+            }
+        } else {
+            let Ok(prefix) = domain.prefix(
+                usize::try_from(
+                    candidate
+                        .as_u64()
+                        .saturating_sub(domain.source_base().as_u64()),
+                )
+                .unwrap_or(usize::MAX),
+            ) else {
+                return domain.source_base();
+            };
+            self.parse_uncached(&prefix)
+                .ok()
+                .map(|parsed| parsed.projection)
+        };
+        let Some(prefix_parsed) = prefix_parsed else {
+            return domain.source_base();
+        };
+        let mut expected = ProjectionBuilder::new(domain.source_base(), candidate, candidate, true);
+        for span in parsed
+            .projection
+            .spans()
+            .iter()
+            .take_while(|span| span.source().end() <= candidate)
+        {
+            expected = expected.emit_many(span.source(), span.values().iter().cloned());
+        }
+        let Ok(expected) = expected.finish() else {
+            return domain.source_base();
+        };
+        if prefix_parsed == expected {
+            candidate
+        } else {
+            domain.source_base()
+        }
+    }
+
+    fn parse_uncached(
+        &mut self,
+        domain: &RawDomain,
+    ) -> Result<ParsedDomain, MarkdownProjectionError> {
+        #[cfg(feature = "test-util")]
+        {
+            self.parser_invocations = self.parser_invocations.saturating_add(1);
+            self.parser_bytes = self.parser_bytes.saturating_add(domain.len());
+        }
+        parse_domain_uncached(domain, self.options)
+    }
+
     fn parse_domain(
         &mut self,
         domain: &RawDomain,
     ) -> Result<ParsedDomain, MarkdownProjectionError> {
-        if let Some(cache) = self.caches.iter().find(|cache| {
-            cache.source_base == domain.source_base()
-                && cache.stable_end <= domain.source_end()
-                && domain
-                    .text_prefix(cache.stable_end)
-                    .is_some_and(|prefix| prefix == cache.prefix)
-        }) {
+        if let Some(cache) = self
+            .caches
+            .iter()
+            .find(|cache| {
+                cache.source_base == domain.source_base()
+                    && cache.stable_end <= domain.source_end()
+                    && domain
+                        .text_prefix(cache.stable_end)
+                        .is_some_and(|prefix| prefix == cache.prefix)
+            })
+            .cloned()
+        {
             if cache.stable_end > domain.source_base() {
                 if cache.stable_end == domain.source_end() && !cache.has_reference_context {
                     return Ok(ParsedDomain {
-                        projection: cached_projection(cache)?,
+                        projection: cached_projection(&cache)?,
                         unstable_from: None,
                         has_reference_context: false,
                     });
                 }
                 if cache.has_reference_context {
-                    return parse_uncached(domain, self.options);
+                    return self.parse_uncached(domain);
                 }
                 let local = usize::try_from(
                     cache
@@ -274,15 +407,15 @@ impl MarkdownProjector {
                     context: "cache restart offset",
                 })?;
                 let suffix = domain.suffix(local)?;
-                let parsed = parse_uncached(&suffix, self.options)?;
+                let parsed = self.parse_uncached(&suffix)?;
                 return Ok(ParsedDomain {
-                    projection: prepend_cached(cache, parsed.projection)?,
+                    projection: prepend_cached(&cache, parsed.projection)?,
                     unstable_from: parsed.unstable_from,
                     has_reference_context: parsed.has_reference_context,
                 });
             }
         }
-        parse_uncached(domain, self.options)
+        self.parse_uncached(domain)
     }
 
     fn update_cache(
@@ -323,16 +456,14 @@ impl MarkdownProjector {
         } else {
             self.caches.push(cached);
         }
-        if parsed.has_reference_context && !sealed {
+        if parsed.has_reference_context || parsed.unstable_from.is_some() {
             self.required_restart_from = Some(
                 self.required_restart_from
                     .unwrap_or(domain.source_base())
                     .min(domain.source_base()),
             );
         }
-        if sealed {
-            self.required_restart_from = None;
-        }
+        let _ = sealed;
     }
 }
 
@@ -376,7 +507,7 @@ fn is_raw_span(span: &crate::ProjectionSpan<TextContent>) -> bool {
     span.values().len() == 1 && matches!(span.values()[0], TextContent::Raw(_))
 }
 
-fn parse_uncached(
+fn parse_domain_uncached(
     domain: &RawDomain,
     options: MarkdownOptions,
 ) -> Result<ParsedDomain, MarkdownProjectionError> {
