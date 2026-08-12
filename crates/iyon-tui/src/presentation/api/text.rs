@@ -1,10 +1,10 @@
 //! Typed semantic text construction backed by the canonical View IR.
 
 use super::style::{
-    BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, StyleSpec, StyleStateKey,
-    StyleStateValue, TextAttribute,
+    BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, StyleStateKey, StyleStateValue,
+    TextAttribute,
 };
-use crate::presentation::ir::{Decoration, HeightRule, TextView, View, ViewKind, WidthRule};
+use crate::presentation::ir::{TextView, View, ViewKind};
 
 /// A semantic text span with optional text-cell styling.
 #[derive(Clone, Debug, PartialEq)]
@@ -87,15 +87,7 @@ impl Text {
 
     fn from_text_view(text: TextView) -> Self {
         Self {
-            view: View {
-                component: None,
-                width: WidthRule::Fit,
-                height: HeightRule::Fit,
-                decoration: Decoration::default(),
-                style_states: Vec::new(),
-                component_scope: None,
-                kind: ViewKind::Text(text),
-            },
+            view: View::new_kind(ViewKind::Text(text)),
         }
     }
 
@@ -139,14 +131,13 @@ impl Text {
         self
     }
 
-    pub fn style(mut self, style: impl Into<StyleRef>) -> Self {
-        let style = style.into();
-        if style.theme.is_some() {
-            self.view.decoration.text_style = style;
-        } else {
-            self.view.decoration.text_style.overlay(&style.local);
-        }
+    fn map_view(mut self, map: impl FnOnce(View) -> View) -> Self {
+        self.view = map(self.view);
         self
+    }
+
+    pub fn style(self, style: impl Into<StyleRef>) -> Self {
+        self.map_view(|view| view.style(style))
     }
 
     /// Sets the current text node's padding; repeated calls replace the prior value.
@@ -167,39 +158,28 @@ impl Text {
         self
     }
 
-    pub fn padding(mut self, padding: impl Into<Insets>) -> Self {
-        self.view.decoration.padding = padding.into();
-        self
+    pub fn padding(self, padding: impl Into<Insets>) -> Self {
+        self.map_view(|view| view.padding(padding))
     }
 
     /// Paints the text node's allocated surface, not its text-cell style.
-    pub fn background(mut self, color: ColorSpec) -> Self {
-        self.view.decoration.surface_background = Some(color);
-        self
+    pub fn background(self, color: ColorSpec) -> Self {
+        self.map_view(|view| view.background(color))
     }
 
     /// Sets inherited foreground intent for this text node.
-    pub fn foreground(mut self, color: ColorSpec) -> Self {
-        self.view
-            .decoration
-            .text_style
-            .overlay(&StyleSpec::new().foreground(color));
-        self
+    pub fn foreground(self, color: ColorSpec) -> Self {
+        self.map_view(|view| view.foreground(color))
     }
 
     /// Replaces the text node's complete border specification.
-    pub fn border(mut self, border: BorderSpec) -> Self {
-        self.view.decoration.border = Some(border);
-        self
+    pub fn border(self, border: BorderSpec) -> Self {
+        self.map_view(|view| view.border(border))
     }
 
     /// Sets sparse text-attribute intent, including explicit false.
-    pub fn text_attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
-        self.view
-            .decoration
-            .text_style
-            .overlay(&StyleSpec::new().attribute(attribute, enabled));
-        self
+    pub fn text_attribute(self, attribute: TextAttribute, enabled: bool) -> Self {
+        self.map_view(|view| view.text_attribute(attribute, enabled))
     }
 
     pub fn bold(self) -> Self {
@@ -230,31 +210,20 @@ impl Text {
         self.into_canonical_view().clamp_rows(max_rows, overflow)
     }
 
-    pub fn fit_width(mut self) -> Self {
-        self.view.width = WidthRule::Fit;
-        self
+    pub fn fit_width(self) -> Self {
+        self.map_view(View::fit_width)
     }
 
-    pub fn fill_width(mut self) -> Self {
-        self.view.width = WidthRule::Fill;
-        self
+    pub fn fill_width(self) -> Self {
+        self.map_view(View::fill_width)
     }
 
-    pub fn fit_height(mut self) -> Self {
-        self.view.height = HeightRule::Fit;
-        self
+    pub fn fit_height(self) -> Self {
+        self.map_view(View::fit_height)
     }
 
-    pub fn fill_height(mut self) -> Self {
-        self.view.height = HeightRule::Fill;
-        self
-    }
-
-    /// Migration-only internal sizing method. Replaced by `fit_width` and
-    /// `fill_width` in the final semantic API.
-    pub(crate) fn width(mut self, width: WidthRule) -> Self {
-        self.view.width = width;
-        self
+    pub fn fill_height(self) -> Self {
+        self.map_view(View::fill_height)
     }
 }
 
@@ -262,7 +231,8 @@ impl Text {
 mod tests {
     use super::super::view::IntoView;
     use super::*;
-    use crate::presentation::api::style::{ColorSpec, OverflowIndicator, TextAttribute};
+    use crate::presentation::api::style::{ColorSpec, OverflowIndicator, StyleSpec, TextAttribute};
+    use crate::presentation::ir::{Decoration, WidthRule};
 
     #[test]
     fn text_style_merges_node_intent_without_rewriting_spans() {

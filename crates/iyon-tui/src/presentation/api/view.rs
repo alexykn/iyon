@@ -14,6 +14,34 @@ use crate::presentation::ir::{
 };
 
 impl View {
+    pub(crate) fn new_kind(kind: ViewKind) -> Self {
+        Self {
+            component: None,
+            width: WidthRule::Fit,
+            height: HeightRule::Fit,
+            decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
+            kind,
+        }
+    }
+
+    fn wrap_structural(self, make_kind: impl FnOnce(Box<View>) -> ViewKind) -> Self {
+        let mut child = self;
+        let component = child.component.take();
+        let width = child.width;
+        let height = child.height;
+        Self {
+            component,
+            width,
+            height,
+            decoration: Decoration::default(),
+            style_states: Vec::new(),
+            component_scope: None,
+            kind: make_kind(Box::new(child)),
+        }
+    }
+
     pub fn text(text: impl Into<String>) -> Text {
         Text::plain(text)
     }
@@ -29,19 +57,11 @@ impl View {
         build(&mut horizontal);
         let (children, gap, vertical_align) = horizontal.into_parts();
 
-        Self {
-            component: None,
-            width: WidthRule::Fit,
-            height: HeightRule::Fit,
-            decoration: Decoration::default(),
-            style_states: Vec::new(),
-            component_scope: None,
-            kind: ViewKind::Row(RowView {
-                children,
-                gap,
-                vertical_align,
-            }),
-        }
+        Self::new_kind(ViewKind::Row(RowView {
+            children,
+            gap,
+            vertical_align,
+        }))
     }
 
     /// Constructs vertical composition immediately with a `Fit` width and
@@ -51,15 +71,7 @@ impl View {
         build(&mut vertical);
         let (children, gap) = vertical.into_parts();
 
-        Self {
-            component: None,
-            width: WidthRule::Fit,
-            height: HeightRule::Fit,
-            decoration: Decoration::default(),
-            style_states: Vec::new(),
-            component_scope: None,
-            kind: ViewKind::Column(ColumnView { children, gap }),
-        }
+        Self::new_kind(ViewKind::Column(ColumnView { children, gap }))
     }
 
     /// Constructs a semantic hanging row.
@@ -93,53 +105,23 @@ impl View {
             "hanging continuation_prefix cannot contain component identity: it is repeated"
         );
 
-        Self {
-            component: None,
-            width: WidthRule::Fit,
-            height: HeightRule::Fit,
-            decoration: Decoration::default(),
-            style_states: Vec::new(),
-            component_scope: None,
-            kind: ViewKind::Hanging(HangingView {
-                prefix: Box::new(prefix),
-                continuation_prefix: Box::new(continuation_prefix),
-                body: Box::new(body),
-            }),
-        }
+        Self::new_kind(ViewKind::Hanging(HangingView {
+            prefix: Box::new(prefix),
+            continuation_prefix: Box::new(continuation_prefix),
+            body: Box::new(body),
+        }))
     }
 
     pub(crate) fn column(children: Vec<View>, gap: u16) -> Self {
-        Self {
-            component: None,
-            width: WidthRule::Fit,
-            height: HeightRule::Fit,
-            decoration: Decoration::default(),
-            style_states: Vec::new(),
-            component_scope: None,
-            kind: ViewKind::Column(ColumnView {
-                children: children.into_iter().map(ColumnChild::content).collect(),
-                gap,
-            }),
-        }
+        Self::new_kind(ViewKind::Column(ColumnView {
+            children: children.into_iter().map(ColumnChild::content).collect(),
+            gap,
+        }))
     }
 
     /// Creates a new undecorated structural boundary around this view.
     pub fn container(self) -> Self {
-        let mut child = self;
-        let component = child.component.take();
-        let width = child.width;
-        let height = child.height;
-        Self {
-            component,
-            width,
-            height,
-            decoration: Decoration::default(),
-            style_states: Vec::new(),
-            component_scope: None,
-            kind: ViewKind::Container(ContainerNode {
-                child: Box::new(child),
-            }),
-        }
+        self.wrap_structural(|child| ViewKind::Container(ContainerNode { child }))
     }
 
     /// Creates a private vertical viewport around a semantic view.
@@ -206,35 +188,17 @@ impl View {
 
     /// Creates a new structural truncation boundary around this view.
     pub fn clamp_rows(self, max_rows: u16, overflow: OverflowIndicator) -> Self {
-        let mut child = self;
-        let component = child.component.take();
-        let width = child.width;
-        let height = child.height;
-        Self {
-            component,
-            width,
-            height,
-            decoration: Decoration::default(),
-            style_states: Vec::new(),
-            component_scope: None,
-            kind: ViewKind::ClampRows(ClampRowsView {
-                child: Box::new(child),
+        self.wrap_structural(|child| {
+            ViewKind::ClampRows(ClampRowsView {
+                child,
                 max_rows,
                 overflow,
-            }),
-        }
+            })
+        })
     }
 
     pub fn spacer(rows: u16) -> Self {
-        Self {
-            component: None,
-            width: WidthRule::Fit,
-            height: HeightRule::Fit,
-            decoration: Decoration::default(),
-            style_states: Vec::new(),
-            component_scope: None,
-            kind: ViewKind::Spacer { rows },
-        }
+        Self::new_kind(ViewKind::Spacer { rows })
     }
 
     /// Assigns one application-owned semantic styling dimension to this View
