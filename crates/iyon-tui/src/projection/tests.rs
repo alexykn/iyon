@@ -83,31 +83,38 @@ fn stable_frontier_must_be_a_span_boundary() {
 #[test]
 fn transitions_freeze_values_and_segmentation_but_allow_tail_replacement() {
     let previous = complete::<u8>(2, false)
-        .emit(range(0, 2), 1)
+        .emit(range(0, 1), 1)
+        .emit(range(1, 2), 2)
         .elide(range(2, 4))
         .finish()
         .unwrap();
     let next = complete::<u8>(4, true)
-        .emit(range(0, 2), 1)
+        .emit_many(range(0, 2), [1, 2])
         .emit_many(range(2, 4), [2, 3])
         .finish()
         .unwrap();
-    validate_projection_transition(&previous, &next).unwrap();
+    assert_eq!(
+        validate_projection_transition(&previous, &next),
+        Err(ProjectionTransitionError::StablePrefixChanged)
+    );
+
+    let tail_replaced = complete::<u8>(2, false)
+        .emit(range(0, 1), 1)
+        .emit(range(1, 2), 2)
+        .emit_many(range(2, 4), [2, 3])
+        .finish()
+        .unwrap();
+    validate_projection_transition(&previous, &tail_replaced).unwrap();
 
     let changed = complete::<u8>(2, false)
-        .emit(range(0, 2), 9)
+        .emit(range(0, 1), 9)
+        .emit(range(1, 2), 2)
         .elide(range(2, 4))
         .finish()
         .unwrap();
     assert_eq!(
         validate_projection_transition(&previous, &changed),
         Err(ProjectionTransitionError::StablePrefixChanged)
-    );
-
-    let resegmented = complete::<u8>(2, false).emit(range(0, 4), 1).finish();
-    assert_eq!(
-        resegmented,
-        Err(ProjectionValidationError::StableFrontierInsideSpan)
     );
 }
 
@@ -161,7 +168,7 @@ fn relation_allows_lagging_and_sealed_input() {
         StreamOffset::new(2),
         false,
     )
-    .emit(range(0, 2), 1)
+    .emit_many(range(0, 2), [1, 1])
     .finish()
     .unwrap();
     validate_projection_relation(&input, &output).unwrap();
@@ -171,36 +178,362 @@ fn relation_allows_lagging_and_sealed_input() {
         StreamOffset::new(4),
         true,
     )
-    .emit(range(0, 4), 1)
+    .emit_many(range(0, 4), [1, 1])
     .finish()
     .unwrap();
     validate_projection_relation(&input, &final_output).unwrap();
+
+    let base_mismatch = ProjectionBuilder::new(
+        StreamOffset::new(1),
+        StreamOffset::new(1),
+        StreamOffset::new(2),
+        false,
+    )
+    .emit(range(1, 2), 1)
+    .finish()
+    .unwrap();
+    assert_eq!(
+        validate_projection_relation(&input, &base_mismatch),
+        Err(ProjectionRelationError::SourceBaseMismatch)
+    );
+    let beyond_end = ProjectionBuilder::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(4),
+        StreamOffset::new(5),
+        false,
+    )
+    .emit(range(0, 4), 1)
+    .emit(range(4, 5), 1)
+    .finish()
+    .unwrap();
+    assert_eq!(
+        validate_projection_relation(&input, &beyond_end),
+        Err(ProjectionRelationError::OutputEndBeyondInput)
+    );
+    let stability_input = ProjectionBuilder::<u8>::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(2),
+        StreamOffset::new(4),
+        false,
+    )
+    .emit(range(0, 2), 1)
+    .elide(range(2, 4))
+    .finish()
+    .unwrap();
+    let beyond_stability = ProjectionBuilder::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(3),
+        StreamOffset::new(4),
+        false,
+    )
+    .emit(range(0, 3), 1)
+    .elide(range(3, 4))
+    .finish()
+    .unwrap();
+    assert_eq!(
+        validate_projection_relation(&stability_input, &beyond_stability),
+        Err(ProjectionRelationError::OutputStabilityBeyondInput)
+    );
+    let sealed_open_input = ProjectionBuilder::<u8>::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(4),
+        StreamOffset::new(4),
+        false,
+    )
+    .emit(range(0, 4), 1)
+    .finish()
+    .unwrap();
+    let sealed_output = ProjectionBuilder::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(4),
+        StreamOffset::new(4),
+        true,
+    )
+    .emit(range(0, 4), 1)
+    .finish()
+    .unwrap();
+    assert_eq!(
+        validate_projection_relation(&sealed_open_input, &sealed_output),
+        Err(ProjectionRelationError::OutputSealedBeforeInput)
+    );
+    let sealed_lag = ProjectionBuilder::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(2),
+        StreamOffset::new(2),
+        true,
+    )
+    .emit(range(0, 2), 1)
+    .finish()
+    .unwrap();
+    assert_eq!(
+        validate_projection_relation(&input, &sealed_lag),
+        Err(ProjectionRelationError::SealedOutputNotCaughtUp)
+    );
+}
+
+struct LineGate;
+
+impl Projector<char> for LineGate {
+    type Output = String;
+    type Error = std::convert::Infallible;
+
+    fn project(
+        &mut self,
+        input: &Projection<char>,
+    ) -> Result<Projection<Self::Output>, Self::Error> {
+        let chars = input
+            .spans()
+            .iter()
+            .flat_map(|span| span.values().iter().copied());
+        let mut output = ProjectionBuilder::new(
+            input.source_base(),
+            input.source_base(),
+            input.source_end(),
+            false,
+        );
+        let mut start = input.source_base();
+        let mut line = String::new();
+        let mut cursor = start;
+        for character in chars {
+            cursor = cursor.saturating_add(1);
+            line.push(character);
+            if character == '\n' {
+                output = output.emit(
+                    range(start.as_u64(), cursor.as_u64()),
+                    line.trim_end_matches('\n').to_owned(),
+                );
+                line.clear();
+                start = cursor;
+            }
+        }
+        if start < cursor {
+            output = output.emit(range(start.as_u64(), cursor.as_u64()), line);
+        }
+        let stable = if input.is_sealed() {
+            input.source_end()
+        } else {
+            start
+        };
+        let mut final_output = ProjectionBuilder::new(
+            input.source_base(),
+            stable,
+            input.source_end(),
+            input.is_sealed(),
+        );
+        for span in output.finish().unwrap().spans() {
+            final_output = final_output.emit_many(span.source(), span.values().iter().cloned());
+        }
+        Ok(final_output.finish().unwrap())
+    }
 }
 
 #[test]
-fn line_gate_proves_mutable_tail_and_sealing_convergence() {
-    let first = ProjectionBuilder::new(
+fn line_gate_projector_converges_incremental_and_batch() {
+    let open = ProjectionBuilder::new(
         StreamOffset::ZERO,
         StreamOffset::new(6),
         StreamOffset::new(9),
         false,
     )
-    .emit(range(0, 6), "hello")
-    .emit(range(6, 9), "wor")
+    .emit_many(range(0, 6), "hello\n".chars())
+    .emit_many(range(6, 9), "wor".chars())
     .finish()
     .unwrap();
-    let second = ProjectionBuilder::new(
+    let sealed = ProjectionBuilder::new(
         StreamOffset::ZERO,
         StreamOffset::new(12),
         StreamOffset::new(12),
         true,
     )
-    .emit(range(0, 6), "hello")
-    .emit(range(6, 12), "world")
+    .emit_many(range(0, 12), "hello\nworld!".chars())
     .finish()
     .unwrap();
-    validate_projection_transition(&first, &second).unwrap();
-    assert_eq!(second.spans()[1].values(), &["world"]);
+    let mut gate = LineGate;
+    let mut batch = LineGate;
+    let incremental = gate.project(&sealed).unwrap();
+    let one_shot = batch.project(&sealed).unwrap();
+    assert_eq!(incremental, one_shot);
+    let open_output = gate.project(&open).unwrap();
+    assert_eq!(open_output.spans()[0].values(), &["hello"]);
+    validate_projection_transition(&open_output, &incremental).unwrap();
+}
+
+#[test]
+fn transitions_reject_monotonicity_violations_and_sealed_mutations() {
+    let previous = ProjectionBuilder::new(
+        StreamOffset::new(1),
+        StreamOffset::new(2),
+        StreamOffset::new(4),
+        false,
+    )
+    .emit(range(1, 2), 1)
+    .elide(range(2, 4))
+    .finish()
+    .unwrap();
+    let base_regressed = ProjectionBuilder::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(2),
+        StreamOffset::new(4),
+        false,
+    )
+    .emit(range(0, 2), 1)
+    .elide(range(2, 4))
+    .finish()
+    .unwrap();
+    assert_eq!(
+        validate_projection_transition(&previous, &base_regressed),
+        Err(ProjectionTransitionError::SourceBaseRegressed)
+    );
+    let end_regressed = ProjectionBuilder::new(
+        StreamOffset::new(1),
+        StreamOffset::new(2),
+        StreamOffset::new(3),
+        false,
+    )
+    .emit(range(1, 2), 1)
+    .elide(range(2, 3))
+    .finish()
+    .unwrap();
+    assert_eq!(
+        validate_projection_transition(&previous, &end_regressed),
+        Err(ProjectionTransitionError::SourceEndRegressed)
+    );
+    let stability_regressed = ProjectionBuilder::new(
+        StreamOffset::new(1),
+        StreamOffset::new(1),
+        StreamOffset::new(4),
+        false,
+    )
+    .elide(range(1, 4))
+    .finish()
+    .unwrap();
+    assert_eq!(
+        validate_projection_transition(&previous, &stability_regressed),
+        Err(ProjectionTransitionError::StabilityRegressed)
+    );
+
+    let sealed = complete::<u8>(4, true)
+        .emit(range(0, 4), 1)
+        .finish()
+        .unwrap();
+    let unsealed = ProjectionBuilder::new(
+        StreamOffset::ZERO,
+        StreamOffset::new(4),
+        StreamOffset::new(4),
+        false,
+    )
+    .emit(range(0, 4), 1)
+    .finish()
+    .unwrap();
+    assert_eq!(
+        validate_projection_transition(&sealed, &unsealed),
+        Err(ProjectionTransitionError::UnsealedAfterSeal)
+    );
+    let changed = complete::<u8>(4, true)
+        .emit(range(0, 4), 2)
+        .finish()
+        .unwrap();
+    assert_eq!(
+        validate_projection_transition(&sealed, &changed),
+        Err(ProjectionTransitionError::ChangedAfterSeal)
+    );
+    validate_projection_transition(&sealed, &sealed).unwrap();
+}
+
+struct FailFirst;
+struct FailSecond;
+struct BadRelation;
+
+#[derive(Debug, Clone, Copy)]
+struct Failure;
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("failure")
+    }
+}
+impl std::error::Error for Failure {}
+
+impl Projector<u8> for FailFirst {
+    type Output = u8;
+    type Error = Failure;
+    fn project(&mut self, _: &Projection<u8>) -> Result<Projection<u8>, Self::Error> {
+        Err(Failure)
+    }
+}
+impl Projector<u8> for FailSecond {
+    type Output = u8;
+    type Error = Failure;
+    fn project(&mut self, _: &Projection<u8>) -> Result<Projection<u8>, Self::Error> {
+        Err(Failure)
+    }
+}
+impl Projector<u8> for BadRelation {
+    type Output = u8;
+    type Error = Failure;
+    fn project(&mut self, input: &Projection<u8>) -> Result<Projection<u8>, Self::Error> {
+        Ok(ProjectionBuilder::new(
+            StreamOffset::new(1),
+            input.stable_through(),
+            input.source_end(),
+            input.is_sealed(),
+        )
+        .emit(range(1, input.source_end().as_u64()), 1)
+        .finish()
+        .unwrap())
+    }
+}
+
+struct Identity;
+
+impl Projector<u8> for Identity {
+    type Output = u8;
+    type Error = Failure;
+
+    fn project(&mut self, input: &Projection<u8>) -> Result<Projection<u8>, Self::Error> {
+        Ok(ProjectionBuilder::new(
+            input.source_base(),
+            input.stable_through(),
+            input.source_end(),
+            input.is_sealed(),
+        )
+        .emit_many(
+            range(input.source_base().as_u64(), input.source_end().as_u64()),
+            input
+                .spans()
+                .iter()
+                .flat_map(|span| span.values().iter().copied()),
+        )
+        .finish()
+        .unwrap())
+    }
+}
+
+#[test]
+fn composition_reports_each_stage_and_contract() {
+    let input = complete::<u8>(4, true)
+        .emit(range(0, 4), 1)
+        .finish()
+        .unwrap();
+    let mut first_error = FailFirst.then(Identity);
+    assert!(matches!(
+        first_error.project(&input),
+        Err(ThenError::First(_))
+    ));
+    let mut first_relation = BadRelation.then(Identity);
+    assert!(matches!(
+        first_relation.project(&input),
+        Err(ThenError::FirstRelation(_))
+    ));
+    let mut second_error = Identity.then(FailSecond);
+    assert!(matches!(
+        second_error.project(&input),
+        Err(ThenError::Second(_))
+    ));
+    let mut second_relation = Identity.then(BadRelation);
+    assert!(matches!(
+        second_relation.project(&input),
+        Err(ThenError::SecondRelation(_))
+    ));
 }
 
 struct LocalProjector(Rc<RefCell<u32>>);

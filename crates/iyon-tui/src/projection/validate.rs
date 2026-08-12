@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::{StreamOffset, StreamRange};
+use crate::StreamOffset;
 
 use super::value::{Projection, ProjectionSpan};
 
@@ -186,54 +186,46 @@ fn same_stable_projection<T: PartialEq>(
     start: StreamOffset,
     end: StreamOffset,
 ) -> bool {
-    let mut boundaries = vec![start, end];
-    for spans in [previous, next] {
-        for span in spans {
-            if span.source.start() > start && span.source.start() < end {
-                boundaries.push(span.source.start());
-            }
-            if span.source.end() > start && span.source.end() < end {
-                boundaries.push(span.source.end());
-            }
-        }
-    }
-    boundaries.sort_unstable();
-    boundaries.dedup();
-
-    let previous_boundaries = boundaries_for(previous, start, end);
-    let next_boundaries = boundaries_for(next, start, end);
-    if previous_boundaries != next_boundaries {
+    let Some(mut previous_index) = first_span_at_or_after(previous, start) else {
         return false;
+    };
+    let Some(mut next_index) = first_span_at_or_after(next, start) else {
+        return false;
+    };
+    let mut cursor = start;
+
+    while cursor < end {
+        let Some(previous_span) = previous.get(previous_index) else {
+            return false;
+        };
+        let Some(next_span) = next.get(next_index) else {
+            return false;
+        };
+        if previous_span.source.start() > cursor
+            || next_span.source.start() > cursor
+            || previous_span.source.end() <= cursor
+            || next_span.source.end() <= cursor
+        {
+            return false;
+        }
+
+        // Clipping the first span permits compaction inside a span. Every
+        // subsequent end must match, preserving stable segmentation.
+        let previous_end = previous_span.source.end().min(end);
+        let next_end = next_span.source.end().min(end);
+        if previous_end != next_end || previous_span.values != next_span.values {
+            return false;
+        }
+
+        cursor = previous_end;
+        previous_index += 1;
+        next_index += 1;
     }
 
-    boundaries.windows(2).all(|window| {
-        let range = StreamRange::new(window[0], window[1]);
-        containing(previous, range).map(|span| &span.values)
-            == containing(next, range).map(|span| &span.values)
-    })
+    cursor == end
 }
 
-fn boundaries_for<T>(
-    spans: &[ProjectionSpan<T>],
-    start: StreamOffset,
-    end: StreamOffset,
-) -> Vec<StreamOffset> {
-    let mut boundaries = vec![start, end];
-    for span in spans {
-        if span.source.start() > start && span.source.start() < end {
-            boundaries.push(span.source.start());
-        }
-        if span.source.end() > start && span.source.end() < end {
-            boundaries.push(span.source.end());
-        }
-    }
-    boundaries.sort_unstable();
-    boundaries.dedup();
-    boundaries
-}
-
-fn containing<T>(spans: &[ProjectionSpan<T>], range: StreamRange) -> Option<&ProjectionSpan<T>> {
-    spans
-        .iter()
-        .find(|span| span.source.start() <= range.start() && span.source.end() >= range.end())
+fn first_span_at_or_after<T>(spans: &[ProjectionSpan<T>], offset: StreamOffset) -> Option<usize> {
+    let index = spans.partition_point(|span| span.source.end() <= offset);
+    (index < spans.len()).then_some(index)
 }
