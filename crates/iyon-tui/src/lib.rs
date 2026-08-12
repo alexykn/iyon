@@ -47,6 +47,7 @@ mod interaction;
 mod output;
 mod physical;
 mod presentation;
+mod projection;
 mod scene;
 mod scroll;
 mod scroll_command;
@@ -67,6 +68,11 @@ pub use history::{
 };
 pub use interaction::{InteractionResult, Key, KeyStroke, MediaKey, ModifierKey, Modifiers};
 pub use output::{EventCx, Output, OutputRouter, RouteConflict};
+pub use projection::{
+    Projection, ProjectionBuilder, ProjectionRelationError, ProjectionSpan,
+    ProjectionTransitionError, ProjectionValidationError, Projector, ProjectorExt, Then, ThenError,
+    validate_projection_relation, validate_projection_transition,
+};
 pub use scene::Scene;
 pub use scroll::ScrollPane;
 pub use theme::Theme;
