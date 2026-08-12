@@ -1,4 +1,4 @@
-//! Manual layout and text compiler regressions.
+//! Retained layout and text compiler regressions.
 
 use super::*;
 use crate::geometry::{LayoutConstraints, Size};
@@ -99,6 +99,59 @@ fn tool_view(body: &str) -> View {
 fn assert_block_shape(block: &LayoutBlock, width: u16, height: usize) {
     assert_eq!(block.width, width);
     assert_eq!(block.rows.len(), height);
+}
+
+fn assert_measurement_parity(view: &View, width: u16) {
+    let measured = measure_view(view, width);
+    let laid_out = super::layout_view(view, LayoutConstraints::width_only(width));
+    assert_eq!(
+        measured,
+        laid_out.size,
+        "standalone measurement diverged from layout at width {width}: {view:#?}",
+    );
+}
+
+#[test]
+fn standalone_measurement_matches_width_only_layout() {
+    let views = vec![
+        View::text("text").into_view(),
+        View::spacer(2),
+        View::text("wrapped content").container(),
+        View::vertical(|column| {
+            column.fixed(1, View::text("fixed").fill_height());
+            column.child(View::text("content"));
+            column.flex(View::text("flex").fill_height());
+            column.flex_max(4, View::text("flex max").fill_height());
+        }),
+        View::horizontal(|row| {
+            row.fixed(3, View::text("fixed"));
+            row.child(View::text("content"));
+            row.flex(View::text("flex").fill_width());
+        }),
+        View::hanging(
+            View::text("> ").no_wrap(),
+            View::text("  ").no_wrap(),
+            View::text("hanging body").fill_width(),
+        ),
+        View::text("clamped content").clamp_rows(2, OverflowIndicator::None),
+        View::row_viewport(View::text("viewport content").into_view(), 1),
+        View::text("decorated")
+            .into_view()
+            .fill_width()
+            .fill_height()
+            .min_width(2)
+            .max_width(30)
+            .min_height(1)
+            .max_height(8)
+            .padding(Insets::all(1))
+            .border(BorderSpec::plain()),
+    ];
+
+    for view in &views {
+        for width in 0..=40 {
+            assert_measurement_parity(view, width);
+        }
+    }
 }
 
 #[test]
