@@ -7,8 +7,7 @@ use super::{context::AppCx, error::RunError, handle::AppHandle, kernel::RunningA
 /// A generic standalone application definition.
 ///
 /// `App` stores application State, Action, and the three semantic callbacks.
-/// It has no terminal or executor dependency. The production terminal driver
-/// is added in S10.
+/// It has no terminal or executor dependency.
 pub struct App<State, Action, Error, Init, Update, ViewFn> {
     pub(crate) init: Init,
     pub(crate) update: Update,
