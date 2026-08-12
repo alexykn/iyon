@@ -7,9 +7,32 @@ use crate::{StreamRange, projection::ProjectionValidationError};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TextIrError {
     InvalidName,
-    InvalidExactLength { text_len: u64, range_len: u64 },
-    InvalidSpan,
+    InvalidExactLength {
+        text_len: u64,
+        range_len: u64,
+    },
     InvalidHeadingLevel,
+    InvalidTableHeaderRows {
+        header_rows: usize,
+        row_count: usize,
+    },
+    TableCellDoesNotFit {
+        row: usize,
+        cell: usize,
+    },
+    TableCellOverlaps {
+        row: usize,
+        cell: usize,
+        column: usize,
+    },
+    TableSpanExceedsRows {
+        row: usize,
+        cell: usize,
+    },
+    InvalidSourceSlice {
+        owner: StreamRange,
+        local: StreamRange,
+    },
     DuplicateLinkMark,
     NotCharBoundary,
 }
@@ -30,8 +53,30 @@ impl fmt::Display for TextIrError {
                     "exact text length {text_len} does not match source range length {range_len}"
                 )
             }
-            Self::InvalidSpan => write!(f, "table spans must be non-zero"),
             Self::InvalidHeadingLevel => write!(f, "heading levels must be between 1 and 6"),
+            Self::InvalidTableHeaderRows {
+                header_rows,
+                row_count,
+            } => write!(
+                f,
+                "table header row count {header_rows} exceeds row count {row_count}"
+            ),
+            Self::TableCellDoesNotFit { row, cell } => {
+                write!(f, "table cell {cell} does not fit at row {row}")
+            }
+            Self::TableCellOverlaps { row, cell, column } => write!(
+                f,
+                "table cell {cell} at row {row} overlaps occupied column {column}"
+            ),
+            Self::TableSpanExceedsRows { row, cell } => {
+                write!(f, "table cell {cell} at row {row} spans beyond the table")
+            }
+            Self::InvalidSourceSlice { owner, local } => {
+                write!(
+                    f,
+                    "local source slice {local:?} is invalid for owner {owner:?}"
+                )
+            }
             Self::DuplicateLinkMark => write!(f, "an inline may contain at most one link mark"),
             Self::NotCharBoundary => write!(f, "text split is not at a UTF-8 character boundary"),
         }
@@ -45,6 +90,7 @@ impl std::error::Error for TextIrError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TextProjectionError {
     Projection(ProjectionValidationError),
+    Ir(TextIrError),
     RawMustBeSoleValue {
         source: StreamRange,
     },
@@ -66,6 +112,7 @@ impl fmt::Display for TextProjectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Projection(error) => error.fmt(f),
+            Self::Ir(error) => error.fmt(f),
             Self::RawMustBeSoleValue { source } => {
                 write!(
                     f,
@@ -93,6 +140,12 @@ impl std::error::Error for TextProjectionError {}
 impl From<ProjectionValidationError> for TextProjectionError {
     fn from(error: ProjectionValidationError) -> Self {
         Self::Projection(error)
+    }
+}
+
+impl From<TextIrError> for TextProjectionError {
+    fn from(error: TextIrError) -> Self {
+        Self::Ir(error)
     }
 }
 

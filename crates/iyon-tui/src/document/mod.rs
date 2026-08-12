@@ -22,6 +22,6 @@ pub use provenance::{LiteralText, TextProvenance, TextRun};
 pub use validate::{validate_text_content, validate_text_projection};
 pub use visit::{
     TextRewriter, TextVisitor, walk_block, walk_content, walk_inline, walk_inline_content,
-    walk_literal, walk_rewrite_block, walk_rewrite_content, walk_rewrite_inline,
-    walk_rewrite_literal,
+    walk_literal, walk_rewrite_block, walk_rewrite_blocks, walk_rewrite_content,
+    walk_rewrite_inline, walk_rewrite_inline_content, walk_rewrite_literal,
 };

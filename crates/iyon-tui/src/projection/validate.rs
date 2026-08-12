@@ -68,7 +68,9 @@ impl fmt::Display for ProjectionRelationError {
 
 impl std::error::Error for ProjectionRelationError {}
 
-pub fn validate_projection<T>(projection: &Projection<T>) -> Result<(), ProjectionValidationError> {
+pub(crate) fn validate_projection<T>(
+    projection: &Projection<T>,
+) -> Result<(), ProjectionValidationError> {
     if projection.source_base > projection.stable_through
         || projection.stable_through > projection.source_end
     {

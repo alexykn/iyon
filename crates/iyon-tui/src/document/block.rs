@@ -128,13 +128,66 @@ impl Table {
         columns: impl IntoIterator<Item = TableColumn>,
         header_rows: usize,
         rows: impl IntoIterator<Item = TableRow>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, TextIrError> {
+        let table = Self {
             caption: caption.map(|value| value.into_iter().collect()),
             columns: columns.into_iter().collect(),
             header_rows,
             rows: rows.into_iter().collect(),
+        };
+        table.validate()?;
+        Ok(table)
+    }
+
+    pub fn validate(&self) -> Result<(), TextIrError> {
+        if self.header_rows > self.rows.len() {
+            return Err(TextIrError::InvalidTableHeaderRows {
+                header_rows: self.header_rows,
+                row_count: self.rows.len(),
+            });
         }
+        let width = self.columns.len();
+        let mut occupied = vec![0usize; width];
+        for (row_index, row) in self.rows.iter().enumerate() {
+            let mut column = 0usize;
+            for (cell_index, cell) in row.cells.iter().enumerate() {
+                while column < width && occupied[column] > row_index {
+                    column += 1;
+                }
+                let end = column.saturating_add(cell.col_span.get() as usize);
+                if end > width {
+                    return Err(TextIrError::TableCellDoesNotFit {
+                        row: row_index,
+                        cell: cell_index,
+                    });
+                }
+                if occupied[column..end]
+                    .iter()
+                    .any(|&occupied_until| occupied_until > row_index)
+                {
+                    let column = occupied[column..end]
+                        .iter()
+                        .position(|&occupied_until| occupied_until > row_index)
+                        .map_or(column, |offset| column + offset);
+                    return Err(TextIrError::TableCellOverlaps {
+                        row: row_index,
+                        cell: cell_index,
+                        column,
+                    });
+                }
+                if row_index.saturating_add(cell.row_span.get() as usize) > self.rows.len() {
+                    return Err(TextIrError::TableSpanExceedsRows {
+                        row: row_index,
+                        cell: cell_index,
+                    });
+                }
+                for slot in &mut occupied[column..end] {
+                    *slot = (*slot).max(row_index + cell.row_span.get() as usize);
+                }
+                column = end;
+            }
+        }
+        Ok(())
     }
     pub fn caption(&self) -> Option<&[Block]> {
         self.caption.as_deref()

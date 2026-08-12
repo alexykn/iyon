@@ -1,6 +1,8 @@
-use std::{fmt, sync::Arc};
+use std::{fmt, ops::Range, sync::Arc};
 
-use super::{Block, TextIrError};
+use crate::{StreamOffset, StreamRange};
+
+use super::{Block, TextIrError, TextRun};
 
 /// Exact, unclaimed text at the root of a text projection.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -18,6 +20,34 @@ impl RawText {
     }
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    /// Creates an exact text run from a byte slice of this root source witness.
+    pub fn exact_slice(
+        &self,
+        owner: StreamRange,
+        local: Range<usize>,
+    ) -> Result<TextRun, TextIrError> {
+        if owner.len() != self.len() as u64
+            || local.start > local.end
+            || local.end > self.len()
+            || !self.text().is_char_boundary(local.start)
+            || !self.text().is_char_boundary(local.end)
+        {
+            let start = owner.start().as_u64().saturating_add(local.start as u64);
+            let end = owner.start().as_u64().saturating_add(local.end as u64);
+            let local = StreamRange::try_new(
+                StreamOffset::new(start.min(owner.end().as_u64())),
+                StreamOffset::new(end.min(owner.end().as_u64())),
+            )
+            .unwrap_or(owner);
+            return Err(TextIrError::InvalidSourceSlice { owner, local });
+        }
+        let range = StreamRange::new(
+            owner.start().saturating_add(local.start as u64),
+            owner.start().saturating_add(local.end as u64),
+        );
+        TextRun::exact(&self.text()[local], range)
     }
 }
 
@@ -52,11 +82,5 @@ impl From<Block> for TextContent {
 impl fmt::Display for RawText {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
-    }
-}
-
-impl From<TextIrError> for std::io::Error {
-    fn from(error: TextIrError) -> Self {
-        std::io::Error::other(error)
     }
 }

@@ -15,8 +15,9 @@ mod tests;
 pub use compose::{Then, ThenError};
 pub use projector::{Projector, ProjectorExt};
 pub use smooth::{Smooth, SmoothConfig, SmoothConfigError};
+pub(crate) use validate::validate_projection;
 pub use validate::{
     ProjectionRelationError, ProjectionTransitionError, ProjectionValidationError,
-    validate_projection, validate_projection_relation, validate_projection_transition,
+    validate_projection_relation, validate_projection_transition,
 };
 pub use value::{Projection, ProjectionBuilder, ProjectionSpan};
