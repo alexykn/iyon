@@ -3,7 +3,12 @@ mod block;
 mod content;
 mod errors;
 mod inline;
+mod markdown;
+mod markdown_options;
+mod plain;
 mod provenance;
+mod render;
+mod source;
 mod validate;
 mod visit;
 
@@ -18,7 +23,11 @@ pub use inline::{
     BreakKind, FormatId, Image, Inline, InlineContent, InlineKind, LanguageId, LinkTarget, Mark,
     MarkSet,
 };
+pub use markdown::{MarkdownProjectionError, MarkdownProjector};
+pub use markdown_options::MarkdownOptions;
+pub use plain::PlainTextProjector;
 pub use provenance::{LiteralText, TextProvenance, TextRun};
+pub use render::{Renderer, SoftBreakPolicy, TextRenderStyle, TextRenderer};
 pub use validate::{validate_text_content, validate_text_projection};
 pub use visit::{
     TextRewriter, TextVisitor, walk_block, walk_content, walk_inline, walk_inline_content,

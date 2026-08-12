@@ -14,6 +14,7 @@ unicode-width.workspace = true
 unicode-linebreak.workspace = true
 tokio.workspace = true
 textwrap = "0.16.2"
+pulldown-cmark.workspace = true
 
 [dev-dependencies]
 vt100.workspace = true
