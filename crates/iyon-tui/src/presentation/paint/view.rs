@@ -173,7 +173,7 @@ impl ViewPainter {
             unreachable!("overflow indicator must be text")
         };
         let indicator = compiler.paint_text(
-            &indicator_text,
+            indicator_text,
             node.rect.width,
             crate::presentation::WidthRule::Fill,
             inherited,
