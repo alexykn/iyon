@@ -130,6 +130,7 @@ impl ComponentRegistry {
         Some(result)
     }
 
+    #[cfg(test)]
     pub(crate) fn capabilities(&self, id: ComponentId) -> Option<ComponentCapabilities> {
         self.slots
             .get(&id)
