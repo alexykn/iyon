@@ -12,6 +12,7 @@ use super::lower::row_changes;
 pub(crate) struct TermwizPresenter {
     presented: Surface,
     known: bool,
+    sync_output_active: bool,
 }
 
 impl TermwizPresenter {
@@ -19,6 +20,7 @@ impl TermwizPresenter {
         Self {
             presented: Surface::new(width, height),
             known: false,
+            sync_output_active: false,
         }
     }
 
@@ -34,12 +36,29 @@ impl TermwizPresenter {
         self.known = false;
     }
 
+    pub(crate) fn finish_sync_output_best_effort<T: Terminal + ?Sized>(
+        &mut self,
+        terminal: &mut T,
+    ) {
+        if !self.sync_output_active {
+            return;
+        }
+
+        #[cfg(unix)]
+        {
+            let _ = terminal.render(&[Change::Text(SYNC_END.to_owned())]);
+            let _ = terminal.flush();
+        }
+        self.sync_output_active = false;
+    }
+
     pub(crate) fn present<T: Terminal + ?Sized>(
         &mut self,
         terminal: &mut T,
         desired: Surface,
     ) -> Result<()> {
         if desired.dimensions() != self.dimensions() {
+            self.finish_sync_output_best_effort(terminal);
             let (width, height) = desired.dimensions();
             self.resize(width, height);
         }
@@ -49,11 +68,17 @@ impl TermwizPresenter {
             return self.apply(terminal, changes, desired);
         }
 
-        let changes = self.presented.diff_screens(&desired);
-        if changes.is_empty() {
+        let finishing_sync = self.sync_output_active;
+        let mut changes = self.presented.diff_screens(&desired);
+        if changes.is_empty() && !finishing_sync {
             return Ok(());
         }
-        self.apply(terminal, with_hidden_cursor(changes, &desired), desired)
+        changes.extend(canonical_terminal_state(desired.dimensions().1));
+        #[cfg(unix)]
+        if finishing_sync {
+            changes.push(Change::Text(SYNC_END.to_owned()));
+        }
+        self.apply(terminal, changes, desired)
     }
 
     pub(crate) fn insert_history<T: Terminal + ?Sized>(
@@ -75,12 +100,23 @@ impl TermwizPresenter {
             self.apply(terminal, changes, retained)?;
         }
 
-        let transaction = native_transaction(&self.presented, rows);
+        let begin_sync = !self.sync_output_active;
+        let transaction = native_transaction(rows, height, begin_sync);
+        let next_presented = model_after_native_scroll(&self.presented, rows.len());
 
         match terminal.render(&transaction).and_then(|_| terminal.flush()) {
-            Ok(()) => Ok(rows.len()),
+            Ok(()) => {
+                self.presented = next_presented;
+                self.known = true;
+                #[cfg(unix)]
+                if begin_sync {
+                    self.sync_output_active = true;
+                }
+                Ok(rows.len())
+            }
             Err(error) => {
                 self.known = false;
+                self.abort_sync_output_best_effort(terminal, begin_sync);
                 Err(anyhow!(error))
             }
         }
@@ -90,11 +126,29 @@ impl TermwizPresenter {
         &mut self,
         terminal: &mut T,
     ) -> Result<()> {
+        self.finish_sync_output_best_effort(terminal);
         let (_, height) = self.dimensions();
-        let changes = canonical_cursor(height);
+        let changes = canonical_terminal_state(height);
         terminal.render(&changes)?;
         terminal.flush()?;
         Ok(())
+    }
+
+    fn abort_sync_output_best_effort<T: Terminal + ?Sized>(
+        &mut self,
+        terminal: &mut T,
+        may_be_active: bool,
+    ) {
+        if !may_be_active && !self.sync_output_active {
+            return;
+        }
+
+        #[cfg(unix)]
+        {
+            let _ = terminal.render(&[Change::Text(SYNC_END.to_owned())]);
+            let _ = terminal.flush();
+        }
+        self.sync_output_active = false;
     }
 
     fn apply<T: Terminal + ?Sized>(
@@ -105,21 +159,35 @@ impl TermwizPresenter {
     ) -> Result<()> {
         if let Err(error) = terminal.render(&changes).and_then(|_| terminal.flush()) {
             self.known = false;
+            self.abort_sync_output_best_effort(terminal, self.sync_output_active);
             return Err(anyhow!(error));
         }
         self.presented = desired;
         self.known = true;
+        self.sync_output_active = false;
         Ok(())
     }
 }
 
-fn native_transaction(presented: &Surface, rows: &[PhysicalRow]) -> Vec<Change> {
-    let (_, height) = presented.dimensions();
+#[cfg(unix)]
+const SYNC_BEGIN: &str = "\x1b[?2026h";
+#[cfg(unix)]
+const SYNC_END: &str = "\x1b[?2026l";
+
+fn native_transaction(rows: &[PhysicalRow], height: usize, begin_sync: bool) -> Vec<Change> {
     let mut transaction = Vec::new();
+    #[cfg(not(unix))]
+    let _ = begin_sync;
+    #[cfg(unix)]
+    if begin_sync {
+        transaction.push(Change::Text(SYNC_BEGIN.to_owned()));
+    }
+
     for chunk in rows.chunks(height) {
         for (row_index, row) in chunk.iter().enumerate() {
             transaction.extend(row_changes(row, row_index, true));
         }
+        transaction.push(Change::AllAttributes(CellAttributes::default()));
         transaction.push(Change::CursorPosition {
             x: Position::Absolute(0),
             y: Position::Absolute(height - 1),
@@ -127,11 +195,33 @@ fn native_transaction(presented: &Surface, rows: &[PhysicalRow]) -> Vec<Change> 
         transaction.push(Change::Text("\r\n".repeat(chunk.len())));
     }
 
-    // Native scrolling invalidates the terminal's active-screen coordinates.
-    // Repaint every retained row before acknowledging the transfer instead of
-    // attempting to infer the terminal's post-scroll screen from a model.
-    transaction.extend(full_repaint_changes(presented));
+    transaction.extend(canonical_terminal_state(height));
     transaction
+}
+
+fn model_after_native_scroll(presented: &Surface, rows: usize) -> Surface {
+    let (_, height) = presented.dimensions();
+    let mut next = presented.clone();
+    if height == 0 {
+        return next;
+    }
+
+    let mut remaining = rows;
+    while remaining > 0 {
+        let count = remaining.min(height);
+        // MODEL-ONLY.
+        //
+        // This Change is applied exclusively to an in-memory Termwiz Surface.
+        // Native terminal scrollback is created only by ordinary full-screen
+        // CRLF. Never emit this ScrollRegionUp to the real terminal.
+        next.add_change(Change::ScrollRegionUp {
+            first_row: 0,
+            region_size: height,
+            scroll_count: count,
+        });
+        remaining -= count;
+    }
+    next
 }
 
 fn full_repaint_changes(surface: &Surface) -> Vec<Change> {
@@ -157,18 +247,14 @@ fn full_repaint_changes(surface: &Surface) -> Vec<Change> {
             changes.push(Change::Text(cell.str().to_string()));
         }
     }
-    changes.extend(canonical_cursor(height));
+    changes.extend(canonical_terminal_state(height));
     changes
 }
 
-fn with_hidden_cursor(mut changes: Vec<Change>, desired: &Surface) -> Vec<Change> {
-    changes.extend(canonical_cursor(desired.dimensions().1));
-    changes
-}
-
-fn canonical_cursor(height: usize) -> Vec<Change> {
+fn canonical_terminal_state(height: usize) -> Vec<Change> {
     let y = height.saturating_sub(1);
     vec![
+        Change::AllAttributes(CellAttributes::default()),
         Change::CursorPosition {
             x: Position::Absolute(0),
             y: Position::Absolute(y),
@@ -183,6 +269,83 @@ mod tests {
     use crate::physical::{PhysicalCell, PhysicalColor, PhysicalRow, PhysicalStyle};
     use termwiz::surface::Change;
 
+    #[cfg(unix)]
+    struct RecordingTerminal {
+        renders: Vec<Vec<Change>>,
+    }
+
+    #[cfg(unix)]
+    impl RecordingTerminal {
+        fn new() -> Self {
+            Self {
+                renders: Vec::new(),
+            }
+        }
+
+        fn text(&self) -> String {
+            self.renders
+                .iter()
+                .flat_map(|changes| changes.iter())
+                .filter_map(|change| match change {
+                    Change::Text(text) => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect()
+        }
+    }
+
+    #[cfg(unix)]
+    impl termwiz::terminal::Terminal for RecordingTerminal {
+        fn set_raw_mode(&mut self) -> termwiz::Result<()> {
+            Ok(())
+        }
+
+        fn set_cooked_mode(&mut self) -> termwiz::Result<()> {
+            Ok(())
+        }
+
+        fn enter_alternate_screen(&mut self) -> termwiz::Result<()> {
+            Ok(())
+        }
+
+        fn exit_alternate_screen(&mut self) -> termwiz::Result<()> {
+            Ok(())
+        }
+
+        fn get_screen_size(&mut self) -> termwiz::Result<termwiz::terminal::ScreenSize> {
+            Ok(termwiz::terminal::ScreenSize {
+                rows: 2,
+                cols: 4,
+                xpixel: 0,
+                ypixel: 0,
+            })
+        }
+
+        fn set_screen_size(&mut self, _size: termwiz::terminal::ScreenSize) -> termwiz::Result<()> {
+            Ok(())
+        }
+
+        fn render(&mut self, changes: &[Change]) -> termwiz::Result<()> {
+            self.renders.push(changes.to_vec());
+            Ok(())
+        }
+
+        fn flush(&mut self) -> termwiz::Result<()> {
+            Ok(())
+        }
+
+        fn poll_input(
+            &mut self,
+            _wait: Option<std::time::Duration>,
+        ) -> termwiz::Result<Option<termwiz::input::InputEvent>> {
+            Ok(None)
+        }
+
+        fn waker(&self) -> termwiz::terminal::TerminalWaker {
+            panic!("recording terminal does not wake")
+        }
+    }
+
     fn surface(text: &str, width: usize, height: usize) -> Surface {
         let mut surface = Surface::new(width, height);
         surface.add_changes(vec![
@@ -193,6 +356,41 @@ mod tests {
             Change::Text(text.to_string()),
         ]);
         surface
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_sync_wraps_multiple_inserts_and_empty_diff_present() {
+        let initial = physical_surface(
+            vec![
+                painted_row("one", 4, PhysicalStyle::default()),
+                painted_row("two", 4, PhysicalStyle::default()),
+            ],
+            4,
+        );
+        let row = PhysicalRow::from_cells(vec![PhysicalCell {
+            grapheme: Some("n".into()),
+            style: PhysicalStyle::default(),
+            painted: true,
+            continuation: false,
+        }]);
+        let mut terminal = RecordingTerminal::new();
+        let mut presenter = TermwizPresenter::new(4, 2);
+        presenter.present(&mut terminal, initial.clone()).unwrap();
+        terminal.renders.clear();
+
+        presenter
+            .insert_history(&mut terminal, std::slice::from_ref(&row))
+            .unwrap();
+        presenter
+            .insert_history(&mut terminal, std::slice::from_ref(&row))
+            .unwrap();
+        let shifted = model_after_native_scroll(&initial, 2);
+        presenter.present(&mut terminal, shifted).unwrap();
+
+        let text = terminal.text();
+        assert_eq!(text.matches(SYNC_BEGIN).count(), 1);
+        assert_eq!(text.matches(SYNC_END).count(), 1);
     }
 
     #[test]
@@ -212,8 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn native_transaction_repairs_the_active_screen_without_region_scrolls() {
-        let presented = surface("hello", 5, 2);
+    fn native_transaction_uses_full_screen_crlf_without_repainting() {
         let row = PhysicalRow::from_cells(vec![
             PhysicalCell {
                 grapheme: Some("a".to_string()),
@@ -234,18 +431,28 @@ mod tests {
                 continuation: false,
             },
         ]);
-        let transaction = native_transaction(&presented, &[row]);
+        let transaction = native_transaction(&[row], 2, false);
         assert!(!transaction.iter().any(|change| matches!(
             change,
-            Change::ScrollRegionUp { .. } | Change::ScrollRegionDown { .. }
+            Change::ClearScreen(_)
+                | Change::ScrollRegionUp { .. }
+                | Change::ScrollRegionDown { .. }
         )));
-
-        let mut actual = presented.clone();
-        actual.add_changes(transaction);
+        assert!(transaction.iter().any(|change| matches!(
+            change,
+            Change::AllAttributes(attrs) if *attrs == CellAttributes::default()
+        )));
         assert_eq!(
-            actual.screen_chars_to_string(),
-            presented.screen_chars_to_string()
+            transaction
+                .iter()
+                .filter(|change| matches!(change, Change::ClearToEndOfLine(_)))
+                .count(),
+            1
         );
+        assert!(transaction.iter().any(|change| matches!(
+            change,
+            Change::Text(text) if text == "\r\n"
+        )));
     }
 
     fn physical_surface(rows: Vec<Vec<PhysicalCell>>, width: u16) -> Surface {
@@ -284,8 +491,16 @@ mod tests {
             for x in 0..model.width {
                 let expected_cell = line.get_cell(x).expect("expected cell");
                 let actual = &model.screen[y][x];
-                assert_eq!(actual.text, expected_cell.str());
-                assert_eq!(actual.attrs, *expected_cell.attrs());
+                assert_eq!(
+                    actual.text,
+                    expected_cell.str(),
+                    "text mismatch at ({x}, {y})"
+                );
+                assert_eq!(
+                    actual.attrs,
+                    *expected_cell.attrs(),
+                    "attrs mismatch at ({x}, {y})"
+                );
             }
         }
     }
@@ -339,6 +554,28 @@ mod tests {
             }
         }
 
+        fn load_surface(&mut self, surface: &Surface) {
+            assert_eq!((self.width, self.height), surface.dimensions());
+            self.screen = surface
+                .screen_lines()
+                .iter()
+                .map(|line| {
+                    (0..self.width)
+                        .map(|x| {
+                            let cell = line.get_cell(x).expect("surface cell");
+                            VirtualCell {
+                                text: cell.str().to_owned(),
+                                attrs: cell.attrs().clone(),
+                            }
+                        })
+                        .collect()
+                })
+                .collect();
+            self.x = 0;
+            self.y = 0;
+            self.attrs = CellAttributes::default();
+        }
+
         fn scroll_up(&mut self) {
             if self.height == 0 {
                 return;
@@ -348,7 +585,7 @@ mod tests {
                 (0..self.width)
                     .map(|_| VirtualCell {
                         text: " ".into(),
-                        attrs: CellAttributes::default(),
+                        attrs: self.attrs.clone(),
                     })
                     .collect(),
             );
@@ -411,7 +648,7 @@ mod tests {
     }
 
     #[test]
-    fn native_transaction_repairs_a_styled_active_screen_in_an_independent_model() {
+    fn native_scroll_matches_the_independent_shifted_model_and_following_diff() {
         let width = 8;
         let bubble_style = PhysicalStyle {
             background: Some(PhysicalColor::Indexed(4)),
@@ -445,9 +682,11 @@ mod tests {
                 continuation: false,
             }]),
         ];
-        let transaction = native_transaction(&presented, &rows);
+        let transaction = native_transaction(&rows, 8, false);
         let mut model = VirtualTerminal::new(width, 8);
+        model.load_surface(&presented);
         model.apply(&transaction);
+        let shifted = model_after_native_scroll(&presented, rows.len());
 
         assert_eq!(
             model
@@ -457,7 +696,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["a       ", "        ", "b       "]
         );
-        assert_virtual_screen_matches_surface(&model, &presented);
+        assert_virtual_screen_matches_surface(&model, &shifted);
 
         let next = physical_surface(
             vec![
@@ -472,8 +711,7 @@ mod tests {
             ],
             width as u16,
         );
-        let mut actual = presented.clone();
-        actual.add_changes(transaction);
+        let mut actual = shifted.clone();
         actual.add_changes(actual.diff_screens(&next));
         assert_surface_state_equal(&actual, &next);
     }
@@ -528,7 +766,7 @@ mod tests {
     }
 
     #[test]
-    fn native_repair_then_changed_frame_reaches_exact_styled_state() {
+    fn native_shift_then_changed_frame_reaches_exact_styled_state() {
         let a = physical_surface(
             vec![vec![
                 PhysicalCell {
@@ -551,15 +789,7 @@ mod tests {
             ]],
             4,
         );
-        let native = PhysicalRow::from_cells(vec![PhysicalCell {
-            grapheme: Some("n".into()),
-            style: PhysicalStyle::default(),
-            painted: true,
-            continuation: false,
-        }]);
-        let mut actual = a.clone();
-        actual.add_changes(native_transaction(&a, &[native]));
-        assert_surface_state_equal(&actual, &a);
+        let mut actual = model_after_native_scroll(&a, 1);
 
         let b = physical_surface(
             vec![vec![
@@ -581,56 +811,63 @@ mod tests {
     }
 
     #[test]
-    fn resize_preserves_retained_overlap_for_native_repair() {
-        let mut retained = physical_surface(
-            vec![vec![
-                PhysicalCell {
-                    grapheme: Some("A".into()),
-                    style: PhysicalStyle::default(),
-                    painted: true,
-                    continuation: false,
-                },
-                PhysicalCell {
-                    grapheme: Some("B".into()),
-                    style: PhysicalStyle::default(),
-                    painted: true,
-                    continuation: false,
-                },
-            ]],
-            2,
+    fn native_transaction_handles_batches_larger_than_the_screen() {
+        let presented = physical_surface(
+            vec![
+                painted_row("zero", 4, PhysicalStyle::default()),
+                painted_row("one ", 4, PhysicalStyle::default()),
+                painted_row("two ", 4, PhysicalStyle::default()),
+                painted_row("three", 4, PhysicalStyle::default()),
+            ],
+            4,
         );
-        retained.resize(3, 2);
-        let expected = retained.clone();
-        retained.add_changes(native_transaction(
-            &expected,
-            &[PhysicalRow::from_cells(vec![PhysicalCell {
-                grapheme: Some("n".into()),
-                style: PhysicalStyle::default(),
-                painted: true,
-                continuation: false,
-            }])],
-        ));
-        assert_surface_state_equal(&retained, &expected);
+
+        for count in [1, 2, 3, 4, 5, 8] {
+            let rows = (0..count)
+                .map(|index| {
+                    PhysicalRow::from_cells(vec![PhysicalCell {
+                        grapheme: Some(char::from(b'a' + (index % 26) as u8).to_string()),
+                        style: Default::default(),
+                        painted: true,
+                        continuation: false,
+                    }])
+                })
+                .collect::<Vec<_>>();
+            let transaction = native_transaction(&rows, 4, false);
+            let mut model = VirtualTerminal::new(4, 4);
+            model.load_surface(&presented);
+            model.apply(&transaction);
+            let shifted = model_after_native_scroll(&presented, rows.len());
+            assert_virtual_screen_matches_surface(&model, &shifted);
+        }
     }
 
     #[test]
-    fn native_transaction_handles_batches_larger_than_the_screen() {
-        let presented = surface("1234", 4, 2);
-        let rows = (0..5)
-            .map(|index| {
-                PhysicalRow::from_cells(vec![PhysicalCell {
-                    grapheme: Some(char::from(b'a' + index).to_string()),
-                    style: Default::default(),
-                    painted: true,
-                    continuation: false,
-                }])
-            })
-            .collect::<Vec<_>>();
-        let mut actual = presented.clone();
-        actual.add_changes(native_transaction(&presented, &rows));
-        assert_eq!(
-            actual.screen_chars_to_string(),
-            presented.screen_chars_to_string()
+    fn native_scroll_resets_attributes_before_exposing_new_rows() {
+        let width = 4;
+        let blue = PhysicalStyle {
+            background: Some(PhysicalColor::Indexed(4)),
+            ..PhysicalStyle::default()
+        };
+        let row = PhysicalRow::from_cells(painted_row("blue", width, blue));
+        let mut broken = VirtualTerminal::new(width, 2);
+        broken.apply(&row_changes(&row, 0, true));
+        broken.apply(&[
+            Change::CursorPosition {
+                x: Position::Absolute(0),
+                y: Position::Absolute(1),
+            },
+            Change::Text("\\r\\n".into()),
+        ]);
+        assert!(broken.screen[1][0].attrs != CellAttributes::default());
+
+        let transaction = native_transaction(&[row], 2, false);
+        let mut correct = VirtualTerminal::new(width, 2);
+        correct.apply(&transaction);
+        assert!(
+            correct.screen[1]
+                .iter()
+                .all(|cell| cell.attrs == CellAttributes::default())
         );
     }
 }

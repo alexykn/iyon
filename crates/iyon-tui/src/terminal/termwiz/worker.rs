@@ -52,6 +52,7 @@ pub(crate) fn run(
 
     size_sender.send_replace(size);
     if startup.send(Ok(Startup { waker })).is_err() {
+        presenter.finish_sync_output_best_effort(&mut *terminal);
         let _ = restore_terminal(&mut *terminal);
         return;
     }
@@ -74,6 +75,7 @@ pub(crate) fn run(
                 let result = terminal
                     .get_screen_size()
                     .and_then(|size| {
+                        presenter.finish_sync_output_best_effort(&mut *terminal);
                         presenter.resize(size.cols, size.rows);
                         Ok(crate::geometry::Size::new(
                             u16::try_from(size.cols)
@@ -108,6 +110,7 @@ pub(crate) fn run(
         }
     }
 
+    presenter.finish_sync_output_best_effort(&mut *terminal);
     let _ = restore_terminal(&mut *terminal);
 }
 
@@ -184,6 +187,7 @@ fn handle_command(
             false
         }
         TerminalCommand::Restore { reply } => {
+            presenter.finish_sync_output_best_effort(terminal);
             let result = restore_terminal(terminal);
             let _ = reply.send(result);
             true
@@ -194,7 +198,10 @@ fn handle_command(
 fn restore_terminal(terminal: &mut dyn Terminal) -> Result<()> {
     let mut first_error = None;
     if let Err(error) = terminal
-        .render(&[Change::CursorVisibility(CursorVisibility::Visible)])
+        .render(&[
+            Change::AllAttributes(Default::default()),
+            Change::CursorVisibility(CursorVisibility::Visible),
+        ])
         .and_then(|_| terminal.flush())
     {
         first_error = Some(anyhow!(error));
