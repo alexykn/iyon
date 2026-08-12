@@ -11,10 +11,7 @@ pub(crate) use command::{ComponentCapabilities, MountedCapabilities};
 pub(crate) use focus::FocusState;
 pub use key::{Key, KeyStroke, MediaKey, ModifierKey, Modifiers};
 pub use result::InteractionResult;
-pub(crate) use routing::{KeyRouter, route_paste, route_paste_interceptor};
-
-#[cfg(test)]
-pub(crate) use routing::route_key_local;
+pub(crate) use routing::{route_key_local, route_paste, route_paste_interceptor};
 
 #[cfg(test)]
 mod tests;

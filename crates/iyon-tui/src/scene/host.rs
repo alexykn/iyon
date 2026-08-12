@@ -14,8 +14,8 @@ use crate::{
     component::{ComponentRegistry, MountGraph, MountedComponents, TickOutcome, TickScheduler},
     geometry::Size,
     interaction::{
-        FocusState, InteractionResult, KeyRouter, KeyStroke, MountedCapabilities, route_paste,
-        route_paste_interceptor,
+        FocusState, InteractionResult, KeyStroke, MountedCapabilities, route_key_local,
+        route_paste, route_paste_interceptor,
     },
     output::{OutputQueue, OutputRouter},
     physical::Surface,
@@ -46,7 +46,6 @@ pub(crate) struct SceneHost {
     mounted: MountedComponents,
     synchronizer: LayoutSynchronizer,
     focus: FocusState,
-    key_router: KeyRouter,
     ticker: TickScheduler,
     outputs: OutputQueue,
     graph: MountGraph,
@@ -59,7 +58,6 @@ impl Default for SceneHost {
             mounted: MountedComponents::default(),
             synchronizer: LayoutSynchronizer::default(),
             focus: FocusState::default(),
-            key_router: KeyRouter::new(),
             ticker: TickScheduler::new(),
             outputs: OutputQueue::new(),
             graph: MountGraph::default(),
@@ -97,7 +95,7 @@ impl SceneHost {
         key: KeyStroke,
         registry: &mut ComponentRegistry,
     ) -> InteractionResult {
-        self.key_router.dispatch_local(
+        route_key_local(
             key,
             &mut self.focus,
             &self.graph,

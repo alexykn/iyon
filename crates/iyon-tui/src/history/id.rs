@@ -1,10 +1,8 @@
 //! Opaque identity for ordered semantic history units.
 
-use std::{
-    fmt,
-    num::NonZeroU64,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{fmt, num::NonZeroU64, sync::atomic::AtomicU64};
+
+use crate::id::next_nonzero_id;
 
 static NEXT_HISTORY_UNIT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -14,11 +12,7 @@ pub struct HistoryUnitId(NonZeroU64);
 
 impl HistoryUnitId {
     pub(crate) fn allocate() -> Self {
-        let value = NEXT_HISTORY_UNIT_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                current.checked_add(1)
-            })
-            .unwrap_or_else(|_| panic!("history unit id exhausted"));
+        let value = next_nonzero_id(&NEXT_HISTORY_UNIT_ID, "history unit id exhausted");
         Self(NonZeroU64::new(value).expect("history unit id must be nonzero"))
     }
 

@@ -1,5 +1,7 @@
 //! Public semantic terminal-root composition.
 
+use std::collections::HashSet;
+
 use crate::{History, IntoView, View};
 
 /// The semantic root of a terminal application.
@@ -60,7 +62,7 @@ impl Scene {
 }
 
 use crate::{
-    component::ComponentRegistry,
+    component::{ComponentId, ComponentRegistry},
     geometry::Size,
     history::{HistoryPhysicalOverlay, project_into_session_for_host},
     presentation::{
@@ -81,44 +83,39 @@ pub(crate) struct ResolvedRootScene {
     pub(crate) body_height: u16,
 }
 
-/// Resolves a semantic root with one component-resolution domain.
-///
-/// The first resolution is a read-only body measurement prepass. The real
-/// session then resolves History first and Body second, preserving visual and
-/// mount order across the root boundary.
+/// Resolves a semantic root by resolving the body once and the root-level
+/// History independently, then merging both resolution domains in visual order.
 pub(crate) fn resolve_root_scene(
     root: &Scene,
     registry: &ComponentRegistry,
     size: Size,
 ) -> Result<ResolvedRootScene, ResolveError> {
-    let body_height = body_height(root.body(), registry, size.width, size.height)?;
+    let body_scene = resolve_branch(root.body(), registry)?;
+    let body_height = measure_view(&body_scene.view, size.width)
+        .height
+        .min(size.height);
     let history_height = root
         .history
         .as_ref()
         .map_or(0, |_| size.height.saturating_sub(body_height));
 
-    let mut session = ResolveSession::new(registry);
-    let (history_view, history_overlay, history_overflow_rows) = match root.history.as_ref() {
+    let (history_scene, history_overlay, history_overflow_rows) = match root.history.as_ref() {
         Some(history) => {
+            let mut session = ResolveSession::new(registry);
             let projection = project_into_session_for_host(
                 history,
                 Size::new(size.width, history_height),
                 &mut session,
             )?;
             (
-                projection.view,
+                Some(session.finish(projection.view)),
                 projection.frozen_overlay,
                 projection.overflow_rows,
             )
         }
-        None => (View::spacer(0), None, 0),
+        None => (None, None, 0),
     };
-    let body_view = session
-        .resolve_root(root.body())?
-        .fill_width()
-        .fill_height();
-    let root_view = root_view(root.history.is_some().then_some(history_view), body_view);
-    let scene = session.finish(root_view);
+    let scene = merge_root_scene(history_scene, body_scene)?;
 
     Ok(ResolvedRootScene {
         scene,
@@ -129,15 +126,54 @@ pub(crate) fn resolve_root_scene(
     })
 }
 
-fn body_height(
-    body: &View,
+fn resolve_branch(
+    view: &View,
     registry: &ComponentRegistry,
-    width: u16,
-    terminal_height: u16,
-) -> Result<u16, ResolveError> {
+) -> Result<ResolvedScene, ResolveError> {
     let mut session = ResolveSession::new(registry);
-    let resolved = session.resolve_root(body)?;
-    Ok(measure_view(&resolved, width).height.min(terminal_height))
+    let view = session.resolve_root(view)?;
+    Ok(session.finish(view))
+}
+
+fn merge_root_scene(
+    history: Option<ResolvedScene>,
+    body: ResolvedScene,
+) -> Result<ResolvedScene, ResolveError> {
+    let Some(history) = history else {
+        let body_view = body.view.fill_width().fill_height();
+        return Ok(ResolvedScene {
+            view: root_view(None, body_view),
+            mounts: body.mounts,
+            capabilities: body.capabilities,
+        });
+    };
+
+    ensure_disjoint_mounts(&history, &body)?;
+    let history_view = history.view;
+    let body_view = body.view.fill_width().fill_height();
+    let mut mounts = history.mounts.nodes;
+    mounts.extend(body.mounts.nodes);
+    let mut capabilities = history.capabilities;
+    capabilities.entries.extend(body.capabilities.entries);
+
+    Ok(ResolvedScene {
+        view: root_view(Some(history_view), body_view),
+        mounts: crate::component::MountGraph::new(mounts),
+        capabilities,
+    })
+}
+
+fn ensure_disjoint_mounts(
+    history: &ResolvedScene,
+    body: &ResolvedScene,
+) -> Result<(), ResolveError> {
+    let body_ids = body.mounts.ids().collect::<HashSet<ComponentId>>();
+    for id in history.mounts.ids() {
+        if body_ids.contains(&id) {
+            return Err(ResolveError::DuplicateComponent { id });
+        }
+    }
+    Ok(())
 }
 
 fn root_view(history: Option<View>, body: View) -> View {

@@ -300,8 +300,8 @@ where
         self.ingress.as_mut()?.recv().await
     }
 
-    pub(crate) fn collect_external_pending(&mut self) {
-        for _ in 0..ACTION_BATCH_BUDGET {
+    fn drain_ingress(&mut self, budget: usize) {
+        for _ in 0..budget {
             let Some(ingress) = self.ingress.as_mut() else {
                 break;
             };
@@ -316,21 +316,13 @@ where
         }
     }
 
+    pub(crate) fn collect_external_pending(&mut self) {
+        self.drain_ingress(ACTION_BATCH_BUDGET);
+    }
+
     pub(crate) fn collect_external(&mut self, first: Action) {
         self.actions.push_back(first);
-        for _ in 1..ACTION_BATCH_BUDGET {
-            let Some(ingress) = self.ingress.as_mut() else {
-                break;
-            };
-            match ingress.try_recv() {
-                Ok(action) => self.actions.push_back(action),
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    self.close_ingress();
-                    break;
-                }
-            }
-        }
+        self.drain_ingress(ACTION_BATCH_BUDGET.saturating_sub(1));
     }
 
     pub(crate) fn drain_deferred_pastes(&mut self) -> Result<(), KernelError<Error>> {

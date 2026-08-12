@@ -22,6 +22,13 @@ impl MountGraph {
         self.nodes.iter().any(|node| node.id == id)
     }
 
+    pub(crate) fn parent(&self, id: ComponentId) -> Option<ComponentId> {
+        self.nodes
+            .iter()
+            .find(|node| node.id == id)
+            .and_then(|node| node.parent)
+    }
+
     pub(crate) fn ids(&self) -> impl Iterator<Item = ComponentId> + '_ {
         self.nodes.iter().map(|node| node.id)
     }
@@ -32,11 +39,7 @@ impl MountGraph {
             if candidate == ancestor {
                 return true;
             }
-            current = self
-                .nodes
-                .iter()
-                .find(|node| node.id == candidate)
-                .and_then(|node| node.parent);
+            current = self.parent(candidate);
         }
         false
     }

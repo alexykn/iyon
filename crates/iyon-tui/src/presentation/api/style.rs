@@ -424,6 +424,12 @@ impl ThemeKey {
     }
 }
 
+impl std::borrow::Borrow<str> for ThemeKey {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
 impl From<&str> for ThemeKey {
     fn from(value: &str) -> Self {
         Self(value.to_string())

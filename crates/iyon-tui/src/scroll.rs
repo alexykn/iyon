@@ -1,7 +1,7 @@
 //! Generic retained local scrolling for arbitrary semantic Views.
 
 use crate::{
-    Component, ComponentCx, InteractionResult, Key, KeyStroke, Modifiers, View, geometry::Size,
+    Component, ComponentCx, InteractionResult, KeyStroke, View, geometry::Size,
     presentation::IntoView, presentation::layout::measure_view,
 };
 
@@ -9,16 +9,6 @@ use crate::{
 enum ScrollMode {
     FollowEnd,
     Detached { top_row: usize },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ScrollCommand {
-    LineUp,
-    LineDown,
-    PageUp,
-    PageDown,
-    Start,
-    End,
 }
 
 /// A focusable retained viewport for arbitrary semantic content.
@@ -147,41 +137,30 @@ impl ScrollPane {
         self.repair_detached();
     }
 
-    fn map_command(&self, key: KeyStroke) -> Option<ScrollCommand> {
-        if key.modifiers() != Modifiers::NONE {
-            return None;
-        }
-        match key.key() {
-            Key::Up => Some(ScrollCommand::LineUp),
-            Key::Down => Some(ScrollCommand::LineDown),
-            Key::PageUp => Some(ScrollCommand::PageUp),
-            Key::PageDown => Some(ScrollCommand::PageDown),
-            Key::Home => Some(ScrollCommand::Start),
-            Key::End => Some(ScrollCommand::End),
-            _ => None,
-        }
+    fn map_command(&self, key: KeyStroke) -> Option<crate::scroll_command::ScrollCommand> {
+        crate::scroll_command::map_scroll_key(key)
     }
 
     fn handle_command(
         &mut self,
-        command: ScrollCommand,
+        command: crate::scroll_command::ScrollCommand,
         _cx: &mut crate::EventCx<'_>,
     ) -> InteractionResult {
         match command {
-            ScrollCommand::LineUp => {
+            crate::scroll_command::ScrollCommand::LineUp => {
                 self.scroll_up(1);
             }
-            ScrollCommand::LineDown => {
+            crate::scroll_command::ScrollCommand::LineDown => {
                 self.scroll_down(1);
             }
-            ScrollCommand::PageUp => {
+            crate::scroll_command::ScrollCommand::PageUp => {
                 self.page_up();
             }
-            ScrollCommand::PageDown => {
+            crate::scroll_command::ScrollCommand::PageDown => {
                 self.page_down();
             }
-            ScrollCommand::Start => self.scroll_to_start(),
-            ScrollCommand::End => self.follow_end(),
+            crate::scroll_command::ScrollCommand::Start => self.scroll_to_start(),
+            crate::scroll_command::ScrollCommand::End => self.follow_end(),
         }
         InteractionResult::Consumed
     }

@@ -5,28 +5,6 @@ use crate::{
 
 use super::{FocusState, InteractionResult, KeyStroke, MountedCapabilities};
 
-/// Private framework keyboard router.
-#[derive(Default)]
-pub(crate) struct KeyRouter;
-
-impl KeyRouter {
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
-    pub(crate) fn dispatch_local(
-        &self,
-        key: KeyStroke,
-        focus: &mut FocusState,
-        graph: &MountGraph,
-        capabilities: &MountedCapabilities,
-        registry: &mut ComponentRegistry,
-        queue: &mut OutputQueue,
-    ) -> InteractionResult {
-        route_key_local(key, focus, graph, capabilities, registry, queue)
-    }
-}
-
 pub(crate) fn route_paste_interceptor<A>(
     text: &str,
     focus: &FocusState,
