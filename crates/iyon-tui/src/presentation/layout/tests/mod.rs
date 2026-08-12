@@ -345,3 +345,125 @@ fn view_height_bounds_include_padding_and_border() {
 mod flow;
 mod style;
 mod text;
+
+#[test]
+#[ignore = "local release-mode characterization probe"]
+fn layout_performance_probe() {
+    use std::time::Instant;
+
+    let long_transcript = (0..80)
+        .map(|index| format!("assistant line {index}: a moderately long transcript sentence"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let cases = vec![
+        ("simple_text", View::text("hello world").into_view()),
+        (
+            "wrapped_text",
+            View::text("one two three four five six seven eight nine ten")
+                .fill_width()
+                .into_view(),
+        ),
+        (
+            "nested_row_column",
+            View::vertical(|column| {
+                column.child(View::horizontal(|row| {
+                    row.child(View::text("left"));
+                    row.flex(View::text("right").fill_width());
+                }));
+                column.child(View::text("body").fill_width());
+            }),
+        ),
+        (
+            "long_transcript",
+            View::text(&long_transcript).fill_width().into_view(),
+        ),
+        (
+            "user_bubble",
+            View::text("user message with decoration")
+                .fill_width()
+                .padding(Insets::horizontal(1))
+                .border(BorderSpec::rounded())
+                .background(ColorSpec::ansi(4))
+                .into_view(),
+        ),
+        (
+            "hanging",
+            View::hanging(
+                View::text("10. ").no_wrap(),
+                View::text("    ").no_wrap(),
+                View::text("one two three four five six").fill_width(),
+            )
+            .fill_width(),
+        ),
+        (
+            "bounded_live_tool_scroll_pane",
+            View::row_viewport(View::text(&long_transcript).into_view(), 20),
+        ),
+        (
+            "scene_body",
+            View::vertical(|column| {
+                column.child(View::text("body"));
+            }),
+        ),
+    ];
+    let iterations = 100;
+
+    for (name, view) in cases {
+        for width in [40, 80, 120, 160] {
+            let width_start = Instant::now();
+            for _ in 0..iterations {
+                std::hint::black_box(
+                    ViewCompiler::default()
+                        .layout_tree(&view, LayoutConstraints::width_only(width)),
+                );
+            }
+            let width_elapsed = width_start.elapsed();
+
+            for height in [10, 24, 50] {
+                let bounded_start = Instant::now();
+                for _ in 0..iterations {
+                    std::hint::black_box(
+                        ViewCompiler::default().layout_tree(
+                            &view,
+                            LayoutConstraints::bounded(Size::new(width, height)),
+                        ),
+                    );
+                }
+                let bounded_elapsed = bounded_start.elapsed();
+
+                let paint_start = Instant::now();
+                for _ in 0..iterations {
+                    std::hint::black_box(
+                        ViewCompiler::default()
+                            .compile_bounded_for_probe(&view, Size::new(width, height)),
+                    );
+                }
+                let paint_elapsed = paint_start.elapsed();
+                println!(
+                    "{name:32} width={width:3} height={height:2} width_only={:?} bounded={:?} paint={:?}",
+                    width_elapsed, bounded_elapsed, paint_elapsed
+                );
+            }
+        }
+    }
+}
+
+impl ViewCompiler {
+    fn compile_bounded_for_probe(&self, view: &View, size: Size) -> LayoutBlock {
+        let tree = self.layout_tree(view, LayoutConstraints::bounded(size));
+        let surface = ViewPainter.paint_tree(self, &tree);
+        LayoutBlock {
+            width: surface.width(),
+            rows: (0..surface.height())
+                .map(|y| {
+                    PhysicalRow::from_cells(
+                        (0..surface.width())
+                            .map(|x| surface.get(x, y).clone())
+                            .collect(),
+                    )
+                })
+                .collect(),
+            physically_complete: tree.physically_complete && surface.physically_complete,
+        }
+    }
+}
