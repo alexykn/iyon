@@ -4,9 +4,10 @@ use super::{coord::StreamOffset, snapshot::StreamSnapshot};
 
 /// Trait for synchronous append-only streaming content.
 ///
-/// Implementations use UTF-8 byte offsets for source coordinates. The trait
-/// intentionally has no `Send`, `Sync`, `Debug`, `Clone`, async, or ticking
-/// requirement.
+/// A source chooses one monotonic root-coordinate convention for its
+/// lifetime. Text sources use UTF-8 byte offsets; record or event sources may
+/// use ordinals. The trait intentionally has no `Send`, `Sync`, `Debug`,
+/// `Clone`, async, or ticking requirement.
 pub trait StreamingSource: 'static {
     /// Width-independent semantic presentation of the current unacknowledged stream state.
     fn snapshot(&self) -> StreamSnapshot;

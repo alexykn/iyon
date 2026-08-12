@@ -1,10 +1,10 @@
 //! Opaque stream coordinates.
 
-/// Monotonic UTF-8 byte coordinate within a stream's source space.
+/// Opaque monotonic coordinate within one stream's root source space.
 ///
-/// Current stream sources use source byte offsets; projected mappings must
-/// preserve that unit rather than substituting display-cell or grapheme
-/// coordinates.
+/// Text sources conventionally use UTF-8 byte offsets. Other sources may use
+/// event or record ordinals. Exact text projection APIs remain byte-specific;
+/// arbitrary-coordinate values must use replacement or atomic boundaries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct StreamOffset(pub(crate) u64);
 
@@ -58,7 +58,8 @@ impl StreamRevision {
     }
 }
 
-/// A half-open UTF-8 source-byte range `[start, end)`.
+/// A half-open range `[start, end)` in one stream's root coordinate space.
+/// For text-specific APIs this range is a UTF-8 byte range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct StreamRange {
     pub(crate) start: StreamOffset,
