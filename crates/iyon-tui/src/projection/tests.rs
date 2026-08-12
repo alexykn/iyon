@@ -695,15 +695,18 @@ fn smooth_composes_temporally_and_project_observes_release() {
     .emit(range(2, 3), 3u8)
     .finish()
     .unwrap();
-    let mut pipeline = Smooth::default().then(Identity);
+    let config =
+        SmoothConfig::new(std::time::Duration::from_millis(16), 2.0, 1_000.0, 1_000.0).unwrap();
+    let mut pipeline = Smooth::new(config).then(Identity);
     let first = pipeline.project(&input).unwrap();
     assert_eq!(first.source_end(), StreamOffset::new(1));
     let now = Instant::now();
     assert!(!pipeline.advance(now));
-    assert!(pipeline.next_wakeup().is_some());
-    let _ = pipeline.advance(now + std::time::Duration::from_millis(16));
+    let due = now + std::time::Duration::from_millis(16);
+    assert_eq!(pipeline.next_wakeup(), Some(due));
+    assert!(pipeline.advance(due));
     let output = pipeline.project(&input).unwrap();
-    assert!(output.source_end() >= StreamOffset::new(1));
+    assert!(output.source_end() > StreamOffset::new(1));
 }
 
 #[test]
