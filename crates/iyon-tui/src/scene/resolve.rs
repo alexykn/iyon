@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{collections::HashSet, fmt};
 
 use crate::{
     component::{ComponentId, ComponentRegistry, MountGraph, MountNode},
@@ -54,7 +54,7 @@ impl<'a> ResolveSession<'a> {
                 registry,
                 mounts: Vec::new(),
                 capabilities: MountedCapabilities::default(),
-                seen: Vec::new(),
+                seen: HashSet::new(),
                 active: Vec::new(),
             },
         }
@@ -77,7 +77,7 @@ struct Resolver<'a> {
     registry: &'a ComponentRegistry,
     mounts: Vec<MountNode>,
     capabilities: MountedCapabilities,
-    seen: Vec<ComponentId>,
+    seen: HashSet<ComponentId>,
     active: Vec<ComponentId>,
 }
 
@@ -144,10 +144,7 @@ impl Resolver<'_> {
             ViewKind::ComponentSlot(slot) => return self.resolve_slot(view, slot.id, parent),
         };
 
-        let mut resolved = view.clone();
-        resolved.kind = kind;
-        resolved.component_scope = parent;
-        Ok(resolved)
+        Ok(view.clone_shell_with(kind, parent))
     }
 
     fn resolve_slot(
@@ -156,7 +153,7 @@ impl Resolver<'_> {
         id: ComponentId,
         parent: Option<ComponentId>,
     ) -> Result<View, ResolveError> {
-        let Some((component_view, revision)) = self.registry.view_for_resolution(id) else {
+        let Some(snapshot) = self.registry.resolution(id) else {
             return Err(ResolveError::MissingComponent { id });
         };
         if let Some(position) = self.active.iter().position(|active| *active == id) {
@@ -164,24 +161,17 @@ impl Resolver<'_> {
             path.push(id);
             return Err(ResolveError::ComponentCycle { path });
         }
-        if self.seen.contains(&id) {
+        if !self.seen.insert(id) {
             return Err(ResolveError::DuplicateComponent { id });
         }
-
-        self.seen.push(id);
         self.mounts.push(MountNode {
             id,
             parent,
-            revision,
+            revision: snapshot.revision,
         });
-        self.capabilities.insert(
-            id,
-            self.registry
-                .capabilities(id)
-                .expect("registered component capabilities disappeared during resolution"),
-        );
+        self.capabilities.insert(id, snapshot.capabilities);
         self.active.push(id);
-        let resolved = self.resolve_view(&component_view, Some(id));
+        let resolved = self.resolve_view(&snapshot.view, Some(id));
         self.active.pop();
         let resolved = resolved?;
 

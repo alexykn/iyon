@@ -465,7 +465,7 @@ fn snapshot_metadata_does_not_create_a_live_mount() {
     let handle = registry.register(Label {
         text: "snapshot".into(),
     });
-    let snapshot = registry.view_for_resolution(handle.id()).unwrap().0;
+    let snapshot = registry.resolution(handle.id()).unwrap().view;
     let resolved = resolve_scene(&snapshot, &registry).unwrap();
 
     assert_eq!(resolved.view, snapshot);
