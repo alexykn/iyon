@@ -40,6 +40,12 @@ where
     }
 }
 
+pub(crate) struct ComponentResolution {
+    pub(crate) view: View,
+    pub(crate) revision: ComponentRevision,
+    pub(crate) capabilities: ComponentCapabilities,
+}
+
 struct ComponentEntry {
     component: Box<dyn ErasedComponent>,
     revision: ComponentRevision,
@@ -130,6 +136,15 @@ impl ComponentRegistry {
             .map(|entry| entry.component.capabilities())
     }
 
+    pub(crate) fn resolution(&self, id: ComponentId) -> Option<ComponentResolution> {
+        let entry = self.slots.get(&id)?;
+        Some(ComponentResolution {
+            view: entry.component.view(),
+            revision: entry.revision,
+            capabilities: entry.component.capabilities(),
+        })
+    }
+
     pub(crate) fn with_mut<C, R>(
         &mut self,
         handle: ComponentHandle<C>,
@@ -169,12 +184,5 @@ impl ComponentRegistry {
     {
         let entry = self.slots.get(&handle.id())?;
         entry.component.as_any().is::<C>().then_some(entry.revision)
-    }
-
-    /// Resolver-only snapshot access. Unlike `render`, this returns the raw
-    /// semantic component view without attaching ownership metadata.
-    pub(crate) fn view_for_resolution(&self, id: ComponentId) -> Option<(View, ComponentRevision)> {
-        let entry = self.slots.get(&id)?;
-        Some((entry.component.view(), entry.revision))
     }
 }

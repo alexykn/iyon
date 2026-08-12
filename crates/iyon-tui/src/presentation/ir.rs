@@ -29,6 +29,22 @@ pub struct View {
 }
 
 impl View {
+    pub(crate) fn clone_shell_with(
+        &self,
+        kind: ViewKind,
+        component_scope: Option<ComponentId>,
+    ) -> Self {
+        Self {
+            component: self.component,
+            width: self.width,
+            height: self.height,
+            decoration: self.decoration.clone(),
+            style_states: self.style_states.clone(),
+            component_scope,
+            kind,
+        }
+    }
+
     pub(crate) fn contains_component_identity(&self) -> bool {
         if self.component.is_some() {
             return true;
