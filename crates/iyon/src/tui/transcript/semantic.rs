@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use iyon_tui::stream::StreamingSource;
 use iyon_tui::{ColorSpec, Insets, IntoView, OverflowIndicator, ThemeKey, View};
 
@@ -25,27 +23,6 @@ impl AssistantSegment {
         match self {
             Self::Text(text) | Self::Thinking(text) => text,
         }
-    }
-}
-
-pub(crate) fn think_to_text_newline<'a>(
-    segments: &[AssistantSegment],
-    kind: SegmentKind,
-    chunk: &'a str,
-) -> Cow<'a, str> {
-    if kind == SegmentKind::Text
-        && !chunk.starts_with('\n')
-        && matches!(
-            segments.last(),
-            Some(AssistantSegment::Thinking(text)) if !text.ends_with('\n')
-        )
-    {
-        let mut value = String::with_capacity(chunk.len() + 2);
-        value.push_str("\n\n");
-        value.push_str(chunk);
-        Cow::Owned(value)
-    } else {
-        Cow::Borrowed(chunk)
     }
 }
 

@@ -1,7 +1,7 @@
 //! Assistant pacing/source lifecycle over the generic text pipeline.
 
 use crate::transcript::pipeline::{AssistantPipeline, assistant_presentation, assistant_renderer};
-use crate::transcript::semantic::{AssistantSegment, SegmentKind, think_to_text_newline};
+use crate::transcript::semantic::SegmentKind;
 use std::time::Instant;
 
 use iyon_tui::projection::ProjectionBuilder;
@@ -21,7 +21,8 @@ pub(crate) struct AssistantPacingAtom {
 pub(crate) struct AssistantStream {
     source_base: StreamOffset,
     received_end: StreamOffset,
-    received_segments: Vec<AssistantSegment>,
+    last_received_kind: Option<SegmentKind>,
+    last_received_ends_with_newline: bool,
     pacing_atoms: Vec<(StreamRange, AssistantPacingAtom)>,
     pipeline: AssistantPipeline,
     pacing_input: Projection<AssistantPacingAtom>,
@@ -54,7 +55,8 @@ impl AssistantStream {
         Self {
             source_base: StreamOffset::ZERO,
             received_end: StreamOffset::ZERO,
-            received_segments: Vec::new(),
+            last_received_kind: None,
+            last_received_ends_with_newline: false,
             pacing_atoms: Vec::new(),
             pipeline: AssistantPipeline::default(),
             pacing_input,
@@ -80,8 +82,20 @@ impl AssistantStream {
         if chunk.is_empty() {
             return;
         }
-        let chunk = think_to_text_newline(&self.received_segments, kind, chunk).into_owned();
-        append_segment(&mut self.received_segments, kind, &chunk);
+        let normalized = kind == SegmentKind::Text
+            && self.last_received_kind == Some(SegmentKind::Thinking)
+            && !self.last_received_ends_with_newline
+            && !chunk.starts_with('\n');
+        let chunk = if normalized {
+            let mut value = String::with_capacity(chunk.len() + 2);
+            value.push_str("\n\n");
+            value.push_str(chunk);
+            value
+        } else {
+            chunk.to_owned()
+        };
+        self.last_received_kind = Some(kind);
+        self.last_received_ends_with_newline = chunk.ends_with('\n');
         let mut cursor = self.received_end;
         for character in chunk.chars() {
             let end = cursor.saturating_add(character.len_utf8() as u64);
@@ -166,22 +180,6 @@ impl AssistantStream {
             .pacing_atoms
             .partition_point(|(range, _)| range.end() <= restart);
         self.pacing_atoms.drain(..removed);
-    }
-}
-
-fn append_segment(segments: &mut Vec<AssistantSegment>, kind: SegmentKind, text: &str) {
-    if text.is_empty() {
-        return;
-    }
-    match kind {
-        SegmentKind::Text => match segments.last_mut() {
-            Some(AssistantSegment::Text(existing)) => existing.push_str(text),
-            _ => segments.push(AssistantSegment::Text(text.to_owned())),
-        },
-        SegmentKind::Thinking => match segments.last_mut() {
-            Some(AssistantSegment::Thinking(existing)) => existing.push_str(text),
-            _ => segments.push(AssistantSegment::Thinking(text.to_owned())),
-        },
     }
 }
 

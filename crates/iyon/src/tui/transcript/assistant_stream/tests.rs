@@ -20,7 +20,7 @@ struct Runs {
     text: String,
     thinking: Vec<String>,
     marked: Vec<(String, Vec<Mark>, bool)>,
-    provenances: Vec<TextProvenance>,
+    annotated_provenances: Vec<(TextProvenance, bool)>,
 }
 
 impl TextVisitor for Runs {
@@ -34,7 +34,8 @@ impl TextVisitor for Runs {
         if thinking {
             self.thinking.push(run.text().to_owned());
         }
-        self.provenances.push(run.provenance().clone());
+        self.annotated_provenances
+            .push((run.provenance().clone(), thinking));
     }
 
     fn visit_inline(&mut self, inline: &iyon_tui::text::Inline) {
@@ -155,7 +156,17 @@ fn thinking_composition_preserves_marks_and_splits_exact_provenance() {
             .iter()
             .any(|(text, _, thinking)| { text == "a" && !*thinking })
     );
-    assert!(runs.provenances.windows(2).any(|pair| pair[0] != pair[1]));
+    let thinking_range = StreamRange::new(StreamOffset::ZERO, StreamOffset::new(21));
+    let answer_start = thinking_range.end().saturating_add(2);
+    let answer_range = StreamRange::new(answer_start, stream.received_end);
+    assert!(runs.annotated_provenances.iter().any(|(provenance, thinking)| {
+        *thinking
+            && matches!(provenance, TextProvenance::Exact(range) if range.start() >= thinking_range.start() && range.end() <= thinking_range.end())
+    }));
+    assert!(runs.annotated_provenances.iter().any(|(provenance, thinking)| {
+        !*thinking
+            && matches!(provenance, TextProvenance::Exact(range) if range.start() >= answer_range.start() && range.end() <= answer_range.end())
+    }));
 }
 
 #[test]
@@ -163,13 +174,17 @@ fn temporal_publication_has_backlog_and_seal_flushes_all_source() {
     let mut stream = AssistantStream::new();
     stream.push_delta_paced(SegmentKind::Text, "setext\n====");
     let received = stream.received_end;
-    assert!(stream.snapshot().source_end() < received);
+    let before = stream.snapshot();
+    assert!(before.source_end() < received);
     let first = std::time::Instant::now();
     assert!(stream.next_wakeup().is_some() || stream.snapshot().source_end() > StreamOffset::ZERO);
     let _ = stream.advance(first);
     let due = stream.next_wakeup().unwrap_or(first);
     let _ = stream.advance(due + Duration::from_secs(1));
-    assert!(stream.snapshot().stable_through() >= StreamOffset::ZERO);
+    let after = stream.snapshot();
+    assert!(after.source_end() > before.source_end());
+    assert!(after.source_end() <= received);
+    assert!(after.stable_through() >= before.stable_through());
     stream.seal();
     assert_eq!(stream.snapshot().source_end(), received);
     assert_eq!(stream.snapshot().stable_through(), received);
@@ -199,6 +214,31 @@ fn live_history_compaction_preserves_published_suffix() {
     history
         .seal_stream(handle)
         .expect("seal after live compaction must succeed");
+}
+
+#[test]
+fn reference_compaction_respects_markdown_restart_floor() {
+    let source = "[foo]: /target\n\nearlier paragraph\n\nlater [foo]";
+    let mut stream = stream_with(&[(SegmentKind::Text, source)]);
+    stream.seal();
+    let before = stream.semantic.clone();
+    let later = StreamOffset::new(source.find("later").expect("later block") as u64);
+    StreamingSource::compact_before(&mut stream, later);
+    let base = stream.snapshot().source_base();
+    assert!(base < later, "reference context must pull restart backward");
+    let expected: Vec<_> = before
+        .spans()
+        .iter()
+        .filter(|span| span.source().end() > base)
+        .map(|span| (span.source(), span.values().to_vec()))
+        .collect();
+    let actual: Vec<_> = stream
+        .semantic
+        .spans()
+        .iter()
+        .map(|span| (span.source(), span.values().to_vec()))
+        .collect();
+    assert_eq!(actual, expected);
 }
 
 #[test]
