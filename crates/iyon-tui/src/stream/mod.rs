@@ -6,7 +6,6 @@
 //! terminal geometry.
 
 mod append;
-pub use append::append_only_text_stable_frontier;
 mod text;
 pub use text::TextStream;
 mod compile;
@@ -39,7 +38,7 @@ pub(crate) use node::StreamSliceError;
 pub use pane::StreamPane;
 #[cfg(test)]
 pub(crate) use projected::{ExactTerminator, ProjectedTextRun};
-pub use projected::{ProjectedText, ProjectedTextBuilder};
+pub use projected::{ProjectedHanging, ProjectedText, ProjectedTextBuilder};
 pub(crate) use projected::{ProjectedTextLayout, projected_atoms};
 pub use snapshot::{StreamSnapshot, StreamSnapshotBuilder};
 pub use source::StreamingSource;

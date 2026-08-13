@@ -1,7 +1,7 @@
 use iyon_tui::projection::{ProjectionBuilder, validate_projection_relation};
 use iyon_tui::stream::{
-    StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamingSource, TextStream,
-    append_only_text_stable_frontier,
+    ProjectedHanging, StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamingSource,
+    TextStream,
 };
 use iyon_tui::text::{
     BlockKind, CodeBlock, HeadingLevel, InlineKind, LanguageId, List, ListItem, Mark, TextRun,
@@ -68,10 +68,7 @@ fn text_stream_reuses_append_only_frontier_and_history_lifecycle() {
     stream.push("a");
     stream.push("\u{301}");
     let snapshot = stream.snapshot();
-    assert_eq!(
-        snapshot.stable_through(),
-        append_only_text_stable_frontier("a\u{301}", StreamOffset::ZERO, false)
-    );
+    assert_eq!(snapshot.stable_through(), StreamOffset::ZERO);
     assert_eq!(stream.revision(), StreamRevision::new(2));
 
     let mut history = History::new();
@@ -89,7 +86,66 @@ fn text_stream_reuses_append_only_frontier_and_history_lifecycle() {
     compacted.seal();
     compacted.compact_before(StreamOffset::new(2));
     assert_eq!(compacted.source_base(), StreamOffset::new(2));
-    assert_eq!(compacted.text(), "x");
+    assert_eq!(compacted.retained_text(), "x");
+}
+
+#[test]
+fn text_stream_sealing_and_frontiers_are_conservative() {
+    let cases = [
+        ("ascii", "ab", 1),
+        ("multibyte", "éx", 2),
+        ("combining", "e\u{301}", 0),
+        ("emoji", "🌍x", 4),
+        ("zwj", "👩\u{200d}💻x", "👩\u{200d}💻".len()),
+    ];
+    for (name, text, stable) in cases {
+        let stream = TextStream::from_text(text);
+        assert_eq!(
+            stream.snapshot().stable_through(),
+            StreamOffset::new(stable as u64),
+            "{name}"
+        );
+    }
+
+    let mut stream = TextStream::new();
+    let mut previous = stream.snapshot().stable_through();
+    for chunk in ["a", "b", "\u{301}", "x"] {
+        stream.push(chunk);
+        let current = stream.snapshot().stable_through();
+        assert!(current >= previous);
+        previous = current;
+    }
+
+    stream.seal();
+    let revision = stream.revision();
+    let snapshot = stream.snapshot();
+    assert_eq!(snapshot.stable_through(), snapshot.source_end());
+    stream.seal();
+    assert_eq!(stream.revision(), revision);
+
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| stream.push("x")));
+    assert!(panic.is_err());
+}
+
+#[test]
+fn typed_hanging_configuration_is_the_canonical_path() {
+    let range = StreamRange::new(StreamOffset::ZERO, StreamOffset::new(6));
+    let projected = iyon_tui::stream::ProjectedText::builder(range)
+        .with_hanging(
+            ProjectedHanging::new(
+                2,
+                StreamRange::new(StreamOffset::ZERO, StreamOffset::new(2)),
+                "> ",
+            )
+            .with_prefix_visible(true),
+        )
+        .exact(
+            StreamRange::new(StreamOffset::new(2), StreamOffset::new(6)),
+            "body",
+        )
+        .finish()
+        .unwrap();
+    assert_eq!(projected.content_range(), range);
 }
 
 #[test]

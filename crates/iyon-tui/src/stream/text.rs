@@ -2,7 +2,7 @@
 
 use super::{
     StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
-    StreamingSource, append_only_text_stable_frontier,
+    StreamingSource, append::append_only_text_stable_frontier,
 };
 use crate::TextSpan;
 
@@ -35,6 +35,11 @@ impl TextStream {
         }
     }
 
+    /// Appends UTF-8 text and advances the source revision.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the source has been sealed.
     pub fn push(&mut self, text: impl AsRef<str>) {
         assert!(!self.sealed, "cannot append to a sealed TextStream");
         let text = text.as_ref();
@@ -45,7 +50,8 @@ impl TextStream {
         self.revision = self.revision.next();
     }
 
-    pub fn text(&self) -> &str {
+    /// Returns the currently retained suffix; compacted text is not included.
+    pub fn retained_text(&self) -> &str {
         &self.text
     }
 
