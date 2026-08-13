@@ -1,9 +1,8 @@
 use super::*;
-use iyon_tui::{
-    History, StreamOffset, StreamRange, StreamRevision, StreamSnapshotBuilder, TextSpan, Theme,
-};
+use iyon_tui::stream::{StreamOffset, StreamRange, StreamRevision, StreamSnapshotBuilder};
+use iyon_tui::{History, TextSpan, Theme};
 
-fn snapshot(stream: &AssistantStream) -> iyon_tui::StreamSnapshot {
+fn snapshot(stream: &AssistantStream) -> iyon_tui::stream::StreamSnapshot {
     stream.snapshot()
 }
 

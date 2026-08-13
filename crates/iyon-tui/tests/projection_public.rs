@@ -4,10 +4,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use iyon_tui::{
-    Projection, ProjectionBuilder, Projector, ProjectorExt, Smooth, SmoothConfig, StreamOffset,
-    StreamRange, validate_projection_relation,
-};
+use iyon_tui::projection::{ProjectionBuilder, validate_projection_relation};
+use iyon_tui::stream::{StreamOffset, StreamRange};
+use iyon_tui::{Projection, Projector, ProjectorExt, Smooth, SmoothConfig};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Record(&'static str);
@@ -159,7 +158,7 @@ fn smooth_has_deterministic_deadlines_and_sealed_identity() {
     )
     .finish()
     .unwrap();
-    let config = SmoothConfig::new(Duration::from_millis(10), 1.0, 20.0, 20.0).unwrap();
+    let config = SmoothConfig::try_from_parts(Duration::from_millis(10), 1.0, 20.0, 20.0).unwrap();
     let mut smooth = Smooth::new(config);
     let first = smooth.project(&input).unwrap();
     assert_eq!(first.source_end(), StreamOffset::new(1));
@@ -198,15 +197,15 @@ fn smooth_has_deterministic_deadlines_and_sealed_identity() {
 #[test]
 fn arbitrary_coordinate_replacement_is_not_byte_sliced() {
     let range = StreamRange::new(StreamOffset::new(10), StreamOffset::new(11));
-    let snapshot = iyon_tui::StreamSnapshotBuilder::new(
-        iyon_tui::StreamRevision::ZERO,
+    let snapshot = iyon_tui::stream::StreamSnapshotBuilder::new(
+        iyon_tui::stream::StreamRevision::ZERO,
         range.start(),
         range.end(),
         range.end(),
     )
     .projected_text(
-        iyon_tui::ProjectedText::builder(range)
-            .replacement("event 10 finished", range, iyon_tui::StyleSpec::new())
+        iyon_tui::stream::ProjectedText::builder(range)
+            .replacement_styled(range, "event 10 finished", iyon_tui::StyleSpec::new())
             .finish()
             .unwrap(),
     )

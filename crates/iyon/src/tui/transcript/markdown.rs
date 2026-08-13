@@ -131,14 +131,14 @@ impl AssistantSourceMeta {
 
 /// Parse `segments` once into the shared width-independent document.
 pub(crate) fn parse_assistant(segments: &[AssistantSegment]) -> AssistantDocument {
-    parse_assistant_tail(segments, iyon_tui::StreamOffset::ZERO, None)
+    parse_assistant_tail(segments, iyon_tui::stream::StreamOffset::ZERO, None)
 }
 
 /// Parse `segments` into the shared document starting at `source_base`, with an optional
 /// continuation mode for the first logical row.
 pub(crate) fn parse_assistant_tail(
     segments: &[AssistantSegment],
-    _source_base: iyon_tui::StreamOffset,
+    _source_base: iyon_tui::stream::StreamOffset,
     continuation: Option<AssistantContinuation>,
 ) -> AssistantDocument {
     let raw_lines = flatten_lines(segments);
@@ -1177,7 +1177,8 @@ fn piece_source_len(line: &RawLine) -> usize {
 mod tests {
     use super::*;
     use crate::transcript::assistant_stream::AssistantStream;
-    use iyon_tui::{App, AppCx, History, StreamingSource, View};
+    use iyon_tui::stream::StreamingSource;
+    use iyon_tui::{App, AppCx, History, View};
 
     fn text_segs(text: &str) -> Vec<AssistantSegment> {
         vec![AssistantSegment::Text(text.to_string())]

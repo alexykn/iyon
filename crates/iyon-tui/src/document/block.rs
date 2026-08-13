@@ -7,6 +7,13 @@ use super::{Annotations, FormatId, InlineContent, LanguageId, LiteralText, TextI
 pub struct HeadingLevel(u8);
 
 impl HeadingLevel {
+    pub const H1: Self = Self(1);
+    pub const H2: Self = Self(2);
+    pub const H3: Self = Self(3);
+    pub const H4: Self = Self(4);
+    pub const H5: Self = Self(5);
+    pub const H6: Self = Self(6);
+
     pub fn new(level: u8) -> Result<Self, TextIrError> {
         (1..=6)
             .contains(&level)
@@ -54,6 +61,22 @@ pub struct List {
 }
 
 impl List {
+    pub fn bulleted(items: impl IntoIterator<Item = ListItem>) -> Self {
+        Self::new(ListMarker::Bullet, true, items)
+    }
+
+    pub fn ordered(start: u64, items: impl IntoIterator<Item = ListItem>) -> Self {
+        Self::new(
+            ListMarker::Ordered {
+                start,
+                style: NumberStyle::Decimal,
+                delimiter: NumberDelimiter::Period,
+            },
+            true,
+            items,
+        )
+    }
+
     pub fn new(marker: ListMarker, tight: bool, items: impl IntoIterator<Item = ListItem>) -> Self {
         Self {
             marker,
@@ -70,6 +93,38 @@ impl List {
     pub fn items(&self) -> &[ListItem] {
         &self.items
     }
+
+    pub fn with_tight(mut self, tight: bool) -> Self {
+        self.tight = tight;
+        self
+    }
+
+    pub fn with_number_style(mut self, style: NumberStyle) -> Result<Self, TextIrError> {
+        let ListMarker::Ordered {
+            start, delimiter, ..
+        } = self.marker
+        else {
+            return Err(TextIrError::InvalidListConfiguration);
+        };
+        self.marker = ListMarker::Ordered {
+            start,
+            style,
+            delimiter,
+        };
+        Ok(self)
+    }
+
+    pub fn with_delimiter(mut self, delimiter: NumberDelimiter) -> Result<Self, TextIrError> {
+        let ListMarker::Ordered { start, style, .. } = self.marker else {
+            return Err(TextIrError::InvalidListConfiguration);
+        };
+        self.marker = ListMarker::Ordered {
+            start,
+            style,
+            delimiter,
+        };
+        Ok(self)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -80,6 +135,14 @@ pub struct ListItem {
 }
 
 impl ListItem {
+    pub fn paragraph(content: impl Into<InlineContent>) -> Self {
+        Self::new([Block::paragraph(content)])
+    }
+
+    pub fn task(content: impl Into<InlineContent>, checked: bool) -> Self {
+        Self::paragraph(content).with_checked(Some(checked))
+    }
+
     pub fn new(blocks: impl IntoIterator<Item = Block>) -> Self {
         Self {
             annotations: Annotations::default(),
@@ -208,7 +271,19 @@ pub struct TableColumn {
     alignment: Alignment,
 }
 impl TableColumn {
-    pub fn new(alignment: Alignment) -> Self {
+    pub const fn start() -> Self {
+        Self::new(Alignment::Start)
+    }
+
+    pub const fn center() -> Self {
+        Self::new(Alignment::Center)
+    }
+
+    pub const fn end() -> Self {
+        Self::new(Alignment::End)
+    }
+
+    pub const fn new(alignment: Alignment) -> Self {
         Self { alignment }
     }
     pub fn alignment(&self) -> Alignment {
@@ -249,6 +324,10 @@ pub struct TableCell {
     blocks: Arc<[Block]>,
 }
 impl TableCell {
+    pub fn text(content: impl Into<InlineContent>) -> Self {
+        Self::plain([Block::paragraph(content)])
+    }
+
     pub fn new(
         blocks: impl IntoIterator<Item = Block>,
         alignment: Option<Alignment>,
@@ -322,12 +401,12 @@ impl CodeBlock {
     pub fn new(
         language: Option<LanguageId>,
         info: Option<impl Into<Arc<str>>>,
-        body: LiteralText,
+        body: impl Into<LiteralText>,
     ) -> Self {
         Self {
             language,
             info: info.map(Into::into),
-            body,
+            body: body.into(),
         }
     }
     pub fn language(&self) -> Option<&LanguageId> {
@@ -363,11 +442,14 @@ impl Block {
             annotations: Annotations::default(),
         }))
     }
-    pub fn paragraph(content: InlineContent) -> Self {
-        Self::new(BlockKind::Paragraph(content))
+    pub fn paragraph(content: impl Into<InlineContent>) -> Self {
+        Self::new(BlockKind::Paragraph(content.into()))
     }
-    pub fn heading(level: HeadingLevel, content: InlineContent) -> Self {
-        Self::new(BlockKind::Heading { level, content })
+    pub fn heading(level: HeadingLevel, content: impl Into<InlineContent>) -> Self {
+        Self::new(BlockKind::Heading {
+            level,
+            content: content.into(),
+        })
     }
     pub fn block_quote(blocks: impl IntoIterator<Item = Block>) -> Self {
         Self::new(BlockKind::BlockQuote {

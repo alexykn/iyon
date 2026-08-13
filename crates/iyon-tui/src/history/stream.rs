@@ -70,6 +70,7 @@ impl ErasedHistoryStream {
         self.state.source_end()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn refresh<S: StreamingSource>(
         &mut self,
         unit: HistoryUnitId,
@@ -152,6 +153,7 @@ impl<S: StreamingSource> TypedHistoryStream<S> {
 }
 
 impl<S: StreamingSource> TypedHistoryStream<S> {
+    #[allow(dead_code)]
     fn refresh(&mut self, unit: HistoryUnitId) -> Result<(), HistoryError> {
         if self.sealed {
             let observed = self.model.source().snapshot();

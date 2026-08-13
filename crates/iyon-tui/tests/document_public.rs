@@ -1,13 +1,18 @@
 use std::convert::Infallible;
 
-use iyon_tui::{
-    Alignment, Annotations, Block, BlockKind, BreakKind, CodeBlock, FormatId, Image, Inline,
-    InlineContent, LanguageId, LinkTarget, List, ListItem, ListMarker, LiteralText, Mark, MarkSet,
-    NumberDelimiter, NumberStyle, Projection, ProjectionBuilder, Projector, ProjectorExt, RawText,
-    SemanticKey, SemanticTag, SemanticValue, StreamOffset, StreamRange, Table, TableCell,
-    TableColumn, TableRow, TextContent as Content, TextIrError, TextProjectionError,
+use iyon_tui::projection::ProjectionBuilder;
+use iyon_tui::stream::{StreamOffset, StreamRange};
+use iyon_tui::text::{
+    Alignment, Annotations, BlockKind, BreakKind, CodeBlock, FormatId, Image, LanguageId,
+    LinkTarget, List, ListItem, ListMarker, LiteralText, Mark, MarkSet, NumberDelimiter,
+    NumberStyle, SemanticKey, SemanticTag, SemanticValue, TextIrError, TextProjectionError,
     TextProvenance, TextRewriter, TextRun, TextVisitor, validate_text_projection, walk_block,
     walk_rewrite_block, walk_rewrite_inline,
+};
+use iyon_tui::text::{Table, TableCell, TableColumn, TableRow};
+use iyon_tui::{
+    Block, Inline, InlineContent, Projection, Projector, ProjectorExt, RawText,
+    TextContent as Content,
 };
 
 fn range(start: usize, end: usize) -> StreamRange {
@@ -553,7 +558,7 @@ impl TextVisitor for CountingVisitor {
     }
     fn visit_inline(&mut self, inline: &Inline) {
         self.inlines += 1;
-        iyon_tui::walk_inline(self, inline);
+        iyon_tui::text::walk_inline(self, inline);
     }
     fn visit_raw(&mut self, _raw: &RawText) {
         self.raws += 1;
@@ -563,7 +568,7 @@ impl TextVisitor for CountingVisitor {
     }
     fn visit_literal(&mut self, literal: &LiteralText) {
         self.literals += 1;
-        iyon_tui::walk_literal(self, literal);
+        iyon_tui::text::walk_literal(self, literal);
     }
 }
 

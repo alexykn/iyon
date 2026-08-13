@@ -38,7 +38,7 @@ pub fn build_app(
     let view = |state: &IyonState| state.view();
     let history = {
         let mut history = History::new();
-        history.set_layout(HistoryLayout::new(Insets::new(0, 0, 1, 0), 1));
+        history.set_layout(HistoryLayout::from_parts(Insets::new(0, 0, 1, 0), 1));
         history
     };
     App::new(init, update, view)

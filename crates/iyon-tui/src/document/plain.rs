@@ -2,8 +2,8 @@ use super::{
     Block, BreakKind, Inline, InlineContent, TextContent, TextProjectionError,
     validate_text_projection,
 };
-use crate::{Projection, ProjectionBuilder, Projector};
-use crate::{StreamOffset, StreamRange};
+use crate::projection::{Projection, ProjectionBuilder, Projector};
+use crate::stream::{StreamOffset, StreamRange};
 
 /// A projector that claims each consecutive Raw domain as literal prose.
 #[derive(Clone, Debug, Default)]

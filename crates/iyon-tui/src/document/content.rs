@@ -1,6 +1,6 @@
 use std::{fmt, ops::Range, sync::Arc};
 
-use crate::{StreamOffset, StreamRange};
+use crate::stream::{StreamOffset, StreamRange};
 
 use super::{Block, TextIrError, TextRun};
 
@@ -56,6 +56,18 @@ impl RawText {
 pub enum TextContent {
     Raw(RawText),
     Block(Block),
+}
+
+impl From<&str> for TextContent {
+    fn from(value: &str) -> Self {
+        Self::raw(value)
+    }
+}
+
+impl From<String> for TextContent {
+    fn from(value: String) -> Self {
+        Self::raw(value)
+    }
 }
 
 impl TextContent {

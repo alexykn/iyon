@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::StreamOffset;
+use crate::stream::StreamOffset;
 
 use super::value::{Projection, ProjectionSpan};
 

@@ -3,11 +3,15 @@ use std::{
     time::{Duration, Instant},
 };
 
+use iyon_tui::projection::{ProjectionBuilder, validate_projection_transition};
+use iyon_tui::stream::{StreamOffset, StreamRange};
+use iyon_tui::text::{
+    CodeBlock, LanguageId, LiteralText, SemanticTag, TextProvenance, TextRewriter, TextRun,
+    validate_text_projection, walk_rewrite_block,
+};
 use iyon_tui::{
-    Block, CodeBlock, Inline, InlineContent, LanguageId, LiteralText, MarkdownProjector,
-    Projection, ProjectionBuilder, Projector, ProjectorExt, RawText, Renderer, SemanticTag, Smooth,
-    StreamOffset, StreamRange, TextContent, TextProvenance, TextRenderer, TextRewriter, TextRun,
-    validate_projection_transition, validate_text_projection, walk_rewrite_block,
+    Block, Inline, InlineContent, MarkdownProjector, Projection, Projector, ProjectorExt, RawText,
+    Renderer, Smooth, TextContent, TextRenderer,
 };
 
 fn raw(source: &str, sealed: bool) -> Projection<TextContent> {

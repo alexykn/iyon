@@ -19,6 +19,10 @@ pub struct StreamSnapshot {
 }
 
 impl StreamSnapshot {
+    pub fn builder(revision: StreamRevision, range: StreamRange) -> StreamSnapshotBuilder {
+        StreamSnapshotBuilder::from_range(revision, range)
+    }
+
     pub fn revision(&self) -> StreamRevision {
         self.revision
     }
@@ -47,6 +51,26 @@ pub struct StreamSnapshotBuilder {
 }
 
 impl StreamSnapshotBuilder {
+    pub fn from_range(revision: StreamRevision, range: StreamRange) -> Self {
+        Self {
+            revision,
+            source_base: range.start(),
+            stable_through: range.start(),
+            source_end: range.end(),
+            nodes: Vec::new(),
+        }
+    }
+
+    pub fn stable_through(mut self, offset: StreamOffset) -> Self {
+        self.stable_through = offset;
+        self
+    }
+
+    pub fn fully_stable(mut self) -> Self {
+        self.stable_through = self.source_end;
+        self
+    }
+
     pub fn new(
         revision: StreamRevision,
         source_base: StreamOffset,

@@ -3,6 +3,7 @@
 use std::time::Instant;
 
 use super::{Projection, ProjectionRelationError, Projector, validate_projection_relation};
+use crate::stream::StreamOffset;
 
 /// A statically typed two-stage projector composition.
 pub struct Then<A, B> {
@@ -94,7 +95,7 @@ where
         first_changed || second_changed
     }
 
-    fn restart_from(&self, output_from: crate::StreamOffset) -> crate::StreamOffset {
+    fn restart_from(&self, output_from: StreamOffset) -> StreamOffset {
         let second = self.second.restart_from(output_from);
         debug_assert!(second <= output_from);
         let first = self.first.restart_from(second);

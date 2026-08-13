@@ -288,13 +288,14 @@ mod tests {
     use super::*;
     use crate::{
         BorderSpec, ColorSpec, Component, ComponentCx, InteractionResult, IntoView, Key, KeyStroke,
-        Scene, ScrollPane, StreamingSource, StyleSelector, TextSpan, ThemeColor, View,
+        Scene, ScrollPane, StyleSelector, TextSpan, ThemeColor, View,
         backend::NativeHistorySink,
         component::ComponentRegistry,
         geometry::Size,
         physical::PhysicalRow,
         stream::{
             StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
+            StreamingSource,
         },
     };
 

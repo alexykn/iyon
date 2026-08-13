@@ -1,13 +1,35 @@
 //! Semantic terminal UI construction.
 //!
-//! [`View`] is an owned backend-neutral semantic value. Compose views with
-//! [`View::horizontal`] and [`View::vertical`], style nodes with semantic
-//! properties, and use [`IntoView`] to integrate application components.
-//! [`Component`] is retained mounted state referenced by a View. [`History`]
-//! is an ordered root-level historical/live/stream flow, while [`Scene`] is
-//! the terminal semantic root containing optional History and a required
-//! ordinary body View. Layout internals and terminal backend types remain
-//! private.
+//! [`View`] is an owned backend-neutral presentation value. [`Component`] adds
+//! retained mounted state, [`History`] owns ordered historical/live/stream
+//! content, and [`Scene`] is the terminal semantic root.
+//!
+//! Semantic text follows the ordinary pipeline
+//! `Projection<TextContent> -> MarkdownProjector -> TextRenderer -> View`.
+//! [`Smooth`] is an optional generic temporal publication stage whose pacing
+//! granularity comes from upstream projection spans; it is not a Markdown
+//! parser or renderer. Renderers do not parse or perform terminal layout.
+//!
+//! A basic History stream uses [`TextStream`] and the lifecycle
+//! `push_stream -> update_stream -> seal_stream`; an open stream must remain
+//! the History tail. History does not know Markdown or other text formats.
+//!
+//! Semantic plain text uses the same shape with [`PlainTextProjector`]. Custom
+//! semantic transformations can be composed through [`ProjectorExt`], while
+//! [`text::TextRewriter::into_projector`] is the
+//! envelope-preserving adapter for ordinary IR rewrites. Nested literal portals
+//! and `CodeBlock::language` leave room for future projectors without adding
+//! format-specific machinery here.
+//!
+//! [`Smooth`] is optional temporal publication control: `Projection<T> ->
+//! Smooth<T> -> next projector`. Its pacing granularity is determined by the
+//! upstream spans and values. It currently serves Iyon's assistant pacing
+//! atoms; it is not required by Markdown.
+//!
+//! Advanced compiler and protocol machinery is organized under [`text`],
+//! [`projection`], and [`stream`]. Root coordinates are source coordinates,
+//! never terminal positions. Applications do not perform terminal geometry;
+//! renderers lower semantics to `View`, and the View pipeline owns layout.
 //!
 //! ```compile_fail
 //! use iyon_tui::presentation::ir::ViewKind;
@@ -48,14 +70,18 @@ mod interaction;
 mod output;
 mod physical;
 mod presentation;
-mod projection;
+/// Root-coordinate projection algebra and diagnostics.
+pub mod projection;
 mod scene;
 mod scroll;
 mod scroll_command;
-mod stream;
+/// StreamingSource protocol, snapshots, and provenance-aware stream values.
+pub mod stream;
 mod terminal;
 #[cfg(feature = "test-util")]
 pub mod testing;
+/// Complete generic semantic text IR, traversal, projectors, and renderers.
+pub mod text;
 mod theme;
 
 pub use application::{
@@ -65,28 +91,16 @@ pub use application::{
 pub use component::{Component, ComponentCx, ComponentHandle};
 pub use controls::{TextChange, TextInput};
 pub use document::{
-    Alignment, Annotations, Block, BlockKind, BreakKind, CodeBlock, FormatId, HeadingLevel, Image,
-    Inline, InlineContent, InlineKind, LanguageId, LinkTarget, List, ListItem, ListMarker,
-    LiteralText, Mark, MarkSet, MarkdownOptions, MarkdownProjectionError, MarkdownProjector,
-    NumberDelimiter, NumberStyle, PlainTextProjector, RawText, Renderer, SemanticKey, SemanticTag,
-    SemanticValue, SoftBreakPolicy, Table, TableCell, TableColumn, TableRow, TextContent,
-    TextIrError, TextProjectionError, TextProvenance, TextRenderStyle, TextRenderer, TextRewriter,
-    TextRun, TextVisitor, validate_text_content, validate_text_projection, walk_block,
-    walk_content, walk_inline, walk_inline_content, walk_literal, walk_rewrite_block,
-    walk_rewrite_blocks, walk_rewrite_content, walk_rewrite_inline, walk_rewrite_inline_content,
-    walk_rewrite_literal,
+    Block, HeadingLevel, Inline, InlineContent, MarkdownOptions, MarkdownProjector,
+    PlainTextProjector, RawText, Renderer, SoftBreakPolicy, TextContent, TextRenderStyle,
+    TextRenderer,
 };
 pub use history::{
     FlowBoundary, History, HistoryError, HistoryLayout, HistoryStreamHandle, HistoryUnitId,
 };
 pub use interaction::{InteractionResult, Key, KeyStroke, MediaKey, ModifierKey, Modifiers};
 pub use output::{EventCx, Output, OutputRouter, RouteConflict};
-pub use projection::{
-    Projection, ProjectionBuilder, ProjectionRelationError, ProjectionSpan,
-    ProjectionTransitionError, ProjectionValidationError, Projector, ProjectorExt, Smooth,
-    SmoothConfig, SmoothConfigError, Then, ThenError, validate_projection_relation,
-    validate_projection_transition,
-};
+pub use projection::{Projection, Projector, ProjectorExt, Smooth, SmoothConfig};
 pub use scene::Scene;
 pub use scroll::ScrollPane;
 pub use theme::Theme;
@@ -97,8 +111,39 @@ pub use presentation::api::{
     StyleSpec, StyleStateKey, StyleStateValue, Text, TextAttribute, TextAttributeSpec, TextSpan,
     ThemeColor, ThemeKey, Vertical, VerticalAlign, View, WrapMode,
 };
-pub use stream::{
-    ProjectedText, ProjectedTextBuilder, ProjectedValidationError, StreamError, StreamOffset,
-    StreamPane, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
-    StreamValidationError, StreamingSource,
+pub use stream::{StreamPane, TextStream};
+
+// Internal modules and unit tests may use the short names without making
+// protocol/compiler machinery part of the external crate-root vocabulary.
+#[allow(unused_imports)]
+pub(crate) use document::{
+    Alignment, Annotations, BlockKind, BreakKind, CodeBlock, FormatId, Image, InlineKind,
+    LanguageId, LinkTarget, List, ListItem, ListMarker, LiteralText, Mark, MarkSet,
+    NumberDelimiter, NumberStyle, SemanticKey, SemanticTag, SemanticValue, TextIrError,
+    TextProjectionError, TextProvenance, TextRewriter, TextRun, TextVisitor, validate_text_content,
+    validate_text_projection, walk_block, walk_content, walk_inline, walk_inline_content,
+    walk_literal, walk_rewrite_block, walk_rewrite_blocks, walk_rewrite_content,
+    walk_rewrite_inline, walk_rewrite_inline_content, walk_rewrite_literal,
 };
+#[allow(unused_imports)]
+pub(crate) use projection::{
+    ProjectionBuilder, ProjectionRelationError, ProjectionSpan, ProjectionTransitionError,
+    ProjectionValidationError, SmoothConfigError, Then, ThenError, validate_projection_relation,
+    validate_projection_transition,
+};
+#[allow(unused_imports)]
+pub(crate) use stream::{
+    ProjectedText, ProjectedTextBuilder, ProjectedValidationError, StreamError, StreamOffset,
+    StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder, StreamValidationError,
+    StreamingSource,
+};
+
+/// Small, application-oriented import set.
+pub mod prelude {
+    pub use crate::{
+        App, AppCx, Block, Component, ComponentCx, EventCx, History, HistoryLayout, Inline,
+        InlineContent, IntoView, MarkdownProjector, Output, PlainTextProjector, Projection,
+        Projector, ProjectorExt, Renderer, Scene, ScrollPane, Smooth, StreamPane, TextContent,
+        TextInput, TextRenderer, TextStream, Theme, View,
+    };
+}

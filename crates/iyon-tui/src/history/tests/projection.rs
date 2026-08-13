@@ -154,7 +154,7 @@ fn mixed_lifetime_append_preserves_continuous_flow() {
     let live = registry.register(LabelComponent { label: "B" });
     let source = TestSource::new("D", 1, false);
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::ZERO, 1));
+    history.set_layout(HistoryLayout::from_parts(Insets::ZERO, 1));
     history.push("A1\nA2").unwrap();
     history.push(View::component(live)).unwrap();
     history.push("C").unwrap();
@@ -181,7 +181,7 @@ fn mixed_lifetime_append_preserves_continuous_flow() {
 #[test]
 fn boundaries_and_padding_are_parent_owned_flow_geometry() {
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::new(1, 1, 1, 1), 2));
+    history.set_layout(HistoryLayout::from_parts(Insets::new(1, 1, 1, 1), 2));
     history.push("A").unwrap();
     history
         .push_with_boundary("B", FlowBoundary::AttachToPrevious)
@@ -200,7 +200,7 @@ fn identical_freeze_is_visually_inert() {
     let mut registry = ComponentRegistry::new();
     let handle = registry.register(LabelComponent { label: "B" });
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::new(1, 1, 1, 1), 1));
+    history.set_layout(HistoryLayout::from_parts(Insets::new(1, 1, 1, 1), 1));
     history.push("A").unwrap();
     let live = history.push(View::component(handle)).unwrap();
     history.push("C").unwrap();
@@ -415,7 +415,7 @@ impl Component for NestedComponent {
 #[test]
 fn padding_slack_and_top_cut_are_distinct_flow_cases() {
     let mut short = History::new();
-    short.set_layout(HistoryLayout::new(Insets::new(1, 1, 2, 1), 0));
+    short.set_layout(HistoryLayout::from_parts(Insets::new(1, 1, 2, 1), 0));
     short.push("A").unwrap();
     let registry = ComponentRegistry::new();
     assert_eq!(
@@ -424,7 +424,7 @@ fn padding_slack_and_top_cut_are_distinct_flow_cases() {
     );
 
     let mut long = History::new();
-    long.set_layout(HistoryLayout::new(Insets::new(1, 0, 0, 0), 0));
+    long.set_layout(HistoryLayout::from_parts(Insets::new(1, 0, 0, 0), 0));
     long.push("A").unwrap();
     long.push("B").unwrap();
     long.push("C").unwrap();
@@ -437,7 +437,7 @@ fn a_top_cut_inside_a_gap_keeps_only_the_gap_suffix() {
     history.set_layout(HistoryLayout::default());
     history.push("A").unwrap();
     history.push("B").unwrap();
-    history.set_layout(HistoryLayout::new(Insets::ZERO, 3));
+    history.set_layout(HistoryLayout::from_parts(Insets::ZERO, 3));
     let registry = ComponentRegistry::new();
 
     assert_eq!(rows(&history, &registry, Size::new(8, 3)), ["", "", "B"]);

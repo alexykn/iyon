@@ -14,11 +14,12 @@ use crate::transcript::semantic::{
 };
 use std::time::Instant;
 
-use iyon_tui::{
-    HorizontalAlign, ProjectedText, ProjectionBuilder, Projector, Smooth, StreamOffset,
-    StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder, StreamingSource, StyleRef,
-    WrapMode,
+use iyon_tui::projection::ProjectionBuilder;
+use iyon_tui::stream::{
+    ProjectedText, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
+    StreamSnapshotBuilder, StreamingSource,
 };
+use iyon_tui::{HorizontalAlign, Projector, Smooth, StyleRef, WrapMode};
 
 #[derive(Debug)]
 pub(crate) struct AssistantStream {

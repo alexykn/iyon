@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use crate::StreamRange;
+use crate::stream::StreamRange;
 
 use super::TextIrError;
 
@@ -30,6 +30,24 @@ impl fmt::Debug for TextRun {
             .field("provenance", &self.provenance)
             .field("annotations", &self.annotations)
             .finish()
+    }
+}
+
+impl From<&str> for TextRun {
+    fn from(value: &str) -> Self {
+        Self::synthetic(value)
+    }
+}
+
+impl From<String> for TextRun {
+    fn from(value: String) -> Self {
+        Self::synthetic(value)
+    }
+}
+
+impl From<Arc<str>> for TextRun {
+    fn from(value: Arc<str>) -> Self {
+        Self::synthetic(value)
     }
 }
 
@@ -135,6 +153,18 @@ impl TextRun {
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct LiteralText {
     runs: Arc<[TextRun]>,
+}
+
+impl From<&str> for LiteralText {
+    fn from(value: &str) -> Self {
+        Self::new([TextRun::synthetic(value)])
+    }
+}
+
+impl From<String> for LiteralText {
+    fn from(value: String) -> Self {
+        Self::new([TextRun::synthetic(value)])
+    }
 }
 
 impl LiteralText {

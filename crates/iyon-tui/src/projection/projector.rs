@@ -3,6 +3,7 @@
 use std::time::Instant;
 
 use super::value::Projection;
+use crate::stream::StreamOffset;
 
 /// Transforms one root-coordinate projection into another projection.
 ///
@@ -22,7 +23,7 @@ pub trait Projector<Input> {
     ///
     /// The result is conservative and remains in the shared root coordinate
     /// space. Implementors must always return `restart_from(X) <= X`.
-    fn restart_from(&self, output_from: crate::StreamOffset) -> crate::StreamOffset {
+    fn restart_from(&self, output_from: StreamOffset) -> StreamOffset {
         output_from
     }
 

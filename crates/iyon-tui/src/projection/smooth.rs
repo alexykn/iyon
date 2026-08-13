@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{StreamOffset, StreamRange};
+use crate::stream::{StreamOffset, StreamRange};
 
 use super::{Projection, ProjectionBuilder, Projector};
 
@@ -55,7 +55,11 @@ impl std::fmt::Display for SmoothConfigError {
 impl std::error::Error for SmoothConfigError {}
 
 impl SmoothConfig {
-    pub fn new(
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn try_from_parts(
         tick_interval: Duration,
         spring: f32,
         min_units_per_second: f32,

@@ -1,7 +1,12 @@
 use super::*;
 use crate::{
-    Component, StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
-    StreamValidationError, TextSpan, geometry::Size, presentation::IntoView,
+    Component, TextSpan,
+    geometry::Size,
+    presentation::IntoView,
+    stream::{
+        ProjectedText, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
+        StreamSnapshotBuilder, StreamValidationError,
+    },
 };
 
 struct TestSource {
@@ -360,8 +365,8 @@ fn replaced_atomic_anchor_repairs_near_its_source_start() {
     assert!(pane.scroll_up(1));
     pane.update_source(|source| {
         let range = StreamRange::new(StreamOffset::ZERO, StreamOffset::new(3));
-        let projected = crate::ProjectedText::builder(range)
-            .replacement("x", range, crate::StyleSpec::new())
+        let projected = ProjectedText::builder(range)
+            .replacement_styled(range, "x", crate::StyleSpec::new())
             .finish()
             .unwrap();
         source.snapshot = StreamSnapshotBuilder::new(

@@ -4,13 +4,16 @@ use pulldown_cmark::{
     Alignment as PdAlignment, CodeBlockKind, Event, Options, Parser, Tag, TagEnd,
 };
 
-use crate::{Projection, ProjectionBuilder, Projector, StreamOffset, StreamRange};
+use crate::{
+    projection::{Projection, ProjectionBuilder, ProjectionSpan, Projector},
+    stream::{StreamOffset, StreamRange},
+};
 
 use super::markdown_options::MarkdownOptions;
 use super::source::RawDomain;
 use super::{
     Alignment, Block, BreakKind, CodeBlock, FormatId, HeadingLevel, Image, Inline, InlineContent,
-    LanguageId, LinkTarget, List, ListItem, ListMarker, LiteralText, Mark, MarkSet,
+    InlineKind, LanguageId, LinkTarget, List, ListItem, ListMarker, LiteralText, Mark, MarkSet,
     NumberDelimiter, NumberStyle, Table, TableCell, TableColumn, TableRow, TextContent,
     TextIrError, TextProjectionError, TextRun, validate_text_projection,
 };
@@ -503,7 +506,7 @@ fn prepend_cached(
         .map_err(Into::into)
 }
 
-fn is_raw_span(span: &crate::ProjectionSpan<TextContent>) -> bool {
+fn is_raw_span(span: &ProjectionSpan<TextContent>) -> bool {
     span.values().len() == 1 && matches!(span.values()[0], TextContent::Raw(_))
 }
 
@@ -1001,7 +1004,7 @@ impl<'a> Builder<'a> {
         };
         for run in runs {
             self.push_inline(Inline::from_parts(
-                crate::InlineKind::Text(run),
+                InlineKind::Text(run),
                 marks.clone(),
                 Default::default(),
             ))?;

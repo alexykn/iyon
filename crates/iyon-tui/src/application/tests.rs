@@ -748,7 +748,7 @@ impl ScheduledStream {
 }
 
 impl StreamingSource for ScheduledStream {
-    fn snapshot(&self) -> crate::StreamSnapshot {
+    fn snapshot(&self) -> crate::stream::StreamSnapshot {
         let state = self.state.borrow();
         let end = StreamOffset::new(u64::from(state.value));
         StreamSnapshotBuilder::new(

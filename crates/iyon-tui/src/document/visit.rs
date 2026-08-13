@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+use super::{TextProjectionError, validate_text_projection};
+use crate::projection::{Projection, Projector};
+
 use super::{
     Block, BlockKind, Inline, InlineContent, InlineKind, LiteralText, RawText, TextContent, TextRun,
 };
@@ -88,8 +91,47 @@ pub fn walk_literal<V: TextVisitor + ?Sized>(visitor: &mut V, literal: &LiteralT
 }
 
 /// Persistent recursive rewriting with identity preservation for unchanged paths.
+#[derive(Debug)]
+pub enum RewriteProjectionError<E> {
+    Rewrite(E),
+    Invalid(TextProjectionError),
+}
+
+impl<E: std::fmt::Display> std::fmt::Display for RewriteProjectionError<E> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rewrite(error) => write!(formatter, "text rewrite failed: {error}"),
+            Self::Invalid(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl<E: std::error::Error + 'static> std::error::Error for RewriteProjectionError<E> {}
+
+/// Explicit adapter for envelope-preserving [`TextRewriter`] values.
+///
+/// Use [`TextRewriter::into_projector`] for ordinary transformations. Implement
+/// [`Projector`](crate::projection::Projector) directly when a stage needs
+/// custom segmentation, stability, restart, or temporal behavior.
+pub struct RewriteProjector<R> {
+    rewriter: R,
+}
+
+impl<R> RewriteProjector<R> {
+    pub fn new(rewriter: R) -> Self {
+        Self { rewriter }
+    }
+}
+
 pub trait TextRewriter {
     type Error;
+
+    fn into_projector(self) -> RewriteProjector<Self>
+    where
+        Self: Sized,
+    {
+        RewriteProjector::new(self)
+    }
 
     fn rewrite_content(&mut self, content: TextContent) -> Result<TextContent, Self::Error> {
         walk_rewrite_content(self, content)
@@ -111,6 +153,39 @@ pub trait TextRewriter {
     }
     fn rewrite_literal(&mut self, literal: LiteralText) -> Result<LiteralText, Self::Error> {
         walk_rewrite_literal(self, literal)
+    }
+}
+
+impl<R> Projector<crate::TextContent> for RewriteProjector<R>
+where
+    R: TextRewriter,
+{
+    type Output = crate::TextContent;
+    type Error = RewriteProjectionError<R::Error>;
+
+    fn project(
+        &mut self,
+        input: &Projection<crate::TextContent>,
+    ) -> Result<Projection<Self::Output>, Self::Error> {
+        let mut output = input.rebuild();
+        for span in input.spans() {
+            let values = span
+                .values()
+                .iter()
+                .cloned()
+                .map(|value| {
+                    self.rewriter
+                        .rewrite_content(value)
+                        .map_err(RewriteProjectionError::Rewrite)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            output = output.emit_many(span.source(), values);
+        }
+        let output = output.finish().map_err(|error| {
+            RewriteProjectionError::Invalid(TextProjectionError::Projection(error))
+        })?;
+        validate_text_projection(&output).map_err(RewriteProjectionError::Invalid)?;
+        Ok(output)
     }
 }
 

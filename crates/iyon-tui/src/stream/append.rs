@@ -1,9 +1,7 @@
 //! Generic append-only stability helpers.
 
-#[cfg(test)]
 use unicode_segmentation::UnicodeSegmentation;
 
-#[cfg(test)]
 use super::coord::StreamOffset;
 
 /// Conservative stability helper for plain append-only text.
@@ -11,8 +9,7 @@ use super::coord::StreamOffset;
 /// When sealed, the entire text is stable.
 /// When open, holds back the trailing extended grapheme cluster so that partial
 /// UTF-8 or combining sequences are never committed before completion.
-#[cfg(test)]
-pub(crate) fn append_only_text_stable_frontier(
+pub fn append_only_text_stable_frontier(
     source: &str,
     base: StreamOffset,
     sealed: bool,

@@ -1,4 +1,4 @@
-use crate::StreamRange;
+use crate::stream::StreamRange;
 
 use super::{TextContent, TextProjectionError, TextProvenance, TextRun};
 
@@ -27,7 +27,7 @@ pub fn validate_text_content(
 /// length, and containment. This function has no root source witness and
 /// therefore cannot prove that Exact display bytes equal the source bytes.
 pub fn validate_text_projection(
-    projection: &crate::Projection<TextContent>,
+    projection: &crate::projection::Projection<TextContent>,
 ) -> Result<(), TextProjectionError> {
     crate::projection::validate_projection(projection).map_err(TextProjectionError::Projection)?;
     for span in projection.spans() {
