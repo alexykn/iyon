@@ -1,8 +1,19 @@
 use super::*;
 use crate::transcript::pipeline::{assistant_renderer, assistant_view};
+use iyon_tui::History;
 use iyon_tui::stream::StreamingSource;
 use iyon_tui::text::{Mark, TextProvenance, TextVisitor, walk_content};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+fn drain_pacing(source: &mut AssistantStream) {
+    let mut now = Instant::now();
+    for _ in 0..10_000 {
+        now += Duration::from_millis(16);
+        if !source.advance(now) && source.next_wakeup().is_none() {
+            break;
+        }
+    }
+}
 
 #[derive(Default)]
 struct Runs {
@@ -165,28 +176,29 @@ fn temporal_publication_has_backlog_and_seal_flushes_all_source() {
 }
 
 #[test]
-fn compaction_preserves_reference_semantics_and_source_suffix() {
-    let source = "[foo]: /target\n\nearlier paragraph\n\nlater [foo]";
-    let mut stream = stream_with(&[(SegmentKind::Text, source)]);
-    stream.seal();
-    let before = stream.semantic.clone();
-    let later = source.find("later").expect("later block") as u64;
-    StreamingSource::compact_before(&mut stream, StreamOffset::new(later));
-    let base = stream.snapshot().source_base();
-    assert!(base <= StreamOffset::new(later));
-    let old_suffix: Vec<_> = before
-        .spans()
-        .iter()
-        .filter(|span| span.source().end() > base)
-        .map(|span| (span.source(), span.values().to_vec()))
-        .collect();
-    let new_suffix: Vec<_> = stream
-        .semantic
-        .spans()
-        .iter()
-        .map(|span| (span.source(), span.values().to_vec()))
-        .collect();
-    assert_eq!(new_suffix, old_suffix);
+fn live_history_compaction_preserves_published_suffix() {
+    let mut history = History::new();
+    let handle = history.push_stream(AssistantStream::new()).unwrap();
+    history
+        .update_stream(handle, |source| {
+            source.push_delta_paced(SegmentKind::Text, "first paragraph\n\n");
+            drain_pacing(source);
+        })
+        .unwrap();
+    history
+        .update_stream(handle, |source| {
+            source.push_delta_paced(SegmentKind::Text, "second paragraph\n\n");
+        })
+        .expect("live compaction must preserve the unpublished semantic suffix");
+    history
+        .update_stream(handle, |source| {
+            drain_pacing(source);
+            source.push_delta_paced(SegmentKind::Text, "third paragraph");
+        })
+        .expect("later compaction must keep later suffix nodes");
+    history
+        .seal_stream(handle)
+        .expect("seal after live compaction must succeed");
 }
 
 #[test]

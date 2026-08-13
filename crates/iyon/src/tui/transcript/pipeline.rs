@@ -293,7 +293,7 @@ pub(crate) fn assistant_presentation(
             };
             let end = span.source().end();
             let view = Renderer::render(renderer, span.values()).padding(Insets::new(
-                if index == 0 {
+                if index == 0 && semantic.source_base() == StreamOffset::ZERO {
                     0
                 } else {
                     renderer.style().block_gap()
