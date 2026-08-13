@@ -4,7 +4,7 @@ use iyon_tui::{
     Alignment, Block, Inline, InlineContent, List, ListItem, ListMarker, Mark, MarkSet,
     MarkdownProjector, NumberDelimiter, NumberStyle, Projection, ProjectionBuilder, Projector,
     Renderer, Smooth, StreamOffset, StreamRange, Table, TableCell, TableColumn, TableRow,
-    TextContent, TextProvenance, TextRenderStyle, TextRenderer, TextRun,
+    TextContent, TextProvenance, TextRenderStyle, TextRenderer, TextRun, TextVisitor,
     validate_projection_transition, validate_text_projection,
 };
 
@@ -42,6 +42,114 @@ fn source_projection(
 
 fn sealed(source: &str) -> Projection<TextContent> {
     source_projection(source, source.len(), true, 0)
+}
+
+fn segmented(source: &str, cuts: &[usize], sealed: bool) -> Projection<TextContent> {
+    let end = StreamOffset::new(source.len() as u64);
+    let mut boundaries = vec![0];
+    boundaries.extend(
+        cuts.iter()
+            .copied()
+            .filter(|&cut| cut > 0 && cut < source.len() && source.is_char_boundary(cut)),
+    );
+    boundaries.push(source.len());
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    let stable = if sealed { end } else { StreamOffset::ZERO };
+    let mut builder = ProjectionBuilder::new(StreamOffset::ZERO, stable, end, sealed);
+    for window in boundaries.windows(2) {
+        let start = window[0];
+        let finish = window[1];
+        builder = builder.emit(
+            StreamRange::new(
+                StreamOffset::new(start as u64),
+                StreamOffset::new(finish as u64),
+            ),
+            TextContent::raw(&source[start..finish]),
+        );
+    }
+    builder.finish().unwrap()
+}
+
+struct TextSummary {
+    text: String,
+    sources: Vec<StreamRange>,
+}
+
+impl TextSummary {
+    fn new() -> Self {
+        Self {
+            text: String::new(),
+            sources: Vec::new(),
+        }
+    }
+}
+
+impl TextVisitor for TextSummary {
+    fn visit_raw(&mut self, raw: &iyon_tui::RawText) {
+        self.text.push_str(raw.text());
+    }
+
+    fn visit_text_run(&mut self, run: &TextRun) {
+        self.text.push_str(run.text());
+        let Some(provenance) = (match run.provenance() {
+            TextProvenance::Exact(range) | TextProvenance::Derived(range) => Some(*range),
+            TextProvenance::Synthetic => None,
+        }) else {
+            return;
+        };
+        if let Some(previous) = self.sources.last_mut()
+            && previous.end() == provenance.start()
+        {
+            *previous = StreamRange::new(previous.start(), provenance.end());
+        } else {
+            self.sources.push(provenance);
+        }
+    }
+}
+
+fn signature(
+    output: &Projection<TextContent>,
+) -> Vec<(StreamRange, Vec<(String, Vec<StreamRange>)>)> {
+    output
+        .spans()
+        .iter()
+        .map(|span| {
+            let values = span
+                .values()
+                .iter()
+                .map(|value| {
+                    let mut summary = TextSummary::new();
+                    iyon_tui::walk_content(&mut summary, value);
+                    (summary.text, summary.sources)
+                })
+                .collect();
+            (span.source(), values)
+        })
+        .collect()
+}
+
+#[test]
+fn sealed_markdown_is_independent_of_raw_transport_segmentation() {
+    let source = "# title\n\nalpha *beta*\n\n```json\n{\"ok\":true}\n```\n\nlast\n";
+    let mut one = MarkdownProjector::default();
+    let expected = one.project(&sealed(source)).unwrap();
+    let expected_signature = signature(&expected);
+    let segmentations = [vec![], vec![1, 8, 9, 20, 31, 32, source.len()]];
+    for cuts in segmentations {
+        let mut projector = MarkdownProjector::default();
+        let output = projector.project(&segmented(source, &cuts, true)).unwrap();
+        assert_eq!(signature(&output), expected_signature);
+    }
+    let mut seed = 0x9e37_79b9_u64;
+    let mut cuts = Vec::new();
+    for _ in 0..32 {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        cuts.push((seed as usize) % source.len());
+    }
+    let mut projector = MarkdownProjector::default();
+    let output = projector.project(&segmented(source, &cuts, true)).unwrap();
+    assert_eq!(signature(&output), expected_signature);
 }
 
 fn semantic(output: &Projection<TextContent>) -> Vec<TextContent> {
@@ -94,21 +202,12 @@ fn stable_closed_blocks_are_published_inside_a_raw_domain() {
 fn unresolved_references_remain_mutable_until_sealed_resolution() {
     let mut projector = MarkdownProjector::default();
     let mut previous = None;
-    let mut previous_len = 0;
-    for source in [
-        "[foo]\n\n",
-        "[foo]\n\n[foo]: /a",
-        "[foo]\n\n[foo]: /b",
-        "[foo]\n\n",
-        "[foo]\n\n[foo]: /b\n",
-    ] {
-        if source.len() < previous_len {
-            continue;
-        }
+    let stable_prefix = "[foo]\n\n";
+    for tail in ["[foo]: /a", "[foo]: /b", "[foo]: /c"] {
+        let source = format!("{stable_prefix}{tail}");
         let next = projector
-            .project(&source_projection(source, source.len(), false, 0))
+            .project(&source_projection(&source, stable_prefix.len(), false, 0))
             .unwrap();
-        previous_len = source.len();
         validate_text_projection(&next).unwrap();
         if let Some(previous) = &previous {
             validate_projection_transition(previous, &next).unwrap();
@@ -160,18 +259,30 @@ fn nonzero_root_coordinates_are_preserved() {
 
 #[test]
 fn markdown_composes_after_smooth_without_special_streaming_api() {
-    let source = sealed("first\n\nsecond\n");
+    let source = "first\n\nsecond\n";
+    let open = source_projection(source, 0, false, 0);
+    let sealed_input = source_projection(source, source.len(), true, 0);
     let mut smooth = Smooth::default();
     let mut markdown = MarkdownProjector::default();
-    let published = smooth.project(&source).unwrap();
-    let first = markdown.project(&published).unwrap();
-    validate_text_projection(&first).unwrap();
-    let now = Instant::now() + Duration::from_secs(1);
-    let _ = smooth.advance(now);
-    let flushed = smooth.project(&source).unwrap();
+    let mut previous = None;
+    for now in [
+        Instant::now(),
+        Instant::now() + Duration::from_millis(100),
+        Instant::now() + Duration::from_secs(1),
+    ] {
+        let _ = smooth.advance(now);
+        let published = smooth.project(&open).unwrap();
+        let output = markdown.project(&published).unwrap();
+        validate_text_projection(&output).unwrap();
+        if let Some(previous) = &previous {
+            validate_projection_transition(previous, &output).unwrap();
+        }
+        previous = Some(output);
+    }
+    let flushed = smooth.project(&sealed_input).unwrap();
     let final_output = markdown.project(&flushed).unwrap();
     let mut fresh = MarkdownProjector::default();
-    assert_eq!(final_output, fresh.project(&source).unwrap());
+    assert_eq!(final_output, fresh.project(&sealed_input).unwrap());
 }
 
 #[test]
@@ -207,9 +318,18 @@ fn renderer_preserves_generic_list_table_and_image_semantics() {
     let renderer = TextRenderer::with_style(
         TextRenderStyle::new().with_annotation_tag("app:tag", iyon_tui::StyleSpec::new().bold()),
     );
-    let _ = renderer.render(&TextContent::block(Block::list(list)));
-    let _ = renderer.render(&TextContent::block(Block::table(table)));
-    let _ = renderer.render(&TextContent::block(block));
+    let list_view = renderer.render(&TextContent::block(Block::list(list)));
+    let list_text = format!("{list_view:?}");
+    assert!(list_text.contains("(a) "));
+    let table_view = renderer.render(&TextContent::block(Block::table(table)));
+    let table_text = format!("{table_view:?}");
+    assert!(table_text.contains("caption"));
+    assert!(table_text.contains("cell"));
+    let image_view = renderer.render(&TextContent::block(block));
+    let image_text = format!("{image_view:?}");
+    assert!(image_text.contains("alt"));
+    assert!(image_text.contains("bold: Some(true)"));
+    assert!(image_text.contains("italic: Some(true)"));
 }
 
 #[test]
@@ -275,22 +395,26 @@ fn renderer_accepts_all_number_styles() {
             value,
         ))]))
     };
-    for style in [
-        NumberStyle::Decimal,
-        NumberStyle::LowerAlpha,
-        NumberStyle::UpperAlpha,
-        NumberStyle::LowerRoman,
-        NumberStyle::UpperRoman,
-    ] {
+    let render_marker = |start, style, delimiter| {
         let list = List::new(
             ListMarker::Ordered {
-                start: 9,
+                start,
                 style,
-                delimiter: NumberDelimiter::Paren,
+                delimiter,
             },
             true,
-            [ListItem::new([text("x")]), ListItem::new([text("y")])],
+            [ListItem::new([text("x")])],
         );
-        let _ = TextRenderer::new().render(&TextContent::block(Block::list(list)));
-    }
+        format!(
+            "{:?}",
+            TextRenderer::new().render(&TextContent::block(Block::list(list)))
+        )
+    };
+    assert!(render_marker(9, NumberStyle::Decimal, NumberDelimiter::Period).contains("9. "));
+    assert!(render_marker(9, NumberStyle::Decimal, NumberDelimiter::Paren).contains("9) "));
+    assert!(render_marker(9, NumberStyle::Decimal, NumberDelimiter::TwoParens).contains("(9) "));
+    assert!(render_marker(1, NumberStyle::LowerAlpha, NumberDelimiter::Paren).contains("a) "));
+    assert!(render_marker(27, NumberStyle::UpperAlpha, NumberDelimiter::Paren).contains("AA) "));
+    assert!(render_marker(9, NumberStyle::LowerRoman, NumberDelimiter::Paren).contains("ix) "));
+    assert!(render_marker(9, NumberStyle::UpperRoman, NumberDelimiter::Paren).contains("IX) "));
 }
