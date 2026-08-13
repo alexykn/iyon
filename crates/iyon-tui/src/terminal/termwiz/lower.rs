@@ -200,6 +200,7 @@ pub(crate) fn physical_style(value: PhysicalStyle) -> CellAttributes {
         Underline::None
     });
     attributes.set_reverse(value.reversed);
+    attributes.set_strikethrough(value.strikethrough);
     attributes
 }
 
@@ -249,6 +250,7 @@ mod tests {
             italic: true,
             underline: true,
             reversed: true,
+            strikethrough: true,
         });
         assert_eq!(attributes.foreground(), ColorAttribute::PaletteIndex(4));
         assert_eq!(
@@ -259,6 +261,8 @@ mod tests {
         assert!(attributes.italic());
         assert_eq!(attributes.underline(), Underline::Single);
         assert!(attributes.reverse());
+        assert!(attributes.strikethrough());
+        assert!(!physical_style(PhysicalStyle::default()).strikethrough());
 
         assert_eq!(
             physical_style(PhysicalStyle {

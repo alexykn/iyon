@@ -305,6 +305,10 @@ impl View {
         self.text_attribute(TextAttribute::Reversed, true)
     }
 
+    pub fn strikethrough(self) -> Self {
+        self.text_attribute(TextAttribute::Strikethrough, true)
+    }
+
     pub fn fit_width(mut self) -> Self {
         self.width = WidthRule::Fit;
         self

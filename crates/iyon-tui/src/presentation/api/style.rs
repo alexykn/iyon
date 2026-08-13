@@ -31,6 +31,21 @@ impl StyleSpec {
         Self::default()
     }
 
+    /// Creates an explicit plain-text attribute patch.
+    ///
+    /// Unlike [`StyleSpec::new`], which leaves all attributes unspecified and
+    /// therefore inheritable, `plain` explicitly disables every supported
+    /// text attribute. Foreground and background remain unspecified.
+    pub fn plain() -> Self {
+        Self::new()
+            .attribute(TextAttribute::Bold, false)
+            .attribute(TextAttribute::Dim, false)
+            .attribute(TextAttribute::Italic, false)
+            .attribute(TextAttribute::Underline, false)
+            .attribute(TextAttribute::Reversed, false)
+            .attribute(TextAttribute::Strikethrough, false)
+    }
+
     pub fn foreground(mut self, color: ColorSpec) -> Self {
         self.foreground = Some(color);
         self
@@ -59,6 +74,10 @@ impl StyleSpec {
 
     pub fn reversed(self) -> Self {
         self.attribute(TextAttribute::Reversed, true)
+    }
+
+    pub fn strikethrough(self) -> Self {
+        self.attribute(TextAttribute::Strikethrough, true)
     }
 
     pub fn attribute(mut self, attribute: TextAttribute, enabled: bool) -> Self {
@@ -90,6 +109,7 @@ impl StyleSpec {
             TextAttribute::Italic => self.attributes.italic,
             TextAttribute::Underline => self.attributes.underline,
             TextAttribute::Reversed => self.attributes.reversed,
+            TextAttribute::Strikethrough => self.attributes.strikethrough,
         }
     }
 
@@ -610,6 +630,7 @@ pub struct TextAttributeSpec {
     pub(crate) italic: Option<bool>,
     pub(crate) underline: Option<bool>,
     pub(crate) reversed: Option<bool>,
+    pub(crate) strikethrough: Option<bool>,
 }
 
 impl TextAttributeSpec {
@@ -629,6 +650,7 @@ impl TextAttributeSpec {
             TextAttribute::Italic => self.italic = Some(enabled),
             TextAttribute::Underline => self.underline = Some(enabled),
             TextAttribute::Reversed => self.reversed = Some(enabled),
+            TextAttribute::Strikethrough => self.strikethrough = Some(enabled),
         }
     }
 
@@ -648,6 +670,9 @@ impl TextAttributeSpec {
         if incoming.reversed.is_some() {
             self.reversed = incoming.reversed;
         }
+        if incoming.strikethrough.is_some() {
+            self.strikethrough = incoming.strikethrough;
+        }
     }
 }
 
@@ -659,6 +684,7 @@ pub enum TextAttribute {
     Italic,
     Underline,
     Reversed,
+    Strikethrough,
 }
 
 /// Which sides of a semantic border are painted.
@@ -909,6 +935,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn plain_is_explicit_for_attributes_but_not_colors() {
+        let plain = StyleSpec::plain();
+        assert_eq!(plain.foreground, None);
+        assert_eq!(plain.background, None);
+        assert_eq!(plain.attribute_value(TextAttribute::Bold), Some(false));
+        assert_eq!(plain.attribute_value(TextAttribute::Dim), Some(false));
+        assert_eq!(plain.attribute_value(TextAttribute::Italic), Some(false));
+        assert_eq!(plain.attribute_value(TextAttribute::Underline), Some(false));
+        assert_eq!(plain.attribute_value(TextAttribute::Reversed), Some(false));
+        assert_eq!(
+            plain.attribute_value(TextAttribute::Strikethrough),
+            Some(false)
+        );
+
+        let unspecified = StyleSpec::new();
+        assert_eq!(unspecified.attribute_value(TextAttribute::Bold), None);
+        assert_eq!(
+            unspecified.attribute_value(TextAttribute::Strikethrough),
+            None
+        );
+    }
+
+    #[test]
     fn sparse_style_overlay_preserves_unspecified_fields_and_allows_false() {
         let mut existing = StyleSpec::new().foreground(ColorSpec::Ansi(1)).bold();
         existing.overlay(&StyleSpec::new().italic());
@@ -918,6 +967,18 @@ mod tests {
 
         existing.overlay(&StyleSpec::new().attribute(TextAttribute::Bold, false));
         assert_eq!(existing.attributes.bold, Some(false));
+
+        let strike = StyleSpec::new().strikethrough();
+        assert_eq!(
+            strike.attribute_value(TextAttribute::Strikethrough),
+            Some(true)
+        );
+        assert_eq!(
+            StyleSpec::new()
+                .attribute(TextAttribute::Strikethrough, false)
+                .attribute_value(TextAttribute::Strikethrough),
+            Some(false)
+        );
     }
 
     #[test]

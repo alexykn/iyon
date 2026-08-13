@@ -3,6 +3,10 @@
 //! Themes contain named colors and sparse named text styles. They deliberately
 //! do not contain layout or terminal geometry.
 
+mod framework;
+
+pub(crate) use framework::framework_theme;
+
 use std::collections::HashMap;
 
 use crate::presentation::api::{
