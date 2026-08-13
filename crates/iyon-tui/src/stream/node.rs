@@ -102,7 +102,10 @@ impl StreamView {
                             .iter()
                             .filter(|run| !run.display.is_empty())
                             .cloned()
-                            .map(|run| TextSpan::styled(run.display, run.style)),
+                            .map(|run| {
+                                TextSpan::styled(run.display, run.style)
+                                    .with_style_facts(run.style_facts)
+                            }),
                     );
                     let body = match &text.layout {
                         ProjectedTextLayout::Plain => match text.width {
@@ -117,16 +120,17 @@ impl StreamView {
                             body_column,
                             prefix,
                             prefix_style,
+                            prefix_facts,
                             show_prefix,
                             ..
                         } => View::horizontal(|row| {
                             row.fixed(
                                 *body_column,
                                 if *show_prefix {
-                                    View::styled_text(vec![TextSpan::styled(
-                                        prefix.clone(),
-                                        prefix_style.clone(),
-                                    )])
+                                    View::styled_text(vec![
+                                        TextSpan::styled(prefix.clone(), prefix_style.clone())
+                                            .with_style_facts(prefix_facts.clone()),
+                                    ])
                                     .no_wrap()
                                 } else {
                                     View::text("").fill_width()

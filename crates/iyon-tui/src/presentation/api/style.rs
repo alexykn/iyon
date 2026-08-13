@@ -247,6 +247,95 @@ impl StyleStateValue {
     }
 }
 
+/// Normalized key/value assignments used by both inheritable state and
+/// self-only facts. Entries are sorted so cloning and equality remain cheap
+/// and deterministic for the small context bags used during paint.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct StyleAssignments {
+    entries: Vec<(StyleStateKey, StyleStateValue)>,
+}
+
+impl StyleAssignments {
+    fn get(&self, key: &StyleStateKey) -> Option<&StyleStateValue> {
+        self.entries
+            .binary_search_by(|(candidate, _)| candidate.as_str().cmp(key.as_str()))
+            .ok()
+            .map(|index| &self.entries[index].1)
+    }
+
+    fn set(&mut self, key: StyleStateKey, value: StyleStateValue) -> Option<StyleStateValue> {
+        match self
+            .entries
+            .binary_search_by(|(candidate, _)| candidate.as_str().cmp(key.as_str()))
+        {
+            Ok(index) => Some(std::mem::replace(&mut self.entries[index].1, value)),
+            Err(index) => {
+                self.entries.insert(index, (key, value));
+                None
+            }
+        }
+    }
+
+    fn overlay(&mut self, incoming: &Self) {
+        for (key, value) in &incoming.entries {
+            self.set(key.clone(), value.clone());
+        }
+    }
+
+    #[allow(dead_code)]
+    fn iter(&self) -> impl Iterator<Item = (&StyleStateKey, &StyleStateValue)> {
+        self.entries.iter().map(|(key, value)| (key, value))
+    }
+}
+
+/// Inheritable semantic styling state.
+///
+/// Style states describe runtime/application context that propagates through
+/// the presentation tree. This is distinct from [`StyleFacts`], which identify
+/// only the presentation node/span/run currently being resolved.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct StyleStates {
+    assignments: StyleAssignments,
+}
+
+impl StyleStates {
+    pub(crate) fn set(&mut self, key: impl Into<StyleStateKey>, value: impl Into<StyleStateValue>) {
+        self.assignments.set(key.into(), value.into());
+    }
+
+    pub(crate) fn overlay(&mut self, incoming: &Self) {
+        self.assignments.overlay(&incoming.assignments);
+    }
+
+    pub(crate) fn get(&self, key: &StyleStateKey) -> Option<&StyleStateValue> {
+        self.assignments.get(key)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&StyleStateKey, &StyleStateValue)> {
+        self.assignments.iter()
+    }
+}
+
+/// Self-only semantic styling identity. Facts apply to the current
+/// presentation value and are cleared before descending to children; the
+/// computed physical style still inherits normally.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct StyleFacts {
+    assignments: StyleAssignments,
+}
+
+impl StyleFacts {
+    #[allow(dead_code)]
+    pub(crate) fn set(&mut self, key: impl Into<StyleStateKey>, value: impl Into<StyleStateValue>) {
+        self.assignments.set(key.into(), value.into());
+    }
+
+    pub(crate) fn get(&self, key: &StyleStateKey) -> Option<&StyleStateValue> {
+        self.assignments.get(key)
+    }
+}
+
 impl From<&str> for StyleStateValue {
     fn from(value: &str) -> Self {
         Self::new(value)
@@ -354,16 +443,16 @@ impl StyleSelector {
         &self,
         focused: bool,
         focus_within: bool,
-        states: &[(StyleStateKey, StyleStateValue)],
+        states: &StyleStates,
+        facts: &StyleFacts,
     ) -> bool {
         (!self.focused || focused)
             && (!self.focus_within || focus_within)
             && self.states.iter().all(|(key, value)| {
-                states
-                    .iter()
-                    .rev()
-                    .find(|(candidate, _)| candidate == key)
-                    .is_some_and(|(_, candidate)| candidate == value)
+                facts
+                    .get(key)
+                    .or_else(|| states.get(key))
+                    .is_some_and(|candidate| candidate == value)
             })
     }
 }

@@ -44,14 +44,17 @@ impl ViewPainter {
         inherited_context: crate::presentation::paint::StyleContext,
     ) -> Surface {
         let node = tree.node(id);
-        let context = inherited_context
-            .with_states(&node.style.style_states)
-            .with_scope(compiler.style_context(node.style.component_scope));
+        let node_context = inherited_context.enter_node(
+            &node.style.style_states,
+            &node.style.style_facts,
+            compiler.style_context(node.style.component_scope),
+        );
         let resolved = compiler.theme.resolve_text_style(
             inherited,
             &node.style.decoration.text_style,
-            &context,
+            &node_context,
         );
+        let descendant_context = node_context.for_descendant();
         let mut output = Surface::new(node.rect.width, node.rect.height);
 
         match &node.content {
@@ -61,7 +64,7 @@ impl ViewPainter {
                     node.content_rect.width,
                     *width_rule,
                     resolved,
-                    &context,
+                    &descendant_context,
                 );
                 let x = node.content_rect.x.saturating_sub(node.rect.x);
                 let y = node.content_rect.y.saturating_sub(node.rect.y);
@@ -76,7 +79,14 @@ impl ViewPainter {
                 output.composite(&painted, x, y);
             }
             LayoutContent::Children | LayoutContent::Clamp { .. } => {
-                self.paint_children(compiler, tree, node, &mut output, resolved, &context);
+                self.paint_children(
+                    compiler,
+                    tree,
+                    node,
+                    &mut output,
+                    resolved,
+                    &descendant_context,
+                );
                 if let LayoutContent::Clamp { overflow } = &node.content
                     && node
                         .children
@@ -89,7 +99,7 @@ impl ViewPainter {
                         node,
                         overflow,
                         resolved,
-                        &context,
+                        &descendant_context,
                     );
                 }
             }
@@ -100,8 +110,13 @@ impl ViewPainter {
                         .first()
                         .copied()
                         .expect("row viewport must have one child");
-                    let painted =
-                        self.paint_node(compiler, tree, child_id, resolved, context.clone());
+                    let painted = self.paint_node(
+                        compiler,
+                        tree,
+                        child_id,
+                        resolved,
+                        descendant_context.clone(),
+                    );
                     for y in 0..output.height() {
                         let source_y = usize::from(*skip_rows).saturating_add(usize::from(y));
                         if source_y >= usize::from(painted.height()) {
@@ -117,7 +132,7 @@ impl ViewPainter {
         }
 
         if let Some(color) = &node.style.decoration.surface_background {
-            output.apply_surface_background(compiler.theme.resolve_color(color, &context));
+            output.apply_surface_background(compiler.theme.resolve_color(color, &node_context));
         }
         if let Some(border) = &node.style.decoration.border {
             crate::presentation::paint::paint_border(
@@ -125,7 +140,7 @@ impl ViewPainter {
                 border,
                 &compiler.theme,
                 resolved,
-                &context,
+                &node_context,
             );
         }
         output

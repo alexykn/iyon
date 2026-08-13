@@ -133,7 +133,8 @@ impl Component for CycleNode {
                 width: crate::presentation::WidthRule::Fit,
                 height: crate::presentation::ir::HeightRule::Fit,
                 decoration: Default::default(),
-                style_states: Vec::new(),
+                style_states: Default::default(),
+                style_facts: Default::default(),
                 component_scope: None,
                 kind: crate::presentation::ir::ViewKind::ComponentSlot(
                     crate::presentation::ir::ComponentSlotNode { id },

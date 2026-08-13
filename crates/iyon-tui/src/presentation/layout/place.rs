@@ -56,6 +56,7 @@ pub(super) fn emit_prepared(
         style: LayoutStyle {
             component_scope: prepared.measured.view.component_scope,
             style_states: prepared.measured.view.style_states.clone(),
+            style_facts: prepared.measured.view.style_facts.clone(),
             decoration: prepared.measured.view.decoration.clone(),
         },
         content,

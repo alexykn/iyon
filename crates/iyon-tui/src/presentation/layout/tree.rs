@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     component::ComponentId,
     geometry::{Rect, Size},
-    presentation::api::style::{StyleStateKey, StyleStateValue},
+    presentation::api::style::{StyleFacts, StyleStates},
     presentation::ir::{Decoration, TextView},
     presentation::{OverflowIndicator, WidthRule},
 };
@@ -14,7 +14,8 @@ pub(crate) struct LayoutNodeId(pub(crate) usize);
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct LayoutStyle {
     pub(crate) component_scope: Option<ComponentId>,
-    pub(crate) style_states: Vec<(StyleStateKey, StyleStateValue)>,
+    pub(crate) style_states: StyleStates,
+    pub(crate) style_facts: StyleFacts,
     pub(crate) decoration: Decoration,
 }
 

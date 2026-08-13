@@ -48,6 +48,7 @@ impl ViewCompiler {
             body_column,
             prefix,
             prefix_style,
+            prefix_facts,
             show_prefix,
             ..
         } = &text.layout
@@ -66,8 +67,9 @@ impl ViewCompiler {
                 runs: text.runs.clone(),
             };
             let body_width = max_width.saturating_sub(*body_column).max(1);
+            let base_context = context.for_descendant();
             let (_, body_rows) =
-                self.compile_projected_text_with_style(&body, body_width, inherited, context);
+                self.compile_projected_text_with_style(&body, body_width, inherited, &base_context);
             let prefix_width = UnicodeWidthStr::width(prefix.as_str());
             let mut rows = Vec::with_capacity(body_rows.len());
             for (index, mut row) in body_rows.into_iter().enumerate() {
@@ -77,8 +79,11 @@ impl ViewCompiler {
                     " ".repeat(usize::from(*body_column))
                 };
                 let prefix_style = if index == 0 && *show_prefix {
-                    self.theme
-                        .resolve_text_style(inherited, prefix_style, context)
+                    self.theme.resolve_text_style(
+                        inherited,
+                        prefix_style,
+                        &context.for_descendant().with_local_facts(prefix_facts),
+                    )
                 } else {
                     inherited
                 };
@@ -100,7 +105,8 @@ impl ViewCompiler {
             return (max_width, rows);
         }
 
-        let hard_lines = projected_hard_lines(&self.theme, text, inherited, context);
+        let hard_lines =
+            projected_hard_lines(&self.theme, text, inherited, &context.for_descendant());
         let intrinsic_width = hard_lines
             .iter()
             .map(|line| line.iter().map(|atom| atom.width).sum::<usize>())
@@ -139,7 +145,11 @@ fn projected_hard_lines(
         let mapped = StyledGrapheme {
             text: Cow::Owned(atom.display.clone()),
             width: UnicodeWidthStr::width(atom.display.as_str()),
-            style: theme.resolve_text_style(inherited, &atom.style, context),
+            style: theme.resolve_text_style(
+                inherited,
+                &atom.style,
+                &context.with_local_facts(&atom.style_facts),
+            ),
             source: Some(
                 (atom.owned.start.as_u64() - text.content_range.start.as_u64()) as usize
                     ..(atom.owned.end.as_u64() - text.content_range.start.as_u64()) as usize,

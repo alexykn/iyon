@@ -6,7 +6,7 @@
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::presentation::{HorizontalAlign, StyleRef, TextSpan, WidthRule, WrapMode};
+use crate::presentation::{HorizontalAlign, StyleFacts, StyleRef, TextSpan, WidthRule, WrapMode};
 
 use super::coord::{StreamOffset, StreamRange};
 
@@ -45,6 +45,7 @@ pub struct ProjectedHanging {
     prefix_source: StreamRange,
     prefix: String,
     style: StyleRef,
+    style_facts: StyleFacts,
     prefix_visible: bool,
 }
 
@@ -55,6 +56,7 @@ impl ProjectedHanging {
             prefix_source,
             prefix: prefix.into(),
             style: StyleRef::default(),
+            style_facts: StyleFacts::default(),
             prefix_visible: true,
         }
     }
@@ -68,6 +70,12 @@ impl ProjectedHanging {
         self.prefix_visible = visible;
         self
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn with_style_facts(mut self, facts: StyleFacts) -> Self {
+        self.style_facts = facts;
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -77,6 +85,7 @@ pub(crate) enum ProjectedTextLayout {
         body_column: u16,
         prefix: String,
         prefix_style: StyleRef,
+        prefix_facts: StyleFacts,
         prefix_source: StreamRange,
         show_prefix: bool,
     },
@@ -86,6 +95,7 @@ pub(crate) enum ProjectedTextLayout {
 pub(crate) struct ProjectedTextRun {
     pub(crate) display: String,
     pub(crate) style: StyleRef,
+    pub(crate) style_facts: StyleFacts,
     pub(crate) owned: StreamRange,
     pub(crate) exact_visible: Option<StreamRange>,
 }
@@ -116,15 +126,27 @@ impl ProjectedTextBuilder {
     }
 
     pub fn run(
-        mut self,
+        self,
         display: impl Into<String>,
         owned: StreamRange,
         exact_visible: Option<StreamRange>,
         style: impl Into<StyleRef>,
     ) -> Self {
+        self.run_with_facts(display, owned, exact_visible, style, StyleFacts::default())
+    }
+
+    pub(crate) fn run_with_facts(
+        mut self,
+        display: impl Into<String>,
+        owned: StreamRange,
+        exact_visible: Option<StreamRange>,
+        style: impl Into<StyleRef>,
+        style_facts: StyleFacts,
+    ) -> Self {
         self.runs.push(ProjectedTextRun {
             display: display.into(),
             style: style.into(),
+            style_facts,
             owned,
             exact_visible,
         });
@@ -196,6 +218,7 @@ impl ProjectedTextBuilder {
             body_column: hanging.body_column,
             prefix: hanging.prefix,
             prefix_style: hanging.style,
+            prefix_facts: hanging.style_facts,
             prefix_source: hanging.prefix_source,
             show_prefix: hanging.prefix_visible,
         };
@@ -267,6 +290,7 @@ impl ProjectedText {
             cursor = cursor.saturating_add(span.text.len() as u64);
             if let Some(previous) = runs.last_mut()
                 && previous.style == span.style
+                && previous.style_facts == span.style_facts
                 && previous.owned.end == start
             {
                 previous.display.push_str(&span.text);
@@ -276,6 +300,7 @@ impl ProjectedText {
                 runs.push(ProjectedTextRun {
                     display: span.text,
                     style: span.style,
+                    style_facts: span.style_facts,
                     owned: StreamRange::new(start, cursor),
                     exact_visible: Some(StreamRange::new(start, cursor)),
                 });
@@ -325,6 +350,7 @@ pub(crate) fn slice_projected_text_to(
         runs.push(ProjectedTextRun {
             display: run.display[..relative].to_owned(),
             style: run.style.clone(),
+            style_facts: run.style_facts.clone(),
             owned: StreamRange::new(run.owned.start, end),
             exact_visible: Some(StreamRange::new(visible.start, end)),
         });
@@ -372,6 +398,7 @@ pub(crate) fn slice_projected_text(text: &ProjectedText, offset: StreamOffset) -
         runs.push(ProjectedTextRun {
             display,
             style: run.style.clone(),
+            style_facts: run.style_facts.clone(),
             owned: StreamRange::new(offset, run.owned.end),
             exact_visible: Some(StreamRange::new(offset, visible.end)),
         });
@@ -389,12 +416,14 @@ pub(crate) fn slice_projected_text(text: &ProjectedText, offset: StreamOffset) -
                 body_column,
                 prefix,
                 prefix_style,
+                prefix_facts,
                 prefix_source,
                 ..
             } => ProjectedTextLayout::Hanging {
                 body_column: *body_column,
                 prefix: prefix.clone(),
                 prefix_style: prefix_style.clone(),
+                prefix_facts: prefix_facts.clone(),
                 prefix_source: *prefix_source,
                 show_prefix: offset <= prefix_source.start,
             },
@@ -411,6 +440,7 @@ pub(crate) struct ProjectedAtom {
     pub(crate) display: String,
     pub(crate) owned: StreamRange,
     pub(crate) style: StyleRef,
+    pub(crate) style_facts: StyleFacts,
     pub(crate) run_index: Option<usize>,
 }
 
@@ -421,50 +451,56 @@ pub(crate) fn projected_atoms(text: &ProjectedText) -> Vec<ProjectedAtom> {
     let mut exact_display = String::new();
     let mut fragments = Vec::new();
 
-    let flush_exact =
-        |atoms: &mut Vec<ProjectedAtom>,
-         display: &mut String,
-         fragments: &mut Vec<(usize, usize, StreamRange, StreamRange, usize, StyleRef)>| {
-            for (relative, grapheme) in display.grapheme_indices(true) {
-                let relative_end = relative + grapheme.len();
-                let contributors = fragments
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, (start, end, _, _, _, _))| {
-                        relative < *end && relative_end > *start
-                    })
-                    .collect::<Vec<_>>();
-                let first = contributors
-                    .first()
-                    .map(|(_, fragment)| fragment)
-                    .expect("projected EGC must overlap an exact fragment");
-                let last = contributors
-                    .last()
-                    .map(|(_, fragment)| fragment)
-                    .expect("projected EGC must overlap an exact fragment");
-                let first_offset = relative - first.0;
-                let source_start = if first_offset == 0 {
-                    first.2.start
-                } else {
-                    first.3.start.saturating_add(first_offset as u64)
-                };
-                let last_offset_end = relative_end - last.0;
-                let last_display_len = last.1 - last.0;
-                let source_end = if last_offset_end == last_display_len {
-                    last.2.end
-                } else {
-                    last.3.start.saturating_add(last_offset_end as u64)
-                };
-                atoms.push(ProjectedAtom {
-                    display: grapheme.to_owned(),
-                    owned: StreamRange::new(source_start, source_end),
-                    style: first.5.clone(),
-                    run_index: Some(first.4),
-                });
-            }
-            display.clear();
-            fragments.clear();
-        };
+    let flush_exact = |atoms: &mut Vec<ProjectedAtom>,
+                       display: &mut String,
+                       fragments: &mut Vec<(
+        usize,
+        usize,
+        StreamRange,
+        StreamRange,
+        usize,
+        StyleRef,
+        StyleFacts,
+    )>| {
+        for (relative, grapheme) in display.grapheme_indices(true) {
+            let relative_end = relative + grapheme.len();
+            let contributors = fragments
+                .iter()
+                .enumerate()
+                .filter(|(_, (start, end, _, _, _, _, _))| relative < *end && relative_end > *start)
+                .collect::<Vec<_>>();
+            let first = contributors
+                .first()
+                .map(|(_, fragment)| fragment)
+                .expect("projected EGC must overlap an exact fragment");
+            let last = contributors
+                .last()
+                .map(|(_, fragment)| fragment)
+                .expect("projected EGC must overlap an exact fragment");
+            let first_offset = relative - first.0;
+            let source_start = if first_offset == 0 {
+                first.2.start
+            } else {
+                first.3.start.saturating_add(first_offset as u64)
+            };
+            let last_offset_end = relative_end - last.0;
+            let last_display_len = last.1 - last.0;
+            let source_end = if last_offset_end == last_display_len {
+                last.2.end
+            } else {
+                last.3.start.saturating_add(last_offset_end as u64)
+            };
+            atoms.push(ProjectedAtom {
+                display: grapheme.to_owned(),
+                owned: StreamRange::new(source_start, source_end),
+                style: first.5.clone(),
+                style_facts: first.6.clone(),
+                run_index: Some(first.4),
+            });
+        }
+        display.clear();
+        fragments.clear();
+    };
 
     for (run_index, run) in text.runs.iter().enumerate() {
         if run.display.is_empty() {
@@ -476,6 +512,7 @@ pub(crate) fn projected_atoms(text: &ProjectedText) -> Vec<ProjectedAtom> {
                 display: run.display.clone(),
                 owned: run.owned,
                 style: run.style.clone(),
+                style_facts: run.style_facts.clone(),
                 run_index: None,
             });
             continue;
@@ -489,6 +526,7 @@ pub(crate) fn projected_atoms(text: &ProjectedText) -> Vec<ProjectedAtom> {
             visible,
             run_index,
             run.style.clone(),
+            run.style_facts.clone(),
         ));
     }
     flush_exact(&mut atoms, &mut exact_display, &mut fragments);

@@ -1,8 +1,8 @@
 //! Typed semantic text construction backed by the canonical View IR.
 
 use super::style::{
-    BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, StyleStateKey, StyleStateValue,
-    TextAttribute,
+    BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleFacts, StyleRef, StyleStateKey,
+    StyleStateValue, TextAttribute,
 };
 use crate::presentation::ir::{TextView, View, ViewKind};
 
@@ -11,6 +11,7 @@ use crate::presentation::ir::{TextView, View, ViewKind};
 pub struct TextSpan {
     pub(crate) text: String,
     pub(crate) style: StyleRef,
+    pub(crate) style_facts: StyleFacts,
 }
 
 impl TextSpan {
@@ -34,6 +35,7 @@ impl TextSpan {
         Self {
             text: text.into(),
             style: StyleRef::default(),
+            style_facts: StyleFacts::default(),
         }
     }
 
@@ -41,7 +43,24 @@ impl TextSpan {
         Self {
             text: text.into(),
             style: style.into(),
+            style_facts: StyleFacts::default(),
         }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn style_fact(
+        mut self,
+        key: impl Into<StyleStateKey>,
+        value: impl Into<StyleStateValue>,
+    ) -> Self {
+        self.style_facts.set(key, value);
+        self
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn with_style_facts(mut self, style_facts: StyleFacts) -> Self {
+        self.style_facts = style_facts;
+        self
     }
 }
 
@@ -138,6 +157,15 @@ impl Text {
 
     pub fn style(self, style: impl Into<StyleRef>) -> Self {
         self.map_view(|view| view.style(style))
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn style_fact(
+        self,
+        key: impl Into<StyleStateKey>,
+        value: impl Into<StyleStateValue>,
+    ) -> Self {
+        self.map_view(|view| view.style_fact(key, value))
     }
 
     /// Sets the current text node's padding; repeated calls replace the prior value.

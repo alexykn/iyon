@@ -17,6 +17,7 @@ pub(crate) use api::{
     HorizontalAlign, Insets, IntoView, OverflowIndicator, StyleRef, StyleSpec, Text, TextAttribute,
     TextAttributeSpec, TextSpan, ThemeKey, Vertical, VerticalAlign, View, WrapMode,
 };
+pub(crate) use api::{StyleFacts, StyleStates};
 
 // Retained IR types remain private implementation details of the semantic
 // layout engine.

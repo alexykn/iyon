@@ -110,8 +110,11 @@ impl ViewCompiler {
             };
             (
                 span.text.as_str(),
-                self.theme
-                    .resolve_text_style(inherited, &span.style, context),
+                self.theme.resolve_text_style(
+                    inherited,
+                    &span.style,
+                    &context.with_local_facts(&span.style_facts),
+                ),
                 base,
             )
         });

@@ -15,5 +15,6 @@ pub use style::{
     Insets, OverflowIndicator, StyleRef, StyleSelector, StyleSpec, StyleStateKey, StyleStateValue,
     TextAttribute, TextAttributeSpec, ThemeColor, ThemeKey, VerticalAlign,
 };
+pub(crate) use style::{StyleFacts, StyleStates};
 pub use text::{HorizontalAlign, Text, TextSpan, WrapMode};
 pub use view::IntoView;

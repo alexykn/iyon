@@ -7,7 +7,7 @@ use crate::component::ComponentId;
 
 use super::api::{
     style::{
-        BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, StyleStateKey, StyleStateValue,
+        BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleFacts, StyleRef, StyleStates,
         VerticalAlign,
     },
     text::{HorizontalAlign, TextSpan, WrapMode},
@@ -23,7 +23,8 @@ pub struct View {
     pub(crate) width: WidthRule,
     pub(crate) height: HeightRule,
     pub(crate) decoration: Decoration,
-    pub(crate) style_states: Vec<(StyleStateKey, StyleStateValue)>,
+    pub(crate) style_states: StyleStates,
+    pub(crate) style_facts: StyleFacts,
     pub(crate) component_scope: Option<ComponentId>,
     pub(crate) kind: ViewKind,
 }
@@ -40,6 +41,7 @@ impl View {
             height: self.height,
             decoration: self.decoration.clone(),
             style_states: self.style_states.clone(),
+            style_facts: self.style_facts.clone(),
             component_scope,
             kind,
         }

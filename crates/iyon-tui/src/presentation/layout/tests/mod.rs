@@ -9,9 +9,10 @@ use crate::presentation::api::style::{
 use crate::presentation::ir::ViewKind;
 use crate::presentation::ir::{Decoration, RowChild};
 use crate::presentation::{
-    ColorSpec, HorizontalAlign, Insets, IntoView, StyleSpec, TextSpan, ThemeKey, VerticalAlign,
-    View, WidthRule, WrapMode,
+    ColorSpec, HorizontalAlign, Insets, IntoView, StyleRef, StyleSpec, TextSpan, ThemeKey,
+    VerticalAlign, View, WidthRule, WrapMode,
 };
+use crate::{StyleSelector, Theme};
 
 fn text(row: &PhysicalRow) -> String {
     row.plain_text()
@@ -29,7 +30,8 @@ fn row_view(children: Vec<RowChild>, gap: u16) -> View {
         width: WidthRule::Fill,
         height: crate::presentation::ir::HeightRule::Fit,
         decoration: Decoration::default(),
-        style_states: Vec::new(),
+        style_states: Default::default(),
+        style_facts: Default::default(),
         component_scope: None,
         kind: crate::presentation::ir::ViewKind::Row(crate::presentation::ir::RowView {
             children,
@@ -49,7 +51,8 @@ fn box_view(child: View, decoration: Decoration) -> View {
         width,
         height,
         decoration,
-        style_states: Vec::new(),
+        style_states: Default::default(),
+        style_facts: Default::default(),
         component_scope: None,
         kind: crate::presentation::ir::ViewKind::Container(
             crate::presentation::ir::ContainerNode {

@@ -3,8 +3,8 @@
 use super::{
     composition::{Horizontal, Vertical},
     style::{
-        BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleRef, StyleSpec, StyleStateKey,
-        StyleStateValue, TextAttribute,
+        BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleFacts, StyleRef, StyleSpec,
+        StyleStateKey, StyleStateValue, StyleStates, TextAttribute,
     },
     text::{Text, TextSpan},
 };
@@ -20,7 +20,8 @@ impl View {
             width: WidthRule::Fit,
             height: HeightRule::Fit,
             decoration: Decoration::default(),
-            style_states: Vec::new(),
+            style_states: StyleStates::default(),
+            style_facts: StyleFacts::default(),
             component_scope: None,
             kind,
         }
@@ -36,7 +37,8 @@ impl View {
             width,
             height,
             decoration: Decoration::default(),
-            style_states: Vec::new(),
+            style_states: StyleStates::default(),
+            style_facts: StyleFacts::default(),
             component_scope: None,
             kind: make_kind(Box::new(child)),
         }
@@ -131,7 +133,8 @@ impl View {
             width: WidthRule::Fill,
             height: HeightRule::Fill,
             decoration: Decoration::default(),
-            style_states: Vec::new(),
+            style_states: StyleStates::default(),
+            style_facts: StyleFacts::default(),
             component_scope: None,
             kind: ViewKind::RowViewport(crate::presentation::ir::RowViewportView {
                 child: Box::new(child),
@@ -156,7 +159,8 @@ impl View {
             width: WidthRule::Fill,
             height: HeightRule::Fill,
             decoration: Decoration::default(),
-            style_states: Vec::new(),
+            style_states: StyleStates::default(),
+            style_facts: StyleFacts::default(),
             component_scope: None,
             kind: ViewKind::RowViewport(crate::presentation::ir::RowViewportView {
                 child: Box::new(child),
@@ -174,7 +178,8 @@ impl View {
             width: WidthRule::Fill,
             height: HeightRule::Fill,
             decoration: Decoration::default(),
-            style_states: Vec::new(),
+            style_states: StyleStates::default(),
+            style_facts: StyleFacts::default(),
             component_scope: None,
             kind: ViewKind::RowViewport(crate::presentation::ir::RowViewportView {
                 child: Box::new(child),
@@ -208,16 +213,19 @@ impl View {
         key: impl Into<StyleStateKey>,
         value: impl Into<StyleStateValue>,
     ) -> Self {
-        let key = key.into();
-        if let Some(existing) = self
-            .style_states
-            .iter_mut()
-            .find(|(existing, _)| existing == &key)
-        {
-            existing.1 = value.into();
-        } else {
-            self.style_states.push((key, value.into()));
-        }
+        self.style_states.set(key, value);
+        self
+    }
+
+    /// Assigns a self-only semantic styling fact. This is crate-private until
+    /// the typed text selector API is introduced.
+    #[allow(dead_code)]
+    pub(crate) fn style_fact(
+        mut self,
+        key: impl Into<StyleStateKey>,
+        value: impl Into<StyleStateValue>,
+    ) -> Self {
+        self.style_facts.set(key, value);
         self
     }
 

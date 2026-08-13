@@ -441,7 +441,8 @@ mod tests {
             width: WidthRule::Fit,
             height: HeightRule::Fit,
             decoration: Default::default(),
-            style_states: Vec::new(),
+            style_states: Default::default(),
+            style_facts: Default::default(),
             component_scope: None,
             kind: ViewKind::Row(RowView {
                 children: vec![
