@@ -58,18 +58,6 @@ pub enum TextContent {
     Block(Block),
 }
 
-impl From<&str> for TextContent {
-    fn from(value: &str) -> Self {
-        Self::raw(value)
-    }
-}
-
-impl From<String> for TextContent {
-    fn from(value: String) -> Self {
-        Self::raw(value)
-    }
-}
-
 impl TextContent {
     pub fn raw(text: impl Into<Arc<str>>) -> Self {
         Self::Raw(RawText::new(text))

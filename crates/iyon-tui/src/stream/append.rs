@@ -9,7 +9,7 @@ use super::coord::StreamOffset;
 /// When sealed, the entire text is stable.
 /// When open, holds back the trailing extended grapheme cluster so that partial
 /// UTF-8 or combining sequences are never committed before completion.
-pub fn append_only_text_stable_frontier(
+pub(crate) fn append_only_text_stable_frontier(
     source: &str,
     base: StreamOffset,
     sealed: bool,

@@ -3,7 +3,10 @@ use iyon_tui::{
     Renderer, Smooth, TextContent, TextRenderer, TextStream,
 };
 use iyon_tui::projection::{ProjectionBuilder, ProjectionTransitionError, validate_projection_transition};
-use iyon_tui::stream::{ProjectedText, StreamOffset, StreamRange, StreamSnapshotBuilder, StreamingSource};
+use iyon_tui::stream::{
+    ProjectedHanging, ProjectedText, StreamOffset, StreamRange, StreamSnapshotBuilder,
+    StreamingSource,
+};
 use iyon_tui::text::{BlockKind, LiteralText, Mark, TextRun, TextVisitor};
 
 fn root_vocabulary() {
@@ -23,6 +26,7 @@ fn advanced_namespaces() {
     let _ = StreamOffset::ZERO;
     let _ = StreamRange::default();
     let _ = StreamSnapshotBuilder::new;
+    let _ = ProjectedHanging::new(0, StreamRange::default(), "");
     let _ = ProjectedText::builder;
     let _ = BlockKind::ThematicBreak;
     let _ = LiteralText::from("x");

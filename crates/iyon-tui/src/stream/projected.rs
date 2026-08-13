@@ -38,6 +38,38 @@ pub struct ProjectedText {
     pub(crate) runs: Vec<ProjectedTextRun>,
 }
 
+/// Typed configuration for a projected hanging prefix.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProjectedHanging {
+    body_column: u16,
+    prefix_source: StreamRange,
+    prefix: String,
+    style: StyleRef,
+    prefix_visible: bool,
+}
+
+impl ProjectedHanging {
+    pub fn new(body_column: u16, prefix_source: StreamRange, prefix: impl Into<String>) -> Self {
+        Self {
+            body_column,
+            prefix_source,
+            prefix: prefix.into(),
+            style: StyleRef::default(),
+            prefix_visible: true,
+        }
+    }
+
+    pub fn with_style(mut self, style: impl Into<StyleRef>) -> Self {
+        self.style = style.into();
+        self
+    }
+
+    pub fn with_prefix_visible(mut self, visible: bool) -> Self {
+        self.prefix_visible = visible;
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ProjectedTextLayout {
     Plain,
@@ -99,7 +131,7 @@ impl ProjectedTextBuilder {
         self
     }
 
-    pub fn exact_default(self, range: StreamRange, display: impl Into<String>) -> Self {
+    fn exact_default(self, range: StreamRange, display: impl Into<String>) -> Self {
         self.run(display, range, Some(range), StyleRef::default())
     }
 
@@ -116,7 +148,7 @@ impl ProjectedTextBuilder {
         self.exact_default(range, display)
     }
 
-    pub fn replacement_default(self, range: StreamRange, display: impl Into<String>) -> Self {
+    fn replacement_default(self, range: StreamRange, display: impl Into<String>) -> Self {
         self.run(display, range, None, StyleRef::default())
     }
 
@@ -158,22 +190,32 @@ impl ProjectedTextBuilder {
         self
     }
 
+    /// Applies the preferred typed hanging-prefix configuration.
+    pub fn with_hanging(mut self, hanging: ProjectedHanging) -> Self {
+        self.layout = ProjectedTextLayout::Hanging {
+            body_column: hanging.body_column,
+            prefix: hanging.prefix,
+            prefix_style: hanging.style,
+            prefix_source: hanging.prefix_source,
+            show_prefix: hanging.prefix_visible,
+        };
+        self
+    }
+
+    /// Applies hanging-prefix configuration using the legacy positional form.
     pub fn hanging(
-        mut self,
+        self,
         body_column: u16,
         prefix: impl Into<String>,
         prefix_style: impl Into<StyleRef>,
         prefix_source: StreamRange,
         show_prefix: bool,
     ) -> Self {
-        self.layout = ProjectedTextLayout::Hanging {
-            body_column,
-            prefix: prefix.into(),
-            prefix_style: prefix_style.into(),
-            prefix_source,
-            show_prefix,
-        };
-        self
+        self.with_hanging(
+            ProjectedHanging::new(body_column, prefix_source, prefix)
+                .with_style(prefix_style)
+                .with_prefix_visible(show_prefix),
+        )
     }
 
     pub fn finish(self) -> Result<ProjectedText, super::validate::ProjectedValidationError> {

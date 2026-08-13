@@ -10,11 +10,6 @@ pub struct SemanticTag {
 }
 
 impl SemanticTag {
-    pub fn parse(value: &str) -> Result<Self, TextIrError> {
-        let (namespace, name) = value.split_once(':').ok_or(TextIrError::InvalidName)?;
-        Self::new(namespace, name)
-    }
-
     pub fn new(
         namespace: impl Into<Arc<str>>,
         name: impl Into<Arc<str>>,

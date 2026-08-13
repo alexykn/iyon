@@ -349,6 +349,32 @@ fn sealing_captures_every_whole_node() {
 }
 
 #[test]
+fn text_stream_model_seal_captures_and_compacts_without_losing_content() {
+    let mut model = StreamModel::new(TextStream::from_text("hello")).unwrap();
+    model.seal().unwrap();
+
+    assert_eq!(model.source().source_base(), StreamOffset::new(5));
+    assert_eq!(model.resident().end(), StreamOffset::new(5));
+    assert_eq!(
+        model
+            .semantic_view()
+            .nodes
+            .iter()
+            .filter_map(|node| match node {
+                StreamNode::Text(text) => Some(
+                    text.runs
+                        .iter()
+                        .map(|run| run.display.as_str())
+                        .collect::<String>(),
+                ),
+                StreamNode::Atomic { .. } => None,
+            })
+            .collect::<String>(),
+        "hello"
+    );
+}
+
+#[test]
 fn resident_release_does_not_split_a_node() {
     let source = FakeSource::new(3);
     let mut model = StreamModel::new(source).unwrap();
