@@ -1,9 +1,10 @@
 use std::borrow::Cow;
 
+use iyon_tui::stream::StreamingSource;
 use iyon_tui::{ColorSpec, Insets, IntoView, OverflowIndicator, ThemeKey, View};
 
 use crate::tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput};
-use crate::transcript::markdown::{assistant_document_view, parse_assistant};
+use crate::transcript::pipeline::{assistant_renderer, assistant_view};
 
 /// The kind of an assistant-message segment. `Thinking` is streamed reasoning,
 /// kept logically distinct from answer text so it can be styled independently.
@@ -46,63 +47,6 @@ pub(crate) fn think_to_text_newline<'a>(
     } else {
         Cow::Borrowed(chunk)
     }
-}
-
-/// Returns the sub-range of `segments` covering bytes `[from_byte, to_byte)`.
-pub(crate) fn slice_segments(
-    segments: &[AssistantSegment],
-    from_byte: usize,
-    to_byte: usize,
-) -> Vec<AssistantSegment> {
-    let from = from_byte.min(to_byte);
-    let to = to_byte.max(from_byte);
-    let mut out = Vec::new();
-    let mut cursor = 0usize;
-
-    for segment in segments {
-        let text = segment.text();
-        let segment_end = cursor + text.len();
-        if segment_end <= from {
-            cursor = segment_end;
-            continue;
-        }
-        if cursor >= to {
-            break;
-        }
-
-        let start = clamp_to_char_boundary(text, from.saturating_sub(cursor));
-        let end = char_boundary_after(text, to.saturating_sub(cursor)).max(start);
-        if end > start {
-            let piece = &text[start..end];
-            match segment {
-                AssistantSegment::Text(_) => out.push(AssistantSegment::Text(piece.to_string())),
-                AssistantSegment::Thinking(_) => {
-                    out.push(AssistantSegment::Thinking(piece.to_string()))
-                }
-            }
-        }
-        if segment_end >= to {
-            break;
-        }
-        cursor = segment_end;
-    }
-    out
-}
-
-fn clamp_to_char_boundary(text: &str, mut pos: usize) -> usize {
-    pos = pos.min(text.len());
-    while pos > 0 && !text.is_char_boundary(pos) {
-        pos -= 1;
-    }
-    pos
-}
-
-fn char_boundary_after(text: &str, mut pos: usize) -> usize {
-    pos = pos.min(text.len());
-    while pos < text.len() && !text.is_char_boundary(pos) {
-        pos += 1;
-    }
-    pos
 }
 
 #[derive(Debug, Clone)]
@@ -153,7 +97,17 @@ impl TuiFormatter {
         match item {
             TimelineItem::UserMessage { text } => Self::user_batch_view(std::slice::from_ref(text)),
             TimelineItem::AssistantMessage { segments } => {
-                assistant_document_view(&parse_assistant(segments))
+                let mut stream = crate::transcript::assistant_stream::AssistantStream::new();
+                for segment in segments {
+                    let kind = match segment {
+                        AssistantSegment::Text(_) => SegmentKind::Text,
+                        AssistantSegment::Thinking(_) => SegmentKind::Thinking,
+                    };
+                    stream.push_delta_paced(kind, segment.text());
+                }
+                stream.seal();
+                let semantic = stream.semantic_projection_for_view();
+                assistant_view(&semantic, &assistant_renderer())
             }
             TimelineItem::ErrorMessage { text } => self.format_error_message(text),
             TimelineItem::ToolCall {
