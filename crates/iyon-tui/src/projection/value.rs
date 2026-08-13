@@ -1,7 +1,7 @@
 //! Root-coordinate projections with explicit source coverage.
 
 use super::validate::validate_projection;
-use crate::{StreamOffset, StreamRange};
+use crate::stream::{StreamOffset, StreamRange};
 
 /// A validated projection of a contiguous interval in one root source space.
 ///
@@ -87,6 +87,16 @@ impl<T> ProjectionBuilder<T> {
 }
 
 impl<T> Projection<T> {
+    /// Starts a builder preserving this projection's source envelope.
+    pub fn rebuild<U>(&self) -> ProjectionBuilder<U> {
+        ProjectionBuilder::new(
+            self.source_base,
+            self.stable_through,
+            self.source_end,
+            self.sealed,
+        )
+    }
+
     pub fn source_base(&self) -> StreamOffset {
         self.source_base
     }
@@ -105,6 +115,73 @@ impl<T> Projection<T> {
 
     pub fn spans(&self) -> &[ProjectionSpan<T>] {
         &self.spans
+    }
+
+    /// Maps borrowed values without changing ownership or stability metadata.
+    pub fn map_ref<U>(&self, mut map: impl FnMut(&T) -> U) -> Projection<U> {
+        Projection {
+            source_base: self.source_base,
+            stable_through: self.stable_through,
+            source_end: self.source_end,
+            sealed: self.sealed,
+            spans: self
+                .spans
+                .iter()
+                .map(|span| ProjectionSpan {
+                    source: span.source,
+                    values: span.values.iter().map(&mut map).collect(),
+                })
+                .collect(),
+        }
+    }
+
+    pub fn try_map_ref<U, E>(
+        &self,
+        mut map: impl FnMut(&T) -> Result<U, E>,
+    ) -> Result<Projection<U>, E> {
+        let mut output = self.rebuild();
+        for span in &self.spans {
+            let values = span
+                .values
+                .iter()
+                .map(&mut map)
+                .collect::<Result<Vec<_>, _>>()?;
+            output = output.emit_many(span.source, values);
+        }
+        Ok(output
+            .finish()
+            .expect("rebuilding a valid projection must remain valid"))
+    }
+
+    /// Maps each source span to zero or more values while retaining one span.
+    pub fn map_spans<U>(&self, mut map: impl FnMut(&ProjectionSpan<T>) -> Vec<U>) -> Projection<U> {
+        Projection {
+            source_base: self.source_base,
+            stable_through: self.stable_through,
+            source_end: self.source_end,
+            sealed: self.sealed,
+            spans: self
+                .spans
+                .iter()
+                .map(|span| ProjectionSpan {
+                    source: span.source,
+                    values: map(span),
+                })
+                .collect(),
+        }
+    }
+
+    pub fn try_map_spans<U, E>(
+        &self,
+        mut map: impl FnMut(&ProjectionSpan<T>) -> Result<Vec<U>, E>,
+    ) -> Result<Projection<U>, E> {
+        let mut output = self.rebuild();
+        for span in &self.spans {
+            output = output.emit_many(span.source, map(span)?);
+        }
+        Ok(output
+            .finish()
+            .expect("rebuilding a valid projection must remain valid"))
     }
 
     /// Changes the value type without changing ownership or stability metadata.

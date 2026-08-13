@@ -99,22 +99,38 @@ impl ProjectedTextBuilder {
         self
     }
 
-    pub fn exact(
+    pub fn exact_default(self, range: StreamRange, display: impl Into<String>) -> Self {
+        self.run(display, range, Some(range), StyleRef::default())
+    }
+
+    pub fn exact_styled(
         self,
-        display: impl Into<String>,
         range: StreamRange,
+        display: impl Into<String>,
         style: impl Into<StyleRef>,
     ) -> Self {
         self.run(display, range, Some(range), style)
     }
 
-    pub fn replacement(
+    pub fn exact(self, range: StreamRange, display: impl Into<String>) -> Self {
+        self.exact_default(range, display)
+    }
+
+    pub fn replacement_default(self, range: StreamRange, display: impl Into<String>) -> Self {
+        self.run(display, range, None, StyleRef::default())
+    }
+
+    pub fn replacement_styled(
         self,
+        range: StreamRange,
         display: impl Into<String>,
-        owned: StreamRange,
         style: impl Into<StyleRef>,
     ) -> Self {
-        self.run(display, owned, None, style)
+        self.run(display, range, None, style)
+    }
+
+    pub fn replacement(self, range: StreamRange, display: impl Into<String>) -> Self {
+        self.replacement_default(range, display)
     }
 
     pub fn hard_newline(mut self) -> Self {

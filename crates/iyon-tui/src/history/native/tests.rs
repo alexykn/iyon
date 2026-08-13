@@ -428,7 +428,7 @@ fn sink_zero_and_error_do_not_publish_static_freeze() {
 #[test]
 fn top_padding_is_transferred_once_and_bottom_padding_is_resident() {
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::vertical(1), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::vertical(1), 0));
     history.push("A").unwrap();
     let mut sink = FakeSink::default();
 
@@ -451,7 +451,7 @@ fn top_padding_is_transferred_once_and_bottom_padding_is_resident() {
 #[test]
 fn top_padding_partial_ack_freezes_exact_remainder_across_layout_change() {
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::new(3, 0, 0, 0), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::new(3, 0, 0, 0), 0));
     history.push("A").unwrap();
     let mut first = FakeSink::accepting([Ok(1)]);
 
@@ -462,7 +462,7 @@ fn top_padding_partial_ack_freezes_exact_remainder_across_layout_change() {
     };
     assert_eq!(frozen.as_slice().len(), 2);
 
-    history.set_layout(HistoryLayout::new(Insets::new(10, 0, 0, 0), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::new(10, 0, 0, 0), 0));
     let mut second = FakeSink::default();
     transfer(&mut history, &mut second, 8, 8);
     assert_eq!(second.rows, frozen.as_slice());
@@ -527,7 +527,7 @@ fn multiple_live_units_enforce_one_global_native_frontier() {
     let live_b = registry.register(LiveComponent);
     let live_d = registry.register(LiveComponent);
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::ZERO, 1));
+    history.set_layout(HistoryLayout::from_parts(Insets::ZERO, 1));
     history.push("A").unwrap();
     let b = history.push(View::component(live_b)).unwrap();
     history.push("C").unwrap();
@@ -578,7 +578,7 @@ fn multiple_live_units_enforce_one_global_native_frontier() {
 #[test]
 fn leading_gap_partial_ack_freezes_spacing_across_layout_change() {
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::ZERO, 3));
+    history.set_layout(HistoryLayout::from_parts(Insets::ZERO, 3));
     history.push("A").unwrap();
     history.push("B").unwrap();
     let mut sink = FakeSink::default();
@@ -590,7 +590,7 @@ fn leading_gap_partial_ack_freezes_spacing_across_layout_change() {
         history.native.leading_gap,
         Some(crate::history::native::frontier::SpacingTransferState::Frozen(_))
     ));
-    history.set_layout(HistoryLayout::new(Insets::ZERO, 8));
+    history.set_layout(HistoryLayout::from_parts(Insets::ZERO, 8));
     let Some(crate::history::native::frontier::SpacingTransferState::Frozen(rows)) =
         history.native.leading_gap.as_ref()
     else {
@@ -610,7 +610,7 @@ fn zero_top_padding_is_crossed_before_partial_static_content() {
         crate::history::native::frontier::SpacingTransferState::Native
     ));
 
-    history.set_layout(HistoryLayout::new(Insets::new(3, 0, 0, 0), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::new(3, 0, 0, 0), 0));
     let registry = crate::component::ComponentRegistry::new();
     let projection = project(&history, &registry, Size::new(8, 1)).unwrap();
     assert!(projection.frozen_overlay.is_some());
@@ -632,7 +632,7 @@ fn zero_top_padding_remains_crossed_after_full_transfer_and_append() {
     history.push("A").unwrap();
     let mut sink = FakeSink::default();
     transfer(&mut history, &mut sink, 8, 8);
-    history.set_layout(HistoryLayout::new(Insets::new(3, 0, 0, 0), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::new(3, 0, 0, 0), 0));
     history.push("B").unwrap();
 
     transfer(&mut history, &mut sink, 8, 8);
@@ -659,7 +659,7 @@ fn zero_default_gap_is_crossed_before_partial_static_content() {
         Some(crate::history::native::frontier::SpacingTransferState::Native)
     ));
 
-    history.set_layout(HistoryLayout::new(Insets::ZERO, 3));
+    history.set_layout(HistoryLayout::from_parts(Insets::ZERO, 3));
     let registry = crate::component::ComponentRegistry::new();
     let projection = project(&history, &registry, Size::new(8, 1)).unwrap();
     assert!(projection.frozen_overlay.is_some());
@@ -691,7 +691,7 @@ fn zero_default_gap_is_crossed_before_partial_stream_content() {
         Some(crate::history::native::frontier::SpacingTransferState::Native)
     ));
 
-    history.set_layout(HistoryLayout::new(Insets::ZERO, 3));
+    history.set_layout(HistoryLayout::from_parts(Insets::ZERO, 3));
     let registry = crate::component::ComponentRegistry::new();
     let projection = project(&history, &registry, Size::new(8, 1)).unwrap();
     let rows =
@@ -926,7 +926,7 @@ fn frozen_atomic_remainder_survives_resize_and_layout_change_without_reflow() {
     .finish()
     .unwrap();
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::horizontal(1), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::horizontal(1), 0));
     history
         .push_stream(NativeSource::from_snapshot(snapshot, true))
         .unwrap();
@@ -938,7 +938,7 @@ fn frozen_atomic_remainder_survives_resize_and_layout_change_without_reflow() {
     };
     assert_eq!(frozen.as_slice().len(), 3);
 
-    history.set_layout(HistoryLayout::new(Insets::horizontal(2), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::horizontal(2), 0));
     assert!(matches!(
         &history.native.stream.as_ref().unwrap().partial,
         Some(crate::stream::StreamPartialTransfer::FrozenAtomic { rows, .. })
@@ -1149,7 +1149,7 @@ fn open_empty_stream_remains_resident() {
 #[test]
 fn native_predecessor_keeps_default_gap_in_resident_projection() {
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::ZERO, 1));
+    history.set_layout(HistoryLayout::from_parts(Insets::ZERO, 1));
     history.push("A").unwrap();
     history.push("B").unwrap();
     let registry = crate::component::ComponentRegistry::new();
@@ -1251,7 +1251,7 @@ fn partial_static_rows_conserve_and_survive_resize_and_layout_change() {
     assert_eq!(projection.frozen_overlay.unwrap().rows, expected[1..]);
 
     let frozen = history.native.frozen_static.as_ref().unwrap().rows.clone();
-    history.set_layout(HistoryLayout::new(Insets::horizontal(2), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::horizontal(2), 0));
     let mut remainder_sink = FakeSink::default();
     transfer(&mut history, &mut remainder_sink, 10, 8);
     assert_eq!(remainder_sink.rows, frozen.as_slice());
@@ -1297,7 +1297,7 @@ fn partial_atomic_rows_conserve_exact_physical_presentation() {
 #[test]
 fn static_physical_rows_match_bounded_view_rows() {
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::horizontal(2), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::horizontal(2), 0));
     history.push("wide").unwrap();
     let mut sink = FakeSink::default();
     transfer(&mut history, &mut sink, 10, 4);
@@ -1315,7 +1315,7 @@ fn static_physical_rows_match_bounded_view_rows() {
 #[test]
 fn styled_wide_static_rows_conserve_exact_physical_cells_across_partial_transfer() {
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::horizontal(1), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::horizontal(1), 0));
     history
         .push(
             View::styled_text([TextSpan::styled(
@@ -1359,7 +1359,7 @@ fn styled_wide_static_rows_conserve_exact_physical_cells_across_partial_transfer
     assert_eq!(projection.frozen_overlay.unwrap().rows, expected[1..]);
 
     let frozen = history.native.frozen_static.as_ref().unwrap().rows.clone();
-    history.set_layout(HistoryLayout::new(Insets::horizontal(2), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::horizontal(2), 0));
     let mut second = FakeSink::default();
     transfer(&mut history, &mut second, 12, 8);
     assert_eq!(second.rows, frozen.as_slice());
@@ -1368,7 +1368,7 @@ fn styled_wide_static_rows_conserve_exact_physical_cells_across_partial_transfer
 #[test]
 fn stream_physical_rows_match_resident_rows_with_horizontal_padding() {
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::horizontal(2), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::horizontal(2), 0));
     history
         .push_stream(NativeSource::new("abcdefghijkl", 12, true))
         .unwrap();
@@ -1390,7 +1390,7 @@ fn stream_physical_rows_match_resident_rows_with_horizontal_padding() {
 #[test]
 fn stream_and_projection_agree_when_padding_leaves_no_content_width() {
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::horizontal(2), 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::horizontal(2), 0));
     history
         .push_stream(NativeSource::new("abc", 3, true))
         .unwrap();

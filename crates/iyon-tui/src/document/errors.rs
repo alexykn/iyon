@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{StreamRange, projection::ProjectionValidationError};
+use crate::{projection::ProjectionValidationError, stream::StreamRange};
 
 /// Errors raised while constructing generic text semantic values.
 #[non_exhaustive]
@@ -34,6 +34,7 @@ pub enum TextIrError {
         local: StreamRange,
     },
     DuplicateLinkMark,
+    InvalidListConfiguration,
     NotCharBoundary,
 }
 
@@ -78,6 +79,12 @@ impl fmt::Display for TextIrError {
                 )
             }
             Self::DuplicateLinkMark => write!(f, "an inline may contain at most one link mark"),
+            Self::InvalidListConfiguration => {
+                write!(
+                    f,
+                    "ordered-list configuration does not apply to bullet lists"
+                )
+            }
             Self::NotCharBoundary => write!(f, "text split is not at a UTF-8 character boundary"),
         }
     }

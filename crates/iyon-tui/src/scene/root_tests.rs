@@ -5,13 +5,16 @@ use std::sync::{
 };
 
 use crate::{
-    History, HistoryLayout, Insets, IntoView, StreamingSource, TextSpan, View,
+    History, HistoryLayout, Insets, IntoView, TextSpan, View,
     backend::NativeHistorySink,
     component::{Component, ComponentCx, ComponentRegistry},
     geometry::Size,
     history::transfer_native_prefix,
     physical::PhysicalRow,
-    stream::{StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder},
+    stream::{
+        StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
+        StreamingSource,
+    },
 };
 
 #[derive(Debug)]
@@ -341,7 +344,7 @@ fn zero_dimensions_preserve_semantic_resolution_without_fake_rows() {
 #[test]
 fn frozen_history_overlay_stays_inside_history_track_above_body() {
     let mut history = History::new();
-    history.set_layout(HistoryLayout::new(Insets::ZERO, 0));
+    history.set_layout(HistoryLayout::from_parts(Insets::ZERO, 0));
     history.push("A\nB\nC").unwrap();
     let expected_view = View::text("A\nB\nC").into_view();
     let expected =

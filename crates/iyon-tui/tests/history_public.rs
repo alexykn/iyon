@@ -3,10 +3,13 @@ use std::{
     rc::Rc,
 };
 
+use iyon_tui::stream::{
+    StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
+    StreamingSource,
+};
 use iyon_tui::{
     Component, ComponentCx, ComponentHandle, FlowBoundary, History, HistoryError, HistoryLayout,
-    HistoryUnitId, Insets, IntoView, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
-    StreamSnapshotBuilder, StreamingSource, TextSpan, View,
+    HistoryUnitId, Insets, IntoView, TextSpan, View,
 };
 
 #[derive(Debug)]
@@ -80,7 +83,7 @@ impl StreamingSource for LocalSource {
 #[test]
 fn public_history_static_live_layout_and_boundary_api() {
     let mut history = History::default();
-    let layout = HistoryLayout::new(Insets::all(1), 2);
+    let layout = HistoryLayout::from_parts(Insets::all(1), 2);
     history.set_layout(layout);
     assert_eq!(history.layout(), layout);
     assert_eq!(history.layout().padding(), Insets::all(1));
@@ -105,7 +108,6 @@ fn public_typed_stream_supports_non_send_update_refresh_seal_and_append() {
     history
         .update_stream(handle, |source| source.append("B"))
         .unwrap();
-    history.refresh_stream(handle).unwrap();
     history.seal_stream(handle).unwrap();
     history.push("after").unwrap();
 }
@@ -118,7 +120,7 @@ fn stale_stream_handle_is_safe_across_histories() {
 
     let mut second = History::new();
     assert!(matches!(
-        second.refresh_stream(handle),
+        second.seal_stream(handle),
         Err(HistoryError::UnitNotFound { unit }) if unit == handle.unit()
     ));
 }

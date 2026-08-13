@@ -10,8 +10,8 @@ error[E0277]: the trait bound `Scene: IntoView` is not satisfied
             &'a String
             &'a str
             String
-            Text
             View
+            iyon_tui::Text
 note: required by a bound in `Scene::with_history`
  --> src/scene/root.rs
   |

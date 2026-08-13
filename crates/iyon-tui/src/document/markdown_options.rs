@@ -1,6 +1,6 @@
 use pulldown_cmark::Options;
 
-/// Explicitly selected Markdown extensions supported by [`MarkdownProjector`].
+/// Explicitly selected Markdown extensions supported by [`super::MarkdownProjector`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MarkdownOptions {
     tables: bool,

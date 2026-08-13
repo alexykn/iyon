@@ -1,9 +1,10 @@
 use std::{cell::RefCell, rc::Rc};
 
-use iyon_tui::{
-    IntoView, ProjectedText, StreamOffset, StreamPane, StreamRange, StreamRevision, StreamSnapshot,
-    StreamSnapshotBuilder, StreamingSource, StyleSpec, TextSpan, View, WrapMode,
+use iyon_tui::stream::{
+    ProjectedText, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
+    StreamSnapshotBuilder, StreamingSource,
 };
+use iyon_tui::{IntoView, StreamPane, StyleSpec, TextSpan, View, WrapMode};
 
 struct LocalSource {
     state: Rc<RefCell<(StreamSnapshot, bool)>>,
@@ -75,9 +76,9 @@ fn external_hanging_projection_builder_is_validated() {
             StreamRange::new(StreamOffset::ZERO, StreamOffset::new(2)),
             true,
         )
-        .exact(
-            "body",
+        .exact_styled(
             StreamRange::new(StreamOffset::new(2), StreamOffset::new(6)),
+            "body",
             StyleSpec::new(),
         )
         .finish()

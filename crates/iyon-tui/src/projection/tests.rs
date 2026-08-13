@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use super::*;
-use crate::{StreamOffset, StreamRange};
+use crate::stream::{StreamOffset, StreamRange};
 
 fn range(start: u64, end: u64) -> StreamRange {
     StreamRange::new(StreamOffset::new(start), StreamOffset::new(end))
@@ -49,7 +49,8 @@ fn smooth_only_publishes_upstream_stable_spans_and_seals_to_identity() {
 fn smooth_preserves_atomic_spans_and_accumulates_credit() {
     let input = smooth_input(11, 11, false, &[1, 10]);
     let config =
-        SmoothConfig::new(std::time::Duration::from_millis(1), 1.0, 3000.0, 3000.0).unwrap();
+        SmoothConfig::try_from_parts(std::time::Duration::from_millis(1), 1.0, 3000.0, 3000.0)
+            .unwrap();
     let mut smooth = Smooth::new(config);
     assert_eq!(
         smooth.project(&input).unwrap().source_end(),
@@ -696,7 +697,8 @@ fn smooth_composes_temporally_and_project_observes_release() {
     .finish()
     .unwrap();
     let config =
-        SmoothConfig::new(std::time::Duration::from_millis(16), 2.0, 1_000.0, 1_000.0).unwrap();
+        SmoothConfig::try_from_parts(std::time::Duration::from_millis(16), 2.0, 1_000.0, 1_000.0)
+            .unwrap();
     let mut pipeline = Smooth::new(config).then(Identity);
     let first = pipeline.project(&input).unwrap();
     assert_eq!(first.source_end(), StreamOffset::new(1));
@@ -711,11 +713,19 @@ fn smooth_composes_temporally_and_project_observes_release() {
 
 #[test]
 fn smooth_config_rejects_invalid_temporal_values() {
-    assert!(SmoothConfig::new(std::time::Duration::ZERO, 1.0, 1.0, 1.0).is_err());
-    assert!(SmoothConfig::new(std::time::Duration::from_millis(1), -1.0, 1.0, 1.0).is_err());
-    assert!(SmoothConfig::new(std::time::Duration::from_millis(1), 1.0, 2.0, 1.0).is_err());
-    assert!(SmoothConfig::new(std::time::Duration::from_millis(1), 0.0, 0.0, 0.0).is_err());
-    assert!(SmoothConfig::new(std::time::Duration::from_millis(1), 0.0, 0.0, 1.0).is_err());
+    assert!(SmoothConfig::try_from_parts(std::time::Duration::ZERO, 1.0, 1.0, 1.0).is_err());
+    assert!(
+        SmoothConfig::try_from_parts(std::time::Duration::from_millis(1), -1.0, 1.0, 1.0).is_err()
+    );
+    assert!(
+        SmoothConfig::try_from_parts(std::time::Duration::from_millis(1), 1.0, 2.0, 1.0).is_err()
+    );
+    assert!(
+        SmoothConfig::try_from_parts(std::time::Duration::from_millis(1), 0.0, 0.0, 0.0).is_err()
+    );
+    assert!(
+        SmoothConfig::try_from_parts(std::time::Duration::from_millis(1), 0.0, 0.0, 1.0).is_err()
+    );
 }
 
 struct LocalProjector(Rc<RefCell<u32>>);

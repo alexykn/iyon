@@ -1,6 +1,9 @@
 use std::ops::Range;
 
-use crate::{ProjectionSpan, StreamOffset, StreamRange};
+use crate::{
+    projection::ProjectionSpan,
+    stream::{StreamOffset, StreamRange},
+};
 
 use super::{RawText, TextContent, TextIrError, TextProjectionError, TextRun};
 

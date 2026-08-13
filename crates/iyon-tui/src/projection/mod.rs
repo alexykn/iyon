@@ -1,7 +1,9 @@
-//! Generic, root-coordinate semantic projection algebra.
+//! Generic root-coordinate projection algebra.
 //!
-//! This module deliberately stops before terminal streaming, layout, and
-//! presentation. It is suitable for text, records, logs, or event streams.
+//! This layer owns projection envelopes, stability/transition/relation
+//! validation, projector composition, and generic temporal publication. It
+//! intentionally does not know Markdown, text IR, History, Views, or terminal
+//! geometry.
 
 mod compose;
 mod projector;

@@ -1,6 +1,10 @@
 use std::collections::BTreeMap;
 
-use crate::{Block, BlockKind, BreakKind, Inline, InlineKind, IntoView, Mark, TextContent, View};
+use super::{
+    Alignment, Annotations, Block, BlockKind, BreakKind, Inline, InlineKind, List, ListMarker,
+    LiteralText, Mark, NumberDelimiter, NumberStyle, Table, TableCell, TextContent,
+};
+use crate::{IntoView, View};
 
 /// Converts a semantic value into the generic presentation [`View`].
 ///
@@ -165,7 +169,7 @@ impl TextRenderer {
         })
     }
 
-    fn render_literal(&self, literal: &crate::LiteralText) -> crate::Text {
+    fn render_literal(&self, literal: &LiteralText) -> crate::Text {
         let mut spans = Vec::new();
         for run in literal.runs() {
             let mut style = crate::StyleRef::default();
@@ -231,7 +235,7 @@ impl TextRenderer {
         }
     }
 
-    fn annotation_style(&self, annotations: &crate::Annotations) -> crate::StyleRef {
+    fn annotation_style(&self, annotations: &Annotations) -> crate::StyleRef {
         let mut style = crate::StyleRef::default();
         for tag in annotations.tags() {
             if let Some(patch) = self.style.annotation_tags.get(&tag.to_string()) {
@@ -241,7 +245,7 @@ impl TextRenderer {
         style
     }
 
-    fn render_list(&self, list: &crate::List) -> View {
+    fn render_list(&self, list: &List) -> View {
         View::vertical(|column| {
             column.gap(if list.tight() {
                 0
@@ -250,8 +254,8 @@ impl TextRenderer {
             });
             for (index, item) in list.items().iter().enumerate() {
                 let marker = match list.marker() {
-                    crate::ListMarker::Bullet => "- ".to_owned(),
-                    crate::ListMarker::Ordered {
+                    ListMarker::Bullet => "- ".to_owned(),
+                    ListMarker::Ordered {
                         start,
                         style,
                         delimiter,
@@ -276,7 +280,7 @@ impl TextRenderer {
         })
     }
 
-    fn render_table(&self, table: &crate::Table) -> View {
+    fn render_table(&self, table: &Table) -> View {
         View::vertical(|column| {
             column.gap(self.style.block_gap);
             if let Some(caption) = table.caption() {
@@ -301,12 +305,7 @@ impl TextRenderer {
         })
     }
 
-    fn render_cell(
-        &self,
-        cell: &crate::TableCell,
-        table: &crate::Table,
-        column_index: usize,
-    ) -> View {
+    fn render_cell(&self, cell: &TableCell, table: &Table, column_index: usize) -> View {
         let mut view = if cell.blocks().len() == 1 {
             match cell.blocks()[0].kind() {
                 BlockKind::Paragraph(content) => {
@@ -347,26 +346,22 @@ fn overlay_style(target: &mut crate::StyleRef, incoming: &crate::StyleRef) {
     target.local.overlay(&incoming.local);
 }
 
-fn format_marker(
-    value: u64,
-    style: crate::NumberStyle,
-    delimiter: crate::NumberDelimiter,
-) -> String {
+fn format_marker(value: u64, style: NumberStyle, delimiter: NumberDelimiter) -> String {
     let number = format_number(value, style);
     match delimiter {
-        crate::NumberDelimiter::Period => format!("{number}. "),
-        crate::NumberDelimiter::Paren => format!("{number}) "),
-        crate::NumberDelimiter::TwoParens => format!("({number}) "),
+        NumberDelimiter::Period => format!("{number}. "),
+        NumberDelimiter::Paren => format!("{number}) "),
+        NumberDelimiter::TwoParens => format!("({number}) "),
     }
 }
 
-fn format_number(value: u64, style: crate::NumberStyle) -> String {
+fn format_number(value: u64, style: NumberStyle) -> String {
     match style {
-        crate::NumberStyle::Decimal => value.to_string(),
-        crate::NumberStyle::LowerAlpha => alpha_number(value, b'a'),
-        crate::NumberStyle::UpperAlpha => alpha_number(value, b'A'),
-        crate::NumberStyle::LowerRoman => roman_number(value).to_lowercase(),
-        crate::NumberStyle::UpperRoman => roman_number(value),
+        NumberStyle::Decimal => value.to_string(),
+        NumberStyle::LowerAlpha => alpha_number(value, b'a'),
+        NumberStyle::UpperAlpha => alpha_number(value, b'A'),
+        NumberStyle::LowerRoman => roman_number(value).to_lowercase(),
+        NumberStyle::UpperRoman => roman_number(value),
     }
 }
 
@@ -409,11 +404,11 @@ fn roman_number(mut value: u64) -> String {
     result
 }
 
-fn to_horizontal_align(alignment: crate::Alignment) -> crate::HorizontalAlign {
+fn to_horizontal_align(alignment: Alignment) -> crate::HorizontalAlign {
     match alignment {
-        crate::Alignment::Default | crate::Alignment::Start => crate::HorizontalAlign::Start,
-        crate::Alignment::Center => crate::HorizontalAlign::Center,
-        crate::Alignment::End => crate::HorizontalAlign::End,
+        Alignment::Default | Alignment::Start => crate::HorizontalAlign::Start,
+        Alignment::Center => crate::HorizontalAlign::Center,
+        Alignment::End => crate::HorizontalAlign::End,
     }
 }
 

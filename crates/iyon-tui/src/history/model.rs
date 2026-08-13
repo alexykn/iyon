@@ -126,7 +126,6 @@ impl History {
     /// ```text
     /// let stream = history.push_stream(source)?;
     /// history.update_stream(stream, |source| { /* mutate source */ })?;
-    /// history.refresh_stream(stream)?;
     /// history.seal_stream(stream)?;
     /// history.push("next unit")?;
     /// ```
@@ -168,7 +167,8 @@ impl History {
         stream.update(handle.unit(), update)
     }
 
-    pub fn refresh_stream<S: StreamingSource>(
+    #[allow(dead_code)]
+    pub(crate) fn refresh_stream<S: StreamingSource>(
         &mut self,
         handle: HistoryStreamHandle<S>,
     ) -> Result<(), HistoryError> {
@@ -226,6 +226,11 @@ impl History {
 
     pub fn set_layout(&mut self, layout: HistoryLayout) {
         self.layout = layout;
+    }
+
+    pub fn with_layout(mut self, layout: HistoryLayout) -> Self {
+        self.layout = layout;
+        self
     }
 
     fn ensure_append_allowed(&self) -> Result<(), HistoryError> {

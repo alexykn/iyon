@@ -123,6 +123,36 @@ pub struct InlineContent {
     items: Arc<[Inline]>,
 }
 
+impl From<Inline> for InlineContent {
+    fn from(value: Inline) -> Self {
+        Self::new([value])
+    }
+}
+
+impl From<TextRun> for InlineContent {
+    fn from(value: TextRun) -> Self {
+        Self::new([Inline::text(value)])
+    }
+}
+
+impl From<&str> for InlineContent {
+    fn from(value: &str) -> Self {
+        Self::from(TextRun::from(value))
+    }
+}
+
+impl From<String> for InlineContent {
+    fn from(value: String) -> Self {
+        Self::from(TextRun::from(value))
+    }
+}
+
+impl FromIterator<Inline> for InlineContent {
+    fn from_iter<T: IntoIterator<Item = Inline>>(iter: T) -> Self {
+        Self::new(iter)
+    }
+}
+
 impl InlineContent {
     pub fn new(items: impl IntoIterator<Item = Inline>) -> Self {
         Self {
@@ -144,6 +174,28 @@ impl InlineContent {
     }
     pub fn len(&self) -> usize {
         self.items.len()
+    }
+
+    pub fn with_mark(&self, mark: Mark) -> Result<Self, TextIrError> {
+        self.items
+            .iter()
+            .map(|inline| inline.with_mark(mark.clone()))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Self::new)
+    }
+
+    pub fn strong(&self) -> Self {
+        self.with_mark(Mark::Strong)
+            .expect("Strong is a valid mark")
+    }
+
+    pub fn emphasis(&self) -> Self {
+        self.with_mark(Mark::Emphasis)
+            .expect("Emphasis is a valid mark")
+    }
+
+    pub fn code(&self) -> Self {
+        self.with_mark(Mark::Code).expect("Code is a valid mark")
     }
 }
 
@@ -177,8 +229,8 @@ impl Inline {
         }))
     }
 
-    pub fn text(run: TextRun) -> Self {
-        Self::new(InlineKind::Text(run))
+    pub fn text(run: impl Into<TextRun>) -> Self {
+        Self::new(InlineKind::Text(run.into()))
     }
     pub fn break_(kind: BreakKind) -> Self {
         Self::new(InlineKind::Break(kind))
@@ -205,6 +257,38 @@ impl Inline {
             InlineKind::Text(text) => Some(text),
             _ => None,
         }
+    }
+
+    pub fn with_mark(&self, mark: Mark) -> Result<Self, TextIrError> {
+        Ok(self.with_marks(self.marks().with_mark(mark)?))
+    }
+
+    pub fn strong(&self) -> Self {
+        self.with_mark(Mark::Strong)
+            .expect("Strong is a valid mark")
+    }
+
+    pub fn emphasis(&self) -> Self {
+        self.with_mark(Mark::Emphasis)
+            .expect("Emphasis is a valid mark")
+    }
+
+    pub fn strikethrough(&self) -> Self {
+        self.with_mark(Mark::Strikethrough)
+            .expect("Strikethrough is a valid mark")
+    }
+
+    pub fn underline(&self) -> Self {
+        self.with_mark(Mark::Underline)
+            .expect("Underline is a valid mark")
+    }
+
+    pub fn code(&self) -> Self {
+        self.with_mark(Mark::Code).expect("Code is a valid mark")
+    }
+
+    pub fn with_link(&self, target: LinkTarget) -> Result<Self, TextIrError> {
+        self.with_mark(Mark::Link(target))
     }
 
     pub fn with_marks(&self, marks: MarkSet) -> Self {
@@ -250,12 +334,12 @@ impl Image {
     pub fn new(
         destination: impl Into<Arc<str>>,
         title: Option<impl Into<Arc<str>>>,
-        alt: InlineContent,
+        alt: impl Into<InlineContent>,
     ) -> Self {
         Self {
             destination: destination.into(),
             title: title.map(Into::into),
-            alt,
+            alt: alt.into(),
         }
     }
 

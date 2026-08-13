@@ -1,4 +1,6 @@
-use iyon_tui::*;
+use iyon_tui::projection::ProjectionBuilder;
+use iyon_tui::stream::{StreamOffset, StreamRange};
+use iyon_tui::{MarkdownProjector, Projection, Projector, TextContent};
 fn input(s: &str, stable: usize, sealed: bool) -> Projection<TextContent> {
     let b = StreamOffset::ZERO;
     let e = StreamOffset::new(s.len() as u64);

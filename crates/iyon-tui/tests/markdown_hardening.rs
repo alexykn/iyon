@@ -1,11 +1,15 @@
 use std::time::{Duration, Instant};
 
+use iyon_tui::projection::{ProjectionBuilder, validate_projection_transition};
+use iyon_tui::stream::{StreamOffset, StreamRange};
+use iyon_tui::text::{
+    Alignment, List, ListItem, ListMarker, Mark, MarkSet, NumberDelimiter, NumberStyle,
+    TextProvenance, TextRun, TextVisitor, validate_text_projection,
+};
+use iyon_tui::text::{Table, TableCell, TableColumn, TableRow};
 use iyon_tui::{
-    Alignment, Block, Inline, InlineContent, List, ListItem, ListMarker, Mark, MarkSet,
-    MarkdownProjector, NumberDelimiter, NumberStyle, Projection, ProjectionBuilder, Projector,
-    Renderer, Smooth, StreamOffset, StreamRange, Table, TableCell, TableColumn, TableRow,
-    TextContent, TextProvenance, TextRenderStyle, TextRenderer, TextRun, TextVisitor,
-    validate_projection_transition, validate_text_projection,
+    Block, Inline, InlineContent, MarkdownProjector, Projection, Projector, Renderer, Smooth,
+    TextContent, TextRenderStyle, TextRenderer,
 };
 
 fn source_projection(
@@ -120,7 +124,7 @@ fn signature(
                 .iter()
                 .map(|value| {
                     let mut summary = TextSummary::new();
-                    iyon_tui::walk_content(&mut summary, value);
+                    iyon_tui::text::walk_content(&mut summary, value);
                     (summary.text, summary.sources)
                 })
                 .collect();
@@ -239,7 +243,7 @@ fn nonzero_root_coordinates_are_preserved() {
         .into_iter()
         .find_map(|value| match value {
             TextContent::Block(block) => match block.kind() {
-                iyon_tui::BlockKind::Paragraph(content) => content
+                iyon_tui::text::BlockKind::Paragraph(content) => content
                     .items()
                     .iter()
                     .find_map(|inline| inline.as_text().cloned()),
@@ -308,7 +312,7 @@ fn renderer_preserves_generic_list_table_and_image_semantics() {
     .unwrap();
     let alt =
         Inline::text(TextRun::synthetic("alt")).with_marks(MarkSet::new([Mark::Strong]).unwrap());
-    let image = Inline::image(iyon_tui::Image::new(
+    let image = Inline::image(iyon_tui::text::Image::new(
         "image",
         None::<&str>,
         InlineContent::new([alt]),

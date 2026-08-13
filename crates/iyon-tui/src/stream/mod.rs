@@ -1,9 +1,14 @@
 //! Generic semantic streaming sources and local stream panes.
 //!
-//! Native history is deliberately outside this module. A [`StreamPane`] owns
-//! local semantic scrolling without relinquishing resident content.
+//! This namespace owns the `StreamingSource` protocol, source snapshots,
+//! coordinate/provenance machinery, and width-independent stream builders. It
+//! intentionally does not own Markdown, History ordering, native transfer, or
+//! terminal geometry.
 
 mod append;
+pub use append::append_only_text_stable_frontier;
+mod text;
+pub use text::TextStream;
 mod compile;
 mod coord;
 mod model;

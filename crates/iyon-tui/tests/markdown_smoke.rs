@@ -1,7 +1,7 @@
-use iyon_tui::{
-    BlockKind, MarkdownOptions, MarkdownProjector, Projection, ProjectionBuilder, Projector,
-    RawText, StreamOffset, StreamRange, TextContent, TextProvenance,
-};
+use iyon_tui::projection::ProjectionBuilder;
+use iyon_tui::stream::{StreamOffset, StreamRange};
+use iyon_tui::text::{BlockKind, TextProvenance};
+use iyon_tui::{MarkdownOptions, MarkdownProjector, Projection, Projector, RawText, TextContent};
 
 fn projection(source: &str, sealed: bool) -> Projection<TextContent> {
     let end = StreamOffset::new(source.len() as u64);
