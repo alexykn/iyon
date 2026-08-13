@@ -1,5 +1,6 @@
+use super::origin::stamp_block_origin;
 use super::{
-    Block, BreakKind, Inline, InlineContent, TextContent, TextProjectionError,
+    Block, BreakKind, Inline, InlineContent, TextContent, TextOrigin, TextProjectionError,
     validate_text_projection,
 };
 use crate::projection::{Projection, ProjectionBuilder, Projector};
@@ -51,7 +52,7 @@ impl Projector<TextContent> for PlainTextProjector {
             }
             let domain_spans = &input.spans()[start..index];
             let domain = RawDomain::from_spans(domain_spans)?;
-            let block = literal_paragraph(&domain)?;
+            let block = stamp_block_origin(literal_paragraph(&domain)?, &TextOrigin::PLAIN_TEXT);
             let source = StreamRange::new(domain.source_base(), domain.source_end());
             builder = builder.emit(source, TextContent::Block(block));
         }
