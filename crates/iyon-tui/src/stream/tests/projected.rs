@@ -206,6 +206,166 @@ fn projected_run_facts_resolve_against_theme_variants() {
     assert!(rows[0].row.cell(0).unwrap().style.bold);
 }
 
+#[test]
+fn projected_slices_and_suffix_preserve_run_facts_and_provenance() {
+    let projected = ProjectedText::builder(range(0, 6))
+        .run_with_facts(
+            "abcdef",
+            range(0, 6),
+            Some(range(0, 6)),
+            StyleRef::default(),
+            fact("test.role", "strong"),
+        )
+        .finish()
+        .expect("valid projected text");
+
+    let prefix =
+        crate::stream::projected::slice_projected_text_to(&projected, StreamOffset::new(3))
+            .expect("legal prefix slice");
+    let suffix = crate::stream::projected::slice_projected_text(&projected, StreamOffset::new(3));
+    let StreamNode::Text(suffix_text) =
+        &StreamView::new(vec![StreamNode::projected_text(projected)])
+            .suffix_from(StreamOffset::new(3))
+            .nodes[0]
+    else {
+        panic!("expected projected suffix");
+    };
+
+    assert_eq!(prefix.runs[0].display, "abc");
+    assert_eq!(prefix.runs[0].owned, range(0, 3));
+    assert_eq!(prefix.runs[0].exact_visible, Some(range(0, 3)));
+    assert_eq!(prefix.runs[0].style_facts, fact("test.role", "strong"));
+    assert_eq!(suffix.runs[0].display, "def");
+    assert_eq!(suffix.runs[0].owned, range(3, 6));
+    assert_eq!(suffix.runs[0].exact_visible, Some(range(3, 6)));
+    assert_eq!(suffix.runs[0].style_facts, fact("test.role", "strong"));
+    assert_eq!(suffix_text.runs, suffix.runs);
+    assert_eq!(suffix_text.content_range, range(3, 6));
+}
+
+#[test]
+fn hanging_prefix_facts_do_not_leak_into_body() {
+    let theme = Theme::new().with_style_variant(
+        "probe",
+        StyleSelector::state("test.part", "marker"),
+        StyleSpec::new().bold(),
+    );
+    let projected = ProjectedText::builder(range(0, 1))
+        .run_with_facts(
+            "x",
+            range(0, 1),
+            Some(range(0, 1)),
+            StyleRef::theme("probe"),
+            StyleFacts::default(),
+        )
+        .with_hanging(
+            ProjectedHanging::new(2, range(0, 0), "> ")
+                .with_style(StyleRef::theme("probe"))
+                .with_style_facts(fact("test.part", "marker")),
+        )
+        .finish()
+        .expect("valid projected text");
+
+    let (_, rows) = ViewCompiler::new(&theme).compile_projected_text_with_metadata(&projected, 3);
+    assert!(rows[0].row.cell(0).unwrap().style.bold);
+    assert!(rows[0].row.cell(1).unwrap().style.bold);
+    assert!(!rows[0].row.cell(2).unwrap().style.bold);
+}
+
+#[test]
+fn direct_projected_and_static_lowering_preserve_fact_styling() {
+    let theme = Theme::new()
+        .with_style_variant(
+            "probe",
+            StyleSelector::state("test.part", "marker"),
+            StyleSpec::new().italic(),
+        )
+        .with_style_variant(
+            "probe",
+            StyleSelector::state("test.role", "strong"),
+            StyleSpec::new().bold(),
+        )
+        .with_style_variant(
+            "probe",
+            StyleSelector::state("test.role", "link"),
+            StyleSpec::new().underline(),
+        );
+    let projected = ProjectedText::builder(range(0, 2))
+        .run_with_facts(
+            "a",
+            range(0, 1),
+            Some(range(0, 1)),
+            StyleRef::theme("probe"),
+            fact("test.role", "strong"),
+        )
+        .run_with_facts(
+            "b",
+            range(1, 2),
+            Some(range(1, 2)),
+            StyleRef::theme("probe"),
+            fact("test.role", "link"),
+        )
+        .with_hanging(
+            ProjectedHanging::new(2, range(0, 0), "> ")
+                .with_style(StyleRef::theme("probe"))
+                .with_style_facts(fact("test.part", "marker")),
+        )
+        .finish()
+        .expect("valid projected text");
+    let compiler = ViewCompiler::new(&theme);
+    let (_, direct_rows) = compiler.compile_projected_text_with_metadata(&projected, 8);
+    let static_view =
+        StreamView::new(vec![StreamNode::projected_text(projected)]).into_static_view();
+    let static_block = compiler.compile(&static_view, 8);
+
+    let direct_rows = direct_rows
+        .into_iter()
+        .map(|compiled| compiled.row)
+        .collect::<Vec<_>>();
+    super::assert_rows_equivalent(&direct_rows, &static_block.rows);
+}
+
+#[test]
+fn cross_run_egc_uses_first_contributor_style_and_facts() {
+    let theme = Theme::new()
+        .with_style_variant(
+            "probe",
+            StyleSelector::state("test.role", "first"),
+            StyleSpec::new().bold(),
+        )
+        .with_style_variant(
+            "probe",
+            StyleSelector::state("test.role", "second"),
+            StyleSpec::new().italic(),
+        );
+    let projected = ProjectedText::builder(range(0, 3))
+        .run_with_facts(
+            "e",
+            range(0, 1),
+            Some(range(0, 1)),
+            StyleRef::theme("probe"),
+            fact("test.role", "first"),
+        )
+        .run_with_facts(
+            "\u{301}",
+            range(1, 3),
+            Some(range(1, 3)),
+            StyleRef::theme("probe"),
+            fact("test.role", "second"),
+        )
+        .finish()
+        .expect("valid projected text");
+    let atoms = crate::stream::projected_atoms(&projected);
+    assert_eq!(atoms.len(), 1);
+    assert_eq!(atoms[0].display, "e\u{301}");
+    assert_eq!(atoms[0].style_facts, fact("test.role", "first"));
+
+    let (_, rows) = ViewCompiler::new(&theme).compile_projected_text_with_metadata(&projected, 2);
+    let cell = rows[0].row.cell(0).unwrap();
+    assert!(cell.style.bold);
+    assert!(!cell.style.italic);
+}
+
 fn hanging_text(
     content_range: StreamRange,
     prefix_source: StreamRange,

@@ -74,6 +74,69 @@ fn span_facts_compose_with_inherited_state() {
 }
 
 #[test]
+fn local_fact_shadows_same_key_state_but_descendant_sees_state_again() {
+    let theme = Theme::new()
+        .with_style_variant(
+            "probe",
+            StyleSelector::state("test.kind", "parent"),
+            StyleSpec::new().italic(),
+        )
+        .with_style_variant(
+            "probe",
+            StyleSelector::state("test.kind", "child"),
+            StyleSpec::new().attribute(TextAttribute::Italic, false),
+        );
+    let child = View::vertical(|column| {
+        column.child("c");
+        column.child(View::vertical(|nested| {
+            nested.child(View::text("g").style(StyleRef::theme("probe")));
+        }));
+    })
+    .style(StyleRef::theme("probe"))
+    .style_fact("test.kind", "child");
+    let root = View::vertical(|column| {
+        column.child(child);
+    })
+    .style_state("test.kind", "parent");
+
+    let compiler = ViewCompiler::new(&theme);
+    let tree = compiler.layout_tree(&root, LayoutConstraints::width_only(1));
+    let surface = ViewPainter.paint_tree(&compiler, &tree);
+
+    assert!(!surface.get(0, 0).style.italic);
+    assert!(surface.get(0, 1).style.italic);
+}
+
+#[test]
+fn span_fact_overrides_parent_fact_resolved_physical_style_without_leaking() {
+    let theme = Theme::new()
+        .with_style_variant(
+            "probe",
+            StyleSelector::state("test.role", "heading"),
+            StyleSpec::new().attribute(TextAttribute::Bold, false),
+        )
+        .with_style_variant(
+            "probe",
+            StyleSelector::state("test.role", "strong"),
+            StyleSpec::new().bold(),
+        );
+    let view = View::styled_text([
+        TextSpan::styled("plain", StyleRef::theme("probe")),
+        TextSpan::styled("strong", StyleRef::theme("probe")).style_fact("test.role", "strong"),
+    ])
+    .style(StyleRef::theme("probe"))
+    .into_view()
+    .style_fact("test.role", "heading");
+
+    let compiler = ViewCompiler::new(&theme);
+    let tree = compiler.layout_tree(&view, LayoutConstraints::width_only(11));
+    let surface = ViewPainter.paint_tree(&compiler, &tree);
+
+    assert!(!surface.get(0, 0).style.bold);
+    assert!(surface.get(5, 0).style.bold);
+}
+
+#[test]
 fn ancestor_and_child_text_styles_cascade_to_physical_text() {
     let mut child = View::text("x").into_view();
     child.decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(2)).into();
