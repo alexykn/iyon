@@ -165,6 +165,31 @@ fn temporal_publication_has_backlog_and_seal_flushes_all_source() {
 }
 
 #[test]
+fn compaction_preserves_reference_semantics_and_source_suffix() {
+    let source = "[foo]: /target\n\nearlier paragraph\n\nlater [foo]";
+    let mut stream = stream_with(&[(SegmentKind::Text, source)]);
+    stream.seal();
+    let before = stream.semantic.clone();
+    let later = source.find("later").expect("later block") as u64;
+    StreamingSource::compact_before(&mut stream, StreamOffset::new(later));
+    let base = stream.snapshot().source_base();
+    assert!(base <= StreamOffset::new(later));
+    let old_suffix: Vec<_> = before
+        .spans()
+        .iter()
+        .filter(|span| span.source().end() > base)
+        .map(|span| (span.source(), span.values().to_vec()))
+        .collect();
+    let new_suffix: Vec<_> = stream
+        .semantic
+        .spans()
+        .iter()
+        .map(|span| (span.source(), span.values().to_vec()))
+        .collect();
+    assert_eq!(new_suffix, old_suffix);
+}
+
+#[test]
 fn empty_and_whitespace_sources_have_valid_snapshots() {
     for source in ["", " ", "\n", "\n\n", "   \n"] {
         let mut stream = stream_with(&[(SegmentKind::Text, source)]);
