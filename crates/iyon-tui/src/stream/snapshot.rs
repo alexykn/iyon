@@ -38,6 +38,12 @@ impl StreamSnapshot {
     pub fn stable_through(&self) -> StreamOffset {
         self.stable_through
     }
+
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub fn view_for_test(&self) -> View {
+        self.view.clone().into_static_view()
+    }
 }
 
 /// Validated construction boundary for source snapshots.
