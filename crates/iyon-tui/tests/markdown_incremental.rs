@@ -41,3 +41,34 @@ fn references_are_parsed_and_incremental_seal_converges() {
     let batch = fresh.project(&input(source, source.len(), true)).unwrap();
     assert_eq!(final_one, batch);
 }
+
+#[test]
+fn incremental_and_cached_parses_preserve_origin_metadata() {
+    use iyon_tui::TextOrigin;
+    use iyon_tui::text::BlockKind;
+
+    let source = "# Hello\n\n- **hello**\n";
+    let mut incremental = MarkdownProjector::default();
+    let _ = incremental
+        .project(&input("# Hello\n\n", 9, false))
+        .unwrap();
+    let chunked = incremental
+        .project(&input(source, source.len(), true))
+        .unwrap();
+    let mut fresh = MarkdownProjector::default();
+    let batch = fresh.project(&input(source, source.len(), true)).unwrap();
+    assert_eq!(chunked, batch);
+    for projection in [&chunked, &batch] {
+        for span in projection.spans() {
+            for value in span.values() {
+                let TextContent::Block(block) = value else {
+                    continue;
+                };
+                assert_eq!(block.origin(), Some(TextOrigin::MARKDOWN));
+                if let BlockKind::List(list) = block.kind() {
+                    assert_eq!(list.items()[0].origin(), Some(TextOrigin::MARKDOWN));
+                }
+            }
+        }
+    }
+}

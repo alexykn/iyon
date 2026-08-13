@@ -5,10 +5,12 @@ mod errors;
 mod inline;
 mod markdown;
 mod markdown_options;
+mod origin;
 mod plain;
 mod provenance;
 mod render;
 mod source;
+mod style;
 mod validate;
 mod visit;
 
@@ -25,9 +27,13 @@ pub use inline::{
 };
 pub use markdown::{MarkdownProjectionError, MarkdownProjector};
 pub use markdown_options::MarkdownOptions;
+pub use origin::TextOrigin;
 pub use plain::PlainTextProjector;
 pub use provenance::{LiteralText, TextProvenance, TextRun};
 pub use render::{Renderer, SoftBreakPolicy, TextRenderStyle, TextRenderer};
+#[allow(unused_imports)]
+pub(crate) use style::{TEXT_THEME_KEY, TextFacts, text_style_ref};
+pub use style::{TextListKind, TextPart, TextRole, TextSelector, TextTableSection, TextTaskState};
 pub use validate::{validate_text_content, validate_text_projection};
 pub use visit::{
     RewriteProjectionError, RewriteProjector, TextRewriter, TextVisitor, walk_block, walk_content,

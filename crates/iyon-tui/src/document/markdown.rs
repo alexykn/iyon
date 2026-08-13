@@ -10,12 +10,13 @@ use crate::{
 };
 
 use super::markdown_options::MarkdownOptions;
+use super::origin::stamp_block_origin;
 use super::source::RawDomain;
 use super::{
     Alignment, Block, BreakKind, CodeBlock, FormatId, HeadingLevel, Image, Inline, InlineContent,
     InlineKind, LanguageId, LinkTarget, List, ListItem, ListMarker, LiteralText, Mark, MarkSet,
     NumberDelimiter, NumberStyle, Table, TableCell, TableColumn, TableRow, TextContent,
-    TextIrError, TextProjectionError, TextRun, validate_text_projection,
+    TextIrError, TextOrigin, TextProjectionError, TextRun, validate_text_projection,
 };
 
 /// Errors raised while converting CommonMark events to generic text IR.
@@ -1140,7 +1141,7 @@ impl<'a> Builder<'a> {
                     self.domain.source_base().saturating_add(start as u64),
                     self.domain.source_base().saturating_add(end as u64),
                 ),
-                TextContent::Block(owned.block),
+                TextContent::Block(stamp_block_origin(owned.block, &TextOrigin::MARKDOWN)),
             );
             cursor = end;
         }
