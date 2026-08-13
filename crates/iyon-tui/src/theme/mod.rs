@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use crate::presentation::api::{
-    StyleSelector, StyleSpec, StyleStateKey, StyleStateValue, ThemeColor, ThemeKey,
+    StyleFacts, StyleSelector, StyleSpec, StyleStates, ThemeColor, ThemeKey,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -152,7 +152,13 @@ impl Theme {
     }
 
     pub fn color(&self, key: &str) -> Option<ThemeColor> {
-        self.resolve_color(key, false, false, &[])
+        self.resolve_color(
+            key,
+            false,
+            false,
+            &StyleStates::default(),
+            &StyleFacts::default(),
+        )
     }
 
     pub fn style(&self, key: &str) -> Option<&StyleSpec> {
@@ -164,15 +170,16 @@ impl Theme {
         key: &str,
         focused: bool,
         focus_within: bool,
-        states: &[(StyleStateKey, StyleStateValue)],
+        states: &StyleStates,
+        facts: &StyleFacts,
     ) -> Option<ThemeColor> {
         let entry = self.colors.get(key)?;
         let mut resolved = entry.base;
-        for variant in entry
-            .variants
-            .iter()
-            .filter(|variant| variant.selector.matches(focused, focus_within, states))
-        {
+        for variant in entry.variants.iter().filter(|variant| {
+            variant
+                .selector
+                .matches(focused, focus_within, states, facts)
+        }) {
             resolved = Some(variant.value);
         }
         resolved
@@ -183,15 +190,16 @@ impl Theme {
         key: &str,
         focused: bool,
         focus_within: bool,
-        states: &[(StyleStateKey, StyleStateValue)],
+        states: &StyleStates,
+        facts: &StyleFacts,
     ) -> Option<StyleSpec> {
         let entry = self.styles.get(key)?;
         let mut resolved = entry.base.clone().unwrap_or_default();
-        for variant in entry
-            .variants
-            .iter()
-            .filter(|variant| variant.selector.matches(focused, focus_within, states))
-        {
+        for variant in entry.variants.iter().filter(|variant| {
+            variant
+                .selector
+                .matches(focused, focus_within, states, facts)
+        }) {
             resolved.overlay(&variant.value);
         }
         Some(resolved)

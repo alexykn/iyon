@@ -5,34 +5,45 @@ use crate::{
     component::{ComponentId, MountGraph},
     physical::{AnsiColor as PhysicalAnsiColor, PhysicalColor, PhysicalStyle},
     presentation::api::{
-        AnsiColor, ColorSpec, StyleRef, StyleSpec, StyleStateKey, StyleStateValue, ThemeColor,
+        AnsiColor, ColorSpec, StyleFacts, StyleRef, StyleSpec, StyleStates, ThemeColor,
     },
 };
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct StyleContext {
-    pub(crate) states: Vec<(StyleStateKey, StyleStateValue)>,
+    pub(crate) inherited_states: StyleStates,
+    pub(crate) local_facts: StyleFacts,
     pub(crate) focused: bool,
     pub(crate) focus_within: bool,
 }
 
 impl StyleContext {
-    pub(crate) fn with_states(&self, assignments: &[(StyleStateKey, StyleStateValue)]) -> Self {
+    /// Enters a View node, installing its inheritable state and self-only
+    /// semantic facts while updating the node's focus scope.
+    pub(crate) fn enter_node(&self, states: &StyleStates, facts: &StyleFacts, scope: Self) -> Self {
         let mut next = self.clone();
-        for (key, value) in assignments {
-            if let Some(existing) = next.states.iter_mut().find(|(existing, _)| existing == key) {
-                existing.1 = value.clone();
-            } else {
-                next.states.push((key.clone(), value.clone()));
-            }
-        }
+        next.inherited_states.overlay(states);
+        next.local_facts = facts.clone();
+        next.focused = scope.focused;
+        next.focus_within = scope.focus_within;
         next
     }
 
-    pub(crate) fn with_scope(mut self, scope: Self) -> Self {
-        self.focused = scope.focused;
-        self.focus_within = scope.focus_within;
-        self
+    /// Context passed to descendants. Physical style is passed separately;
+    /// only the current node's local facts are cleared.
+    pub(crate) fn for_descendant(&self) -> Self {
+        Self {
+            inherited_states: self.inherited_states.clone(),
+            local_facts: StyleFacts::default(),
+            focused: self.focused,
+            focus_within: self.focus_within,
+        }
+    }
+
+    pub(crate) fn with_local_facts(&self, facts: &StyleFacts) -> Self {
+        let mut next = self.for_descendant();
+        next.local_facts = facts.clone();
+        next
     }
 
     pub(crate) fn for_scope(
@@ -47,7 +58,8 @@ impl StyleContext {
             })
         });
         Self {
-            states: Vec::new(),
+            inherited_states: StyleStates::default(),
+            local_facts: StyleFacts::default(),
             focused: is_focused,
             focus_within,
         }
@@ -84,7 +96,8 @@ impl ThemeResolver {
                 key.as_str(),
                 context.focused,
                 context.focus_within,
-                &context.states,
+                &context.inherited_states,
+                &context.local_facts,
             )
         {
             resolved = self.apply_style(resolved, &named, context);
@@ -137,7 +150,8 @@ impl ThemeResolver {
                     key.as_str(),
                     context.focused,
                     context.focus_within,
-                    &context.states,
+                    &context.inherited_states,
+                    &context.local_facts,
                 )
                 .map_or(PhysicalColor::Default, to_physical_color),
         }
@@ -177,7 +191,10 @@ fn to_physical_ansi(color: AnsiColor) -> PhysicalAnsiColor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{IntoView, StyleSelector, View, presentation::layout::compile_view_with_theme};
+    use crate::{
+        IntoView, StyleSelector, StyleStateKey, StyleStateValue, View,
+        presentation::layout::compile_view_with_theme,
+    };
 
     #[test]
     fn selectors_normalize_and_specific_variants_win() {
@@ -208,13 +225,16 @@ mod tests {
             rows[0].style_at(0).unwrap().foreground,
             Some(PhysicalColor::Named(PhysicalAnsiColor::Red))
         );
+        let mut focused_states = StyleStates::default();
+        focused_states.set(
+            StyleStateKey::from_static("severity"),
+            StyleStateValue::from_static("error"),
+        );
         let focused_context = StyleContext {
-            states: vec![(
-                StyleStateKey::from_static("severity"),
-                StyleStateValue::from_static("error"),
-            )],
+            inherited_states: focused_states,
             focused: true,
             focus_within: false,
+            ..StyleContext::default()
         };
         assert_eq!(
             ThemeResolver::new(&theme)
@@ -236,7 +256,13 @@ mod tests {
             Some(ThemeColor::Indexed(1))
         );
         assert_eq!(
-            theme.resolve_color("accent", true, false, &[]),
+            theme.resolve_color(
+                "accent",
+                true,
+                false,
+                &StyleStates::default(),
+                &StyleFacts::default(),
+            ),
             Some(ThemeColor::Indexed(2))
         );
 
@@ -313,13 +339,16 @@ mod tests {
                 StyleSelector::state("severity", "error"),
                 StyleSpec::new().foreground(ColorSpec::ansi(2)),
             );
+        let mut states = StyleStates::default();
+        states.set(
+            StyleStateKey::from_static("severity"),
+            StyleStateValue::from_static("error"),
+        );
         let context = StyleContext {
-            states: vec![(
-                StyleStateKey::from_static("severity"),
-                StyleStateValue::from_static("error"),
-            )],
+            inherited_states: states,
             focused: true,
             focus_within: false,
+            ..StyleContext::default()
         };
         let resolved = ThemeResolver::new(&theme).resolve_text_style(
             PhysicalStyle::default(),

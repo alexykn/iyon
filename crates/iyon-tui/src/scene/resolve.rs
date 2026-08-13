@@ -181,6 +181,7 @@ impl Resolver<'_> {
             height: slot.height,
             decoration: slot.decoration.clone(),
             style_states: slot.style_states.clone(),
+            style_facts: slot.style_facts.clone(),
             component_scope: Some(id),
             kind: ViewKind::Container(ContainerNode {
                 child: Box::new(resolved),

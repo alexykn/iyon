@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 
+use crate::presentation::{StyleFacts, StyleStates};
 use crate::{History, IntoView, View};
 
 /// The semantic root of a terminal application.
@@ -206,7 +207,8 @@ fn root_view(history: Option<View>, body: View) -> View {
         width: WidthRule::Fill,
         height: HeightRule::Fill,
         decoration: Default::default(),
-        style_states: Vec::new(),
+        style_states: StyleStates::default(),
+        style_facts: StyleFacts::default(),
         component_scope: None,
         kind: ViewKind::Column(ColumnView { children, gap: 0 }),
     }

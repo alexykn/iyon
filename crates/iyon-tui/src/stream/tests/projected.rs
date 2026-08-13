@@ -14,12 +14,14 @@ fn exact_fragments_share_one_egc_barrier() {
             ProjectedTextRun {
                 display: "e".into(),
                 style: StyleSpec::default().into(),
+                style_facts: Default::default(),
                 owned: StreamRange::new(StreamOffset::ZERO, StreamOffset::new(1)),
                 exact_visible: Some(StreamRange::new(StreamOffset::ZERO, StreamOffset::new(1))),
             },
             ProjectedTextRun {
                 display: "\u{301}".into(),
                 style: StyleSpec::default().into(),
+                style_facts: Default::default(),
                 owned: StreamRange::new(StreamOffset::new(1), StreamOffset::new(3)),
                 exact_visible: Some(StreamRange::new(StreamOffset::new(1), StreamOffset::new(3))),
             },
@@ -40,7 +42,9 @@ use crate::physical::PhysicalColor;
 use crate::physical::PhysicalRow;
 use crate::presentation::layout::ViewCompiler;
 use crate::presentation::paint::StyleContext;
-use crate::presentation::{HorizontalAlign, StyleSpec, ThemeKey, WidthRule, WrapMode};
+use crate::presentation::{
+    HorizontalAlign, StyleFacts, StyleRef, StyleSpec, TextSpan, ThemeKey, WidthRule, WrapMode,
+};
 use crate::stream::*;
 use crate::{StyleSelector, StyleStateKey, StyleStateValue, Theme, ThemeColor};
 
@@ -59,11 +63,13 @@ fn stateful_theme() -> Theme {
 }
 
 fn warning_context() -> StyleContext {
+    let mut states = crate::presentation::StyleStates::default();
+    states.set(
+        StyleStateKey::from_static("kind"),
+        StyleStateValue::from_static("warning"),
+    );
     StyleContext {
-        states: vec![(
-            StyleStateKey::from_static("kind"),
-            StyleStateValue::from_static("warning"),
-        )],
+        inherited_states: states,
         ..StyleContext::default()
     }
 }
@@ -82,6 +88,7 @@ fn projected_runs_resolve_theme_variants_from_effective_context() {
             style: StyleSpec::new()
                 .foreground(crate::ColorSpec::theme("accent"))
                 .into(),
+            style_facts: Default::default(),
             owned: range(0, 1),
             exact_visible: Some(range(0, 1)),
         }],
@@ -112,12 +119,14 @@ fn projected_hanging_prefix_resolves_theme_variants_from_effective_context() {
             prefix_style: StyleSpec::new()
                 .foreground(crate::ColorSpec::theme("accent"))
                 .into(),
+            prefix_facts: Default::default(),
             prefix_source: range(0, 0),
             show_prefix: true,
         },
         runs: vec![ProjectedTextRun {
             display: "x".into(),
             style: StyleSpec::default().into(),
+            style_facts: Default::default(),
             owned: range(0, 1),
             exact_visible: Some(range(0, 1)),
         }],
@@ -145,6 +154,58 @@ fn style(color: &str) -> StyleSpec {
     }
 }
 
+fn fact(key: &str, value: &str) -> StyleFacts {
+    let mut facts = StyleFacts::default();
+    facts.set(key, value);
+    facts
+}
+
+#[test]
+fn identity_preserves_fact_boundaries_when_merging_runs() {
+    let separate = ProjectedText::identity_with_terminator(
+        range(0, 2),
+        ExactTerminator::None,
+        [
+            TextSpan::plain("a").style_fact("role", "strong"),
+            TextSpan::plain("b").style_fact("role", "link"),
+        ],
+    );
+    assert_eq!(separate.runs.len(), 2);
+
+    let merged = ProjectedText::identity_with_terminator(
+        range(0, 2),
+        ExactTerminator::None,
+        [
+            TextSpan::plain("a").style_fact("role", "strong"),
+            TextSpan::plain("b").style_fact("role", "strong"),
+        ],
+    );
+    assert_eq!(merged.runs.len(), 1);
+    assert_eq!(merged.runs[0].style_facts, fact("role", "strong"));
+}
+
+#[test]
+fn projected_run_facts_resolve_against_theme_variants() {
+    let theme = Theme::new().with_style_variant(
+        "probe",
+        StyleSelector::state("role", "strong"),
+        StyleSpec::new().bold(),
+    );
+    let projected = ProjectedText::builder(range(0, 1))
+        .run_with_facts(
+            "x",
+            range(0, 1),
+            Some(range(0, 1)),
+            StyleRef::theme("probe"),
+            fact("role", "strong"),
+        )
+        .finish()
+        .expect("valid projected text");
+    let compiler = ViewCompiler::new(&theme);
+    let (_, rows) = compiler.compile_projected_text_with_metadata(&projected, 1);
+    assert!(rows[0].row.cell(0).unwrap().style.bold);
+}
+
 fn hanging_text(
     content_range: StreamRange,
     prefix_source: StreamRange,
@@ -160,12 +221,14 @@ fn hanging_text(
             body_column: 2,
             prefix: "- ".to_string(),
             prefix_style: StyleSpec::default().into(),
+            prefix_facts: Default::default(),
             prefix_source,
             show_prefix,
         },
         runs: vec![ProjectedTextRun {
             display: "item".to_string(),
             style: StyleSpec::default().into(),
+            style_facts: Default::default(),
             owned: StreamRange::new(prefix_source.end, content_range.end),
             exact_visible: Some(StreamRange::new(prefix_source.end, content_range.end)),
         }],
@@ -197,12 +260,14 @@ fn projected_egc_spans_exact_run_boundaries_and_history_ownership() {
             ProjectedTextRun {
                 display: "a".to_string(),
                 style: style("bold").into(),
+                style_facts: Default::default(),
                 owned: range(0, 3),
                 exact_visible: Some(range(2, 3)),
             },
             ProjectedTextRun {
                 display: "\u{301} rest".to_string(),
                 style: style("text.default").into(),
+                style_facts: Default::default(),
                 owned: range(3, 12),
                 exact_visible: Some(range(5, 12)),
             },
@@ -238,12 +303,14 @@ fn projected_egc_spans_zwj_run_boundaries_without_splitting() {
             ProjectedTextRun {
                 display: first.to_string(),
                 style: style("bold").into(),
+                style_facts: Default::default(),
                 owned: range(0, split),
                 exact_visible: Some(range(0, split)),
             },
             ProjectedTextRun {
                 display: second.to_string(),
                 style: style("italic").into(),
+                style_facts: Default::default(),
                 owned: range(split, end),
                 exact_visible: Some(range(split, end)),
             },
@@ -361,18 +428,21 @@ fn projected_replacement_remains_one_indivisible_atom() {
             ProjectedTextRun {
                 display: "foo".to_string(),
                 style: StyleSpec::default().into(),
+                style_facts: Default::default(),
                 owned: range(0, 3),
                 exact_visible: Some(range(0, 3)),
             },
             ProjectedTextRun {
                 display: "    ".to_string(),
                 style: StyleSpec::default().into(),
+                style_facts: Default::default(),
                 owned: range(3, 6),
                 exact_visible: None,
             },
             ProjectedTextRun {
                 display: "bar".to_string(),
                 style: StyleSpec::default().into(),
+                style_facts: Default::default(),
                 owned: range(6, 9),
                 exact_visible: Some(range(6, 9)),
             },
@@ -402,12 +472,14 @@ fn projected_egc_boundaries_still_expose_independent_checkpoints() {
             ProjectedTextRun {
                 display: "a".to_string(),
                 style: style("bold").into(),
+                style_facts: Default::default(),
                 owned: range(0, 1),
                 exact_visible: Some(range(0, 1)),
             },
             ProjectedTextRun {
                 display: "b".to_string(),
                 style: style("italic").into(),
+                style_facts: Default::default(),
                 owned: range(1, 2),
                 exact_visible: Some(range(1, 2)),
             },

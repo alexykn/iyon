@@ -76,6 +76,7 @@ fn snapshot_validation_rejects_invalid_visible_source_length() {
         runs: vec![ProjectedTextRun {
             display: "abc".to_string(),
             style: StyleSpec::default().into(),
+            style_facts: Default::default(),
             owned: StreamRange::new(StreamOffset::new(0), StreamOffset::new(100)),
             exact_visible: Some(StreamRange::new(
                 StreamOffset::new(0),
@@ -315,6 +316,7 @@ fn projected_checkpoint_never_splits_cross_run_egcs() {
                 ProjectedTextRun {
                     display: display.to_owned(),
                     style: StyleSpec::new().bold().italic().into(),
+                    style_facts: Default::default(),
                     owned: StreamRange::new(StreamOffset::new(start), StreamOffset::new(cursor)),
                     exact_visible: Some(StreamRange::new(
                         StreamOffset::new(start),

@@ -1,6 +1,79 @@
 use super::*;
 
 #[test]
+fn local_view_facts_match_only_their_own_node() {
+    let theme = Theme::new().with_style_variant(
+        "probe",
+        StyleSelector::state("test.role", "heading"),
+        StyleSpec::new().bold(),
+    );
+    let parent = View::vertical(|column| {
+        column.child(View::text("x").style(StyleRef::theme("probe")));
+    })
+    .into_view()
+    .style_fact("test.role", "heading");
+    let surface = {
+        let compiler = ViewCompiler::new(&theme);
+        let tree = compiler.layout_tree(&parent, LayoutConstraints::width_only(1));
+        ViewPainter.paint_tree(&compiler, &tree)
+    };
+    assert!(!surface.get(0, 0).style.bold);
+}
+
+#[test]
+fn physical_style_inherits_after_local_fact_resolution() {
+    let theme = Theme::new().with_style_variant(
+        "probe",
+        StyleSelector::state("test.role", "heading"),
+        StyleSpec::new().bold(),
+    );
+    let parent = View::vertical(|column| {
+        column.child("x");
+    })
+    .style(StyleRef::theme("probe"))
+    .into_view()
+    .style_fact("test.role", "heading");
+    let compiler = ViewCompiler::new(&theme);
+    let tree = compiler.layout_tree(&parent, LayoutConstraints::width_only(1));
+    let surface = ViewPainter.paint_tree(&compiler, &tree);
+    assert!(surface.get(0, 0).style.bold);
+}
+
+#[test]
+fn view_facts_do_not_leak_into_spans() {
+    let theme = Theme::new().with_style_variant(
+        "probe",
+        StyleSelector::state("test.role", "heading"),
+        StyleSpec::new().bold(),
+    );
+    let view = View::styled_text([TextSpan::styled("x", StyleRef::theme("probe"))])
+        .into_view()
+        .style_fact("test.role", "heading");
+    let compiler = ViewCompiler::new(&theme);
+    let tree = compiler.layout_tree(&view, LayoutConstraints::width_only(1));
+    let surface = ViewPainter.paint_tree(&compiler, &tree);
+    assert!(!surface.get(0, 0).style.bold);
+}
+
+#[test]
+fn span_facts_compose_with_inherited_state() {
+    let theme = Theme::new().with_style_variant(
+        "probe",
+        StyleSelector::state("test.mode", "warning").and_state("test.role", "strong"),
+        StyleSpec::new().bold(),
+    );
+    let view = View::styled_text([
+        TextSpan::styled("x", StyleRef::theme("probe")).style_fact("test.role", "strong")
+    ])
+    .style_state("test.mode", "warning")
+    .into_view();
+    let compiler = ViewCompiler::new(&theme);
+    let tree = compiler.layout_tree(&view, LayoutConstraints::width_only(1));
+    let surface = ViewPainter.paint_tree(&compiler, &tree);
+    assert!(surface.get(0, 0).style.bold);
+}
+
+#[test]
 fn ancestor_and_child_text_styles_cascade_to_physical_text() {
     let mut child = View::text("x").into_view();
     child.decoration.text_style = StyleSpec::new().foreground(ColorSpec::Ansi(2)).into();
