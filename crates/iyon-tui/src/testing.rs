@@ -154,6 +154,15 @@ where
     }
 }
 
+#[doc(hidden)]
+pub fn compile_view_lines(view: &View, width: u16) -> Vec<String> {
+    crate::presentation::layout::compile_view_with_theme(view, width, &crate::Theme::default())
+        .rows
+        .iter()
+        .map(PhysicalRow::plain_text)
+        .collect()
+}
+
 fn surface_lines(surface: &Surface) -> Vec<String> {
     (0..surface.height())
         .map(|y| {

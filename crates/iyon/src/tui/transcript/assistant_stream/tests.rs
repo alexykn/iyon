@@ -1,25 +1,43 @@
 use super::*;
-use crate::transcript::pipeline::assistant_renderer;
+use crate::transcript::pipeline::{assistant_renderer, assistant_view};
 use iyon_tui::stream::StreamingSource;
-use iyon_tui::text::{TextVisitor, walk_content};
+use iyon_tui::text::{Mark, TextProvenance, TextVisitor, walk_content};
+use std::time::Duration;
 
 #[derive(Default)]
 struct Runs {
     text: String,
     thinking: Vec<String>,
+    marked: Vec<(String, Vec<Mark>, bool)>,
+    provenances: Vec<TextProvenance>,
 }
 
 impl TextVisitor for Runs {
     fn visit_text_run(&mut self, run: &iyon_tui::text::TextRun) {
         self.text.push_str(run.text());
-        if run
+        let thinking = run
             .annotations()
             .tags()
             .iter()
-            .any(|tag| tag.to_string() == "app:thinking")
-        {
+            .any(|tag| tag.to_string() == "app:thinking");
+        if thinking {
             self.thinking.push(run.text().to_owned());
         }
+        self.provenances.push(run.provenance().clone());
+    }
+
+    fn visit_inline(&mut self, inline: &iyon_tui::text::Inline) {
+        if let iyon_tui::text::InlineKind::Text(run) = inline.kind() {
+            self.marked.push((
+                run.text().to_owned(),
+                inline.marks().marks().to_vec(),
+                run.annotations()
+                    .tags()
+                    .iter()
+                    .any(|tag| tag.to_string() == "app:thinking"),
+            ));
+        }
+        iyon_tui::text::walk_inline(self, inline);
     }
 }
 
@@ -81,12 +99,69 @@ fn same_kind_chunking_converges_after_seal() {
 }
 
 #[test]
-fn snapshot_uses_generic_renderer_for_blocks() {
-    let mut stream = stream_with(&[(SegmentKind::Text, "one\n\ntwo")]);
+fn stream_snapshot_and_final_assistant_view_compile_identically() {
+    let renderer = assistant_renderer();
+    for width in [1, 2, 4, 8, 20, 40, 80] {
+        let mut stream = stream_with(&[(
+            SegmentKind::Text,
+            "# title\n\n- one\n- **two**\n\ninline `code`",
+        )]);
+        stream.seal();
+        let snapshot = stream.snapshot();
+        let stream_view = snapshot.view_for_test();
+        let final_view = assistant_view(&stream.semantic, &renderer);
+        assert_eq!(
+            iyon_tui::testing::compile_view_lines(&stream_view, width),
+            iyon_tui::testing::compile_view_lines(&final_view, width),
+            "physical mismatch at width {width}"
+        );
+    }
+}
+
+#[test]
+fn thinking_composition_preserves_marks_and_splits_exact_provenance() {
+    let mut stream = stream_with(&[
+        (SegmentKind::Thinking, "**reason** and `code`"),
+        (SegmentKind::Text, "answer"),
+    ]);
     stream.seal();
-    let rendered =
-        crate::transcript::pipeline::assistant_view(&stream.semantic, &assistant_renderer());
-    let _ = rendered;
+    let mut runs = Runs::default();
+    for span in stream.semantic.spans() {
+        for value in span.values() {
+            walk_content(&mut runs, value);
+        }
+    }
+    assert!(runs.text.contains("reason"));
+    assert!(runs.text.contains("code"));
+    assert!(runs.marked.iter().any(|(text, marks, thinking)| {
+        text == "r" && marks.contains(&Mark::Strong) && *thinking
+    }));
+    assert!(runs.marked.iter().any(|(text, marks, thinking)| {
+        text == "code" && marks.contains(&Mark::Code) && *thinking
+    }));
+    assert!(
+        runs.marked
+            .iter()
+            .any(|(text, _, thinking)| { text == "a" && !*thinking })
+    );
+    assert!(runs.provenances.windows(2).any(|pair| pair[0] != pair[1]));
+}
+
+#[test]
+fn temporal_publication_has_backlog_and_seal_flushes_all_source() {
+    let mut stream = AssistantStream::new();
+    stream.push_delta_paced(SegmentKind::Text, "setext\n====");
+    let received = stream.received_end;
+    assert!(stream.snapshot().source_end() < received);
+    let first = std::time::Instant::now();
+    assert!(stream.next_wakeup().is_some() || stream.snapshot().source_end() > StreamOffset::ZERO);
+    let _ = stream.advance(first);
+    let due = stream.next_wakeup().unwrap_or(first);
+    let _ = stream.advance(due + Duration::from_secs(1));
+    assert!(stream.snapshot().stable_through() >= StreamOffset::ZERO);
+    stream.seal();
+    assert_eq!(stream.snapshot().source_end(), received);
+    assert_eq!(stream.snapshot().stable_through(), received);
 }
 
 #[test]
