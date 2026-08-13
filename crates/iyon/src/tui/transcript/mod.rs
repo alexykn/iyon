@@ -1,5 +1,5 @@
 pub(crate) mod assistant_stream;
-pub(crate) mod markdown;
+pub(crate) mod pipeline;
 pub(crate) mod semantic;
 
 pub(crate) use assistant_stream::AssistantStream;

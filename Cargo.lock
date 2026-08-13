@@ -886,8 +886,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "toml",
- "unicode-segmentation",
- "unicode-width",
  "url",
 ]
 
