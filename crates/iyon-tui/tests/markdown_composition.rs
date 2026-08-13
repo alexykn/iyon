@@ -1,10 +1,13 @@
-use std::convert::Infallible;
+use std::{
+    convert::Infallible,
+    time::{Duration, Instant},
+};
 
 use iyon_tui::{
     Block, CodeBlock, Inline, InlineContent, LanguageId, LiteralText, MarkdownProjector,
     Projection, ProjectionBuilder, Projector, ProjectorExt, RawText, Renderer, SemanticTag, Smooth,
     StreamOffset, StreamRange, TextContent, TextProvenance, TextRenderer, TextRewriter, TextRun,
-    validate_text_projection, walk_rewrite_block,
+    validate_projection_transition, validate_text_projection, walk_rewrite_block,
 };
 
 fn raw(source: &str, sealed: bool) -> Projection<TextContent> {
@@ -51,13 +54,19 @@ impl TextRewriter for Json {
         let Some(first) = code.body().runs().first() else {
             return Ok(block);
         };
-        let start = match first.provenance() {
-            TextProvenance::Exact(range) | TextProvenance::Derived(range) => range.start(),
-            TextProvenance::Synthetic => return Ok(block),
+        let (left, remainder) = first.split_at(1).unwrap();
+        let (key, right) = remainder.split_at(4).unwrap();
+        assert_eq!(left.text(), "{");
+        assert_eq!(key.text(), "\"ok\"");
+        assert_eq!(right.text(), ":true}\n");
+        let TextProvenance::Exact(key_range) = key.provenance() else {
+            return Ok(block);
         };
+        assert_eq!(key_range.start(), StreamOffset::new(17));
+        assert_eq!(key_range.end(), StreamOffset::new(21));
         let body = LiteralText::new([
             TextRun::synthetic("{\n  "),
-            TextRun::exact("\"ok\"", StreamRange::new(start, start.saturating_add(4))).unwrap(),
+            key,
             TextRun::synthetic(": true\n}"),
         ]);
         Ok(Block::code(CodeBlock::new(
@@ -126,14 +135,58 @@ fn markdown_creates_real_json_syntax_and_mermaid_portals() {
     let syntax = rewrite(Syntax, &json);
     let mermaid = rewrite(Mermaid, &syntax);
     validate_text_projection(&mermaid).unwrap();
-    assert!(
-        mermaid
-            .spans()
-            .iter()
-            .any(|span| span.values().iter().any(|value| {
-                matches!(value, TextContent::Block(block) if block.as_container().is_some())
-            }))
-    );
+    let mut saw_json = false;
+    let mut saw_mermaid = false;
+    let mut saw_syntax = false;
+    for span in mermaid.spans() {
+        for value in span.values() {
+            let TextContent::Block(block) = value else {
+                continue;
+            };
+            if let Some(code) = block.as_code_block() {
+                if code.language().map(LanguageId::as_str) == Some("json") {
+                    saw_json = true;
+                    let body = code.body();
+                    assert!(body.runs().iter().any(|run| run.text() == "\"ok\""));
+                    assert!(body.runs().iter().any(|run| {
+                        run.annotations()
+                            .tags()
+                            .iter()
+                            .any(|tag| tag.name() == "token")
+                    }));
+                }
+            }
+            if block.as_container().is_some() {
+                saw_mermaid = true;
+                assert!(
+                    block
+                        .annotations()
+                        .tags()
+                        .iter()
+                        .any(|tag| tag.name() == "mermaid")
+                );
+            }
+            if block
+                .annotations()
+                .tags()
+                .iter()
+                .any(|tag| tag.name() == "token")
+                || block.as_code_block().is_some_and(|code| {
+                    code.body().runs().iter().any(|run| {
+                        run.annotations()
+                            .tags()
+                            .iter()
+                            .any(|tag| tag.name() == "token")
+                    })
+                })
+            {
+                saw_syntax = true;
+            }
+        }
+    }
+    assert!(saw_json);
+    assert!(saw_mermaid);
+    assert!(saw_syntax);
     let renderer = TextRenderer::new();
     for span in mermaid.spans() {
         for value in span.values() {
@@ -202,8 +255,37 @@ fn markdown_preserves_reverse_order_structured_barriers() {
 
 #[test]
 fn smooth_is_a_normal_upstream_projector() {
-    let source = raw("one\n\ntwo\n", true);
-    let mut pipeline = Smooth::default().then(MarkdownProjector::default());
-    let output = pipeline.project(&source).unwrap();
-    validate_text_projection(&output).unwrap();
+    let source = "one\n\ntwo\n";
+    let end = StreamOffset::new(source.len() as u64);
+    let open = ProjectionBuilder::new(StreamOffset::ZERO, StreamOffset::ZERO, end, false)
+        .emit(
+            StreamRange::new(StreamOffset::ZERO, end),
+            TextContent::raw(source),
+        )
+        .finish()
+        .unwrap();
+    let sealed = raw(source, true);
+    let mut smooth = Smooth::default();
+    let mut markdown = MarkdownProjector::default();
+    let mut previous = None;
+
+    for now in [
+        Instant::now(),
+        Instant::now() + Duration::from_millis(100),
+        Instant::now() + Duration::from_secs(1),
+    ] {
+        let _ = smooth.advance(now);
+        let published = smooth.project(&open).unwrap();
+        let output = markdown.project(&published).unwrap();
+        validate_text_projection(&output).unwrap();
+        if let Some(previous) = &previous {
+            validate_projection_transition(previous, &output).unwrap();
+        }
+        previous = Some(output);
+    }
+
+    let published = smooth.project(&sealed).unwrap();
+    let output = markdown.project(&published).unwrap();
+    let mut fresh = MarkdownProjector::default();
+    assert_eq!(output, fresh.project(&sealed).unwrap());
 }
