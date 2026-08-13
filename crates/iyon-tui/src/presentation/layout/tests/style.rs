@@ -233,6 +233,45 @@ fn final_foreground_api_inherits_to_descendant_text() {
 }
 
 #[test]
+fn strikethrough_inherits_and_can_be_cancelled_or_reenabled_by_a_span() {
+    let inherited = View::vertical(|column| {
+        column.child("x");
+    })
+    .strikethrough();
+    let cancelled = View::vertical(|column| {
+        column.child(View::text("x").text_attribute(TextAttribute::Strikethrough, false));
+    })
+    .strikethrough();
+    let reenabled = View::vertical(|column| {
+        column.child(View::styled_text([TextSpan::styled(
+            "x",
+            StyleSpec::new().strikethrough(),
+        )]));
+    })
+    .text_attribute(TextAttribute::Strikethrough, false)
+    .into_view();
+
+    assert!(
+        layout_view(&inherited, 1, PhysicalStyle::default())
+            .get(0, 0)
+            .style
+            .strikethrough
+    );
+    assert!(
+        !layout_view(&cancelled, 1, PhysicalStyle::default())
+            .get(0, 0)
+            .style
+            .strikethrough
+    );
+    assert!(
+        layout_view(&reenabled, 1, PhysicalStyle::default())
+            .get(0, 0)
+            .style
+            .strikethrough
+    );
+}
+
+#[test]
 fn final_attribute_api_supports_false_and_specific_child_override() {
     let inherited_bold_cancelled = View::vertical(|column| {
         column.child(View::text("x").text_attribute(TextAttribute::Bold, false));

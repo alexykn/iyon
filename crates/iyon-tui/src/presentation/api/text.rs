@@ -230,6 +230,10 @@ impl Text {
         self.text_attribute(TextAttribute::Reversed, true)
     }
 
+    pub fn strikethrough(self) -> Self {
+        self.text_attribute(TextAttribute::Strikethrough, true)
+    }
+
     pub fn container(self) -> View {
         self.into_canonical_view().container()
     }

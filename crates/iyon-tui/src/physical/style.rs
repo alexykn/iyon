@@ -37,4 +37,5 @@ pub(crate) struct PhysicalStyle {
     pub(crate) italic: bool,
     pub(crate) underline: bool,
     pub(crate) reversed: bool,
+    pub(crate) strikethrough: bool,
 }

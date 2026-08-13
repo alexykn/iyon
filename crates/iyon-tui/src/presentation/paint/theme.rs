@@ -68,7 +68,8 @@ impl StyleContext {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ThemeResolver {
-    pub(crate) theme: Theme,
+    framework: Theme,
+    application: Theme,
 }
 
 impl Default for ThemeResolver {
@@ -78,9 +79,18 @@ impl Default for ThemeResolver {
 }
 
 impl ThemeResolver {
-    pub(crate) fn new(theme: &Theme) -> Self {
+    pub(crate) fn new(application: &Theme) -> Self {
         Self {
-            theme: theme.clone(),
+            framework: crate::theme::framework_theme(),
+            application: application.clone(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_layers(framework: &Theme, application: &Theme) -> Self {
+        Self {
+            framework: framework.clone(),
+            application: application.clone(),
         }
     }
 
@@ -91,16 +101,13 @@ impl ThemeResolver {
         context: &StyleContext,
     ) -> PhysicalStyle {
         let mut resolved = inherited;
-        if let Some(key) = &patch.theme
-            && let Some(named) = self.theme.resolve_style(
-                key.as_str(),
-                context.focused,
-                context.focus_within,
-                &context.inherited_states,
-                &context.local_facts,
-            )
-        {
-            resolved = self.apply_style(resolved, &named, context);
+        if let Some(key) = &patch.theme {
+            if let Some(named) = self.resolve_style(&self.framework, key.as_str(), context) {
+                resolved = self.apply_style(resolved, &named, context);
+            }
+            if let Some(named) = self.resolve_style(&self.application, key.as_str(), context) {
+                resolved = self.apply_style(resolved, &named, context);
+            }
         }
         self.apply_style(resolved, &patch.local, context)
     }
@@ -132,7 +139,40 @@ impl ThemeResolver {
         if let Some(value) = patch.attributes.reversed {
             resolved.reversed = value;
         }
+        if let Some(value) = patch.attributes.strikethrough {
+            resolved.strikethrough = value;
+        }
         resolved
+    }
+
+    fn resolve_style(&self, theme: &Theme, key: &str, context: &StyleContext) -> Option<StyleSpec> {
+        theme.resolve_style(
+            key,
+            context.focused,
+            context.focus_within,
+            &context.inherited_states,
+            &context.local_facts,
+        )
+    }
+
+    fn resolve_theme_color(&self, key: &str, context: &StyleContext) -> Option<ThemeColor> {
+        self.application
+            .resolve_color(
+                key,
+                context.focused,
+                context.focus_within,
+                &context.inherited_states,
+                &context.local_facts,
+            )
+            .or_else(|| {
+                self.framework.resolve_color(
+                    key,
+                    context.focused,
+                    context.focus_within,
+                    &context.inherited_states,
+                    &context.local_facts,
+                )
+            })
     }
 
     pub(crate) fn resolve_color(&self, color: &ColorSpec, context: &StyleContext) -> PhysicalColor {
@@ -145,14 +185,7 @@ impl ThemeResolver {
                 b: *b,
             },
             ColorSpec::Theme(key) => self
-                .theme
-                .resolve_color(
-                    key.as_str(),
-                    context.focused,
-                    context.focus_within,
-                    &context.inherited_states,
-                    &context.local_facts,
-                )
+                .resolve_theme_color(key.as_str(), context)
                 .map_or(PhysicalColor::Default, to_physical_color),
         }
     }
@@ -192,7 +225,7 @@ fn to_physical_ansi(color: AnsiColor) -> PhysicalAnsiColor {
 mod tests {
     use super::*;
     use crate::{
-        IntoView, StyleSelector, StyleStateKey, StyleStateValue, View,
+        IntoView, StyleSelector, StyleStateKey, StyleStateValue, TextAttribute, View,
         presentation::layout::compile_view_with_theme,
     };
 
@@ -357,5 +390,173 @@ mod tests {
         );
         assert_eq!(resolved.foreground, Some(PhysicalColor::Indexed(2)));
         assert!(resolved.bold);
+    }
+
+    #[test]
+    fn application_style_layer_overrides_framework_layer() {
+        let framework = Theme::new().with_style("probe", StyleSpec::new().bold());
+        let application = Theme::new().with_style(
+            "probe",
+            StyleSpec::new()
+                .attribute(TextAttribute::Bold, false)
+                .italic(),
+        );
+        let resolved = ThemeResolver::with_layers(&framework, &application).resolve_text_style(
+            PhysicalStyle::default(),
+            &StyleRef::theme("probe"),
+            &StyleContext::default(),
+        );
+        assert!(!resolved.bold);
+        assert!(resolved.italic);
+    }
+
+    #[test]
+    fn application_generic_variant_beats_framework_specific_variant() {
+        let framework = Theme::new().with_style_variant(
+            "probe",
+            StyleSelector::state("test.role", "heading").and_state("test.level", "h1"),
+            StyleSpec::new().underline(),
+        );
+        let application = Theme::new().with_style_variant(
+            "probe",
+            StyleSelector::state("test.role", "heading"),
+            StyleSpec::new().attribute(TextAttribute::Underline, false),
+        );
+        let mut states = StyleStates::default();
+        states.set(
+            StyleStateKey::from_static("test.role"),
+            StyleStateValue::from_static("heading"),
+        );
+        states.set(
+            StyleStateKey::from_static("test.level"),
+            StyleStateValue::from_static("h1"),
+        );
+        let context = StyleContext {
+            inherited_states: states,
+            ..StyleContext::default()
+        };
+        let resolved = ThemeResolver::with_layers(&framework, &application).resolve_text_style(
+            PhysicalStyle::default(),
+            &StyleRef::theme("probe"),
+            &context,
+        );
+        assert!(!resolved.underline);
+    }
+
+    #[test]
+    fn specificity_remains_independent_inside_each_layer_and_local_style_wins() {
+        let framework = Theme::new()
+            .with_style(
+                "probe",
+                StyleSpec::new().bold().foreground(ColorSpec::ansi(1)),
+            )
+            .with_style_variant(
+                "probe",
+                StyleSelector::state("role", "heading"),
+                StyleSpec::new().italic(),
+            )
+            .with_style_variant(
+                "probe",
+                StyleSelector::state("role", "heading").and_state("level", "h1"),
+                StyleSpec::new().underline(),
+            );
+        let application = Theme::new()
+            .with_style_variant(
+                "probe",
+                StyleSelector::state("role", "heading"),
+                StyleSpec::new().dim(),
+            )
+            .with_style_variant(
+                "probe",
+                StyleSelector::state("role", "heading").and_state("level", "h1"),
+                StyleSpec::new().reversed(),
+            );
+        let mut states = StyleStates::default();
+        states.set(
+            StyleStateKey::from_static("role"),
+            StyleStateValue::from_static("heading"),
+        );
+        states.set(
+            StyleStateKey::from_static("level"),
+            StyleStateValue::from_static("h1"),
+        );
+        let context = StyleContext {
+            inherited_states: states,
+            ..StyleContext::default()
+        };
+        let resolved = ThemeResolver::with_layers(&framework, &application).resolve_text_style(
+            PhysicalStyle::default(),
+            &StyleRef::themed("probe", StyleSpec::new().foreground(ColorSpec::ansi(3))),
+            &context,
+        );
+        assert!(resolved.bold);
+        assert!(resolved.italic);
+        assert!(resolved.underline);
+        assert!(resolved.dim);
+        assert!(resolved.reversed);
+        assert_eq!(resolved.foreground, Some(PhysicalColor::Indexed(3)));
+    }
+
+    #[test]
+    fn layered_colors_prefer_application_including_explicit_default() {
+        let framework = Theme::new().with_color("accent", ThemeColor::Indexed(1));
+        let application = Theme::new().with_color("accent", ThemeColor::Indexed(2));
+        let resolver = ThemeResolver::with_layers(&framework, &application);
+        assert_eq!(
+            resolver.resolve_color(&ColorSpec::theme("accent"), &StyleContext::default()),
+            PhysicalColor::Indexed(2)
+        );
+
+        let framework_only = ThemeResolver::with_layers(&framework, &Theme::new());
+        assert_eq!(
+            framework_only.resolve_color(&ColorSpec::theme("accent"), &StyleContext::default()),
+            PhysicalColor::Indexed(1)
+        );
+
+        let reset = Theme::new().with_color("accent", ThemeColor::Default);
+        assert_eq!(
+            ThemeResolver::with_layers(&framework, &reset)
+                .resolve_color(&ColorSpec::theme("accent"), &StyleContext::default()),
+            PhysicalColor::Default
+        );
+    }
+
+    #[test]
+    fn framework_style_color_references_use_application_palette() {
+        let framework = Theme::new()
+            .with_color("accent", ThemeColor::Indexed(1))
+            .with_style(
+                "probe",
+                StyleSpec::new().foreground(ColorSpec::theme("accent")),
+            );
+        let application = Theme::new().with_color("accent", ThemeColor::Indexed(2));
+        let resolved = ThemeResolver::with_layers(&framework, &application).resolve_text_style(
+            PhysicalStyle::default(),
+            &StyleRef::theme("probe"),
+            &StyleContext::default(),
+        );
+        assert_eq!(resolved.foreground, Some(PhysicalColor::Indexed(2)));
+    }
+
+    #[test]
+    fn plain_resets_attributes_but_preserves_framework_colors() {
+        let framework = Theme::new().with_style(
+            "probe",
+            StyleSpec::new()
+                .bold()
+                .underline()
+                .strikethrough()
+                .foreground(ColorSpec::ansi(1)),
+        );
+        let application = Theme::new().with_style("probe", StyleSpec::plain());
+        let resolved = ThemeResolver::with_layers(&framework, &application).resolve_text_style(
+            PhysicalStyle::default(),
+            &StyleRef::theme("probe"),
+            &StyleContext::default(),
+        );
+        assert!(!resolved.bold);
+        assert!(!resolved.underline);
+        assert!(!resolved.strikethrough);
+        assert_eq!(resolved.foreground, Some(PhysicalColor::Indexed(1)));
     }
 }
