@@ -194,6 +194,71 @@ fn assistant_product_render_uses_gfm_and_task_only() {
 }
 
 #[test]
+fn fitting_tables_keep_content_tracks_aligned() {
+    let stream = sealed_text(MIGRATION_FIXTURE);
+    let view = assistant_view(&stream.semantic, &assistant_renderer());
+    let lines = painted(&view, 80);
+
+    assert_eq!(find_x(&lines, "File"), find_x(&lines, "api.rs"));
+    assert_eq!(find_x(&lines, "File"), find_x(&lines, "ui.rs"));
+
+    let status_x = find_x(&lines, "Status") as i32;
+    let done_x = find_x(&lines, "done") as i32;
+    let pending_x = find_x(&lines, "pending") as i32;
+    assert!(
+        (status_x - done_x).abs() <= 1 && (pending_x - done_x).abs() <= 1,
+        "center column must sit in a content track, not a stretched Flex band: Status={status_x} done={done_x} pending={pending_x}"
+    );
+
+    let header = lines
+        .iter()
+        .find(|line| line.contains("File"))
+        .expect("table header");
+    assert!(
+        header.trim_end().len() < 50,
+        "fitting table must not stretch to the viewport: {header:?}"
+    );
+}
+
+#[test]
+fn delimiterless_pipe_rows_align_when_they_fit() {
+    let languages = concat!(
+        "| Python     | Dynamic | Very high | Data, scripting |\n",
+        "| Dart       | Static  | Medium    | Flutter apps |\n",
+        "| TypeScript| Static  | High      | Web apps |\n",
+        "| Ruby       | Dynamic | Medium    | Web (Rails) |\n",
+    );
+    let stream = sealed_text(languages);
+    assert_eq!(table_of(&stream).rows().len(), 4);
+    let view = assistant_view(&stream.semantic, &assistant_renderer());
+    let lines = painted(&view, 80);
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains('|'),
+        "pipe rows must become a Grid, not source markdown: {joined}"
+    );
+    assert_eq!(find_x(&lines, "Python"), find_x(&lines, "Dart"));
+    assert_eq!(find_x(&lines, "Python"), find_x(&lines, "TypeScript"));
+    assert_eq!(find_x(&lines, "Python"), find_x(&lines, "Ruby"));
+    assert_eq!(find_x(&lines, "Dynamic"), find_x(&lines, "Static"));
+    assert_eq!(find_x(&lines, "Very high"), find_x(&lines, "Medium"));
+
+    let tasks = concat!(
+        "| Fix bug #123 | High | ⌛ In progress |\n",
+        "| Design logo | Medium | ⭕ Pending |\n",
+        "| Update docs | Low | ⭕ Pending |\n",
+    );
+    let stream = sealed_text(tasks);
+    let view = assistant_view(&stream.semantic, &assistant_renderer());
+    let lines = painted(&view, 80);
+    assert_eq!(find_x(&lines, "Fix bug"), find_x(&lines, "Design logo"));
+    assert_eq!(find_x(&lines, "Fix bug"), find_x(&lines, "Update docs"));
+    assert_eq!(find_x(&lines, "High"), find_x(&lines, "Medium"));
+    assert_eq!(find_x(&lines, "High"), find_x(&lines, "Low"));
+    assert_eq!(find_x(&lines, "In progress"), find_x(&lines, "Pending"));
+}
+
+#[test]
 fn gfm_snapshot_and_final_assistant_view_match_across_widths() {
     let renderer = assistant_renderer();
     for width in [1, 2, 4, 8, 12, 20, 40, 80] {
