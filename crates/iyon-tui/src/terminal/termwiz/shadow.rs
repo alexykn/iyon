@@ -115,6 +115,46 @@ impl ShadowRow {
     }
 }
 
+/// One native-scrollback commit, analogous to OpenTUI `external_output` events.
+///
+/// OpenCode's test renderer records styled snapshots as they are published above
+/// the split footer. Iyon publishes by full-screen CRLF, so a commit here is one
+/// displaced screen row that entered terminal scrollback.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ShadowScrollbackCommit {
+    pub(crate) row: ShadowRow,
+    pub(crate) width: usize,
+    pub(crate) trailing_newline: bool,
+}
+
+impl ShadowScrollbackCommit {
+    pub(crate) fn text(&self) -> String {
+        self.row.trimmed_text()
+    }
+}
+
+/// Styled span inside a captured frame, analogous to OpenTUI `CapturedSpan`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CapturedSpan {
+    pub(crate) text: String,
+    pub(crate) attrs: CellAttributes,
+    pub(crate) width: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CapturedLine {
+    pub(crate) spans: Vec<CapturedSpan>,
+}
+
+/// Visible-screen capture, analogous to OpenTUI `captureSpans()`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CapturedFrame {
+    pub(crate) cols: usize,
+    pub(crate) rows: usize,
+    pub(crate) cursor: (usize, usize),
+    pub(crate) lines: Vec<CapturedLine>,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ShadowTerminal {
     pub(crate) width: usize,
@@ -134,6 +174,8 @@ pub(crate) struct ShadowTerminal {
     pub(crate) implicit_wraps: usize,
 
     pub(crate) fail_next_render: bool,
+
+    claimed_through: usize,
 }
 
 impl ShadowTerminal {
@@ -150,6 +192,7 @@ impl ShadowTerminal {
             sync_output_active: false,
             implicit_wraps: 0,
             fail_next_render: false,
+            claimed_through: 0,
         }
     }
 
@@ -402,6 +445,45 @@ impl ShadowTerminal {
         self.screen.iter().map(|row| row.trimmed_text()).collect()
     }
 
+    /// Visible screen as text, analogous to OpenTUI `captureCharFrame()`.
+    pub(crate) fn capture_char_frame(&self) -> String {
+        self.screen_trimmed_texts().join("\n")
+    }
+
+    /// Visible screen as styled spans plus cursor, analogous to OpenTUI `captureSpans()`.
+    pub(crate) fn capture_spans(&self) -> CapturedFrame {
+        CapturedFrame {
+            cols: self.width,
+            rows: self.height,
+            cursor: (self.cursor_x, self.cursor_y),
+            lines: self.screen.iter().map(capture_line).collect(),
+        }
+    }
+
+    /// Native scrollback commits since the last claim, analogous to OpenTUI `externalOutput.take()`.
+    pub(crate) fn claim_scrollback(&mut self) -> Vec<ShadowScrollbackCommit> {
+        let commits = self.scrollback[self.claimed_through..]
+            .iter()
+            .cloned()
+            .map(|row| ShadowScrollbackCommit {
+                row,
+                width: self.width,
+                trailing_newline: true,
+            })
+            .collect();
+        self.claimed_through = self.scrollback.len();
+        commits
+    }
+
+    /// Join newly claimed scrollback rows with newlines, analogous to `externalOutput.takeText()`.
+    pub(crate) fn claim_scrollback_text(&mut self) -> String {
+        self.claim_scrollback()
+            .iter()
+            .map(ShadowScrollbackCommit::text)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     pub(crate) fn assert_screen_matches_surface(&self, expected: &Surface) {
         assert_eq!(
             (self.width, self.height),
@@ -438,6 +520,40 @@ impl ShadowTerminal {
             }
         }
     }
+}
+
+fn capture_line(row: &ShadowRow) -> CapturedLine {
+    let mut spans: Vec<CapturedSpan> = Vec::new();
+    let mut x = 0;
+    while x < row.cells.len() {
+        let cell = &row.cells[x];
+        if cell.continuation {
+            x += 1;
+            continue;
+        }
+        let text = cell.text().to_string();
+        let width = cell
+            .grapheme
+            .as_deref()
+            .map(grapheme_cell_width)
+            .unwrap_or(1)
+            .max(1);
+        if let Some(last) = spans.last_mut() {
+            if last.attrs == cell.attrs {
+                last.text.push_str(&text);
+                last.width += width;
+                x += width;
+                continue;
+            }
+        }
+        spans.push(CapturedSpan {
+            text,
+            attrs: cell.attrs.clone(),
+            width,
+        });
+        x += width;
+    }
+    CapturedLine { spans }
 }
 
 impl Terminal for ShadowTerminal {
@@ -579,5 +695,36 @@ mod tests {
         assert_eq!(shadow.scrollback_trimmed_texts(), vec!["hi"]);
         assert_eq!(shadow.screen_texts(), vec!["bye ", "    "]);
         assert_eq!(shadow.screen_trimmed_texts(), vec!["bye", ""]);
+    }
+
+    #[test]
+    fn capture_char_frame_matches_visible_screen() {
+        let mut shadow = ShadowTerminal::new(4, 3);
+        shadow.write_text("AB\r\nCD\r\n");
+        assert_eq!(shadow.capture_char_frame(), "AB\nCD\n");
+        let frame = shadow.capture_spans();
+        assert_eq!(frame.cols, 4);
+        assert_eq!(frame.rows, 3);
+        assert_eq!(frame.cursor, (0, 2));
+        assert_eq!(frame.lines[0].spans[0].text.trim_end(), "AB");
+    }
+
+    #[test]
+    fn claim_scrollback_returns_only_new_native_rows() {
+        let mut shadow = ShadowTerminal::new(4, 2);
+        shadow.write_text("aa\r\n");
+        shadow.write_text("bb\r\n");
+        let first = shadow.claim_scrollback();
+        assert_eq!(
+            first
+                .iter()
+                .map(ShadowScrollbackCommit::text)
+                .collect::<Vec<_>>(),
+            vec!["aa"]
+        );
+
+        shadow.write_text("cc\r\n");
+        assert_eq!(shadow.claim_scrollback_text(), "bb");
+        assert_eq!(shadow.claim_scrollback_text(), "");
     }
 }
