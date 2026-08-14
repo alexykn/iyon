@@ -3,10 +3,11 @@
 use iyon_tui::projection::{Projection, Projector};
 use iyon_tui::stream::{StreamOffset, StreamRange};
 use iyon_tui::text::{
-    CodeBlockLabelPolicy, Inline, InlineContent, InlineKind, LiteralText, MarkdownOptions,
-    MarkdownProjectionError, MarkdownProjector, Renderer, RewriteProjectionError, SemanticTag,
-    SoftBreakPolicy, TableColumnSizing, TaskListMarkerPolicy, TextContent, TextIrError,
-    TextProvenance, TextRenderPolicy, TextRenderer, TextRewriter, TextRun, walk_rewrite_inline,
+    CodeBlockLabelPolicy, Inline, InlineContent, InlineKind, ListMarker, LiteralText,
+    MarkdownOptions, MarkdownProjectionError, MarkdownProjector, Renderer, RewriteProjectionError,
+    SemanticTag, SoftBreakPolicy, TableColumnSizing, TaskListMarkerPolicy, TextContent,
+    TextIrError, TextProvenance, TextRenderPolicy, TextRenderer, TextRewriter, TextRun,
+    walk_rewrite_inline,
 };
 use iyon_tui::{Insets, View, WrapMode};
 
@@ -293,14 +294,11 @@ pub(crate) fn assistant_presentation(
                 visible[index - 1].source().end()
             };
             let end = span.source().end();
+            let next = visible.get(index + 1).map(|span| span.values());
             let view = Renderer::render(renderer, span.values()).padding(Insets::new(
-                if index == 0 && semantic.source_base() == StreamOffset::ZERO {
-                    0
-                } else {
-                    renderer.policy().block_gap()
-                },
-                2,
                 0,
+                2,
+                chunk_bottom_gap(span.values(), next, renderer.policy().block_gap()),
                 2,
             ));
             AssistantPresentationChunk {
@@ -309,6 +307,53 @@ pub(crate) fn assistant_presentation(
             }
         })
         .collect()
+}
+
+// Gap lives on the preceding chunk so compacting a prefix does not
+// re-pad the remaining suffix. Consecutive tight same-kind lists stay
+// visually one list after the root projector splits them per item.
+fn chunk_bottom_gap(current: &[TextContent], next: Option<&[TextContent]>, block_gap: u16) -> u16 {
+    let Some(next) = next else {
+        return 0;
+    };
+    let curr_list = current.last().and_then(as_list);
+    let next_list = next.first().and_then(as_list);
+    if let (Some(current), Some(next)) = (curr_list, next_list)
+        && same_list_kind(current.marker(), next.marker())
+    {
+        return if current.tight() && next.tight() {
+            0
+        } else {
+            block_gap
+        };
+    }
+    block_gap
+}
+
+fn as_list(content: &TextContent) -> Option<&iyon_tui::text::List> {
+    match content {
+        TextContent::Block(block) => block.as_list(),
+        TextContent::Raw(_) => None,
+    }
+}
+
+fn same_list_kind(left: ListMarker, right: ListMarker) -> bool {
+    match (left, right) {
+        (ListMarker::Bullet, ListMarker::Bullet) => true,
+        (
+            ListMarker::Ordered {
+                style: left_style,
+                delimiter: left_delimiter,
+                ..
+            },
+            ListMarker::Ordered {
+                style: right_style,
+                delimiter: right_delimiter,
+                ..
+            },
+        ) => left_style == right_style && left_delimiter == right_delimiter,
+        _ => false,
+    }
 }
 
 pub(crate) fn assistant_view(semantic: &Projection<TextContent>, renderer: &TextRenderer) -> View {

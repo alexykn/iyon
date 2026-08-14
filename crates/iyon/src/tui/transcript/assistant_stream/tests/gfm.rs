@@ -1,7 +1,8 @@
 use super::*;
+use crate::transcript::pipeline::assistant_presentation;
 use crate::tui::theme::iyon_theme;
 use iyon_tui::text::{BlockKind, Mark, TextContent, TextOrigin, TextProvenance, walk_content};
-use iyon_tui::{Block, View};
+use iyon_tui::{Block, History, View};
 
 const GFM_FIXTURE: &str =
     "| Item | State |\n| --- | --- |\n| ~~old~~ | active |\n\n- [x] complete\n- [ ] pending\n";
@@ -176,10 +177,15 @@ fn assistant_pipeline_projects_gfm_semantics() {
     );
     assert!(has_strike(&stream, "old"));
 
-    let list = lists_of(&stream).into_iter().next().expect("task list");
-    assert_eq!(list.items()[0].checked(), Some(true));
-    assert_eq!(list.items()[1].checked(), Some(false));
-    assert_eq!(list.items()[0].origin(), Some(TextOrigin::MARKDOWN));
+    let lists: Vec<_> = lists_of(&stream);
+    assert_eq!(
+        lists.len(),
+        2,
+        "each completed task item is its own stable list"
+    );
+    assert_eq!(lists[0].items()[0].checked(), Some(true));
+    assert_eq!(lists[1].items()[0].checked(), Some(false));
+    assert_eq!(lists[0].items()[0].origin(), Some(TextOrigin::MARKDOWN));
 }
 
 #[test]
@@ -696,4 +702,608 @@ fn gfm_reference_compaction_still_respects_restart_floor() {
         .map(|span| (span.source(), span.values().to_vec()))
         .collect();
     assert_eq!(actual, expected);
+}
+
+/// Numbered markdown guide matching the live-stream drop (1. then 7.).
+const NUMBERED_GUIDE: &str = r#"Markdown: A Complete Guide
+
+What is Markdown?
+
+Markdown is a lightweight markup language created by John Gruber.
+
+1. Headings
+
+Use # followed by a space, up to six levels:
+
+# Heading 1
+
+## Heading 2
+
+### Heading 3
+
+2. Emphasis (Bold & Italic)
+
+italic text — wrapped in single asterisks
+**bold text** — wrapped in double asterisks
+
+3. Lists
+
+Unordered lists use -, *, or +:
+
+- First item
+- Second item
+  - Nested item
+- Third item
+
+Ordered lists use numbers followed by a period:
+
+1. First step
+2. Second step
+3. Third step
+
+4. Links and Images
+
+Links: [OpenAI](https://openai.com)
+
+5. Code
+
+Inline code uses single backticks: `print("hello")`
+
+6. Blockquotes
+
+> This is a blockquote.
+> It can span multiple lines.
+
+7. Horizontal Rules
+
+Three or more hyphens:
+
+---
+
+8. Tables
+"#;
+
+const NUMBERED_GUIDE_TITLES: &[&str] = &[
+    "1. Headings",
+    "2. Emphasis",
+    "3. Lists",
+    "4. Links and Images",
+    "5. Code",
+    "6. Blockquotes",
+    "7. Horizontal Rules",
+    "8. Tables",
+];
+
+fn assert_titles_in_order(lines: &[String], titles: &[&str]) {
+    let mut last = 0usize;
+    for title in titles {
+        let Some(index) = lines.iter().position(|line| line.contains(title)) else {
+            panic!("missing {title:?} in:\n{}", lines.join("\n"));
+        };
+        assert!(
+            index >= last,
+            "{title:?} appeared at {index} before previous title at {last}:\n{}",
+            lines.join("\n")
+        );
+        last = index;
+    }
+}
+
+fn remember_titles(joined: &str, published: &mut Vec<&'static str>) {
+    for title in NUMBERED_GUIDE_TITLES {
+        if joined.contains(title) && !published.contains(title) {
+            published.push(title);
+        }
+    }
+}
+
+fn assert_published_still_present(joined: &str, published: &[&str]) {
+    for title in published {
+        assert!(
+            joined.contains(title),
+            "lost {title:?} after it had already been painted\n{joined}"
+        );
+    }
+}
+
+#[test]
+fn numbered_guide_keeps_every_section_in_the_painted_stream() {
+    let stream = sealed_text(NUMBERED_GUIDE);
+    let view = assistant_view(&stream.semantic, &assistant_renderer());
+    let lines = painted(&view, 80);
+    assert_titles_in_order(&lines, NUMBERED_GUIDE_TITLES);
+}
+
+#[test]
+fn numbered_guide_keeps_every_section_while_live_prefixes_arrive() {
+    let mut stream = AssistantStream::new();
+    let mut published = Vec::new();
+    for character in NUMBERED_GUIDE.chars() {
+        stream.push_delta_paced(SegmentKind::Text, &character.to_string());
+        advance_some(&mut stream, 2);
+        let view = assistant_view(&stream.semantic, &assistant_renderer());
+        let joined = painted(&view, 80).join("\n");
+        remember_titles(&joined, &mut published);
+        assert_published_still_present(&joined, &published);
+    }
+    drain_pacing(&mut stream);
+    stream.seal();
+    let view = assistant_view(&stream.semantic, &assistant_renderer());
+    let lines = painted(&view, 80);
+    assert_titles_in_order(&lines, NUMBERED_GUIDE_TITLES);
+}
+
+#[test]
+fn numbered_guide_history_accepts_heading_after_numbered_item() {
+    let mut history = History::new();
+    let handle = history.push_stream(AssistantStream::new()).unwrap();
+    for paragraph in NUMBERED_GUIDE.split_inclusive("\n\n") {
+        history
+            .update_stream(handle, |source| {
+                source.push_delta_paced(SegmentKind::Text, paragraph);
+                drain_pacing(source);
+            })
+            .expect("heading after a numbered item must not break History compaction");
+    }
+    history
+        .seal_stream(handle)
+        .expect("numbered guide must seal after compaction");
+}
+
+const NESTED_LISTS: &str = "\
+- Fruits
+  - Citrus
+    - Oranges
+    - Lemons
+  - Berries
+    - Strawberries
+    - Blueberries
+- Vegetables
+  - Leafy greens
+    - Spinach
+    - Kale
+  - Root vegetables
+    - Carrots
+    - Beets
+
+1. Setup the environment
+   1. Install dependencies
+   2. Configure the settings file
+2. Run the build
+   1. Compile the source
+   2. Run the test suite
+      1. Unit tests
+      2. Integration tests
+";
+
+const LONG_PARAGRAPH_LISTS: &str = "\
+- The Quick Brown Fox
+  The quick brown fox jumps over the lazy dog. This sentence is famous because it contains every letter of the English alphabet at least once, making it useful for testing fonts, keyboards, and displays. Despite its simplicity, it has appeared in countless typography manuals since the late 19th century.
+
+- Lorem Ipsum Origins
+  Lorem ipsum dolor sit amet, consectetur adipiscing elit. It is a long-established fact that a reader will be distracted by the readable content of a page when looking at its layout. The point of using placeholder text is that it has a more-or-less normal distribution of letters.
+";
+
+const LOOSE_LIST_THEN_MORE_ITEMS: &str = "\
+- First item with a blank line inside
+
+  This second paragraph makes the whole list loose.
+
+- Short
+- Also short
+";
+
+const NESTED_LONG_PARAGRAPHS_AND_TABLE: &str = "\
+# Why Markdown Seems Not to Die
+
+- Fruits
+  - Citrus
+    - Oranges
+    - Lemons
+  - Berries
+    - Strawberries
+- Vegetables
+  - Leafy greens
+    - Spinach
+
+1. Setup the environment
+   1. Install dependencies
+   2. Configure the settings file
+2. Run the build
+   1. Compile the source
+   2. Run the test suite
+      1. Unit tests
+      2. Integration tests
+
+- The Quick Brown Fox
+  The quick brown fox jumps over the lazy dog. This sentence is famous because it contains every letter of the English alphabet at least once, making it useful for testing fonts, keyboards, and displays.
+
+- Lorem Ipsum Origins
+  Lorem ipsum dolor sit amet, consectetur adipiscing elit. It is a long-established fact that a reader will be distracted by the readable content of a page when looking at its layout.
+
+| Format | Born | Status |
+| --- | --- | --- |
+| Markdown | 2004 | Thriving |
+| HTML | 1993 | Alive |
+
+> Did you mean something else by \"it seems not to die\"?
+";
+
+const MARKDOWN_ESSAY_THEN_LISTS: &str = "\
+# Why Markdown Seems Not to Die
+
+You're right — Markdown has shown remarkable longevity. Created in 2004, it's now two decades old, yet it's more ubiquitous than ever.
+
+1. It Solves a Timeless Problem
+
+The need to write structured, portable, human-readable text is permanent. Word processors lock you into binary formats (.docx); Markdown stays as plain .txt with a few symbols.
+
+2. No Vendor Lock-In
+
+Proprietary formats die when companies do. Markdown is:
+
+- An open convention, not a product
+- Renderable by hundreds of independent tools
+- Recoverable even if every Markdown app disappeared tomorrow
+
+3. Network Effects & Critical Mass
+
+Once GitHub, Reddit, Stack Overflow, and WhatsApp adopted it, it became a lingua franca.
+
+4. It Evolves Without Breaking
+
+Unlike brittle standards, Markdown survives via forks with backward compatibility:
+
+- CommonMark formalizes the base
+- GFM (GitHub Flavored) adds tables, task lists, etc.
+- Pandoc's Markdown extends further
+
+5. The Zombie Strength of Simplicity
+
+Complex tools die when complexity outweighs benefit.
+
+---
+
+## Lists in Markdown
+
+- Fruits
+  - Citrus
+    - Oranges
+    - Lemons
+  - Berries
+    - Strawberries
+- Vegetables
+  - Leafy greens
+    - Spinach
+    - Kale
+
+1. Setup the environment
+   1. Install dependencies
+   2. Configure the settings file
+2. Run the build
+   1. Compile the source
+   2. Run the test suite
+      1. Unit tests
+      2. Integration tests
+
+- The Quick Brown Fox
+  The quick brown fox jumps over the lazy dog. This sentence is famous because it contains every letter of the English alphabet at least once, making it useful for testing fonts, keyboards, and displays.
+
+- Lorem Ipsum Origins
+  Lorem ipsum dolor sit amet, consectetur adipiscing elit. It is a long-established fact that a reader will be distracted by the readable content of a page when looking at its layout.
+
+| Format | Born | Status |
+| --- | --- | --- |
+| LaTeX | 1984 | Alive |
+| HTML | 1993 | Alive |
+| Markdown | 2004 | Thriving |
+
+> Did you mean something else by \"it seems not to die\"?
+> For example, were you referring to a background process, a script, or a specific Markdown renderer that kept running?
+";
+
+fn history_accepts_chunks(label: &str, source: &str, chunks: impl IntoIterator<Item = String>) {
+    let mut history = History::new();
+    let handle = history.push_stream(AssistantStream::new()).unwrap();
+    let mut consumed = 0usize;
+    let mut assembled = String::new();
+    for chunk in chunks {
+        consumed += chunk.len();
+        assembled.push_str(&chunk);
+        history
+            .update_stream(handle, |stream| {
+                stream.push_delta_paced(SegmentKind::Text, &chunk);
+                drain_pacing(stream);
+            })
+            .unwrap_or_else(|error| {
+                panic!(
+                    "{label} History compaction failed after {consumed} bytes ({chunk:?}): {error}"
+                )
+            });
+    }
+    assert_eq!(
+        assembled, source,
+        "{label}: test chunks must reconstruct source"
+    );
+    history
+        .seal_stream(handle)
+        .unwrap_or_else(|error| panic!("{label} History seal failed: {error}"));
+}
+
+fn history_accepts_live_pacing(label: &str, source: &str) {
+    let mut history = History::new();
+    let handle = history.push_stream(AssistantStream::new()).unwrap();
+    history
+        .update_stream(handle, |stream| {
+            stream.push_delta_paced(SegmentKind::Text, source);
+        })
+        .unwrap_or_else(|error| panic!("{label} initial History refresh failed: {error}"));
+    let mut now = Instant::now();
+    for step in 0..200_000 {
+        now += Duration::from_millis(16);
+        let (progressed, wakeup) = history
+            .update_stream(handle, |stream| {
+                let progressed = stream.advance(now);
+                (progressed, stream.next_wakeup())
+            })
+            .unwrap_or_else(|error| panic!("{label} live pacing step {step}: {error}"));
+        if !progressed && wakeup.is_none() {
+            break;
+        }
+    }
+    history
+        .seal_stream(handle)
+        .unwrap_or_else(|error| panic!("{label} History seal after live pacing failed: {error}"));
+}
+
+fn paragraph_chunks(source: &str) -> Vec<String> {
+    source.split_inclusive("\n\n").map(str::to_owned).collect()
+}
+
+fn line_chunks(source: &str) -> Vec<String> {
+    source.split_inclusive('\n').map(str::to_owned).collect()
+}
+
+fn char_chunks(source: &str) -> Vec<String> {
+    source.chars().map(|ch| ch.to_string()).collect()
+}
+
+fn debug_first_diff(before: &str, after: &str) -> String {
+    for (line, (left, right)) in before.lines().zip(after.lines()).enumerate() {
+        if left != right {
+            return format!("first ir diff at line {line}:\n  before: {left}\n  after:  {right}");
+        }
+    }
+    format!(
+        "ir length before={} after={}",
+        before.lines().count(),
+        after.lines().count()
+    )
+}
+
+fn compact_stable_prefix_must_keep_suffix_views(label: &str, source: &str) {
+    let mut probe = stream_with(&[(SegmentKind::Text, source)]);
+    drain_pacing(&mut probe);
+    let renderer = assistant_renderer();
+    let chunks = assistant_presentation(&probe.semantic, &renderer);
+    if chunks.len() < 2 {
+        return;
+    }
+    let offsets: Vec<_> = chunks
+        .iter()
+        .take(chunks.len() - 1)
+        .map(|chunk| chunk.source.end())
+        .filter(|end| {
+            *end <= probe.semantic.stable_through() && *end > probe.semantic.source_base()
+        })
+        .collect();
+    for offset in offsets {
+        let mut stream = stream_with(&[(SegmentKind::Text, source)]);
+        drain_pacing(&mut stream);
+        if stream.pipeline.restart_from(offset) != offset {
+            continue;
+        }
+        let before = assistant_presentation(&stream.semantic, &renderer);
+        let before_suffix: Vec<_> = before
+            .iter()
+            .filter(|chunk| chunk.source.start() >= offset)
+            .map(|chunk| chunk.view.clone())
+            .collect();
+        StreamingSource::compact_before(&mut stream, offset);
+        let after: Vec<_> = assistant_presentation(&stream.semantic, &renderer)
+            .into_iter()
+            .map(|chunk| chunk.view)
+            .collect();
+        if after != before_suffix {
+            let before_dbg = format!("{before_suffix:#?}");
+            let after_dbg = format!("{after:#?}");
+            let diff = debug_first_diff(&before_dbg, &after_dbg);
+            panic!(
+                "{label}: compact at {offset:?} changed remaining presentation\n\
+                 {diff}\n\
+                 before suffix:\n{}\n\
+                 after:\n{}",
+                painted_joined(
+                    &View::vertical(|column| {
+                        column.children(before_suffix.iter().cloned());
+                    }),
+                    80
+                ),
+                painted_joined(
+                    &View::vertical(|column| {
+                        column.children(after.iter().cloned());
+                    }),
+                    80
+                ),
+            );
+        }
+    }
+}
+
+fn token_chunks(source: &str, chars_per_chunk: usize) -> Vec<String> {
+    let chars: Vec<char> = source.chars().collect();
+    chars
+        .chunks(chars_per_chunk.max(1))
+        .map(|chunk| chunk.iter().collect())
+        .collect()
+}
+
+fn history_accepts_token_chunks_with_live_pacing(
+    label: &str,
+    source: &str,
+    chars_per_chunk: usize,
+) {
+    let mut history = History::new();
+    let handle = history.push_stream(AssistantStream::new()).unwrap();
+    let mut now = Instant::now();
+    let mut consumed = 0usize;
+    for chunk in token_chunks(source, chars_per_chunk) {
+        consumed += chunk.len();
+        now += Duration::from_millis(16);
+        history
+            .update_stream(handle, |stream| {
+                stream.push_delta_paced(SegmentKind::Text, &chunk);
+                stream.advance(now);
+            })
+            .unwrap_or_else(|error| {
+                panic!("{label} token chunk after {consumed} bytes ({chunk:?}): {error}")
+            });
+    }
+    for step in 0..200_000 {
+        now += Duration::from_millis(16);
+        let (progressed, wakeup) = history
+            .update_stream(handle, |stream| {
+                let progressed = stream.advance(now);
+                (progressed, stream.next_wakeup())
+            })
+            .unwrap_or_else(|error| panic!("{label} drain step {step}: {error}"));
+        if !progressed && wakeup.is_none() {
+            break;
+        }
+    }
+    history
+        .seal_stream(handle)
+        .unwrap_or_else(|error| panic!("{label} seal failed: {error}"));
+}
+
+#[test]
+fn history_accepts_nested_lists_paragraph_chunks() {
+    history_accepts_chunks("nested lists", NESTED_LISTS, paragraph_chunks(NESTED_LISTS));
+}
+
+#[test]
+fn history_accepts_nested_lists_line_chunks() {
+    history_accepts_chunks(
+        "nested lists lines",
+        NESTED_LISTS,
+        line_chunks(NESTED_LISTS),
+    );
+}
+
+#[test]
+fn history_accepts_long_paragraph_lists_line_chunks() {
+    history_accepts_chunks(
+        "long paragraph lists",
+        LONG_PARAGRAPH_LISTS,
+        line_chunks(LONG_PARAGRAPH_LISTS),
+    );
+}
+
+#[test]
+fn history_accepts_loose_list_line_chunks() {
+    history_accepts_chunks(
+        "loose list",
+        LOOSE_LIST_THEN_MORE_ITEMS,
+        line_chunks(LOOSE_LIST_THEN_MORE_ITEMS),
+    );
+}
+
+#[test]
+fn history_accepts_nested_long_paragraphs_and_table_line_chunks() {
+    history_accepts_chunks(
+        "nested+paragraphs+table",
+        NESTED_LONG_PARAGRAPHS_AND_TABLE,
+        line_chunks(NESTED_LONG_PARAGRAPHS_AND_TABLE),
+    );
+}
+
+#[test]
+fn history_accepts_nested_long_paragraphs_and_table_char_chunks() {
+    history_accepts_chunks(
+        "nested+paragraphs+table chars",
+        NESTED_LONG_PARAGRAPHS_AND_TABLE,
+        char_chunks(NESTED_LONG_PARAGRAPHS_AND_TABLE),
+    );
+}
+
+#[test]
+fn compacting_nested_lists_keeps_suffix_views() {
+    compact_stable_prefix_must_keep_suffix_views("nested lists", NESTED_LISTS);
+}
+
+#[test]
+fn compacting_long_paragraph_lists_keeps_suffix_views() {
+    compact_stable_prefix_must_keep_suffix_views("long paragraph lists", LONG_PARAGRAPH_LISTS);
+}
+
+#[test]
+fn compacting_loose_list_keeps_suffix_views() {
+    compact_stable_prefix_must_keep_suffix_views("loose list", LOOSE_LIST_THEN_MORE_ITEMS);
+}
+
+#[test]
+fn compacting_nested_long_paragraphs_and_table_keeps_suffix_views() {
+    compact_stable_prefix_must_keep_suffix_views(
+        "nested+paragraphs+table",
+        NESTED_LONG_PARAGRAPHS_AND_TABLE,
+    );
+}
+
+#[test]
+fn history_accepts_nested_long_paragraphs_and_table_live_pacing() {
+    history_accepts_live_pacing(
+        "nested+paragraphs+table live",
+        NESTED_LONG_PARAGRAPHS_AND_TABLE,
+    );
+}
+
+#[test]
+fn history_accepts_nested_long_paragraphs_and_table_token_chunks() {
+    history_accepts_token_chunks_with_live_pacing(
+        "nested+paragraphs+table tokens",
+        NESTED_LONG_PARAGRAPHS_AND_TABLE,
+        7,
+    );
+}
+
+#[test]
+fn history_accepts_markdown_essay_then_lists_live_pacing() {
+    history_accepts_live_pacing("essay then lists live", MARKDOWN_ESSAY_THEN_LISTS);
+}
+
+#[test]
+fn history_accepts_markdown_essay_then_lists_line_chunks() {
+    history_accepts_chunks(
+        "essay then lists lines",
+        MARKDOWN_ESSAY_THEN_LISTS,
+        line_chunks(MARKDOWN_ESSAY_THEN_LISTS),
+    );
+}
+
+#[test]
+fn history_accepts_markdown_essay_then_lists_char_chunks() {
+    history_accepts_chunks(
+        "essay then lists chars",
+        MARKDOWN_ESSAY_THEN_LISTS,
+        char_chunks(MARKDOWN_ESSAY_THEN_LISTS),
+    );
+}
+
+#[test]
+fn history_accepts_markdown_essay_then_lists_token_chunks() {
+    history_accepts_token_chunks_with_live_pacing(
+        "essay then lists tokens",
+        MARKDOWN_ESSAY_THEN_LISTS,
+        5,
+    );
 }

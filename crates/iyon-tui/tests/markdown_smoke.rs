@@ -121,13 +121,15 @@ fn gfm_preset_maps_tables_strikethrough_and_tasks() {
         "GFM strikethrough must map to Mark::Strikethrough"
     );
 
-    let list = blocks
-        .iter()
-        .find_map(|block| block.as_list())
-        .expect("GFM task list");
-    assert_eq!(list.items()[0].checked(), Some(true));
-    assert_eq!(list.items()[1].checked(), Some(false));
-    assert_eq!(list.items()[0].origin(), Some(TextOrigin::MARKDOWN));
+    let lists: Vec<_> = blocks.iter().filter_map(|block| block.as_list()).collect();
+    assert_eq!(
+        lists.len(),
+        2,
+        "each completed task item is its own stable list"
+    );
+    assert_eq!(lists[0].items()[0].checked(), Some(true));
+    assert_eq!(lists[1].items()[0].checked(), Some(false));
+    assert_eq!(lists[0].items()[0].origin(), Some(TextOrigin::MARKDOWN));
 }
 
 #[test]

@@ -205,6 +205,37 @@ fn gfm_table_streaming_keeps_stable_prefix_honest() {
 }
 
 #[test]
+fn gfm_table_after_list_stays_one_table_while_streaming() {
+    let source = "- item\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n\n> done\n";
+    let mut incremental = MarkdownProjector::new(MarkdownOptions::gfm());
+    for (index, ch) in source.char_indices() {
+        let end = index + ch.len_utf8();
+        let next = incremental
+            .project(&input(&source[..end], end, false))
+            .unwrap();
+        validate_text_projection(&next).unwrap();
+    }
+    let live = incremental
+        .project(&input(source, source.len(), false))
+        .unwrap();
+    let mut fresh = MarkdownProjector::new(MarkdownOptions::gfm());
+    let oneshot = fresh.project(&input(source, source.len(), false)).unwrap();
+    assert_eq!(
+        kinds(&live),
+        kinds(&oneshot),
+        "incremental table after a list must match one-shot before seal"
+    );
+    let sealed = incremental
+        .project(&input(source, source.len(), true))
+        .unwrap();
+    let mut sealed_fresh = MarkdownProjector::new(MarkdownOptions::gfm());
+    let batch = sealed_fresh
+        .project(&input(source, source.len(), true))
+        .unwrap();
+    assert_eq!(sealed, batch);
+}
+
+#[test]
 fn thematic_break_inside_blockquote_is_nested_not_overlapping() {
     let source = "> quote\n>\n> ---\n";
     let mut projector = MarkdownProjector::new(MarkdownOptions::gfm());

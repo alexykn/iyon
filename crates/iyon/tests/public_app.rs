@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use iyon::tui::{FrontendEvent, IyonAction, ToolUpdatePresentation, build_app};
 use iyon_core::{IyonCore, ModelSelection};
 use iyon_tui::{Key, KeyStroke, testing};
@@ -359,4 +361,376 @@ async fn approval_freezes_a_user_batch_delivered_after_an_existing_tool() {
         .position(|line| line.contains("waiting for approval"))
         .expect("approval prompt");
     assert_ne!(user, approval);
+}
+
+const NUMBERED_GUIDE: &str = r#"Markdown: A Complete Guide
+
+What is Markdown?
+
+Markdown is a lightweight markup language created by John Gruber.
+
+1. Headings
+
+Use # followed by a space, up to six levels:
+
+# Heading 1
+
+## Heading 2
+
+### Heading 3
+
+2. Emphasis (Bold & Italic)
+
+italic text — wrapped in single asterisks
+**bold text** — wrapped in double asterisks
+
+3. Lists
+
+Unordered lists use -, *, or +:
+
+- First item
+- Second item
+  - Nested item
+- Third item
+
+Ordered lists use numbers followed by a period:
+
+1. First step
+2. Second step
+3. Third step
+
+4. Links and Images
+
+Links: [OpenAI](https://openai.com)
+
+5. Code
+
+Inline code uses single backticks: `print("hello")`
+
+6. Blockquotes
+
+> This is a blockquote.
+> It can span multiple lines.
+
+7. Horizontal Rules
+
+Three or more hyphens:
+
+---
+
+8. Tables
+"#;
+
+const NUMBERED_GUIDE_TITLES: &[&str] = &[
+    "1. Headings",
+    "2. Emphasis",
+    "3. Lists",
+    "4. Links and Images",
+    "5. Code",
+    "6. Blockquotes",
+    "7. Horizontal Rules",
+    "8. Tables",
+];
+
+const TIGHT_NUMBERED_LIST: &str = "\
+Intro to the guide.\n\
+\n\
+1. Headings\n\
+Use hashes for headings.\n\
+2. Emphasis\n\
+Wrap words with asterisks.\n\
+3. Lists\n\
+Use dashes or numbers.\n\
+4. Links and Images\n\
+Use brackets for links.\n\
+5. Code\n\
+Use backticks for code.\n\
+6. Blockquotes\n\
+Use angle brackets.\n\
+7. Horizontal Rules\n\
+Use three dashes.\n\
+8. Tables\n\
+Use pipes for columns.\n";
+
+fn titles_in(lines: &[String]) -> Vec<&'static str> {
+    NUMBERED_GUIDE_TITLES
+        .iter()
+        .copied()
+        .filter(|title| lines.iter().any(|line| line.contains(title)))
+        .collect()
+}
+
+fn assert_no_title_gap(lines: &[String], native: &[String], screen: &[String]) {
+    let present = titles_in(lines);
+    if present.len() < 2 {
+        return;
+    }
+    let first = NUMBERED_GUIDE_TITLES
+        .iter()
+        .position(|title| *title == present[0])
+        .unwrap();
+    let last = NUMBERED_GUIDE_TITLES
+        .iter()
+        .position(|title| *title == *present.last().unwrap())
+        .unwrap();
+    for title in &NUMBERED_GUIDE_TITLES[first..=last] {
+        assert!(
+            lines.iter().any(|line| line.contains(title)),
+            "native history + screen jumped from {} to {} and lost {title:?}\n\
+             native:\n{}\n\nscreen:\n{}",
+            present[0],
+            present.last().unwrap(),
+            native.join("\n"),
+            screen.join("\n")
+        );
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn short_viewport_keeps_numbered_guide_sections_in_history_or_screen() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    // Short live region so History must eject rows into native scrollback
+    // while the assistant stream is still arriving — the 1.→7. drop showed
+    // up after scrolling during a live numbered guide.
+    let mut harness = testing::start(build_app(commands, selection()), 80, 12).unwrap();
+    let handle = harness.handle();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnStarted))
+        .unwrap();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::UserMessage {
+            text: "explain markdown".into(),
+        }))
+        .unwrap();
+    while harness.step().unwrap() {}
+
+    let transcript = |harness: &iyon_tui::testing::AppHarness<_, _, _, _, _>| {
+        let mut lines = harness.native_history_lines();
+        lines.extend(harness.screen_lines());
+        lines
+    };
+
+    handle
+        .send(IyonAction::Backend(FrontendEvent::AssistantDelta {
+            text: NUMBERED_GUIDE.into(),
+        }))
+        .unwrap();
+
+    let mut published = Vec::new();
+    let mut saw_span = false;
+    for _ in 0..400 {
+        while harness.step().unwrap() {}
+        harness.advance_time(Duration::from_millis(16)).unwrap();
+        let native = harness.native_history_lines();
+        let screen = harness.screen_lines();
+        let lines = transcript(&harness);
+        let joined = lines.join("\n");
+        for title in NUMBERED_GUIDE_TITLES {
+            if joined.contains(title) && !published.contains(title) {
+                published.push(*title);
+            }
+        }
+        for title in &published {
+            assert!(
+                joined.contains(title),
+                "lost {title:?} from native history + screen after it had already been painted\n\
+                 native:\n{}\n\nscreen:\n{}",
+                native.join("\n"),
+                screen.join("\n")
+            );
+        }
+        if titles_in(&lines).len() >= 2 {
+            saw_span = true;
+            assert_no_title_gap(&lines, &native, &screen);
+        }
+    }
+
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnFinished))
+        .unwrap();
+    for _ in 0..80 {
+        while harness.step().unwrap() {}
+        harness.advance_time(Duration::from_millis(16)).unwrap();
+    }
+    while harness.step().unwrap() {}
+
+    let native = harness.native_history_lines();
+    let screen = harness.screen_lines();
+    let lines = transcript(&harness);
+    assert!(
+        saw_span,
+        "pacing never showed two numbered sections at once\n{}",
+        lines.join("\n")
+    );
+    assert_eq!(
+        published.as_slice(),
+        NUMBERED_GUIDE_TITLES,
+        "stream never published every section\n{}",
+        lines.join("\n")
+    );
+    assert_no_title_gap(&lines, &native, &screen);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn short_viewport_keeps_tight_numbered_list_once_painted() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 80, 8).unwrap();
+    let handle = harness.handle();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnStarted))
+        .unwrap();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::UserMessage {
+            text: "list".into(),
+        }))
+        .unwrap();
+    while harness.step().unwrap() {}
+
+    handle
+        .send(IyonAction::Backend(FrontendEvent::AssistantDelta {
+            text: TIGHT_NUMBERED_LIST.into(),
+        }))
+        .unwrap();
+
+    let mut published = Vec::new();
+    for _ in 0..400 {
+        while harness.step().unwrap() {}
+        harness.advance_time(Duration::from_millis(16)).unwrap();
+        let native = harness.native_history_lines();
+        let screen = harness.screen_lines();
+        let mut lines = native.clone();
+        lines.extend(screen.iter().cloned());
+        let joined = lines.join("\n");
+        for title in NUMBERED_GUIDE_TITLES {
+            if joined.contains(title) && !published.contains(title) {
+                published.push(*title);
+            }
+        }
+        for title in &published {
+            assert!(
+                joined.contains(title),
+                "tight list lost {title:?} after it had already been painted\n\
+                 native:\n{}\n\nscreen:\n{}",
+                native.join("\n"),
+                screen.join("\n")
+            );
+        }
+        assert_no_title_gap(&lines, &native, &screen);
+    }
+
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnFinished))
+        .unwrap();
+    for _ in 0..80 {
+        while harness.step().unwrap() {}
+        harness.advance_time(Duration::from_millis(16)).unwrap();
+    }
+    while harness.step().unwrap() {}
+    assert_eq!(
+        published.as_slice(),
+        NUMBERED_GUIDE_TITLES,
+        "tight list never published every section"
+    );
+}
+
+const NESTED_LONG_PARAGRAPHS_AND_TABLE: &str = "\
+# Why Markdown Seems Not to Die
+
+You're right — Markdown has shown remarkable longevity. Created in 2004, it's now two decades old, yet it's more ubiquitous than ever.
+
+1. It Solves a Timeless Problem
+
+The need to write structured, portable, human-readable text is permanent. Word processors lock you into binary formats (.docx); Markdown stays as plain .txt with a few symbols.
+
+2. No Vendor Lock-In
+
+Proprietary formats die when companies do. Markdown is:
+
+- An open convention, not a product
+- Renderable by hundreds of independent tools
+- Recoverable even if every Markdown app disappeared tomorrow
+
+3. Network Effects & Critical Mass
+
+Once GitHub, Reddit, Stack Overflow, and WhatsApp adopted it, it became a lingua franca.
+
+---
+
+- Fruits
+  - Citrus
+    - Oranges
+    - Lemons
+  - Berries
+    - Strawberries
+- Vegetables
+  - Leafy greens
+    - Spinach
+    - Kale
+
+1. Setup the environment
+   1. Install dependencies
+   2. Configure the settings file
+2. Run the build
+   1. Compile the source
+   2. Run the test suite
+      1. Unit tests
+      2. Integration tests
+
+- The Quick Brown Fox
+  The quick brown fox jumps over the lazy dog. This sentence is famous because it contains every letter of the English alphabet at least once, making it useful for testing fonts, keyboards, and displays.
+
+- Lorem Ipsum Origins
+  Lorem ipsum dolor sit amet, consectetur adipiscing elit. It is a long-established fact that a reader will be distracted by the readable content of a page when looking at its layout.
+
+| Format | Born | Status |
+| --- | --- | --- |
+| LaTeX | 1984 | Alive |
+| HTML | 1993 | Alive |
+| Markdown | 2004 | Thriving |
+
+> Did you mean something else by \"it seems not to die\"?
+> For example, were you referring to a background process, a script, or a specific Markdown renderer that kept running?
+";
+
+#[tokio::test(flavor = "current_thread")]
+async fn short_viewport_streams_nested_lists_long_paragraphs_and_table() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 80, 16).unwrap();
+    let handle = harness.handle();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnStarted))
+        .unwrap();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::UserMessage {
+            text: "do some lists".into(),
+        }))
+        .unwrap();
+    while harness.step().unwrap() {}
+
+    handle
+        .send(IyonAction::Backend(FrontendEvent::AssistantDelta {
+            text: NESTED_LONG_PARAGRAPHS_AND_TABLE.into(),
+        }))
+        .unwrap();
+
+    for step in 0..800 {
+        while harness.step().unwrap_or_else(|error| {
+            panic!("nested lists/table stream failed at step {step}: {error}")
+        }) {}
+        harness.advance_time(Duration::from_millis(16)).unwrap();
+    }
+
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnFinished))
+        .unwrap();
+    for step in 0..80 {
+        while harness.step().unwrap_or_else(|error| {
+            panic!("nested lists/table seal failed at step {step}: {error}")
+        }) {}
+        harness.advance_time(Duration::from_millis(16)).unwrap();
+    }
+    while harness.step().unwrap() {}
 }
