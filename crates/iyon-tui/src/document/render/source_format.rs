@@ -14,8 +14,7 @@ use crate::{StyleSpec, Theme, View};
 fn style_at(view: &View, theme: &Theme, needle: &str) -> PhysicalStyle {
     let painted = compile_view_with_theme(view, 80, theme);
     for row in &painted.rows {
-        let text = row.plain_text();
-        if let Some(index) = text.find(needle) {
+        if let Some(index) = row.cell_x_of(needle) {
             return row.style_at(index).expect("painted cell");
         }
     }

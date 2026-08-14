@@ -368,6 +368,16 @@ fn clamp_does_not_mask_impossible_wide_grapheme() {
 }
 
 #[test]
+fn nowrap_paint_clips_whole_graphemes_and_never_emits_a_partial_wide_cell() {
+    let view = View::text("ABC界D").no_wrap().into_view();
+    let block = compile_view(&view, 4);
+    assert!(block.rows[0].validate_cell_geometry().is_ok());
+    assert_eq!(block.rows[0].plain_text(), "ABC");
+    assert!(!block.physically_complete);
+    assert!(block.rows[0].occupied_width() <= 4);
+}
+
+#[test]
 fn bounded_compiler_preserves_fit_height_inside_fixed_track() {
     let view = View::vertical(|column| {
         column.fixed(3, View::text("x"));

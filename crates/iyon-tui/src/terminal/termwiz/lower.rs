@@ -117,6 +117,11 @@ fn effective_cell(
 }
 
 pub(crate) fn row_changes(row: &PhysicalRow, y: usize, clear_tail: bool) -> Vec<Change> {
+    debug_assert!(
+        row.validate_cell_geometry().is_ok(),
+        "termwiz lowering requires a wide-cell-valid PhysicalRow: {:?}",
+        row.validate_cell_geometry()
+    );
     let last_written = row.cells().iter().rposition(|cell| cell.painted);
     let mut changes = vec![Change::CursorPosition {
         x: Position::Absolute(0),
@@ -299,5 +304,56 @@ mod tests {
         let mut surface = Surface::new(4, 1);
         surface.add_changes(row_changes(&row, 0, true));
         assert_eq!(surface.screen_chars_to_string(), "界! \n");
+    }
+
+    #[test]
+    fn nowrap_iyon_row_does_not_wrap_under_termwiz() {
+        let samples = [
+            "4⃣",
+            "4️⃣",
+            "☀️",
+            "🕹️",
+            "🗡️",
+            "⭐",
+            "☆",
+            "🇮🇩",
+            "🇩🇰",
+            "👩‍🔬",
+            "🐕‍🦺",
+            "👨‍👩‍👧‍👦",
+            "e\u{301}",
+            "漢",
+        ];
+        for sample in samples {
+            let row =
+                crate::presentation::layout::row_from_string(sample, PhysicalStyle::default());
+            assert!(
+                row.validate_cell_geometry().is_ok(),
+                "{sample:?}: {:?}",
+                row.validate_cell_geometry()
+            );
+            assert_eq!(
+                row.occupied_width(),
+                termwiz::cell::grapheme_column_width(sample, None),
+                "{sample:?}"
+            );
+
+            let width = row.occupied_width().max(1);
+            let mut surface = Surface::new(width, 2);
+            surface.add_changes(vec![
+                Change::CursorPosition {
+                    x: Position::Absolute(0),
+                    y: Position::Absolute(1),
+                },
+                Change::Text("K".into()),
+            ]);
+            surface.add_changes(row_changes(&row, 0, false));
+            let screen = surface.screen_chars_to_string();
+            let canary = screen.lines().nth(1).unwrap_or("");
+            assert!(
+                canary.starts_with('K'),
+                "{sample:?} must not wrap onto the canary row under termwiz; screen={screen:?}"
+            );
+        }
     }
 }

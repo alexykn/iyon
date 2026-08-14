@@ -2,6 +2,7 @@
 
 use crate::geometry::Size;
 
+use super::glyph::{clear_glyph_covering, glyphs, place_glyphs, validate_cells, write_glyph_span};
 use super::{PhysicalColor, PhysicalStyle};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,6 +62,21 @@ impl Surface {
         usize::from(y) * usize::from(self.width()) + usize::from(x)
     }
 
+    fn row_range(&self, y: u16) -> std::ops::Range<usize> {
+        let width = usize::from(self.width());
+        let start = usize::from(y) * width;
+        start..start + width
+    }
+
+    fn row_cells(&self, y: u16) -> &[PhysicalCell] {
+        &self.cells[self.row_range(y)]
+    }
+
+    fn row_cells_mut(&mut self, y: u16) -> &mut [PhysicalCell] {
+        let range = self.row_range(y);
+        &mut self.cells[range]
+    }
+
     pub(crate) fn get(&self, x: u16, y: u16) -> &PhysicalCell {
         &self.cells[self.index(x, y)]
     }
@@ -86,25 +102,64 @@ impl Surface {
         }
     }
 
+    /// Overlay `child` at `(x, y)` using whole-glyph writes.
+    ///
+    /// Cell-by-cell copy can produce `leader(🐕‍🦺) | X` when a child paints
+    /// only the continuation column. Before writing a glyph we clear every
+    /// destination glyph that intersects its span, matching termwiz
+    /// `Line::set_cell`.
     pub(crate) fn composite(&mut self, child: &Self, x: u16, y: u16) {
         if !child.physically_complete {
             self.physically_complete = false;
         }
+        let origin_x = usize::from(x);
         for child_y in 0..child.height() {
             let target_y = y.saturating_add(child_y);
             if target_y >= self.height() {
+                if child.row_cells(child_y).iter().any(|cell| cell.painted) {
+                    self.physically_complete = false;
+                }
                 continue;
             }
-            for child_x in 0..child.width() {
-                let target_x = x.saturating_add(child_x);
-                if target_x >= self.width() {
+            let child_row = child.row_cells(child_y);
+            for glyph in glyphs(child_row) {
+                if !glyph.leader.painted {
                     continue;
                 }
-                let source = child.get(child_x, child_y);
-                if source.painted {
-                    *self.get_mut(target_x, target_y) = source.clone();
+                let dest_start = origin_x.saturating_add(glyph.start);
+                let dest_end = dest_start.saturating_add(glyph.width);
+                if dest_start >= usize::from(self.width()) || dest_end > usize::from(self.width()) {
+                    self.physically_complete = false;
+                    break;
                 }
+                let dest_row = self.row_cells_mut(target_y);
+                write_glyph_span(dest_row, dest_start, child_row, glyph.start, glyph.width);
+            }
+            debug_assert!(validate_cells(self.row_cells(target_y)).is_ok());
+        }
+    }
+
+    /// Crop to `width × height` without splitting a wide glyph on the right edge.
+    #[allow(dead_code)]
+    pub(crate) fn crop_to(&self, width: u16, height: u16) -> Self {
+        let mut cropped = Self::new(width, height);
+        cropped.physically_complete = self.physically_complete;
+        let copy_height = height.min(self.height());
+        for y in 0..copy_height {
+            if !place_glyphs(self.row_cells(y), cropped.row_cells_mut(y), 0) {
+                cropped.physically_complete = false;
             }
         }
+        cropped
+    }
+
+    /// Clear the whole glyph covering `(x, y)` so a later 1-cell write cannot
+    /// leave a leader claiming a continuation that now belongs to someone else.
+    pub(crate) fn clear_glyph_at(&mut self, x: u16, y: u16) {
+        if y >= self.height() || x >= self.width() {
+            return;
+        }
+        let column = usize::from(x);
+        clear_glyph_covering(self.row_cells_mut(y), column);
     }
 }

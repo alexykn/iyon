@@ -18,7 +18,7 @@ fn child_rects(view: &View, width: u16) -> Vec<Rect> {
 fn text_at(view: &View, width: u16, needle: &str) -> (u16, u16) {
     let block = compile_view(view, width);
     for (y, row) in block.rows.iter().enumerate() {
-        if let Some(x) = row.plain_text().find(needle) {
+        if let Some(x) = row.cell_x_of(needle) {
             return (x as u16, y as u16);
         }
     }

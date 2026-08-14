@@ -2,7 +2,7 @@ use super::*;
 use crate::transcript::pipeline::assistant_presentation;
 use crate::tui::theme::iyon_theme;
 use iyon_tui::text::{BlockKind, Mark, TextContent, TextOrigin, TextProvenance, walk_content};
-use iyon_tui::{Block, History, View};
+use iyon_tui::{Block, History, IntoView, View};
 
 const GFM_FIXTURE: &str =
     "| Item | State |\n| --- | --- |\n| ~~old~~ | active |\n\n- [x] complete\n- [ ] pending\n";
@@ -92,11 +92,8 @@ fn painted_joined(view: &View, width: u16) -> String {
     painted(view, width).join("\n")
 }
 
-fn find_x(lines: &[String], needle: &str) -> usize {
-    lines
-        .iter()
-        .find_map(|line| line.find(needle))
-        .unwrap_or_else(|| panic!("did not find {needle:?} in {lines:?}"))
+fn find_x(view: &View, width: u16, needle: &str) -> usize {
+    iyon_tui::testing::cell_x_of_text(view, width, needle)
 }
 
 fn collect_runs(stream: &AssistantStream) -> Runs {
@@ -206,7 +203,7 @@ fn assistant_product_render_uses_gfm_and_task_only() {
         !joined.contains("[x] - complete") && !joined.contains("[x]- complete"),
         "TaskOnly must not render the list bullet: {joined}"
     );
-    assert_eq!(find_x(&lines, "Item"), find_x(&lines, "old"));
+    assert_eq!(find_x(&view, 40, "Item"), find_x(&view, 40, "old"));
 
     let code = sealed_text("```rust\nfn main() {}\n```\n");
     let code_view = assistant_view(&code.semantic, &assistant_renderer());
@@ -225,12 +222,12 @@ fn fitting_tables_keep_content_tracks_aligned() {
     let view = assistant_view(&stream.semantic, &assistant_renderer());
     let lines = painted(&view, 80);
 
-    assert_eq!(find_x(&lines, "File"), find_x(&lines, "api.rs"));
-    assert_eq!(find_x(&lines, "File"), find_x(&lines, "ui.rs"));
+    assert_eq!(find_x(&view, 80, "File"), find_x(&view, 80, "api.rs"));
+    assert_eq!(find_x(&view, 80, "File"), find_x(&view, 80, "ui.rs"));
 
-    let status_x = find_x(&lines, "Status") as i32;
-    let done_x = find_x(&lines, "done") as i32;
-    let pending_x = find_x(&lines, "pending") as i32;
+    let status_x = find_x(&view, 80, "Status") as i32;
+    let done_x = find_x(&view, 80, "done") as i32;
+    let pending_x = find_x(&view, 80, "pending") as i32;
     assert!(
         (status_x - done_x).abs() <= 1 && (pending_x - done_x).abs() <= 1,
         "center column must sit in a content track, not a stretched Flex band: Status={status_x} done={done_x} pending={pending_x}"
@@ -263,11 +260,11 @@ fn delimiterless_pipe_rows_align_when_they_fit() {
         !joined.contains('|'),
         "pipe rows must become a Grid, not source markdown: {joined}"
     );
-    assert_eq!(find_x(&lines, "Python"), find_x(&lines, "Dart"));
-    assert_eq!(find_x(&lines, "Python"), find_x(&lines, "TypeScript"));
-    assert_eq!(find_x(&lines, "Python"), find_x(&lines, "Ruby"));
-    assert_eq!(find_x(&lines, "Dynamic"), find_x(&lines, "Static"));
-    assert_eq!(find_x(&lines, "Very high"), find_x(&lines, "Medium"));
+    assert_eq!(find_x(&view, 80, "Python"), find_x(&view, 80, "Dart"));
+    assert_eq!(find_x(&view, 80, "Python"), find_x(&view, 80, "TypeScript"));
+    assert_eq!(find_x(&view, 80, "Python"), find_x(&view, 80, "Ruby"));
+    assert_eq!(find_x(&view, 80, "Dynamic"), find_x(&view, 80, "Static"));
+    assert_eq!(find_x(&view, 80, "Very high"), find_x(&view, 80, "Medium"));
 
     let tasks = concat!(
         "| Fix bug #123 | High | ⌛ In progress |\n",
@@ -276,12 +273,70 @@ fn delimiterless_pipe_rows_align_when_they_fit() {
     );
     let stream = sealed_text(tasks);
     let view = assistant_view(&stream.semantic, &assistant_renderer());
-    let lines = painted(&view, 80);
-    assert_eq!(find_x(&lines, "Fix bug"), find_x(&lines, "Design logo"));
-    assert_eq!(find_x(&lines, "Fix bug"), find_x(&lines, "Update docs"));
-    assert_eq!(find_x(&lines, "High"), find_x(&lines, "Medium"));
-    assert_eq!(find_x(&lines, "High"), find_x(&lines, "Low"));
-    assert_eq!(find_x(&lines, "In progress"), find_x(&lines, "Pending"));
+    assert_eq!(
+        find_x(&view, 80, "Fix bug"),
+        find_x(&view, 80, "Design logo")
+    );
+    assert_eq!(
+        find_x(&view, 80, "Fix bug"),
+        find_x(&view, 80, "Update docs")
+    );
+    assert_eq!(find_x(&view, 80, "High"), find_x(&view, 80, "Medium"));
+    assert_eq!(find_x(&view, 80, "High"), find_x(&view, 80, "Low"));
+    assert_eq!(
+        find_x(&view, 80, "In progress"),
+        find_x(&view, 80, "Pending")
+    );
+}
+
+#[test]
+fn delimiterless_ragged_llm_rows_normalize_to_a_rectangle() {
+    let source = concat!(
+        "| Plant | Light | Water | Temp | Warning |\n",
+        "| Snake | Low | Every 3w | 15-30 | safe |\n",
+        "| Monstera | Medium ||18-30 | toxic |\n",
+        "| Pothos | Low-Med | When dry | 15-30 |\n",
+    );
+    let stream = sealed_text(source);
+    let table = table_of(&stream);
+    assert_eq!(table.columns().len(), 5);
+    for row in table.rows() {
+        assert_eq!(
+            row.cells().len(),
+            5,
+            "ragged LLM rows pad/truncate to the first row's width"
+        );
+    }
+}
+
+#[test]
+fn ambiguous_escaped_pipes_stay_raw() {
+    let source = "| a \\| b | c |\n| 1 | 2 |\n";
+    let stream = sealed_text(source);
+    assert!(
+        blocks(&stream)
+            .iter()
+            .all(|block| !matches!(block.kind(), BlockKind::Table(_))),
+        "escaped pipes are not a delimiter-less table"
+    );
+}
+
+#[test]
+fn cell_x_after_wide_glyphs_is_physical_not_utf8() {
+    let view = View::text("💛 Age").into_view();
+    let x = iyon_tui::testing::cell_x_of_text(&view, 40, "Age");
+    assert_ne!(
+        x,
+        "💛 Age".find("Age").unwrap(),
+        "tests must not treat UTF-8 byte offsets as cell columns"
+    );
+    let indonesia = View::text("🇮🇩 next").into_view();
+    let scientist = View::text("👩‍🔬 next").into_view();
+    assert_eq!(
+        iyon_tui::testing::cell_x_of_text(&indonesia, 40, "next"),
+        iyon_tui::testing::cell_x_of_text(&scientist, 40, "next"),
+        "flag and ZWJ clusters that occupy two cells must place the following word at the same x"
+    );
 }
 
 const EMOJI_TABLE_FIXTURE: &str = r#"```markdown
@@ -380,8 +435,11 @@ fn emoji_grid_does_not_spill_letters_into_neighbors() {
         unfenced.iter().any(|line| line.contains("Super Mario")),
         "{joined}"
     );
-    let mario_x = find_x(&unfenced, "Super Mario");
-    let zelda_x = find_x(&unfenced, "Zelda");
+    let mario_x = iyon_tui::testing::cell_x_of_text_matching(&view, 80, "Super Mario", |line| {
+        !line.contains('|')
+    });
+    let zelda_x =
+        iyon_tui::testing::cell_x_of_text_matching(&view, 80, "Zelda", |line| !line.contains('|'));
     assert_eq!(mario_x, zelda_x, "{joined}");
 }
 
@@ -438,6 +496,12 @@ fn live_gfm_table_evolution_converges_with_one_shot() {
             assert!(
                 joined.contains('|'),
                 "live GFM table stays unaligned pipes until seal: {joined}"
+            );
+            assert!(
+                blocks(source)
+                    .iter()
+                    .all(|block| !matches!(block.kind(), BlockKind::Table(_))),
+                "open table source must not become a Table/Grid while still revisable"
             );
         })
         .unwrap();

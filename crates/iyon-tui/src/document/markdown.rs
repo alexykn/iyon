@@ -576,7 +576,7 @@ fn parse_domain_uncached(
     let parser =
         Parser::new_with_broken_link_callback(domain.text(), options.pulldown(), Some(callback));
     let has_reference_context = parser.reference_definitions().iter().next().is_some();
-    let mut builder = Builder::new(domain, sealed);
+    let mut builder = Builder::new(domain, sealed, options.live_table_stabilization());
     for (event, range) in parser.into_offset_iter() {
         builder.event(event, range)?;
     }
@@ -604,6 +604,7 @@ fn parse_domain_uncached(
 struct Builder<'a> {
     domain: &'a RawDomain,
     sealed: bool,
+    stabilize_live_tables: bool,
     frames: Vec<Frame>,
     root: Vec<OwnedBlock>,
     marks: Vec<Mark>,
@@ -671,10 +672,11 @@ struct OwnedBlock {
 }
 
 impl<'a> Builder<'a> {
-    fn new(domain: &'a RawDomain, sealed: bool) -> Self {
+    fn new(domain: &'a RawDomain, sealed: bool, stabilize_live_tables: bool) -> Self {
         Self {
             domain,
             sealed,
+            stabilize_live_tables,
             frames: vec![Frame::Root],
             root: Vec::new(),
             marks: Vec::new(),
@@ -1006,6 +1008,10 @@ impl<'a> Builder<'a> {
                     let block = self.raw_table_paragraph(source.clone())?;
                     return self.add_block(source, block);
                 }
+                // GFM body rows may be ragged (spec Example 204): pad short
+                // rows and drop extra cells before the generic Table, which
+                // requires a rectangular column schema. Do not relax Table.
+                let rows = normalize_gfm_table_rows(columns.len(), rows);
                 let table = Table::new(None::<Vec<Block>>, columns, header_rows, rows)?;
                 self.add_block(source, Block::table(table))
             }
@@ -1184,7 +1190,14 @@ impl<'a> Builder<'a> {
     }
 
     fn table_is_closed(&self, source: &Range<usize>) -> bool {
+        // Sealed input is final: emit whatever GFM structure pulldown produced.
         if self.sealed {
+            return true;
+        }
+        // Generic GFM follows pulldown. A pipe-less line can still be a short
+        // body row (spec Example 202). Iyon's live LLM stabilizer is a separate
+        // product heuristic, enabled only via MarkdownOptions.
+        if !self.stabilize_live_tables {
             return true;
         }
         let Some(table_source) = self.domain.text().get(source.start..source.end) else {
@@ -1314,6 +1327,31 @@ fn span_can_extend_table(span: &ProjectionSpan<TextContent>) -> bool {
     })
 }
 
+/// GFM spec Example 204: missing body cells are empty; extra body cells are dropped.
+/// Header/delimiter column count is already `schema_width` from pulldown.
+fn normalize_gfm_table_rows(schema_width: usize, rows: Vec<TableRow>) -> Vec<TableRow> {
+    rows.into_iter()
+        .map(|row| {
+            let annotations = row.annotations().clone();
+            let mut cells: Vec<_> = row.cells().iter().cloned().collect();
+            cells.truncate(schema_width);
+            while cells.len() < schema_width {
+                cells.push(empty_gfm_table_cell());
+            }
+            TableRow::new(cells).with_annotations(annotations)
+        })
+        .collect()
+}
+
+fn empty_gfm_table_cell() -> TableCell {
+    TableCell::plain([Block::paragraph(InlineContent::new(Vec::new()))])
+}
+
+/// Iyon live-table closer, not GFM.
+///
+/// GFM keeps a table open across a pipe-less body line. This heuristic closes
+/// once the next line is blank or does not start with `|`, so streaming LLM
+/// tables stay raw until they can align once.
 fn following_line_closes_table(table_source: &str, after: &str) -> bool {
     let next_line = if table_source.ends_with('\n') {
         after

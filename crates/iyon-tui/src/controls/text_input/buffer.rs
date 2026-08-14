@@ -4,8 +4,8 @@ use super::{
     cursor::{cursor_for_display_col, logical_line_ranges, wrapped_line_index_by_start},
     edit::{canonicalize, is_separator},
 };
+use crate::physical::text_cell_width;
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug)]
 pub(super) struct TextBuffer {
@@ -225,7 +225,7 @@ impl TextBuffer {
         let current = &rows[index];
         let target = self
             .preferred_col
-            .unwrap_or_else(|| self.text[current.start..self.cursor].width());
+            .unwrap_or_else(|| text_cell_width(&self.text[current.start..self.cursor]));
         self.preferred_col = Some(target);
         let previous = &rows[index - 1];
         let next = cursor_for_display_col(&self.text, previous.start, previous.end, target);
@@ -242,7 +242,7 @@ impl TextBuffer {
         let current = &rows[index];
         let target = self
             .preferred_col
-            .unwrap_or_else(|| self.text[current.start..self.cursor].width());
+            .unwrap_or_else(|| text_cell_width(&self.text[current.start..self.cursor]));
         self.preferred_col = Some(target);
         let next_row = &rows[index + 1];
         let next = cursor_for_display_col(&self.text, next_row.start, next_row.end, target);

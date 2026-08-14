@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    physical::{PhysicalCell, PhysicalRow, PhysicalStyle, Surface},
+    physical::{PhysicalCell, PhysicalRow, PhysicalStyle, Surface, grapheme_cell_width},
     presentation::{HorizontalAlign, WidthRule, ir::TextView},
 };
 
@@ -49,20 +49,14 @@ impl ViewCompiler {
                 HorizontalAlign::Center => usize::from(width).saturating_sub(line_width) / 2,
                 HorizontalAlign::End => usize::from(width).saturating_sub(line_width),
             };
-            for (index, source) in row.row.cells().iter().enumerate() {
-                let x = offset.saturating_add(index);
-                if x >= usize::from(width) {
-                    break;
-                }
+            // Place whole glyph spans. Skipping a leader that does not fit and
+            // then copying its continuation produces an orphan continuation.
+            let (placed, complete) = row.row.place(width, offset as u16);
+            if !complete {
+                surface.physically_complete = false;
+            }
+            for (x, source) in placed.cells().iter().enumerate() {
                 if source.painted {
-                    if !source.continuation
-                        && source.grapheme.as_deref().is_some_and(|grapheme| {
-                            crate::presentation::wrap::grapheme_display_width(grapheme)
-                                > usize::from(width).saturating_sub(x)
-                        })
-                    {
-                        continue;
-                    }
                     *surface.get_mut(x as u16, y as u16) = source.clone();
                 }
             }
@@ -74,6 +68,8 @@ impl ViewCompiler {
                         .cell(column)
                         .or_else(|| row.row.cells().last())
                         .map_or(inherited, |cell| cell.style);
+                    // Reverse occupies one cell; clear any wide glyph covering it.
+                    surface.clear_glyph_at(x as u16, y as u16);
                     let cell = surface.get_mut(x as u16, y as u16);
                     if !cell.painted {
                         *cell = PhysicalCell {
@@ -170,7 +166,7 @@ pub(crate) fn row_from_string(text: &str, style: PhysicalStyle) -> PhysicalRow {
         .graphemes(true)
         .map(|text| StyledGrapheme {
             text: Cow::Owned(text.to_string()),
-            width: crate::presentation::wrap::grapheme_display_width(text),
+            width: grapheme_cell_width(text),
             style,
             source: None,
         })
@@ -179,6 +175,8 @@ pub(crate) fn row_from_string(text: &str, style: PhysicalStyle) -> PhysicalRow {
 }
 
 pub(crate) fn row_from_graphemes(graphemes: &[StyledGrapheme<'_>]) -> PhysicalRow {
+    // Trust `StyledGrapheme.width`. Recomputing from text here would reintroduce
+    // a second metric between wrap and the physical buffer.
     let mut cells = Vec::new();
     for grapheme in graphemes {
         if grapheme.width == 0 {
@@ -199,5 +197,7 @@ pub(crate) fn row_from_graphemes(graphemes: &[StyledGrapheme<'_>]) -> PhysicalRo
             });
         }
     }
-    PhysicalRow::from_cells(cells)
+    let row = PhysicalRow::from_cells(cells);
+    debug_assert!(row.validate_cell_geometry().is_ok());
+    row
 }
