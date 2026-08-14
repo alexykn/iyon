@@ -1535,3 +1535,80 @@ fn native_history_does_not_transfer_a_range_that_can_still_change_shape() {
         "once stable, the table range may transfer as its final Grid shape"
     );
 }
+
+#[test]
+fn stable_no_wrap_code_does_not_pin_following_assistant_text() {
+    let long_code = "this_is_a_ridiculously_long_function_call_that_must_not_wrap();";
+    let code_len = long_code.len() as u64;
+    let after = "AFTER";
+    let after_len = after.len() as u64;
+    let total_len = code_len + after_len;
+
+    let snapshot = StreamSnapshotBuilder::new(
+        StreamRevision::ZERO,
+        StreamOffset::ZERO,
+        StreamOffset::new(total_len),
+        StreamOffset::new(total_len),
+    )
+    .atomic(
+        StreamRange::new(StreamOffset::ZERO, StreamOffset::new(code_len)),
+        View::text(long_code).no_wrap().into_view(),
+    )
+    .unwrap()
+    .exact_text(
+        StreamRange::new(StreamOffset::new(code_len), StreamOffset::new(total_len)),
+        [TextSpan::plain(after)],
+    )
+    .finish()
+    .unwrap();
+
+    let mut history = History::new();
+    let stream_id = history
+        .push_stream(NativeSource::from_snapshot(snapshot, true))
+        .unwrap()
+        .unit();
+
+    let mut sink = FakeSink::default();
+    let width = 8;
+    let mut iterations = 0;
+    while !history.units.is_empty() && iterations < 100 {
+        iterations += 1;
+        let outcome = transfer_native_prefix(&mut history, &mut sink, width, 1).unwrap();
+        if outcome.status == NativeTransferStatus::Idle
+            || outcome.status == NativeTransferStatus::SinkBlocked
+        {
+            break;
+        }
+    }
+
+    assert!(
+        iterations < 100,
+        "transfer loop must terminate without pinning"
+    );
+    assert!(
+        history.units.is_empty(),
+        "sealed stream unit must retire once fully transferred"
+    );
+    assert_eq!(
+        history.native.last_native_unit,
+        Some(stream_id),
+        "retired stream unit must be recorded in native frontier"
+    );
+    assert!(
+        sink.rows.len() >= 2,
+        "sink must contain both clipped code row and after row, got {:?}",
+        sink.rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        sink.rows[0].plain_text(),
+        &long_code[..8],
+        "first row must be clipped to width {width}"
+    );
+    assert!(
+        sink.rows.iter().any(|r| r.plain_text().contains("AFTER")),
+        "sink must contain AFTER"
+    );
+}

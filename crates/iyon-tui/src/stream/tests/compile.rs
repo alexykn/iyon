@@ -225,3 +225,94 @@ fn atomic_beyond_stable_through_is_blocked_from_native_transfer() {
         "the same range may transfer only after it is stable"
     );
 }
+
+#[test]
+fn stable_clipped_atomic_is_transferable() {
+    let range = StreamRange::new(StreamOffset::ZERO, StreamOffset::new(10));
+    let view = StreamView::atomic(
+        range,
+        View::text("abcdefghijklmnopqrstuvwxyz")
+            .no_wrap()
+            .into_view(),
+    );
+    let compiled = compile_stream(&view, 5, range.end());
+    assert_eq!(compiled.rows.len(), 1);
+    assert!(compiled.rows[0].physical.width() <= 5);
+    assert_eq!(
+        compiled.rows[0].transfer,
+        StreamRowTransfer::Atomic {
+            group: crate::stream::StreamAtomicId(1),
+            source_end: range.end(),
+        }
+    );
+    assert_eq!(compiled.transferable_prefix_rows, 1);
+
+    let compiler = crate::presentation::layout::ViewCompiler::new(&crate::Theme::default());
+    let layout = compiler.compile(
+        &View::text("abcdefghijklmnopqrstuvwxyz")
+            .no_wrap()
+            .into_view(),
+        5,
+    );
+    assert!(!layout.physically_complete);
+}
+
+#[test]
+fn unstable_clipped_atomic_remains_blocked() {
+    let range = StreamRange::new(StreamOffset::ZERO, StreamOffset::new(10));
+    let view = StreamView::atomic(
+        range,
+        View::text("abcdefghijklmnopqrstuvwxyz")
+            .no_wrap()
+            .into_view(),
+    );
+    let compiled = compile_stream(&view, 5, StreamOffset::new(5));
+    assert_eq!(compiled.rows.len(), 1);
+    assert_eq!(compiled.rows[0].transfer, StreamRowTransfer::Blocked);
+    assert_eq!(compiled.transferable_prefix_rows, 0);
+}
+
+#[test]
+fn stable_wide_grapheme_at_width_one_is_transferable() {
+    let source = "🐕🦺";
+    let end = StreamOffset::new(source.len() as u64);
+    let view = StreamView::exact_text(
+        StreamRange::new(StreamOffset::ZERO, end),
+        vec![crate::TextSpan::plain(source)],
+    );
+    let compiled = compile_stream(&view, 1, end);
+    assert_eq!(compiled.rows.len(), 2);
+    assert_eq!(compiled.transferable_prefix_rows, 2);
+    assert!(
+        compiled
+            .rows
+            .iter()
+            .all(|row| matches!(row.transfer, StreamRowTransfer::Checkpoint(_)))
+    );
+}
+
+#[test]
+fn stable_clipped_atomic_does_not_block_following_node() {
+    let atomic_range = StreamRange::new(StreamOffset::ZERO, StreamOffset::new(26));
+    let after_range = StreamRange::new(StreamOffset::new(26), StreamOffset::new(31));
+    let view = StreamView::new(vec![
+        StreamNode::atomic(
+            atomic_range,
+            View::text("abcdefghijklmnopqrstuvwxyz")
+                .no_wrap()
+                .into_view(),
+        ),
+        StreamNode::exact_text(after_range, vec![crate::TextSpan::plain("AFTER")]),
+    ]);
+    let compiled = compile_stream(&view, 5, after_range.end());
+    assert_eq!(compiled.rows.len(), 2);
+    assert_eq!(compiled.transferable_prefix_rows, 2);
+    assert!(matches!(
+        compiled.rows[0].transfer,
+        StreamRowTransfer::Atomic { .. }
+    ));
+    assert_eq!(
+        compiled.rows[1].transfer,
+        StreamRowTransfer::Checkpoint(after_range.end())
+    );
+}

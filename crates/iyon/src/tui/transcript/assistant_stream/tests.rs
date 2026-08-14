@@ -252,4 +252,33 @@ fn empty_and_whitespace_sources_have_valid_snapshots() {
     }
 }
 
+#[test]
+fn stable_no_wrap_code_does_not_pin_following_assistant_text() {
+    let fixture =
+        "```rust\nthis_is_a_ridiculously_long_function_call_that_must_not_wrap();\n```\n\nAFTER\n";
+    let mut stream = AssistantStream::new();
+    stream.push_delta_paced(SegmentKind::Text, fixture);
+    drain_pacing(&mut stream);
+    stream.seal();
+
+    let mut history = History::new();
+    history.push_stream(stream).unwrap();
+
+    let app = iyon_tui::App::new(
+        |_| Ok::<(), ()>(()),
+        |_, (), _| Ok::<(), ()>(()),
+        |_| iyon_tui::IntoView::into_view(iyon_tui::View::text("")),
+    )
+    .with_history(history);
+
+    let mut harness = iyon_tui::testing::start(app, 8, 1).unwrap();
+    while harness.step().unwrap() {}
+
+    let native = harness.native_history_lines();
+    assert!(
+        native.concat().contains("AFTER") || native.iter().any(|line| line.contains("AFTE")),
+        "AFTER must reach native history despite clipped code line; native lines: {native:?}"
+    );
+}
+
 mod gfm;
