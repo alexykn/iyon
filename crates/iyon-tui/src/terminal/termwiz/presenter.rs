@@ -28,6 +28,11 @@ impl TermwizPresenter {
         self.presented.dimensions()
     }
 
+    #[cfg(test)]
+    pub(crate) fn presented_for_test(&self) -> &Surface {
+        &self.presented
+    }
+
     pub(crate) fn resize(&mut self, width: usize, height: usize) {
         if self.dimensions() == (width, height) {
             return;
@@ -275,9 +280,13 @@ fn canonical_terminal_state(height: usize) -> Vec<Change> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::shadow::ShadowTerminal;
     use super::*;
-    use crate::physical::{PhysicalCell, PhysicalColor, PhysicalRow, PhysicalStyle};
+    use crate::physical::{
+        PhysicalCell, PhysicalColor, PhysicalRow, PhysicalStyle, grapheme_cell_width,
+    };
     use termwiz::surface::Change;
+    use unicode_segmentation::UnicodeSegmentation;
 
     #[cfg(unix)]
     struct RecordingTerminal {
@@ -1029,5 +1038,352 @@ mod tests {
                 .iter()
                 .all(|cell| cell.attrs == CellAttributes::default())
         );
+    }
+
+    fn wide_row(text: &str, width: usize, style: PhysicalStyle) -> PhysicalRow {
+        let mut cells = Vec::new();
+        for grapheme in text.graphemes(true) {
+            let w = grapheme_cell_width(grapheme);
+            if w == 0 {
+                continue;
+            }
+            cells.push(PhysicalCell {
+                grapheme: Some(grapheme.to_string()),
+                style,
+                painted: true,
+                continuation: false,
+            });
+            for _ in 1..w {
+                cells.push(PhysicalCell {
+                    grapheme: None,
+                    style,
+                    painted: true,
+                    continuation: true,
+                });
+            }
+        }
+        while cells.len() < width {
+            cells.push(PhysicalCell {
+                grapheme: Some(" ".into()),
+                style,
+                painted: true,
+                continuation: false,
+            });
+        }
+        PhysicalRow::from_cells(cells)
+    }
+
+    #[test]
+    fn native_history_uses_full_screen_crlf_not_explicit_scroll_commands() {
+        let row = |i: usize| {
+            let character = char::from(b'a' + (i % 26) as u8).to_string();
+            PhysicalRow::from_cells(vec![PhysicalCell {
+                grapheme: Some(character),
+                style: Default::default(),
+                painted: true,
+                continuation: false,
+            }])
+        };
+
+        for row_count in [1, 2, 3, 5, 8, 10] {
+            let rows = (0..row_count).map(row).collect::<Vec<_>>();
+            let height = 4;
+            let transaction = native_transaction(&rows, height, false);
+
+            assert!(
+                !transaction.iter().any(|change| matches!(
+                    change,
+                    Change::ScrollRegionUp { .. } | Change::ScrollRegionDown { .. }
+                )),
+                "native_transaction must never emit explicit scroll region commands"
+            );
+
+            let crlf_count = transaction
+                .iter()
+                .filter_map(|change| match change {
+                    Change::Text(text) => Some(text.matches("\r\n").count()),
+                    _ => None,
+                })
+                .sum::<usize>();
+
+            assert_eq!(
+                crlf_count, row_count,
+                "number of emitted CRLFs must equal the promoted physical row count"
+            );
+        }
+    }
+
+    #[test]
+    fn presenter_native_insert_matches_shadow_screen() {
+        let width = 4;
+        let height = 3;
+        let mut shadow = ShadowTerminal::new(width, height);
+        let mut presenter = TermwizPresenter::new(width, height);
+
+        let initial = physical_surface(
+            vec![
+                painted_row("A", width, PhysicalStyle::default()),
+                painted_row("B", width, PhysicalStyle::default()),
+                painted_row("C", width, PhysicalStyle::default()),
+            ],
+            width as u16,
+        );
+        presenter.present(&mut shadow, initial).unwrap();
+
+        let row_x = PhysicalRow::from_cells(painted_row("X", width, PhysicalStyle::default()));
+        let inserted = presenter.insert_history(&mut shadow, &[row_x]).unwrap();
+        assert_eq!(inserted, 1);
+
+        assert_eq!(shadow.scrollback_trimmed_texts(), vec!["X"]);
+        assert_eq!(shadow.screen_trimmed_texts(), vec!["B", "C", ""]);
+        shadow.assert_screen_matches_surface(presenter.presented_for_test());
+        assert_eq!(shadow.implicit_wraps, 0);
+    }
+
+    #[test]
+    fn presenter_multiple_native_inserts_match_shadow_tape() {
+        let width = 4;
+        let height = 4;
+        let mut shadow = ShadowTerminal::new(width, height);
+        let mut presenter = TermwizPresenter::new(width, height);
+
+        let initial = physical_surface(
+            vec![
+                painted_row("A", width, PhysicalStyle::default()),
+                painted_row("B", width, PhysicalStyle::default()),
+                painted_row("C", width, PhysicalStyle::default()),
+                painted_row("D", width, PhysicalStyle::default()),
+            ],
+            width as u16,
+        );
+        presenter.present(&mut shadow, initial).unwrap();
+
+        let row_x = PhysicalRow::from_cells(painted_row("X", width, PhysicalStyle::default()));
+        let row_y = PhysicalRow::from_cells(painted_row("Y", width, PhysicalStyle::default()));
+        let inserted = presenter
+            .insert_history(&mut shadow, &[row_x, row_y])
+            .unwrap();
+        assert_eq!(inserted, 2);
+
+        assert_eq!(shadow.scrollback_trimmed_texts(), vec!["X", "Y"]);
+        assert_eq!(shadow.screen_trimmed_texts(), vec!["C", "D", "", ""]);
+        shadow.assert_screen_matches_surface(presenter.presented_for_test());
+        assert_eq!(shadow.implicit_wraps, 0);
+    }
+
+    #[test]
+    fn presenter_native_inserts_larger_than_viewport_chunk_correctly() {
+        let width = 4;
+        let height = 4;
+        let mut shadow = ShadowTerminal::new(width, height);
+        let mut presenter = TermwizPresenter::new(width, height);
+
+        let initial = physical_surface(
+            vec![
+                painted_row("A", width, PhysicalStyle::default()),
+                painted_row("B", width, PhysicalStyle::default()),
+                painted_row("C", width, PhysicalStyle::default()),
+                painted_row("D", width, PhysicalStyle::default()),
+            ],
+            width as u16,
+        );
+        presenter.present(&mut shadow, initial).unwrap();
+
+        let rows = ["1", "2", "3", "4", "5", "6"]
+            .into_iter()
+            .map(|s| PhysicalRow::from_cells(painted_row(s, width, PhysicalStyle::default())))
+            .collect::<Vec<_>>();
+
+        let inserted = presenter.insert_history(&mut shadow, &rows).unwrap();
+        assert_eq!(inserted, 6);
+
+        assert_eq!(
+            shadow.scrollback_trimmed_texts(),
+            vec!["1", "2", "3", "4", "5", "6"]
+        );
+        assert_eq!(shadow.screen_trimmed_texts(), vec!["", "", "", ""]);
+        shadow.assert_screen_matches_surface(presenter.presented_for_test());
+        assert_eq!(shadow.implicit_wraps, 0);
+    }
+
+    #[test]
+    fn repeated_inserts_before_present_preserve_tape_and_sync() {
+        let width = 6;
+        let height = 4;
+        let mut shadow = ShadowTerminal::new(width, height);
+        let mut presenter = TermwizPresenter::new(width, height);
+
+        let initial = physical_surface(
+            vec![
+                painted_row("init0", width, PhysicalStyle::default()),
+                painted_row("init1", width, PhysicalStyle::default()),
+                painted_row("init2", width, PhysicalStyle::default()),
+                painted_row("init3", width, PhysicalStyle::default()),
+            ],
+            width as u16,
+        );
+        presenter.present(&mut shadow, initial).unwrap();
+
+        let row_x = PhysicalRow::from_cells(painted_row("X", width, PhysicalStyle::default()));
+        let row_y = PhysicalRow::from_cells(painted_row("Y", width, PhysicalStyle::default()));
+        let row_z = PhysicalRow::from_cells(painted_row("Z", width, PhysicalStyle::default()));
+
+        presenter.insert_history(&mut shadow, &[row_x]).unwrap();
+        #[cfg(unix)]
+        assert!(shadow.sync_output_active);
+
+        presenter.insert_history(&mut shadow, &[row_y]).unwrap();
+        #[cfg(unix)]
+        assert!(shadow.sync_output_active);
+
+        presenter.insert_history(&mut shadow, &[row_z]).unwrap();
+        #[cfg(unix)]
+        assert!(shadow.sync_output_active);
+
+        let desired = physical_surface(
+            vec![
+                painted_row("init3", width, PhysicalStyle::default()),
+                painted_row("next1", width, PhysicalStyle::default()),
+                painted_row("next2", width, PhysicalStyle::default()),
+                painted_row("next3", width, PhysicalStyle::default()),
+            ],
+            width as u16,
+        );
+        presenter.present(&mut shadow, desired.clone()).unwrap();
+
+        #[cfg(unix)]
+        assert!(!shadow.sync_output_active);
+
+        assert_eq!(shadow.scrollback_trimmed_texts(), vec!["X", "Y", "Z"]);
+        shadow.assert_screen_matches_surface(presenter.presented_for_test());
+        shadow.assert_screen_matches_surface(&desired);
+        assert_eq!(shadow.implicit_wraps, 0);
+    }
+
+    #[test]
+    fn shadow_native_rows_preserve_styles_and_wide_glyphs() {
+        let width = 12;
+        let height = 4;
+        let mut shadow = ShadowTerminal::new(width, height);
+        let mut presenter = TermwizPresenter::new(width, height);
+
+        let initial = physical_surface(
+            vec![
+                painted_row("row 0", width, PhysicalStyle::default()),
+                painted_row("row 1", width, PhysicalStyle::default()),
+                painted_row("row 2", width, PhysicalStyle::default()),
+                painted_row("row 3", width, PhysicalStyle::default()),
+            ],
+            width as u16,
+        );
+        presenter.present(&mut shadow, initial).unwrap();
+
+        let glyph_samples = ["A🐕🦺B", "🇮🇩", "👩‍🔬", "⭐"];
+        for sample in glyph_samples {
+            let row = wide_row(sample, width, PhysicalStyle::default());
+            presenter.insert_history(&mut shadow, &[row]).unwrap();
+
+            assert_eq!(shadow.implicit_wraps, 0);
+            assert_eq!(shadow.scrollback_trimmed_texts().last().unwrap(), sample);
+            shadow.assert_screen_matches_surface(presenter.presented_for_test());
+        }
+    }
+
+    #[test]
+    fn shadow_native_rows_preserve_styles_and_attributes() {
+        let width = 10;
+        let height = 3;
+        let mut shadow = ShadowTerminal::new(width, height);
+        let mut presenter = TermwizPresenter::new(width, height);
+
+        let initial = physical_surface(
+            vec![
+                painted_row("A", width, PhysicalStyle::default()),
+                painted_row("B", width, PhysicalStyle::default()),
+                painted_row("C", width, PhysicalStyle::default()),
+            ],
+            width as u16,
+        );
+        presenter.present(&mut shadow, initial).unwrap();
+
+        let rich_style = PhysicalStyle {
+            foreground: Some(PhysicalColor::Indexed(2)),
+            background: Some(PhysicalColor::Indexed(4)),
+            bold: true,
+            italic: true,
+            underline: true,
+            strikethrough: true,
+            ..PhysicalStyle::default()
+        };
+        let row = wide_row("Styled", width, rich_style);
+        presenter.insert_history(&mut shadow, &[row]).unwrap();
+
+        assert_eq!(shadow.implicit_wraps, 0);
+        let scrollback_row = shadow.scrollback.last().expect("scrollback row");
+        assert_eq!(scrollback_row.trimmed_text(), "Styled");
+
+        for x in 0..6 {
+            let cell = &scrollback_row.cells[x];
+            assert_eq!(
+                cell.attrs.background(),
+                termwiz::color::ColorAttribute::PaletteIndex(4)
+            );
+            assert_eq!(
+                cell.attrs.foreground(),
+                termwiz::color::ColorAttribute::PaletteIndex(2)
+            );
+            assert_eq!(cell.attrs.intensity(), termwiz::cell::Intensity::Bold);
+            assert!(cell.attrs.italic());
+            assert_eq!(cell.attrs.underline(), termwiz::cell::Underline::Single);
+            assert!(cell.attrs.strikethrough());
+        }
+
+        shadow.assert_screen_matches_surface(presenter.presented_for_test());
+    }
+
+    #[test]
+    fn shadow_scrollback_survives_full_repaint() {
+        let width = 8;
+        let height = 3;
+        let mut shadow = ShadowTerminal::new(width, height);
+        let mut presenter = TermwizPresenter::new(width, height);
+
+        let initial = physical_surface(
+            vec![
+                painted_row("init0", width, PhysicalStyle::default()),
+                painted_row("init1", width, PhysicalStyle::default()),
+                painted_row("init2", width, PhysicalStyle::default()),
+            ],
+            width as u16,
+        );
+        presenter.present(&mut shadow, initial).unwrap();
+
+        let row_x =
+            PhysicalRow::from_cells(painted_row("NativeX", width, PhysicalStyle::default()));
+        presenter.insert_history(&mut shadow, &[row_x]).unwrap();
+
+        assert_eq!(shadow.scrollback_trimmed_texts(), vec!["NativeX"]);
+        let saved_scrollback = shadow.scrollback.clone();
+
+        // Force presenter unknown / full repaint path
+        presenter.resize(width + 2, height + 1);
+        presenter.resize(width, height);
+
+        let new_frame = physical_surface(
+            vec![
+                painted_row("newA", width, PhysicalStyle::default()),
+                painted_row("newB", width, PhysicalStyle::default()),
+                painted_row("newC", width, PhysicalStyle::default()),
+            ],
+            width as u16,
+        );
+        presenter.present(&mut shadow, new_frame.clone()).unwrap();
+
+        // Scrollback must remain completely untouched by the full repaint.
+        assert_eq!(shadow.scrollback, saved_scrollback);
+        assert_eq!(shadow.scrollback_trimmed_texts(), vec!["NativeX"]);
+        shadow.assert_screen_matches_surface(presenter.presented_for_test());
+        shadow.assert_screen_matches_surface(&new_frame);
+        assert_eq!(shadow.implicit_wraps, 0);
     }
 }
