@@ -7,3 +7,5 @@ pub(crate) mod shadow;
 mod worker;
 
 pub(crate) use backend::TermwizBackend;
+pub(crate) use lower::desired_surface;
+pub(crate) use presenter::TermwizPresenter;

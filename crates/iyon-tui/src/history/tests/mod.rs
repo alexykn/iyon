@@ -8,6 +8,7 @@ use crate::{
     },
 };
 
+mod combined;
 mod model;
 mod projection;
 mod stream;

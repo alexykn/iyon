@@ -224,6 +224,10 @@ impl History {
         self.layout
     }
 
+    pub(crate) fn physical_rows_inserted(&self) -> u64 {
+        self.native.physical_rows_inserted
+    }
+
     pub fn set_layout(&mut self, layout: HistoryLayout) {
         self.layout = layout;
     }

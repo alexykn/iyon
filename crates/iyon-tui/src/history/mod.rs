@@ -13,6 +13,7 @@ mod model;
 mod native;
 mod projection;
 mod stream;
+pub(crate) mod trace;
 mod unit;
 
 #[cfg(test)]
