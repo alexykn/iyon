@@ -3,9 +3,9 @@
 //! [`TextSelector`] is a convenience facade over ordinary [`StyleSelector`]
 //! matching. It does not introduce a separate text theme engine. Private fact
 //! encoding is shared by selectors and the crate-private [`TextFacts`] builder
-//! that T4's renderer will emit.
+//! that the renderer emits.
 
-use super::{FormatId, HeadingLevel, LanguageId, SemanticTag, TextOrigin};
+use super::{Annotations, FormatId, HeadingLevel, LanguageId, SemanticTag, TextOrigin};
 use crate::Theme;
 use crate::presentation::api::{
     StyleFacts, StyleRef, StyleSelector, StyleSpec, StyleStateKey, StyleStateValue,
@@ -306,7 +306,6 @@ impl Theme {
     }
 }
 
-#[allow(dead_code)]
 pub(crate) fn text_style_ref() -> StyleRef {
     StyleRef::theme(TEXT_THEME_KEY)
 }
@@ -456,15 +455,11 @@ fn annotation_fact_key(tag: &SemanticTag) -> StyleStateKey {
 }
 
 /// Crate-private builder for renderer-emitted generic text facts.
-///
-/// T4's `TextRenderer` is the intended consumer; T3 uses it in tests.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) struct TextFacts {
     inner: StyleFacts,
 }
 
-#[allow(dead_code)]
 impl TextFacts {
     pub(crate) fn new() -> Self {
         Self::default()
@@ -472,6 +467,10 @@ impl TextFacts {
 
     pub(crate) fn role(self, role: TextRole) -> Self {
         self.and_fact(TextFact::Role(role))
+    }
+
+    pub(crate) fn roles(self, roles: impl IntoIterator<Item = TextRole>) -> Self {
+        roles.into_iter().fold(self, TextFacts::role)
     }
 
     pub(crate) fn part(self, part: TextPart) -> Self {
@@ -515,6 +514,13 @@ impl TextFacts {
 
     pub(crate) fn annotation(self, tag: &SemanticTag) -> Self {
         self.and_fact(TextFact::Annotation(tag.clone()))
+    }
+
+    pub(crate) fn annotations(self, annotations: &Annotations) -> Self {
+        annotations
+            .tags()
+            .iter()
+            .fold(self, |facts, tag| facts.annotation(tag))
     }
 
     pub(crate) fn finish(self) -> StyleFacts {

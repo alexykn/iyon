@@ -57,7 +57,6 @@ impl TextSpan {
         self
     }
 
-    #[allow(dead_code)]
     pub(crate) fn with_style_facts(mut self, style_facts: StyleFacts) -> Self {
         self.style_facts = style_facts;
         self
@@ -166,6 +165,10 @@ impl Text {
         value: impl Into<StyleStateValue>,
     ) -> Self {
         self.map_view(|view| view.style_fact(key, value))
+    }
+
+    pub(crate) fn with_style_facts(self, facts: StyleFacts) -> Self {
+        self.map_view(|view| view.with_style_facts(facts))
     }
 
     /// Sets the current text node's padding; repeated calls replace the prior value.

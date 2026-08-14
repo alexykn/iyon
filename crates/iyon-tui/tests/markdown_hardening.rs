@@ -9,7 +9,7 @@ use iyon_tui::text::{
 use iyon_tui::text::{Table, TableCell, TableColumn, TableRow};
 use iyon_tui::{
     Block, Inline, InlineContent, MarkdownProjector, Projection, Projector, Renderer, Smooth,
-    TextContent, TextRenderStyle, TextRenderer,
+    TextContent, TextRenderer,
 };
 
 fn source_projection(
@@ -319,9 +319,7 @@ fn renderer_preserves_generic_list_table_and_image_semantics() {
     ))
     .with_marks(MarkSet::new([Mark::Emphasis]).unwrap());
     let block = Block::paragraph(InlineContent::new([image]));
-    let renderer = TextRenderer::with_style(
-        TextRenderStyle::new().with_annotation_tag("app:tag", iyon_tui::StyleSpec::new().bold()),
-    );
+    let renderer = TextRenderer::new();
     let list_view = renderer.render(&TextContent::block(Block::list(list)));
     let list_text = format!("{list_view:?}");
     assert!(list_text.contains("(a) "));
@@ -332,8 +330,6 @@ fn renderer_preserves_generic_list_table_and_image_semantics() {
     let image_view = renderer.render(&TextContent::block(block));
     let image_text = format!("{image_view:?}");
     assert!(image_text.contains("alt"));
-    assert!(image_text.contains("bold: Some(true)"));
-    assert!(image_text.contains("italic: Some(true)"));
 }
 
 #[test]

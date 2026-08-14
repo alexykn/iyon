@@ -346,7 +346,6 @@ pub(crate) struct StyleFacts {
 }
 
 impl StyleFacts {
-    #[allow(dead_code)]
     pub(crate) fn set(&mut self, key: impl Into<StyleStateKey>, value: impl Into<StyleStateValue>) {
         self.assignments.set(key.into(), value.into());
     }

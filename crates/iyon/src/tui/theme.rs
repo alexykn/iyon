@@ -1,5 +1,9 @@
 use iyon_api::ReasoningLevel;
-use iyon_tui::{StyleSelector, StyleStateKey, StyleStateValue, Theme};
+use iyon_tui::{
+    ColorSpec, StyleSelector, StyleSpec, StyleStateKey, StyleStateValue, TextSelector, Theme,
+};
+
+use super::transcript::thinking_tag;
 
 pub(crate) const AGENT_EFFORT: StyleStateKey = StyleStateKey::from_static("iyon.agent.effort");
 pub(crate) const EFFORT_NONE: StyleStateValue = StyleStateValue::from_static("none");
@@ -77,7 +81,7 @@ pub(crate) fn iyon_theme() -> Theme {
             iyon_tui::ThemeColor::Named(iyon_tui::AnsiColor::Yellow),
         )
         .with_color(
-            "markdown.header",
+            "text.heading",
             iyon_tui::ThemeColor::Rgb {
                 r: 255,
                 g: 196,
@@ -85,35 +89,11 @@ pub(crate) fn iyon_theme() -> Theme {
             },
         )
         .with_color(
-            "markdown.bold",
-            iyon_tui::ThemeColor::Rgb {
-                r: 230,
-                g: 230,
-                b: 235,
-            },
-        )
-        .with_color(
-            "markdown.italic",
-            iyon_tui::ThemeColor::Rgb {
-                r: 150,
-                g: 180,
-                b: 220,
-            },
-        )
-        .with_color(
-            "markdown.code",
+            "text.code",
             iyon_tui::ThemeColor::Rgb {
                 r: 120,
                 g: 200,
                 b: 210,
-            },
-        )
-        .with_color(
-            "markdown.list",
-            iyon_tui::ThemeColor::Rgb {
-                r: 104,
-                g: 211,
-                b: 145,
             },
         )
         .with_color(
@@ -181,31 +161,23 @@ pub(crate) fn iyon_theme() -> Theme {
             "text.warning",
             iyon_tui::StyleSpec::new().foreground(iyon_tui::ColorSpec::theme("text.warning")),
         )
-        .with_style(
-            "markdown.header",
-            iyon_tui::StyleSpec::new()
-                .foreground(iyon_tui::ColorSpec::theme("markdown.header"))
-                .bold(),
+        .with_text_style(
+            TextSelector::heading(),
+            StyleSpec::new().foreground(ColorSpec::theme("text.heading")),
         )
-        .with_style(
-            "markdown.bold",
-            iyon_tui::StyleSpec::new()
-                .foreground(iyon_tui::ColorSpec::theme("markdown.bold"))
-                .bold(),
+        .with_text_style(
+            TextSelector::inline_code(),
+            StyleSpec::new().foreground(ColorSpec::theme("text.code")),
         )
-        .with_style(
-            "markdown.italic",
-            iyon_tui::StyleSpec::new()
-                .foreground(iyon_tui::ColorSpec::theme("markdown.italic"))
+        .with_text_style(
+            TextSelector::code_block(),
+            StyleSpec::new().foreground(ColorSpec::theme("text.code")),
+        )
+        .with_text_style(
+            TextSelector::annotation(&thinking_tag()),
+            StyleSpec::new()
+                .foreground(ColorSpec::theme("text.muted"))
                 .italic(),
-        )
-        .with_style(
-            "markdown.code",
-            iyon_tui::StyleSpec::new().foreground(iyon_tui::ColorSpec::theme("markdown.code")),
-        )
-        .with_style(
-            "markdown.list",
-            iyon_tui::StyleSpec::new().foreground(iyon_tui::ColorSpec::theme("markdown.list")),
         )
         .with_style(
             "truncation_footer",
@@ -245,18 +217,84 @@ mod tests {
             Some(iyon_tui::ThemeColor::Named(iyon_tui::AnsiColor::Yellow))
         );
         assert_eq!(
-            theme
-                .style("markdown.header")
-                .unwrap()
-                .attribute_value(iyon_tui::TextAttribute::Bold),
-            Some(true)
+            theme.color("text.heading"),
+            Some(iyon_tui::ThemeColor::Rgb {
+                r: 255,
+                g: 196,
+                b: 87
+            })
         );
         assert_eq!(
-            theme
-                .style("markdown.italic")
-                .unwrap()
-                .attribute_value(iyon_tui::TextAttribute::Italic),
-            Some(true)
+            theme.color("text.code"),
+            Some(iyon_tui::ThemeColor::Rgb {
+                r: 120,
+                g: 200,
+                b: 210
+            })
         );
+        assert!(theme.style("markdown.header").is_none());
+        assert!(theme.style("markdown.code").is_none());
+    }
+
+    #[test]
+    fn assistant_text_styles_come_from_theme_not_the_renderer() {
+        use crate::tui::transcript::pipeline::assistant_renderer;
+        use iyon_tui::text::{CodeBlock, Inline, InlineContent, LanguageId, LiteralText, Renderer};
+        use iyon_tui::{Block, HeadingLevel, MarkdownOptions, MarkdownProjector};
+
+        let renderer = assistant_renderer();
+        assert_eq!(
+            renderer.policy().soft_break(),
+            iyon_tui::SoftBreakPolicy::LineBreak
+        );
+        assert_eq!(
+            MarkdownProjector::default().options(),
+            MarkdownOptions::commonmark()
+        );
+
+        let theme = iyon_theme();
+        let heading = renderer.render(&Block::heading(HeadingLevel::H1, "Title"));
+        let heading_style = iyon_tui::testing::style_at_text(&heading, 40, &theme, "Title");
+        assert_eq!(heading_style.fg_rgb, Some((255, 196, 87)));
+        assert!(heading_style.bold);
+        assert!(heading_style.underline);
+
+        let code = renderer.render(&Block::paragraph(InlineContent::new([Inline::text(
+            "code",
+        )
+        .code()])));
+        assert_eq!(
+            iyon_tui::testing::style_at_text(&code, 40, &theme, "code").fg_rgb,
+            Some((120, 200, 210))
+        );
+
+        let rust = LanguageId::new("rust").unwrap();
+        let block = renderer.render(&Block::code(CodeBlock::new(
+            Some(rust),
+            Some("rust"),
+            LiteralText::from("fn"),
+        )));
+        assert_eq!(
+            iyon_tui::testing::style_at_text(&block, 40, &theme, "fn").fg_rgb,
+            Some((120, 200, 210))
+        );
+
+        let think = iyon_tui::text::TextRun::from("think")
+            .map_annotations(|annotations| annotations.with_tag(crate::transcript::thinking_tag()));
+        let thinking_view =
+            renderer.render(&Block::paragraph(InlineContent::new([Inline::text(think)])));
+        let muted = iyon_tui::testing::style_at_text(&thinking_view, 40, &theme, "think");
+        assert_eq!(muted.fg_rgb, Some((113, 128, 150)));
+        assert!(muted.italic);
+
+        let think_code = iyon_tui::text::TextRun::from("fnx")
+            .map_annotations(|annotations| annotations.with_tag(crate::transcript::thinking_tag()));
+        let thinking_code = renderer.render(&Block::paragraph(InlineContent::new([Inline::text(
+            think_code,
+        )
+        .code()])));
+        let overlay = iyon_tui::testing::style_at_text(&thinking_code, 40, &theme, "fnx");
+        assert_eq!(overlay.fg_rgb, Some((113, 128, 150)));
+        assert!(overlay.italic);
     }
 }

@@ -1,6 +1,7 @@
 use iyon_tui::{
     Block, Component, HeadingLevel, History, Inline, MarkdownProjector, Projector,
-    Renderer, Smooth, TextContent, TextOrigin, TextRenderer, TextSelector, TextStream,
+    Renderer, Smooth, SoftBreakPolicy, TextContent, TextOrigin, TextRenderPolicy, TextRenderer,
+    TextSelector, TextStream,
 };
 use iyon_tui::projection::{ProjectionBuilder, ProjectionTransitionError, validate_projection_transition};
 use iyon_tui::stream::{
@@ -15,6 +16,9 @@ fn root_vocabulary() {
     let _: fn() -> MarkdownProjector = MarkdownProjector::default;
     let _: fn() -> Smooth = Smooth::default;
     let _ = TextRenderer::default().render(&TextContent::raw("x"));
+    let _ = TextRenderer::with_policy(
+        TextRenderPolicy::new().with_soft_break(SoftBreakPolicy::LineBreak),
+    );
     let _ = Block::heading(HeadingLevel::H1, "Heading");
     let _ = Inline::text("text");
     let _ = TextSelector::heading().origin(TextOrigin::MARKDOWN);
