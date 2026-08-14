@@ -428,6 +428,7 @@ fn view_height_bounds_include_padding_and_border() {
 }
 
 mod flow;
+mod grid;
 mod style;
 mod text;
 

@@ -70,6 +70,10 @@ impl View {
                 .children
                 .iter()
                 .any(|child| child.view.contains_component_identity()),
+            ViewKind::Grid(grid) => grid
+                .cells
+                .iter()
+                .any(|cell| cell.view.contains_component_identity()),
         }
     }
 }
@@ -79,6 +83,7 @@ pub(crate) enum ViewKind {
     Text(TextView),
     Column(ColumnView),
     Row(RowView),
+    Grid(GridView),
     Hanging(HangingView),
     Container(ContainerNode),
     Spacer { rows: u16 },
@@ -215,6 +220,28 @@ impl RowChild {
             view,
         }
     }
+}
+
+/// RETAINED SEMANTIC IR. Shared two-dimensional track layout.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct GridView {
+    pub(crate) columns: Vec<TrackSize>,
+    pub(crate) rows: Vec<TrackSize>,
+    pub(crate) column_gap: u16,
+    pub(crate) row_gap: u16,
+    pub(crate) cells: Vec<GridCellView>,
+}
+
+/// RETAINED SEMANTIC IR. One grid cell and its explicit track placement.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct GridCellView {
+    pub(crate) row: usize,
+    pub(crate) column: usize,
+    pub(crate) row_span: u16,
+    pub(crate) column_span: u16,
+    pub(crate) horizontal_align: HorizontalAlign,
+    pub(crate) vertical_align: VerticalAlign,
+    pub(crate) view: View,
 }
 
 /// RETAINED SEMANTIC IR. Width allocation for a row child.

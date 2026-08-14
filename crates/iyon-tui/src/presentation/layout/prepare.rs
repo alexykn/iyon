@@ -3,6 +3,7 @@
 use crate::{geometry::Size, presentation::ir::HeightRule};
 
 use super::{
+    grid::{FlexMode, SpanRequirement, allocate_grid_tracks, span_extent, track_offset},
     measure::{MeasuredKind, MeasuredNode},
     tracks::allocate_tracks,
 };
@@ -297,6 +298,66 @@ fn prepare_kind<'m, 'v>(
                         row_height
                     },
                 ),
+                complete,
+            )
+        }
+        MeasuredKind::Grid {
+            columns,
+            row_tracks,
+            cells,
+            row_gap,
+            ..
+        } => {
+            let row_requirements = cells
+                .iter()
+                .map(|cell| SpanRequirement {
+                    start: cell.row,
+                    span: cell.row_span,
+                    preferred: cell.node.size.height,
+                })
+                .collect::<Vec<_>>();
+            let rows = allocate_grid_tracks(
+                requested_core_height,
+                *row_gap,
+                row_tracks,
+                &row_requirements,
+                FlexMode::Fill,
+            );
+            let mut prepared_children = Vec::with_capacity(cells.len());
+            let mut complete = true;
+            for cell in cells {
+                let area_x = track_offset(columns, cell.column);
+                let area_y = track_offset(&rows, cell.row);
+                let area_width = span_extent(columns, cell.column, cell.column_span);
+                let area_height = span_extent(&rows, cell.row, cell.row_span);
+                if cell.node.size.height > area_height && !cell.node.kind.is_clamp() {
+                    complete = false;
+                }
+                let prepared = prepare_node(&cell.node, Some(area_height));
+                complete &= prepared.complete;
+                let extra_x = area_width.saturating_sub(prepared.size.width);
+                let extra_y = area_height.saturating_sub(prepared.size.height);
+                let x = area_x.saturating_add(match cell.horizontal_align {
+                    crate::presentation::HorizontalAlign::Start => 0,
+                    crate::presentation::HorizontalAlign::Center => extra_x / 2,
+                    crate::presentation::HorizontalAlign::End => extra_x,
+                });
+                let y = area_y.saturating_add(match cell.vertical_align {
+                    crate::presentation::VerticalAlign::Top => 0,
+                    crate::presentation::VerticalAlign::Center => extra_y / 2,
+                    crate::presentation::VerticalAlign::Bottom => extra_y,
+                });
+                prepared_children.push(PreparedChild {
+                    x,
+                    y,
+                    node: prepared,
+                });
+            }
+            let used_width = span_extent(columns, 0, columns.tracks.len());
+            let used_height = span_extent(&rows, 0, rows.tracks.len());
+            (
+                PreparedKind::Children(prepared_children),
+                Size::new(used_width, used_height),
                 complete,
             )
         }

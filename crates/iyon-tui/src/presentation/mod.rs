@@ -13,9 +13,10 @@ pub(crate) mod wrap;
 
 #[allow(unused_imports)]
 pub(crate) use api::{
-    BorderEdges, BorderGlyphError, BorderGlyphs, BorderSpec, BorderStyle, ColorSpec, Horizontal,
-    HorizontalAlign, Insets, IntoView, OverflowIndicator, StyleRef, StyleSpec, Text, TextAttribute,
-    TextAttributeSpec, TextSpan, ThemeKey, Vertical, VerticalAlign, View, WrapMode,
+    BorderEdges, BorderGlyphError, BorderGlyphs, BorderSpec, BorderStyle, ColorSpec, Grid,
+    GridCellSpec, GridRow, GridTrack, Horizontal, HorizontalAlign, Insets, IntoView,
+    OverflowIndicator, StyleRef, StyleSpec, Text, TextAttribute, TextAttributeSpec, TextSpan,
+    ThemeKey, Vertical, VerticalAlign, View, WrapMode,
 };
 pub(crate) use api::{StyleFacts, StyleStates};
 

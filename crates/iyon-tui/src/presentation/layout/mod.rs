@@ -15,6 +15,7 @@
 //! View subtrees.
 
 mod engine;
+mod grid;
 mod measure;
 mod place;
 mod prepare;

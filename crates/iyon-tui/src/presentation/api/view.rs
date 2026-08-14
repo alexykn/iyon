@@ -2,6 +2,7 @@
 
 use super::{
     composition::{Horizontal, Vertical},
+    grid::Grid,
     style::{
         BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleFacts, StyleRef, StyleSpec,
         StyleStateKey, StyleStateValue, StyleStates, TextAttribute,
@@ -74,6 +75,15 @@ impl View {
         let (children, gap) = vertical.into_parts();
 
         Self::new_kind(ViewKind::Column(ColumnView { children, gap }))
+    }
+
+    /// Constructs two-dimensional composition immediately with `Fit` width and
+    /// height. Track allocation is shared across rows; spanning cells occupy
+    /// the full area of their tracks, including internal gaps.
+    pub fn grid(build: impl FnOnce(&mut Grid)) -> Self {
+        let mut grid = Grid::new();
+        build(&mut grid);
+        Self::new_kind(ViewKind::Grid(grid.into_grid_view()))
     }
 
     /// Constructs a semantic hanging row.

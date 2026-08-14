@@ -117,6 +117,27 @@ impl Resolver<'_> {
                 gap: row.gap,
                 vertical_align: row.vertical_align,
             }),
+            ViewKind::Grid(grid) => ViewKind::Grid(crate::presentation::ir::GridView {
+                columns: grid.columns.clone(),
+                rows: grid.rows.clone(),
+                column_gap: grid.column_gap,
+                row_gap: grid.row_gap,
+                cells: grid
+                    .cells
+                    .iter()
+                    .map(|cell| {
+                        Ok(crate::presentation::ir::GridCellView {
+                            row: cell.row,
+                            column: cell.column,
+                            row_span: cell.row_span,
+                            column_span: cell.column_span,
+                            horizontal_align: cell.horizontal_align,
+                            vertical_align: cell.vertical_align,
+                            view: self.resolve_view(&cell.view, parent)?,
+                        })
+                    })
+                    .collect::<Result<_, ResolveError>>()?,
+            }),
             ViewKind::Hanging(hanging) => ViewKind::Hanging(HangingView {
                 prefix: Box::new(self.resolve_view(&hanging.prefix, parent)?),
                 continuation_prefix: Box::new(

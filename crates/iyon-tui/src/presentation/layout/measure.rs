@@ -4,13 +4,14 @@ use crate::{
     geometry::Size,
     presentation::{
         ir::{
-            ColumnView, ContainerNode, HangingView, RowView, RowViewportView, TrackSize, View,
-            ViewKind, WidthRule,
+            ColumnView, ContainerNode, GridView, HangingView, RowView, RowViewportView, TrackSize,
+            View, ViewKind, WidthRule,
         },
         wrap::{TextFlowMetrics, text_flow_metrics},
     },
 };
 
+use super::grid::{FlexMode, SpanRequirement, allocate_grid_tracks, span_extent};
 use super::tracks::{TrackAllocation, allocate_tracks};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,6 +135,13 @@ pub(super) enum MeasuredKind<'a> {
         layout_height: Option<u16>,
         intrinsic_content_height: bool,
     },
+    Grid {
+        columns: TrackAllocation,
+        row_tracks: Vec<TrackSize>,
+        intrinsic_rows: TrackAllocation,
+        cells: Vec<MeasuredGridCell<'a>>,
+        row_gap: u16,
+    },
 }
 
 #[derive(Debug)]
@@ -145,6 +153,17 @@ pub(super) struct MeasuredColumnChild<'a> {
 #[derive(Debug)]
 pub(super) struct MeasuredRowChild<'a> {
     pub(super) track_width: u16,
+    pub(super) node: MeasuredNode<'a>,
+}
+
+#[derive(Debug)]
+pub(super) struct MeasuredGridCell<'a> {
+    pub(super) row: usize,
+    pub(super) column: usize,
+    pub(super) row_span: usize,
+    pub(super) column_span: usize,
+    pub(super) horizontal_align: crate::presentation::HorizontalAlign,
+    pub(super) vertical_align: crate::presentation::VerticalAlign,
     pub(super) node: MeasuredNode<'a>,
 }
 
@@ -207,6 +226,7 @@ fn measure_kind<'a>(view: &'a View, width: u16) -> MeasuredKind<'a> {
         ViewKind::RowViewport(viewport) => measure_viewport(viewport, width),
         ViewKind::Column(column) => measure_column(column, width),
         ViewKind::Row(row) => measure_row(row, width),
+        ViewKind::Grid(grid) => measure_grid(grid, width),
         ViewKind::ComponentSlot(_) => unreachable!("component slot reached measurement"),
     }
 }
@@ -280,6 +300,65 @@ fn measure_row<'a>(row: &'a RowView, width: u16) -> MeasuredKind<'a> {
         children,
         gap: row.gap,
         vertical_align: row.vertical_align,
+    }
+}
+
+fn measure_grid<'a>(grid: &'a GridView, width: u16) -> MeasuredKind<'a> {
+    let column_requirements = grid
+        .cells
+        .iter()
+        .map(|cell| SpanRequirement {
+            start: cell.column,
+            span: usize::from(cell.column_span),
+            preferred: measure_node(&cell.view, width, WidthIntent::ForceFit)
+                .size
+                .width,
+        })
+        .collect::<Vec<_>>();
+    let columns = allocate_grid_tracks(
+        width,
+        grid.column_gap,
+        &grid.columns,
+        &column_requirements,
+        FlexMode::Fill,
+    );
+    let cells = grid
+        .cells
+        .iter()
+        .map(|cell| {
+            let cell_width = span_extent(&columns, cell.column, usize::from(cell.column_span));
+            MeasuredGridCell {
+                row: cell.row,
+                column: cell.column,
+                row_span: usize::from(cell.row_span),
+                column_span: usize::from(cell.column_span),
+                horizontal_align: cell.horizontal_align,
+                vertical_align: cell.vertical_align,
+                node: measure_node(&cell.view, cell_width, WidthIntent::Semantic),
+            }
+        })
+        .collect::<Vec<_>>();
+    let row_requirements = cells
+        .iter()
+        .map(|cell| SpanRequirement {
+            start: cell.row,
+            span: cell.row_span,
+            preferred: cell.node.size.height,
+        })
+        .collect::<Vec<_>>();
+    let intrinsic_rows = allocate_grid_tracks(
+        u16::MAX,
+        grid.row_gap,
+        &grid.rows,
+        &row_requirements,
+        FlexMode::Intrinsic,
+    );
+    MeasuredKind::Grid {
+        columns,
+        row_tracks: grid.rows.clone(),
+        intrinsic_rows,
+        cells,
+        row_gap: grid.row_gap,
     }
 }
 
@@ -357,6 +436,14 @@ impl MeasuredKind<'_> {
                     .max()
                     .unwrap_or(0),
             ),
+            Self::Grid {
+                columns,
+                intrinsic_rows,
+                ..
+            } => Size::new(
+                allocation_extent(columns),
+                allocation_extent(intrinsic_rows),
+            ),
         }
     }
 
@@ -376,4 +463,15 @@ fn track_intrinsic_height(track: TrackSize, height: u16) -> u16 {
 
 fn column_gap(gap: u16, count: usize) -> u16 {
     gap.saturating_mul(count.saturating_sub(1).min(usize::from(u16::MAX)) as u16)
+}
+
+fn allocation_extent(allocation: &TrackAllocation) -> u16 {
+    let tracks = allocation
+        .tracks
+        .iter()
+        .map(|track| usize::from(*track))
+        .sum::<usize>();
+    let gaps =
+        usize::from(allocation.gap).saturating_mul(allocation.tracks.len().saturating_sub(1));
+    tracks.saturating_add(gaps).min(usize::from(u16::MAX)) as u16
 }

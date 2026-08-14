@@ -200,6 +200,7 @@ mod tests {
             View::styled_text([TextSpan::plain("x")]).into_view(),
             View::horizontal(|_| {}),
             View::vertical(|_| {}),
+            View::grid(|_| {}),
             View::spacer(1),
         ];
 

@@ -520,6 +520,13 @@ fn flexible_height(view: &View) -> bool {
                     | crate::presentation::ir::TrackSize::FlexMax { .. }
             )
         }),
+        crate::presentation::ir::ViewKind::Grid(grid) => grid.rows.iter().any(|track| {
+            matches!(
+                track,
+                crate::presentation::ir::TrackSize::Flex { .. }
+                    | crate::presentation::ir::TrackSize::FlexMax { .. }
+            )
+        }),
         crate::presentation::ir::ViewKind::Container(container) => {
             flexible_height(&container.child)
         }
