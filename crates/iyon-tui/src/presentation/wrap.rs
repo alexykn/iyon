@@ -1,8 +1,6 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
-use textwrap::Options;
-
 use crate::physical::{PhysicalStyle, grapheme_cell_width};
 use unicode_linebreak::{BreakOpportunity, linebreaks};
 use unicode_segmentation::UnicodeSegmentation;
@@ -205,8 +203,8 @@ pub(crate) fn text_flow<'a>(
         WidthRule::Fit => intrinsic_width.min(usize::from(max_width)) as u16,
         WidthRule::Fill => max_width,
     };
-    let mut rows = if let Some(source) = source.filter(|_| text.cursor.is_some()) {
-        wrap_input_styled_lines(&hard_lines, source, width)
+    let mut rows = if source.filter(|_| text.cursor.is_some()).is_some() {
+        wrap_input_styled_lines(&hard_lines, width)
     } else {
         wrap_styled_lines(&hard_lines, width, text.wrap)
     };
@@ -401,122 +399,91 @@ fn wrap_line_word_then_grapheme<'a>(
     output
 }
 
-/// Computes the proven composer input ranges without depending on the
-/// application input module. The one reserved caret column and textwrap
-/// behavior intentionally match the legacy input contract.
+/// Composer wrap: same [`wrap_styled_lines`] kernel as output, minus one
+/// column reserved for the caret.
 ///
-/// `textwrap` still owns *where* input lines break (legacy composer). It has
-/// its own unicode-width. Remainder packing and caret x below use Iyon's
-/// canonical metric so we do not grow a third in-tree width table. Replacing
-/// `textwrap` with `wrap_styled_lines` is a follow-up, not this change.
-pub(crate) fn input_wrap_ranges(text: &str, width: u16) -> Vec<Range<usize>> {
-    let wrap_width = usize::from(width.saturating_sub(1).max(1));
-    let opts = Options::new(wrap_width).break_words(true);
-    let mut visual = Vec::new();
-
-    for logical in input_logical_line_ranges(text) {
-        let slice = &text[logical.clone()];
-        if slice.is_empty() {
-            visual.push(logical.start..logical.start);
-            continue;
-        }
-
-        let logical_visual_start = visual.len();
-        let mut consumed_abs = logical.start;
-        for piece in textwrap::wrap(slice, &opts) {
-            let mut range = match piece {
-                std::borrow::Cow::Borrowed(piece) => {
-                    // Safety: textwrap's borrowed piece is a subslice of text.
-                    let start = unsafe { piece.as_ptr().offset_from(text.as_ptr()) as usize };
-                    start..start + piece.len()
-                }
-                std::borrow::Cow::Owned(piece) => {
-                    input_map_owned_piece(text, consumed_abs, logical.end, &piece)
-                }
-            };
-
-            // textwrap can return an empty piece for leading whitespace that
-            // cannot share a row with the following word. Do not materialize
-            // that piece: the next real word will absorb the skipped source
-            // whitespace below.
-            if range.is_empty() {
-                continue;
-            }
-
-            if range.start > consumed_abs {
-                let gap = &text[consumed_abs..range.start];
-                if gap
-                    .chars()
-                    .all(|character| character == ' ' || character == '\t')
-                {
-                    if visual.len() > logical_visual_start {
-                        let previous = visual
-                            .last_mut()
-                            .expect("logical visual rows should have a previous row");
-                        // Keep the source anchor in the preceding row without
-                        // creating a row whose only visible content is space.
-                        previous.end = range.start;
-                    } else {
-                        // Preserve leading whitespace on the first real row.
-                        range.start = consumed_abs;
-                    }
-                } else {
-                    push_input_remainder(&mut visual, text, consumed_abs, range.start, wrap_width);
-                }
-            }
-
-            // `textwrap` trims trailing whitespace from each piece. Keep all
-            // of that whitespace attached to the piece instead of allowing an
-            // overflow separator to become its own visual row.
-            let mut end = range.end;
-            for character in text[range.end..logical.end].chars() {
-                if character != ' ' && character != '\t' {
-                    break;
-                }
-                end += character.len_utf8();
-            }
-            visual.push(range.start..end);
-            consumed_abs = end;
-        }
-
-        push_input_remainder(&mut visual, text, consumed_abs, logical.end, wrap_width);
-    }
-
-    if visual.is_empty() {
-        visual.push(0..0);
-    }
-    visual
-}
-
+/// A wrap that would start the next row with a single space/tab instead uses
+/// that reserved column so the composer does not grow a whitespace-only row.
 pub(crate) fn wrap_input_styled_lines<'a>(
     hard_lines: &[Vec<StyledGrapheme<'a>>],
-    source: &str,
     width: u16,
 ) -> Vec<WrappedLine<'a>> {
-    let ranges = input_wrap_ranges(source, width);
-    let target_width = usize::from(width.saturating_sub(1).max(1));
+    let wrap_width = width.saturating_sub(1).max(1);
+    let mut rows = Vec::new();
+    for line in hard_lines {
+        let mut wrapped = wrap_styled_lines(
+            std::slice::from_ref(line),
+            wrap_width,
+            WrapMode::WordThenGrapheme,
+        );
+        // Only merge overflow space inside one hard line. Indent after `\n`
+        // must stay on that logical line.
+        attach_caret_column_space(&mut wrapped, usize::from(wrap_width));
+        rows.extend(wrapped);
+    }
+    rows
+}
+
+fn attach_caret_column_space<'a>(rows: &mut Vec<WrappedLine<'a>>, wrap_width: usize) {
+    let mut index = 1;
+    while index < rows.len() {
+        if rows[index - 1].graphemes.is_empty() {
+            index += 1;
+            continue;
+        }
+        let overflow = rows[index]
+            .graphemes
+            .first()
+            .is_some_and(|grapheme| matches!(grapheme.text.as_ref(), " " | "\t"));
+        if !overflow {
+            index += 1;
+            continue;
+        }
+        let space = rows[index].graphemes.remove(0);
+        rows[index - 1].graphemes.push(space);
+        rows[index - 1] =
+            WrappedLine::new(std::mem::take(&mut rows[index - 1].graphemes), wrap_width);
+        if rows[index].graphemes.is_empty() {
+            rows.remove(index);
+            continue;
+        }
+        rows[index] = WrappedLine::new(std::mem::take(&mut rows[index].graphemes), wrap_width);
+        index += 1;
+    }
+}
+
+/// Byte ranges of composer visual rows, derived from wrapped grapheme sources.
+pub(crate) fn input_wrap_ranges(text: &str, width: u16) -> Vec<Range<usize>> {
+    let hard = styled_hard_lines([(text, PhysicalStyle::default(), Some(0))]);
+    let wrapped = wrap_input_styled_lines(&hard, width);
+    let mut ranges = Vec::with_capacity(wrapped.len());
+    let mut cursor = 0usize;
+    for row in &wrapped {
+        if cursor < text.len() && text.as_bytes()[cursor] == b'\n' {
+            cursor += 1;
+        }
+        if row.graphemes.is_empty() {
+            ranges.push(cursor..cursor);
+            continue;
+        }
+        let start = row
+            .graphemes
+            .iter()
+            .find_map(|grapheme| grapheme.source.as_ref().map(|range| range.start))
+            .unwrap_or(cursor);
+        let end = row
+            .graphemes
+            .iter()
+            .rev()
+            .find_map(|grapheme| grapheme.source.as_ref().map(|range| range.end))
+            .unwrap_or(start);
+        ranges.push(start..end);
+        cursor = end;
+    }
+    if ranges.is_empty() {
+        ranges.push(0..0);
+    }
     ranges
-        .iter()
-        .enumerate()
-        .map(|(index, range)| {
-            let graphemes = hard_lines
-                .iter()
-                .flatten()
-                .filter(|grapheme| {
-                    let Some(source_range) = grapheme.source.as_ref() else {
-                        return false;
-                    };
-                    let overlaps = source_range.start < range.end && range.start < source_range.end;
-                    overlaps
-                        && ranges.iter().position(|candidate| {
-                            candidate.start < source_range.end && source_range.start < candidate.end
-                        }) == Some(index)
-                })
-                .cloned()
-                .collect();
-            WrappedLine::new(graphemes, target_width)
-        })
-        .collect()
 }
 
 fn cursor_position(
@@ -581,87 +548,6 @@ fn place_caret(
     (row, column)
 }
 
-fn push_input_remainder(
-    visual: &mut Vec<Range<usize>>,
-    text: &str,
-    mut start: usize,
-    end: usize,
-    width: usize,
-) {
-    while start < end {
-        let row_start = start;
-        let mut row_end = start;
-        let mut used = 0usize;
-        for grapheme in text[start..end].graphemes(true) {
-            let grapheme_width = grapheme_cell_width(grapheme);
-            if row_end > row_start && used.saturating_add(grapheme_width) > width {
-                break;
-            }
-            row_end += grapheme.len();
-            used = used.saturating_add(grapheme_width);
-        }
-        if row_end == row_start {
-            let grapheme = text[start..end]
-                .graphemes(true)
-                .next()
-                .expect("input remainder should contain a grapheme");
-            row_end += grapheme.len();
-        }
-        visual.push(row_start..row_end);
-        start = row_end;
-    }
-}
-
-fn input_map_owned_piece(
-    text: &str,
-    mut start: usize,
-    max_end: usize,
-    wrapped: &str,
-) -> Range<usize> {
-    while start < max_end && !wrapped.starts_with([' ', '\t']) {
-        let Some(character) = text[start..].chars().next() else {
-            break;
-        };
-        if character == ' ' || character == '\t' {
-            start += character.len_utf8();
-        } else {
-            break;
-        }
-    }
-
-    let mut end = start;
-    let mut chars = wrapped.chars().peekable();
-    while let Some(character) = chars.next() {
-        if end < max_end {
-            let source = text[end..]
-                .chars()
-                .next()
-                .expect("input source character should exist");
-            if character == source {
-                end += source.len_utf8();
-                continue;
-            }
-        }
-        if character == '-' && chars.peek().is_none() {
-            continue;
-        }
-    }
-    start..end
-}
-
-fn input_logical_line_ranges(text: &str) -> Vec<Range<usize>> {
-    let mut ranges = Vec::new();
-    let mut start = 0;
-    for (index, character) in text.char_indices() {
-        if character == '\n' {
-            ranges.push(start..index);
-            start = index + 1;
-        }
-    }
-    ranges.push(start..text.len());
-    ranges
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -691,7 +577,29 @@ mod tests {
 
     #[test]
     fn input_wrap_keeps_leading_whitespace_on_its_logical_line() {
-        assert_eq!(input_wrap_ranges("one\n  two", 4), vec![0..3, 4..9]);
+        let ranges = input_wrap_ranges("one\n  two", 4);
+        assert_eq!(ranges.first().cloned(), Some(0..3));
+        assert!(
+            ranges[1..]
+                .iter()
+                .all(|range| range.start >= 4 && range.end <= 9),
+            "indent after a hard newline must stay on that logical line: {ranges:?}"
+        );
+        assert_eq!(ranges.last().map(|range| range.end), Some(9));
+    }
+
+    #[test]
+    fn input_wrap_uses_termwiz_width_not_unicode_width() {
+        // VS-16 sun is 2 cells in termwiz and 1 in unicode-width. Composer
+        // wrap must follow termwiz so two suns at width 3 (caret reserved)
+        // cannot share a row.
+        let sun = "☀️";
+        assert_eq!(grapheme_cell_width(sun), 2);
+        let source = format!("{sun}{sun}");
+        let ranges = input_wrap_ranges(&source, 3);
+        assert_eq!(ranges.len(), 2, "{ranges:?}");
+        assert_eq!(ranges[0], 0..sun.len());
+        assert_eq!(ranges[1], sun.len()..source.len());
     }
 
     #[test]
