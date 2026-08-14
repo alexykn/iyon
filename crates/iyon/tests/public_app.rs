@@ -11,6 +11,68 @@ fn selection() -> ModelSelection {
     }
 }
 
+fn transcript_lines<State, Action, Error, Update, ViewFn>(
+    harness: &iyon_tui::testing::AppHarness<State, Action, Error, Update, ViewFn>,
+) -> Vec<String>
+where
+    Update: FnMut(&mut State, Action, &mut iyon_tui::AppCx<'_, Action>) -> Result<(), Error>,
+    ViewFn: Fn(&State) -> iyon_tui::View,
+{
+    let mut lines = harness.native_history_lines();
+    lines.extend(harness.screen_lines());
+    lines
+}
+
+fn assert_history_and_composer(
+    lines: &[String],
+    native: &[String],
+    screen: &[String],
+    user_marker: &str,
+    assistant_marker: Option<&str>,
+) {
+    assert!(
+        screen.last().is_some_and(|line| line.contains("effort")),
+        "composer/footer must remain at the bottom\nscreen:\n{}",
+        screen.join("\n")
+    );
+
+    let Some(assistant_marker) = assistant_marker else {
+        return;
+    };
+    let user = lines
+        .iter()
+        .position(|line| line.contains(user_marker))
+        .unwrap_or_else(|| panic!("user bubble {user_marker:?} missing\n{}", lines.join("\n")));
+    let assistant = lines
+        .iter()
+        .position(|line| line.contains(assistant_marker))
+        .unwrap_or_else(|| {
+            panic!(
+                "assistant marker {assistant_marker:?} missing\n{}",
+                lines.join("\n")
+            )
+        });
+    assert!(
+        user < assistant,
+        "assistant appeared before the last user bubble\n{}",
+        lines.join("\n")
+    );
+    let blank_separator_rows = lines[user + 1..assistant]
+        .iter()
+        .filter(|line| line.trim().is_empty())
+        .count();
+    assert!(
+        // The user bubble contributes its defined padding, and a native /
+        // live-screen boundary can preserve those rows on both sides. A
+        // larger run is the blank slack band this product regression catches.
+        blank_separator_rows <= 4,
+        "blank band between user and assistant ({blank_separator_rows} rows)\n\
+         native:\n{}\n\nscreen:\n{}",
+        native.join("\n"),
+        screen.join("\n")
+    );
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn iyon_app_is_drivable_through_public_tui_harness() {
     let core = IyonCore::spawn_default_on_current_runtime();
@@ -252,6 +314,298 @@ async fn completed_tool_keeps_composer_below_history() {
     let lines = harness.screen_lines();
     assert!(lines.iter().any(|line| line.contains("final output")));
     assert!(lines.last().is_some_and(|line| line.contains("effort")));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn composer_collapse_keeps_streaming_assistant_contiguous() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 40, 12).unwrap();
+
+    harness
+        .paste("composer line one\ncomposer line two\ncomposer line three")
+        .unwrap();
+    assert!(
+        harness
+            .screen_lines()
+            .iter()
+            .any(|line| line.contains("composer line three")),
+        "multiline paste did not expand the composer"
+    );
+    harness.key(KeyStroke::new(Key::Enter)).unwrap();
+    assert!(
+        !harness
+            .screen_lines()
+            .iter()
+            .any(|line| line.contains("composer line three")),
+        "submitted composer body remained visible"
+    );
+
+    let handle = harness.handle();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnStarted))
+        .unwrap();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::UserMessage {
+            text: "last user bubble".into(),
+        }))
+        .unwrap();
+    while harness.step().unwrap() {}
+    assert_history_and_composer(
+        &transcript_lines(&harness),
+        &harness.native_history_lines(),
+        &harness.screen_lines(),
+        "last user bubble",
+        None,
+    );
+
+    let mut painted_markers = Vec::new();
+    for (text, marker, retain) in [
+        ("intro paragraph\n\n", "intro paragraph", true),
+        (
+            "```rust\nthis_is_a_ridiculously_long_function_call();\n```\n\n",
+            "this_is_a_ridiculously_long_function",
+            true,
+        ),
+        ("🐕‍🦺 AFTER\n\n", "AFTER", true),
+        ("| A | B |\n| --- | --- |\n| 1 | 2 |", "| A | B |", false),
+        (
+            "\n\nmore paragraphs after the table\n\n",
+            "more paragraphs",
+            true,
+        ),
+    ] {
+        handle
+            .send(IyonAction::Backend(FrontendEvent::AssistantDelta {
+                text: text.into(),
+            }))
+            .unwrap();
+        let mut saw_marker = false;
+        for _ in 0..400 {
+            while harness.step().unwrap() {}
+            harness.advance_time(Duration::from_millis(16)).unwrap();
+            let lines = transcript_lines(&harness);
+            let screen = harness.screen_lines();
+            if lines.iter().any(|line| line.contains(marker)) {
+                saw_marker = true;
+            }
+            for painted_marker in &painted_markers {
+                assert!(
+                    lines.iter().any(|line| line.contains(painted_marker)),
+                    "painted assistant row {painted_marker:?} disappeared\n{}",
+                    lines.join("\n")
+                );
+            }
+            if lines.iter().any(|line| line.contains("intro paragraph")) {
+                assert_history_and_composer(
+                    &lines,
+                    &harness.native_history_lines(),
+                    &screen,
+                    "last user bubble",
+                    Some("intro paragraph"),
+                );
+            } else {
+                assert!(
+                    screen.last().is_some_and(|line| line.contains("effort")),
+                    "composer/footer must remain at the bottom\nscreen:\n{}",
+                    screen.join("\n")
+                );
+            }
+        }
+        assert!(
+            saw_marker,
+            "assistant stage {marker:?} never became visible\n{}",
+            transcript_lines(&harness).join("\n")
+        );
+        if retain {
+            painted_markers.push(marker);
+        }
+    }
+
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnFinished))
+        .unwrap();
+    for _ in 0..100 {
+        while harness.step().unwrap() {}
+        harness.advance_time(Duration::from_millis(16)).unwrap();
+    }
+    while harness.step().unwrap() {}
+    assert_history_and_composer(
+        &transcript_lines(&harness),
+        &harness.native_history_lines(),
+        &harness.screen_lines(),
+        "last user bubble",
+        Some("intro paragraph"),
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn composer_shrink_consumes_history_slack_before_native_transfer() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 40, 12).unwrap();
+
+    harness
+        .paste("expanded one\nexpanded two\nexpanded three\nexpanded four")
+        .unwrap();
+    let handle = harness.handle();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnStarted))
+        .unwrap();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::UserMessage {
+            text: "seed user".into(),
+        }))
+        .unwrap();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::AssistantDelta {
+            text: (1..=30)
+                .map(|row| format!("seed history row {row}\n"))
+                .collect::<String>(),
+        }))
+        .unwrap();
+    for _ in 0..700 {
+        while harness.step().unwrap() {}
+        harness.advance_time(Duration::from_millis(16)).unwrap();
+    }
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnFinished))
+        .unwrap();
+    for _ in 0..100 {
+        while harness.step().unwrap() {}
+        harness.advance_time(Duration::from_millis(16)).unwrap();
+    }
+    while harness.step().unwrap() {}
+    assert!(!harness.native_history_lines().is_empty());
+    assert!(
+        harness
+            .screen_lines()
+            .iter()
+            .any(|line| line.contains("expanded four")),
+        "composer must still be expanded before the shrink"
+    );
+
+    harness.key(KeyStroke::new(Key::Enter)).unwrap();
+    let screen = harness.screen_lines();
+    assert!(screen.last().is_some_and(|line| line.contains("effort")));
+    assert!(
+        screen.first().is_some_and(|line| !line.trim().is_empty()),
+        "first resident History row became blank slack\nscreen:\n{}",
+        screen.join("\n")
+    );
+
+    let initial_native_len = harness.native_history_lines().len();
+    let mut absorbed_rows = 0;
+    let mut native_grew = false;
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnStarted))
+        .unwrap();
+    while harness.step().unwrap() {}
+    for row in 1..=20 {
+        handle
+            .send(IyonAction::Backend(FrontendEvent::AssistantDelta {
+                text: format!("slack row {row}\n"),
+            }))
+            .unwrap();
+        for _ in 0..100 {
+            while harness.step().unwrap() {}
+            harness.advance_time(Duration::from_millis(16)).unwrap();
+        }
+        let native_len = harness.native_history_lines().len();
+        if native_len == initial_native_len {
+            absorbed_rows += 1;
+        } else {
+            native_grew = true;
+            break;
+        }
+    }
+    assert!(
+        absorbed_rows > 0,
+        "new History rows did not consume the capacity created by composer shrink"
+    );
+    assert!(
+        native_grew,
+        "native history never grew after the shrink-created slack was consumed"
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn long_no_wrap_code_does_not_pin_product_history() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 40, 8).unwrap();
+    let handle = harness.handle();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::TurnStarted))
+        .unwrap();
+    handle
+        .send(IyonAction::Backend(FrontendEvent::UserMessage {
+            text: "liveness user".into(),
+        }))
+        .unwrap();
+    while harness.step().unwrap() {}
+
+    for text in [
+        "intro paragraph\n\n",
+        "```rust\nthis_is_a_ridiculously_long_function_call();\n```\n\nAFTER\n\n",
+    ] {
+        handle
+            .send(IyonAction::Backend(FrontendEvent::AssistantDelta {
+                text: text.into(),
+            }))
+            .unwrap();
+        for _ in 0..500 {
+            while harness.step().unwrap() {}
+            harness.advance_time(Duration::from_millis(16)).unwrap();
+        }
+    }
+
+    let native_after_code = harness.native_history_lines().len();
+    let after_lines = transcript_lines(&harness);
+    assert!(
+        after_lines.iter().any(|line| line.contains("AFTER")),
+        "text after the long code block never became visible\n{}",
+        after_lines.join("\n")
+    );
+
+    let mut saw_native_growth_after_code = false;
+    let mut previous_native_len = native_after_code;
+    for index in 2..=14 {
+        handle
+            .send(IyonAction::Backend(FrontendEvent::AssistantDelta {
+                text: format!("AFTER{index}\n\n"),
+            }))
+            .unwrap();
+        for _ in 0..250 {
+            while harness.step().unwrap() {}
+            harness.advance_time(Duration::from_millis(16)).unwrap();
+        }
+        let native_len = harness.native_history_lines().len();
+        assert!(
+            native_len >= previous_native_len,
+            "native history regressed after stable paragraph AFTER{index}"
+        );
+        if native_len > previous_native_len {
+            saw_native_growth_after_code = true;
+        }
+        previous_native_len = native_len;
+        let lines = transcript_lines(&harness);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains(&format!("AFTER{index}"))),
+            "stable paragraph AFTER{index} never became visible\n{}",
+            lines.join("\n")
+        );
+    }
+    assert!(
+        saw_native_growth_after_code,
+        "native history stopped growing at the long NoWrap code block"
+    );
+    assert!(
+        harness.native_history_lines().len() > native_after_code,
+        "later stable assistant text never reached native history"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
