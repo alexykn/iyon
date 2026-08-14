@@ -28,7 +28,11 @@ pub(crate) use native::transfer_native_prefix;
 pub(crate) use native::{
     NativeTransferError, NativeTransferStatus, transfer_native_prefix_with_theme,
 };
-pub(crate) use projection::{HistoryPhysicalOverlay, project_into_session_for_host};
+#[cfg(test)]
+pub(crate) use projection::project_with_anchor;
+pub(crate) use projection::{
+    HistoryPhysicalOverlay, HistoryViewportAnchor, project_into_session_for_host,
+};
 pub(crate) use stream::ErasedHistoryStream;
 pub use stream::HistoryStreamHandle;
 pub(crate) use unit::{HistoryUnit, HistoryUnitContent};

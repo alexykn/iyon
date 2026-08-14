@@ -78,7 +78,7 @@ impl Scene {
 use crate::{
     component::{ComponentId, ComponentRegistry},
     geometry::Size,
-    history::{HistoryPhysicalOverlay, project_into_session_for_host},
+    history::{HistoryPhysicalOverlay, HistoryViewportAnchor, project_into_session_for_host},
     presentation::{
         ir::{ColumnChild, ColumnView, HeightRule, TrackSize, ViewKind, WidthRule},
         layout::measure_view,
@@ -99,10 +99,20 @@ pub(crate) struct ResolvedRootScene {
 
 /// Resolves a semantic root by resolving the body once and the root-level
 /// History independently, then merging both resolution domains in visual order.
+#[allow(dead_code)]
 pub(crate) fn resolve_root_scene(
+    scene: &Scene,
+    registry: &ComponentRegistry,
+    size: Size,
+) -> Result<ResolvedRootScene, ResolveError> {
+    resolve_root_scene_with_anchor(scene, registry, size, HistoryViewportAnchor::FollowEnd)
+}
+
+pub(crate) fn resolve_root_scene_with_anchor(
     root: &Scene,
     registry: &ComponentRegistry,
     size: Size,
+    anchor: HistoryViewportAnchor,
 ) -> Result<ResolvedRootScene, ResolveError> {
     let body_scene = resolve_branch(root.body(), registry)?;
     let body_height = measure_view(&body_scene.view, size.width)
@@ -120,6 +130,7 @@ pub(crate) fn resolve_root_scene(
                 history,
                 Size::new(size.width, history_height),
                 &mut session,
+                anchor,
             )?;
             (
                 Some(session.finish(projection.view)),

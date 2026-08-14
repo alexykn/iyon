@@ -42,7 +42,6 @@ pub(crate) struct NativeFrontier {
 }
 
 impl NativeFrontier {
-    #[allow(dead_code)]
     pub(crate) fn has_physical_rows(&self) -> bool {
         self.physical_rows_inserted != 0
     }
