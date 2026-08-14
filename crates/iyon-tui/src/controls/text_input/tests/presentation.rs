@@ -1,8 +1,11 @@
 use super::*;
 use crate::geometry::Size;
 use crate::physical::PhysicalStyle;
-use crate::presentation::{IntoView, layout::compile_view};
-use crate::{Component, View};
+use crate::presentation::{
+    IntoView,
+    layout::{compile_bounded_view, compile_view},
+};
+use crate::{BorderEdges, BorderSpec, Component, View};
 
 fn focused_view(text: &str) -> crate::presentation::View {
     let mut input = TextInput::new().multiline(true);
@@ -119,6 +122,28 @@ fn bounded_text_input_uses_width_for_vertical_motion_and_scroll() {
     let ranges = crate::presentation::wrap::input_wrap_ranges("abcdefghij", 4);
     input.move_up_in_rows_for_test(&ranges);
     assert_eq!(input.cursor_bytes(), 6);
+}
+
+#[test]
+fn bordered_bounded_text_input_scrolls_with_inner_height_and_keeps_cursor_visible() {
+    let mut input = TextInput::new()
+        .multiline(true)
+        .border(BorderSpec::plain().edges(BorderEdges::TOP_BOTTOM));
+    input.layout_size = Some(Size::new(5, 5));
+    input.focused = true;
+    input.insert_text("abcdefghijklm");
+
+    assert_eq!(input.scroll_row, 1);
+
+    let compiled = compile_bounded_view(&input.view(), Size::new(5, 5));
+    assert_eq!(compiled.rows.len(), 5);
+    let cursor_row = compiled
+        .rows
+        .iter()
+        .enumerate()
+        .find_map(|(row, physical)| has_reversed(physical).then_some(row))
+        .expect("focused input should render a reversed caret");
+    assert!((1..4).contains(&cursor_row));
 }
 
 #[test]

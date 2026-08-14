@@ -138,7 +138,7 @@ impl TextInput {
 
     fn move_up(&mut self) -> bool {
         let changed = if let Some(size) = self.layout_size {
-            let rows = input_wrap_ranges(self.text(), size.width);
+            let rows = input_wrap_ranges(self.text(), self.inner_size(size).width);
             self.buffer.move_up_in_rows(&rows)
         } else {
             let rows = self.buffer.logical_rows();
@@ -150,7 +150,7 @@ impl TextInput {
 
     fn move_down(&mut self) -> bool {
         let changed = if let Some(size) = self.layout_size {
-            let rows = input_wrap_ranges(self.text(), size.width);
+            let rows = input_wrap_ranges(self.text(), self.inner_size(size).width);
             self.buffer.move_down_in_rows(&rows)
         } else {
             let rows = self.buffer.logical_rows();
@@ -223,10 +223,23 @@ impl TextInput {
         input.repair_scroll();
     }
 
+    fn inner_size(&self, size: Size) -> Size {
+        let Some(border) = &self.border else {
+            return size;
+        };
+        Size::new(
+            size.width
+                .saturating_sub(border.left_width().saturating_add(border.right_width())),
+            size.height
+                .saturating_sub(border.top_height().saturating_add(border.bottom_height())),
+        )
+    }
+
     fn repair_scroll(&mut self) {
-        let Some(size) = self.layout_size else {
+        let Some(layout_size) = self.layout_size else {
             return;
         };
+        let size = self.inner_size(layout_size);
         if size.width == 0 || size.height == 0 {
             self.scroll_row = 0;
             return;
