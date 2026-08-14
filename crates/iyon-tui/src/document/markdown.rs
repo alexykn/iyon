@@ -13,10 +13,10 @@ use super::markdown_options::MarkdownOptions;
 use super::origin::stamp_block_origin;
 use super::source::RawDomain;
 use super::{
-    Alignment, Block, BreakKind, CodeBlock, FormatId, HeadingLevel, Image, Inline, InlineContent,
-    InlineKind, LanguageId, LinkTarget, List, ListItem, ListMarker, LiteralText, Mark, MarkSet,
-    NumberDelimiter, NumberStyle, Table, TableCell, TableColumn, TableRow, TextContent,
-    TextIrError, TextOrigin, TextProjectionError, TextRun, validate_text_projection,
+    Alignment, Block, BlockKind, BreakKind, CodeBlock, FormatId, HeadingLevel, Image, Inline,
+    InlineContent, InlineKind, LanguageId, LinkTarget, List, ListItem, ListMarker, LiteralText,
+    Mark, MarkSet, NumberDelimiter, NumberStyle, Table, TableCell, TableColumn, TableRow,
+    TextContent, TextIrError, TextOrigin, TextProjectionError, TextRun, validate_text_projection,
 };
 
 /// Errors raised while converting CommonMark events to generic text IR.
@@ -266,12 +266,7 @@ impl MarkdownProjector {
         domain: &RawDomain,
         parsed: &ParsedDomain,
     ) -> StreamOffset {
-        let mut last_semantic_start = domain.source_base();
-        for span in parsed.projection.spans() {
-            if !span.values().is_empty() {
-                last_semantic_start = span.source().start();
-            }
-        }
+        let last_semantic_start = open_block_start(parsed.projection.spans(), domain.source_base());
         if last_semantic_start == domain.source_base() {
             return domain.source_base();
         }
@@ -624,7 +619,7 @@ enum Frame {
         source: Range<usize>,
         marker: ListMarker,
         tight: bool,
-        items: Vec<ListItem>,
+        items: Vec<(Range<usize>, ListItem)>,
     },
     Item {
         source: Range<usize>,
@@ -872,7 +867,25 @@ impl<'a> Builder<'a> {
                 else {
                     return Err(MarkdownProjectionError::InvalidNesting { context: "list" });
                 };
-                self.add_block(source, Block::list(List::new(marker, tight, items)))
+                // Root lists are one Block per item so a closed item can leave
+                // the last-span (unstable) position while later items grow.
+                if matches!(self.frames.last(), Some(Frame::Root)) {
+                    for (index, (item_source, item)) in items.into_iter().enumerate() {
+                        self.add_block(
+                            item_source,
+                            Block::list(List::new(marker_for_item(marker, index), tight, [item])),
+                        )?;
+                    }
+                    return Ok(());
+                }
+                self.add_block(
+                    source,
+                    Block::list(List::new(
+                        marker,
+                        tight,
+                        items.into_iter().map(|(_, item)| item),
+                    )),
+                )
             }
             TagEnd::Item => {
                 let Frame::Item {
@@ -893,8 +906,7 @@ impl<'a> Builder<'a> {
                         context: "item parent",
                     });
                 };
-                items.push(item);
-                let _ = source;
+                items.push((source, item));
                 Ok(())
             }
             TagEnd::CodeBlock => {
@@ -1208,12 +1220,93 @@ impl<'a> Builder<'a> {
     }
 }
 
+// A GFM table is still open while the following span could be another row.
+// Caching it as stable splits the next row into a paragraph; a later one-shot
+// re-parse of the suffix merges them and breaks compaction identity.
+fn open_block_start(
+    spans: &[ProjectionSpan<TextContent>],
+    domain_base: StreamOffset,
+) -> StreamOffset {
+    let mut last_nonempty = None;
+    for span in spans {
+        if !span.values().is_empty() {
+            last_nonempty = Some(span);
+        }
+    }
+    let Some(last) = last_nonempty else {
+        return domain_base;
+    };
+    let mut open_start = last.source().start();
+    if !span_can_extend_table(last) {
+        return open_start;
+    }
+    for span in spans.iter().rev() {
+        if span.values().is_empty() {
+            continue;
+        }
+        if span.source().end() > last.source().start() {
+            continue;
+        }
+        if span_is_table(span) || span_can_extend_table(span) {
+            open_start = span.source().start();
+            continue;
+        }
+        break;
+    }
+    open_start
+}
+
+fn span_is_table(span: &ProjectionSpan<TextContent>) -> bool {
+    span.values().iter().any(|value| match value {
+        TextContent::Block(block) => matches!(block.kind(), BlockKind::Table(_)),
+        TextContent::Raw(_) => false,
+    })
+}
+
+fn span_can_extend_table(span: &ProjectionSpan<TextContent>) -> bool {
+    span_is_table(span)
+        || span.values().iter().any(|value| match value {
+            TextContent::Block(block) => is_pipe_paragraph(block),
+            TextContent::Raw(_) => false,
+        })
+}
+
+fn is_pipe_paragraph(block: &Block) -> bool {
+    let BlockKind::Paragraph(content) = block.kind() else {
+        return false;
+    };
+    let mut text = String::new();
+    for inline in content.iter() {
+        match inline.kind() {
+            InlineKind::Text(run) => text.push_str(run.text()),
+            InlineKind::Break(_) => text.push('\n'),
+            _ => return false,
+        }
+    }
+    text.lines().any(|line| line.trim_start().starts_with('|'))
+}
+
 fn convert_alignment(alignment: PdAlignment) -> Alignment {
     match alignment {
         PdAlignment::None => Alignment::Default,
         PdAlignment::Left => Alignment::Start,
         PdAlignment::Center => Alignment::Center,
         PdAlignment::Right => Alignment::End,
+    }
+}
+
+fn marker_for_item(marker: ListMarker, index: usize) -> ListMarker {
+    match marker {
+        ListMarker::Bullet => ListMarker::Bullet,
+        ListMarker::Ordered {
+            start,
+            style,
+            delimiter,
+        } => ListMarker::Ordered {
+            start: start.saturating_add(index as u64),
+            style,
+            delimiter,
+        },
     }
 }
 

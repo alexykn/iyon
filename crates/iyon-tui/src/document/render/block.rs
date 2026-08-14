@@ -93,7 +93,9 @@ impl TextRenderer {
             semantic_view_facts(context, TextRole::List, block.annotations()).list_kind(kind);
         let item_context = context.with_role(TextRole::List).with_list_kind(kind);
         let items = View::vertical(|column| {
-            column.gap(if list.tight() {
+            // Gap only exists between sibling items. A one-item list has none,
+            // so keep gap 0 even when the parent list was loose.
+            column.gap(if list.tight() || list.items().len() <= 1 {
                 0
             } else {
                 self.policy.block_gap()
