@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 use iyon_api::OpenAICodexModelApi;
 use iyon_core::{ModelSelection, tools::ToolHookSet};
 
-const DEFAULT_OPENROUTER_MODEL: &str = "deepseek/deepseek-v4-flash-0731";
+const DEFAULT_OPENROUTER_MODEL: &str = "deepseek/deepseek-v4-flash:latest";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProviderKind {
