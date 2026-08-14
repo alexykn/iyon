@@ -152,20 +152,18 @@ fn compile_stream_empty_hard_newline_row_produces_one_physical_blank_row() {
     );
 }
 
-// --- Fix 2: Atomic must not commit physically clipped content ---
-
 #[test]
-fn atomic_wide_grapheme_at_width_one_is_not_committable() {
+fn atomic_wide_grapheme_at_width_one_is_committable_when_stable() {
     let view = StreamView::atomic(
         StreamRange::new(StreamOffset::ZERO, StreamOffset::new("漢".len() as u64)),
         View::text("漢").into_view(),
     );
 
     let compiled = compile_stream(&view, 1, StreamOffset::new("漢".len() as u64));
-    assert_eq!(compiled.transferable_prefix_rows, 0);
+    assert_eq!(compiled.transferable_prefix_rows, 1);
     assert!(matches!(
         compiled.rows[0].transfer,
-        StreamRowTransfer::Blocked
+        StreamRowTransfer::Atomic { .. }
     ));
 }
 
@@ -242,17 +240,20 @@ fn atomic_nested_wide_grapheme_propagates_incompleteness() {
         0,
     );
     let boxed = inner.container();
+    let compiler = ViewCompiler::default();
+    let layout = compiler.compile(&boxed, 1);
+    // Physical incompleteness from "漢" must propagate through Column -> Box layout
+    assert!(!layout.physically_complete);
+
     let view = StreamView::atomic(
         StreamRange::new(StreamOffset::ZERO, StreamOffset::new(10)),
         boxed,
     );
 
     let compiled = compile_stream(&view, 1, StreamOffset::new(10));
-    // Physical incompleteness from "漢" must propagate through Column -> Box
-    assert_eq!(compiled.transferable_prefix_rows, 0);
+    assert_eq!(compiled.transferable_prefix_rows, compiled.rows.len());
     for row in &compiled.rows {
-        let c = &row.transfer;
-        assert!(matches!(c, StreamRowTransfer::Blocked));
+        assert!(matches!(row.transfer, StreamRowTransfer::Atomic { .. }));
     }
 }
 

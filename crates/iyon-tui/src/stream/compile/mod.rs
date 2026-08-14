@@ -85,7 +85,7 @@ pub(crate) fn compile_stream_with_theme(
                         rows.push(row.row);
                         let boundary = checkpoint_after_row(text, offset);
                         checkpoint = boundary;
-                        if !blocked && row.fits && boundary <= stable_through {
+                        if !blocked && boundary <= stable_through {
                             transfer.push(StreamRowTransfer::Checkpoint(boundary));
                             transferable_prefix_rows += 1;
                         } else {
@@ -99,8 +99,7 @@ pub(crate) fn compile_stream_with_theme(
                 next_atomic_id += 1;
                 let group = StreamAtomicId(next_atomic_id);
                 let layout = compiler.compile(view, width);
-                let all_safe =
-                    !blocked && range.end <= stable_through && layout.physically_complete;
+                let all_safe = !blocked && range.end <= stable_through;
                 if layout.rows.is_empty() {
                     if leading_zero_rows && all_safe {
                         zero_row_prefix = Some(range.end);
