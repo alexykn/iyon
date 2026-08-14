@@ -3,10 +3,9 @@ use std::ops::Range;
 
 use textwrap::Options;
 
-use crate::physical::PhysicalStyle;
+use crate::physical::{PhysicalStyle, grapheme_cell_width};
 use unicode_linebreak::{BreakOpportunity, linebreaks};
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::presentation::{
     WidthRule, WrapMode,
@@ -14,6 +13,10 @@ use crate::presentation::{
 };
 
 /// An atomic extended-grapheme cluster with style and optional source range.
+///
+/// `width` is canonical terminal-cell geometry, computed once at tokenization
+/// via [`crate::physical::grapheme_cell_width`]. Wrap, measure, paint, and
+/// cursor placement must use this stored value — not re-measure the text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StyledGrapheme<'a> {
     pub(crate) text: Cow<'a, str>,
@@ -46,73 +49,6 @@ impl<'a> WrappedLine<'a> {
             fits,
         }
     }
-}
-
-/// Terminal cell count for one extended grapheme cluster.
-///
-/// `unicode-width` reports 1 for keycaps (`4⃣`) and many VS-16 emoji (`☀️`),
-/// but terminals draw those as two cells. Under-counting makes a row wider
-/// than the backend thinks, so the terminal wraps and the next painted row
-/// overwrites the overflow.
-pub(crate) fn grapheme_display_width(text: &str) -> usize {
-    let measured = UnicodeWidthStr::width(text);
-    if measured == 0 {
-        return 0;
-    }
-    if occupies_two_cells(text) {
-        measured.max(2)
-    } else {
-        measured
-    }
-}
-
-pub(crate) fn display_width(text: &str) -> usize {
-    text.graphemes(true).map(grapheme_display_width).sum()
-}
-
-fn occupies_two_cells(text: &str) -> bool {
-    text.chars().any(|ch| {
-        matches!(
-            ch,
-            '\u{FE0F}'
-                | '\u{20E3}'
-                | '\u{200D}'
-                | '\u{231A}'..='\u{231B}'
-                | '\u{23E9}'..='\u{23EC}'
-                | '\u{23F0}'
-                | '\u{23F3}'
-                | '\u{25FD}'..='\u{25FE}'
-                | '\u{2614}'..='\u{2615}'
-                | '\u{2648}'..='\u{2653}'
-                | '\u{267F}'
-                | '\u{2693}'
-                | '\u{26A1}'
-                | '\u{26AA}'..='\u{26AB}'
-                | '\u{26BD}'..='\u{26BE}'
-                | '\u{26C4}'..='\u{26C5}'
-                | '\u{26CE}'
-                | '\u{26D4}'
-                | '\u{26EA}'
-                | '\u{26F2}'..='\u{26F3}'
-                | '\u{26F5}'
-                | '\u{26FA}'
-                | '\u{26FD}'
-                | '\u{2705}'
-                | '\u{270A}'..='\u{270B}'
-                | '\u{2728}'
-                | '\u{274C}'
-                | '\u{274E}'
-                | '\u{2753}'..='\u{2755}'
-                | '\u{2757}'
-                | '\u{2795}'..='\u{2797}'
-                | '\u{27B0}'
-                | '\u{27BF}'
-                | '\u{2B1B}'..='\u{2B1C}'
-                | '\u{2B50}'
-                | '\u{2B55}'
-                | '\u{1F000}'..='\u{1FFFF}'
-        )
-    })
 }
 
 /// Internal span fragment within a hard line.
@@ -167,7 +103,9 @@ fn tokenize_hard_line<'a>(fragments: Vec<SpanFragment<'a>>) -> Vec<StyledGraphem
         let frag = &fragments[0];
         let mut line = Vec::new();
         for (g_rel, g_text) in frag.slice.grapheme_indices(true) {
-            let width = grapheme_display_width(g_text);
+            // Width is calculated once per EGC and stored. Later wrap/paint
+            // steps must use `StyledGrapheme.width`, not re-measure the text.
+            let width = grapheme_cell_width(g_text);
             let src = frag
                 .source_start
                 .map(|base| (base + g_rel)..(base + g_rel + g_text.len()));
@@ -223,7 +161,7 @@ fn tokenize_hard_line<'a>(fragments: Vec<SpanFragment<'a>>) -> Vec<StyledGraphem
             Cow::Owned(g_text.to_string())
         };
 
-        let width = grapheme_display_width(g_text);
+        let width = grapheme_cell_width(g_text);
         line.push(StyledGrapheme {
             text,
             width,
@@ -466,6 +404,11 @@ fn wrap_line_word_then_grapheme<'a>(
 /// Computes the proven composer input ranges without depending on the
 /// application input module. The one reserved caret column and textwrap
 /// behavior intentionally match the legacy input contract.
+///
+/// `textwrap` still owns *where* input lines break (legacy composer). It has
+/// its own unicode-width. Remainder packing and caret x below use Iyon's
+/// canonical metric so we do not grow a third in-tree width table. Replacing
+/// `textwrap` with `wrap_styled_lines` is a follow-up, not this change.
 pub(crate) fn input_wrap_ranges(text: &str, width: u16) -> Vec<Range<usize>> {
     let wrap_width = usize::from(width.saturating_sub(1).max(1));
     let opts = Options::new(wrap_width).break_words(true);
@@ -583,17 +526,48 @@ fn cursor_position(
     rows: &mut Vec<WrappedLine<'_>>,
 ) -> (usize, usize) {
     let max_columns = max_columns.max(1);
-    let ranges = input_wrap_ranges(source, max_columns as u16);
-    let mut row = ranges
-        .partition_point(|range| range.start <= anchor.byte_offset)
-        .saturating_sub(1);
-    let line = &ranges[row];
-    let mut column = unicode_width::UnicodeWidthStr::width(&source[line.start..anchor.byte_offset]);
+    let caret = anchor.byte_offset;
+    let _ = source;
+
+    // Caret x is the sum of already-stored grapheme widths. A caret that sits
+    // in a gap (the newline between hard lines, or a wrap boundary) belongs at
+    // the end of the preceding row, not at column 0 of the next grapheme.
+    let mut last_end = (0usize, 0usize);
+    for (row_index, row) in rows.iter().enumerate() {
+        let mut column = 0usize;
+        for grapheme in &row.graphemes {
+            let Some(range) = grapheme.source.as_ref() else {
+                column = column.saturating_add(grapheme.width);
+                last_end = (row_index, column);
+                continue;
+            };
+            if caret < range.start {
+                return place_caret(last_end.0, last_end.1, max_columns, rows);
+            }
+            if caret < range.end {
+                // Inside an EGC: snap to the leading edge so the terminal never
+                // bisects a cluster.
+                return place_caret(row_index, column, max_columns, rows);
+            }
+            column = column.saturating_add(grapheme.width);
+            last_end = (row_index, column);
+        }
+        last_end = (row_index, column);
+    }
+
+    place_caret(last_end.0, last_end.1, max_columns, rows)
+}
+
+fn place_caret(
+    mut row: usize,
+    mut column: usize,
+    max_columns: usize,
+    rows: &mut Vec<WrappedLine<'_>>,
+) -> (usize, usize) {
     if column >= max_columns {
         row = row.saturating_add(1);
         column = 0;
     }
-
     while rows.len() <= row {
         rows.push(WrappedLine::new(
             Vec::new(),
@@ -618,20 +592,20 @@ fn push_input_remainder(
         let row_start = start;
         let mut row_end = start;
         let mut used = 0usize;
-        for (offset, character) in text[start..end].char_indices() {
-            let character_width = character.width().unwrap_or(0);
-            if row_end > row_start && used.saturating_add(character_width) > width {
+        for grapheme in text[start..end].graphemes(true) {
+            let grapheme_width = grapheme_cell_width(grapheme);
+            if row_end > row_start && used.saturating_add(grapheme_width) > width {
                 break;
             }
-            row_end = start + offset + character.len_utf8();
-            used = used.saturating_add(character_width);
+            row_end += grapheme.len();
+            used = used.saturating_add(grapheme_width);
         }
         if row_end == row_start {
-            let character = text[start..end]
-                .chars()
+            let grapheme = text[start..end]
+                .graphemes(true)
                 .next()
-                .expect("input remainder should contain a character");
-            row_end += character.len_utf8();
+                .expect("input remainder should contain a grapheme");
+            row_end += grapheme.len();
         }
         visual.push(row_start..row_end);
         start = row_end;
@@ -741,7 +715,7 @@ mod tests {
     }
 
     #[test]
-    fn emoji_keycaps_and_vs16_sequences_are_two_cells() {
+    fn emoji_widths_match_termwiz() {
         for sample in [
             "🥇",
             "🏅",
@@ -773,9 +747,9 @@ mod tests {
             assert_eq!(hard.len(), 1, "{sample:?}");
             assert_eq!(hard[0].len(), 1, "{sample:?} is one grapheme");
             assert_eq!(
-                hard[0][0].width, 2,
-                "{sample:?} must occupy two terminal cells (unicode-width={})",
-                unicode_width::UnicodeWidthStr::width(sample)
+                hard[0][0].width,
+                termwiz::cell::grapheme_column_width(sample, None),
+                "{sample:?} must use the canonical termwiz cell width"
             );
         }
     }
@@ -784,8 +758,14 @@ mod tests {
     fn medal_and_keycap_reserve_the_same_columns() {
         let medal = styled_hard_lines(vec![("🥇Inception", PhysicalStyle::default(), None)]);
         let keycap = styled_hard_lines(vec![("4⃣Mad Max", PhysicalStyle::default(), None)]);
-        assert_eq!(medal[0][0].width, 2);
-        assert_eq!(keycap[0][0].width, 2);
+        assert_eq!(
+            medal[0][0].width,
+            termwiz::cell::grapheme_column_width("🥇", None)
+        );
+        assert_eq!(
+            keycap[0][0].width,
+            termwiz::cell::grapheme_column_width("4⃣", None)
+        );
         let medal_text = medal[0][1].text.as_ref();
         let keycap_text = keycap[0][1].text.as_ref();
         assert_eq!(medal_text.chars().next(), Some('I'));
@@ -892,5 +872,14 @@ mod tests {
         assert_eq!(wrapped[1].graphemes[0].text.as_ref(), "字");
         assert_eq!(wrapped[1].width, 2);
         assert!(!wrapped[1].fits);
+    }
+
+    #[test]
+    fn nowrap_keeps_the_line_as_one_row_even_when_it_overflows() {
+        let hard = styled_hard_lines(vec![("ABC🐕‍🦺DEF", PhysicalStyle::default(), None)]);
+        let wrapped = wrap_styled_lines(&hard, 4, WrapMode::NoWrap);
+        assert_eq!(wrapped.len(), 1);
+        assert!(!wrapped[0].fits);
+        assert!(wrapped[0].width > 4);
     }
 }

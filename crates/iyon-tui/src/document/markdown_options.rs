@@ -6,6 +6,11 @@ pub struct MarkdownOptions {
     tables: bool,
     strikethrough: bool,
     task_lists: bool,
+    /// Iyon live-LLM heuristic: keep an unsealed GFM table as raw pipe source
+    /// until a closer. This is **not** GFM. Spec Example 202 allows a pipe-less
+    /// line to remain a short table row; a table ends on a blank line or a new
+    /// block. Enable this only in the assistant pipeline.
+    live_table_stabilization: bool,
 }
 
 impl MarkdownOptions {
@@ -15,6 +20,7 @@ impl MarkdownOptions {
             tables: false,
             strikethrough: false,
             task_lists: false,
+            live_table_stabilization: false,
         }
     }
 
@@ -30,6 +36,7 @@ impl MarkdownOptions {
             tables: true,
             strikethrough: true,
             task_lists: true,
+            live_table_stabilization: false,
         }
     }
 
@@ -48,6 +55,15 @@ impl MarkdownOptions {
         self
     }
 
+    /// Keep unsealed tables as raw pipe paragraphs until a product-defined closer.
+    ///
+    /// Not GFM grammar. Used by Iyon's assistant stream so a live table aligns
+    /// once, after the following line proves it cannot grow more `|` rows.
+    pub const fn with_live_table_stabilization(mut self, enabled: bool) -> Self {
+        self.live_table_stabilization = enabled;
+        self
+    }
+
     pub const fn tables(self) -> bool {
         self.tables
     }
@@ -58,6 +74,10 @@ impl MarkdownOptions {
 
     pub const fn task_lists(self) -> bool {
         self.task_lists
+    }
+
+    pub const fn live_table_stabilization(self) -> bool {
+        self.live_table_stabilization
     }
 
     pub(crate) fn pulldown(self) -> Options {

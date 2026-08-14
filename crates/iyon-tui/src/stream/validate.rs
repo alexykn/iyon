@@ -2,8 +2,6 @@
 
 use std::fmt;
 
-use unicode_width::UnicodeWidthStr;
-
 use super::{
     node::StreamNode,
     projected::{ProjectedText, ProjectedTextLayout},
@@ -115,7 +113,7 @@ pub(crate) fn validate_projected_text(
                 {
                     return Err(ProjectedValidationError::InvalidHangingPrefix);
                 }
-                if UnicodeWidthStr::width(prefix.as_str()) != usize::from(*body_column) {
+                if crate::physical::text_cell_width(prefix.as_str()) != usize::from(*body_column) {
                     return Err(ProjectedValidationError::HangingWidthMismatch);
                 }
                 prefix_source.end

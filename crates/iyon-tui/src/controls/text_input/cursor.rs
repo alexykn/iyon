@@ -1,13 +1,12 @@
 //! Cursor-related semantic helpers.
 //!
-//! These helpers deliberately use byte ranges plus Unicode display widths. A
-//! future layout bridge can provide soft-wrapped ranges without changing the
-//! editor's movement contract.
+//! Movement uses byte ranges plus the canonical terminal-cell metric so a
+//! display column matches painted cell columns.
 
 use std::ops::Range;
 
+use crate::physical::grapheme_cell_width;
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 pub(super) fn logical_line_ranges(text: &str) -> Vec<Range<usize>> {
     let mut rows = Vec::new();
@@ -35,7 +34,7 @@ pub(super) fn cursor_for_display_col(
 ) -> usize {
     let mut width = 0;
     for (offset, grapheme) in text[line_start..line_end].grapheme_indices(true) {
-        width += UnicodeWidthStr::width(grapheme);
+        width += grapheme_cell_width(grapheme);
         if width > target {
             return line_start + offset;
         }

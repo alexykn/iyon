@@ -162,13 +162,9 @@ pub(crate) fn compile_bounded_view(view: &View, size: Size) -> LayoutBlock {
     let tree = compiler.layout_tree(view, LayoutConstraints::bounded(size));
     let surface = ViewPainter.paint_tree(&compiler, &tree);
     let height = surface.height().min(size.height);
-    let mut bounded = Surface::new(surface.width().min(size.width), height);
-    bounded.physically_complete = tree.physically_complete && surface.physically_complete;
-    for y in 0..bounded.height() {
-        for x in 0..bounded.width() {
-            *bounded.get_mut(x, y) = surface.get(x, y).clone();
-        }
-    }
+    let cropped = surface.crop_to(surface.width().min(size.width), height);
+    let mut bounded = cropped;
+    bounded.physically_complete = tree.physically_complete && bounded.physically_complete;
     let physically_complete = bounded.physically_complete;
     LayoutBlock {
         width: bounded.width(),
@@ -183,7 +179,9 @@ fn lower_surface(surface: Surface) -> Vec<PhysicalRow> {
             let cells = (0..surface.width())
                 .map(|x| surface.get(x, y).clone())
                 .collect();
-            PhysicalRow::from_cells(cells)
+            let row = PhysicalRow::from_cells(cells);
+            debug_assert!(row.validate_cell_geometry().is_ok());
+            row
         })
         .collect()
 }

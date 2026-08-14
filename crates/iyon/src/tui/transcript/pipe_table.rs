@@ -8,9 +8,9 @@
 use iyon_tui::projection::{Projection, Projector};
 use iyon_tui::stream::{StreamOffset, StreamRange};
 use iyon_tui::text::{
-    Alignment, Block, BlockKind, InlineContent, InlineKind, List, ListItem, RewriteProjectionError,
-    Table, TableCell, TableColumn, TableRow, TextContent, TextIrError, TextProjectionError,
-    TextProvenance, TextRun, validate_text_projection,
+    Alignment, Block, BlockKind, InlineContent, InlineKind, List, ListItem, Mark,
+    RewriteProjectionError, Table, TableCell, TableColumn, TableRow, TextContent, TextIrError,
+    TextProjectionError, TextProvenance, TextRun, validate_text_projection,
 };
 
 pub(super) struct PipeTableRewriter;
@@ -126,9 +126,22 @@ fn table_from_pipe_paragraph(content: &InlineContent) -> Option<Table> {
         .map(|line| split_cells(line))
         .collect::<Option<_>>()?;
     let width = rows.first()?.len();
-    if width < 2 || rows.iter().any(|row| row.len() != width) {
+    if width < 2 {
         return None;
     }
+    // First accepted row establishes schema width. Later rows pad/truncate like
+    // GFM body rows (Example 204). One malformed LLM row must not reject the
+    // whole table. Ambiguous escapes/code pipes stay raw — this is not cmark.
+    let rows: Vec<Vec<String>> = rows
+        .into_iter()
+        .map(|mut row| {
+            row.truncate(width);
+            while row.len() < width {
+                row.push(String::new());
+            }
+            row
+        })
+        .collect();
 
     let (header_rows, alignments, body) = if rows.len() >= 3 && is_delimiter_row(&rows[1]) {
         let alignments = rows[1]
@@ -160,10 +173,34 @@ fn table_from_pipe_paragraph(content: &InlineContent) -> Option<Table> {
 
 fn pipe_lines(content: &InlineContent) -> Option<Vec<String>> {
     let mut lines = vec![String::new()];
+    // pulldown maps `\|` to Exact `|` whose range skips the backslash. A
+    // same-line source gap before a pipe is that escape; a Break resets the
+    // cursor so the `\n` before the next row is not mistaken for one.
+    let mut last_exact_end: Option<StreamOffset> = None;
     for inline in content.iter() {
         match inline.kind() {
-            InlineKind::Break(_) => lines.push(String::new()),
-            InlineKind::Text(run) => lines.last_mut()?.push_str(run.text()),
+            InlineKind::Break(_) => {
+                last_exact_end = None;
+                lines.push(String::new());
+            }
+            InlineKind::Text(run) => {
+                if inline.marks().contains(&Mark::Code) {
+                    return None;
+                }
+                match run.provenance() {
+                    TextProvenance::Derived(_) => return None,
+                    TextProvenance::Exact(range) => {
+                        if last_exact_end.is_some_and(|end| range.start() > end)
+                            && run.text().contains('|')
+                        {
+                            return None;
+                        }
+                        last_exact_end = Some(range.end());
+                    }
+                    TextProvenance::Synthetic => last_exact_end = None,
+                }
+                lines.last_mut()?.push_str(run.text());
+            }
             _ => return None,
         }
     }
@@ -184,11 +221,16 @@ fn split_cells(line: &str) -> Option<Vec<String>> {
     if line.len() < 3 || !line.starts_with('|') || !line.ends_with('|') {
         return None;
     }
+    // Escaped pipes and inline-code pipes are context-sensitive in GFM. This
+    // rewriter is a delimiter-less convenience, not a second Markdown parser.
+    if line.contains('\\') || line.contains('`') {
+        return None;
+    }
     let cells: Vec<String> = line[1..line.len() - 1]
         .split('|')
         .map(|cell| cell.trim().to_string())
         .collect();
-    (cells.len() >= 2).then_some(cells)
+    (!cells.is_empty()).then_some(cells)
 }
 
 fn is_delimiter_row(cells: &[String]) -> bool {

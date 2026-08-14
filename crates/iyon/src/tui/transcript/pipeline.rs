@@ -40,7 +40,9 @@ impl Default for AssistantPipeline {
     fn default() -> Self {
         Self {
             smoother: iyon_tui::Smooth::default(),
-            markdown: MarkdownProjector::new(MarkdownOptions::gfm()),
+            markdown: MarkdownProjector::new(
+                MarkdownOptions::gfm().with_live_table_stabilization(true),
+            ),
         }
     }
 }

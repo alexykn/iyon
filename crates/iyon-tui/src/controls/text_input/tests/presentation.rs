@@ -62,7 +62,7 @@ fn cursor_style_targets_one_physical_cell_without_splitting_graphemes() {
 }
 
 #[test]
-fn inside_egc_cursor_matches_legacy_physical_coordinates() {
+fn inside_egc_cursor_snaps_to_the_leading_edge() {
     for (text, cursor) in [
         ("👩\u{200d}💻", "👩".len()),
         ("🇺🇸", "🇺".len()),
@@ -86,8 +86,7 @@ fn inside_egc_cursor_matches_legacy_physical_coordinates() {
                     .map(|column| (column as u16, row as u16))
             });
         let expected = match text {
-            "👩\u{200d}💻" => Some((2, 0)),
-            "🇺🇸" | "e\u{301}" => Some((1, 0)),
+            "👩\u{200d}💻" | "🇺🇸" | "e\u{301}" => Some((0, 0)),
             _ => unreachable!(),
         };
         assert_eq!(new_cursor, expected, "text={text:?}");

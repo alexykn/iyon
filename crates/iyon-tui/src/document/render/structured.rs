@@ -26,8 +26,7 @@ fn style_at(view: &View, theme: &Theme, needle: &str) -> PhysicalStyle {
 fn style_at_width(view: &View, theme: &Theme, width: u16, needle: &str) -> PhysicalStyle {
     let painted = compile_view_with_theme(view, width, theme);
     for row in &painted.rows {
-        let text = row.plain_text();
-        if let Some(index) = text.find(needle) {
+        if let Some(index) = row.cell_x_of(needle) {
             return row.style_at(index).expect("painted cell");
         }
     }
@@ -44,7 +43,7 @@ fn style_at_width(view: &View, theme: &Theme, width: u16, needle: &str) -> Physi
 fn text_at(view: &View, width: u16, needle: &str) -> (u16, u16) {
     let block = compile_view(view, width);
     for (y, row) in block.rows.iter().enumerate() {
-        if let Some(x) = row.plain_text().find(needle) {
+        if let Some(x) = row.cell_x_of(needle) {
             return (x as u16, y as u16);
         }
     }

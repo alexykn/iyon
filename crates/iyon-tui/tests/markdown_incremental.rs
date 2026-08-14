@@ -5,6 +5,10 @@ use iyon_tui::{
     MarkdownOptions, MarkdownProjector, Projection, Projector, TextContent, TextOrigin,
 };
 
+fn iyon_gfm() -> MarkdownOptions {
+    MarkdownOptions::gfm().with_live_table_stabilization(true)
+}
+
 fn input(s: &str, stable: usize, sealed: bool) -> Projection<TextContent> {
     let b = StreamOffset::ZERO;
     let e = StreamOffset::new(s.len() as u64);
@@ -175,7 +179,7 @@ fn gfm_table_streaming_keeps_stable_prefix_honest() {
         "| A | B |\n|---|---|\n| 1 | 2 |",
     ];
     let final_source = stages[stages.len() - 1];
-    let mut projector = MarkdownProjector::new(MarkdownOptions::gfm());
+    let mut projector = MarkdownProjector::new(iyon_gfm());
     let mut previous = None;
     for stage in stages {
         let next = projector
@@ -214,7 +218,7 @@ fn gfm_table_streaming_keeps_stable_prefix_honest() {
 #[test]
 fn gfm_table_after_list_stays_one_table_while_streaming() {
     let source = "- item\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n\n> done\n";
-    let mut incremental = MarkdownProjector::new(MarkdownOptions::gfm());
+    let mut incremental = MarkdownProjector::new(iyon_gfm());
     for (index, ch) in source.char_indices() {
         let end = index + ch.len_utf8();
         let next = incremental
@@ -225,7 +229,7 @@ fn gfm_table_after_list_stays_one_table_while_streaming() {
     let live = incremental
         .project(&input(source, source.len(), false))
         .unwrap();
-    let mut fresh = MarkdownProjector::new(MarkdownOptions::gfm());
+    let mut fresh = MarkdownProjector::new(iyon_gfm());
     let oneshot = fresh.project(&input(source, source.len(), false)).unwrap();
     assert_eq!(
         kinds(&live),
@@ -318,4 +322,78 @@ fn live_markdown_guide_prefixes_stay_valid() {
             previous = Some(next);
         }
     }
+}
+
+fn project_gfm(source: &str, sealed: bool) -> Projection<TextContent> {
+    MarkdownProjector::new(MarkdownOptions::gfm())
+        .project(&input(source, source.len(), sealed))
+        .unwrap()
+}
+
+fn first_table(p: &Projection<TextContent>) -> &iyon_tui::text::Table {
+    blocks(p)
+        .into_iter()
+        .find_map(|block| match block.kind() {
+            BlockKind::Table(table) => Some(table),
+            _ => None,
+        })
+        .expect("expected a table")
+}
+
+#[test]
+fn gfm_example_203_mismatched_delimiter_is_not_a_table() {
+    // Spec: header and delimiter must have the same cell count.
+    let source = "| abc | def |\n| --- |\n| bar |\n";
+    let output = project_gfm(source, true);
+    assert!(
+        blocks(&output)
+            .iter()
+            .all(|block| !matches!(block.kind(), BlockKind::Table(_))),
+        "mismatched delimiter is not a GFM table: {:?}",
+        kinds(&output)
+    );
+}
+
+#[test]
+fn gfm_example_204_pads_short_body_rows_and_truncates_long_ones() {
+    let source = "| abc | def |\n| --- | --- |\n| bar |\n| bar | baz | boo |\n";
+    let output = project_gfm(source, true);
+    let table = first_table(&output);
+    assert_eq!(table.columns().len(), 2);
+    let widths: Vec<usize> = table.rows().iter().map(|row| row.cells().len()).collect();
+    assert_eq!(widths, vec![2, 2, 2], "every body row is schema-wide");
+}
+
+#[test]
+fn gfm_example_202_pipe_less_line_stays_a_short_table_row() {
+    // Spec: a pipe-less line is still a table body row, padded with empty cells.
+    let source = "| abc | def |\n| --- | --- |\nbar\n";
+    let output = project_gfm(source, true);
+    let table = first_table(&output);
+    assert_eq!(table.columns().len(), 2);
+    assert_eq!(table.rows().len(), 2);
+    assert_eq!(table.rows()[1].cells().len(), 2);
+}
+
+#[test]
+fn live_table_stabilization_keeps_unsealed_tables_raw() {
+    let source = "| abc | def |\n| --- | --- |\n| 1 | 2 |\n";
+    let live = MarkdownProjector::new(MarkdownOptions::gfm().with_live_table_stabilization(true))
+        .project(&input(source, source.len(), false))
+        .unwrap();
+    assert!(
+        blocks(&live)
+            .iter()
+            .all(|block| !matches!(block.kind(), BlockKind::Table(_))),
+        "Iyon live policy keeps an unclosed table as raw pipes: {:?}",
+        kinds(&live)
+    );
+    let strict = project_gfm(source, false);
+    assert!(
+        blocks(&strict)
+            .iter()
+            .any(|block| matches!(block.kind(), BlockKind::Table(_))),
+        "strict GFM emits a table as soon as pulldown does: {:?}",
+        kinds(&strict)
+    );
 }

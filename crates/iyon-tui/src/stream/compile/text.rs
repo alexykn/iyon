@@ -68,7 +68,7 @@ impl ViewCompiler {
             let base_context = context.for_descendant();
             let (_, body_rows) =
                 self.compile_projected_text_with_style(&body, body_width, inherited, &base_context);
-            let prefix_width = crate::presentation::wrap::display_width(prefix);
+            let prefix_width = crate::physical::text_cell_width(prefix);
             let mut rows = Vec::with_capacity(body_rows.len());
             for (index, mut row) in body_rows.into_iter().enumerate() {
                 let indent = if index == 0 && *show_prefix {
@@ -142,7 +142,7 @@ fn projected_hard_lines(
     for atom in projected_atoms(text) {
         let mapped = StyledGrapheme {
             text: Cow::Owned(atom.display.clone()),
-            width: crate::presentation::wrap::grapheme_display_width(atom.display.as_str()),
+            width: crate::physical::text_cell_width(atom.display.as_str()),
             style: theme.resolve_text_style(
                 inherited,
                 &atom.style,

@@ -7,7 +7,6 @@ use std::{
 };
 
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 /// Vertical alignment for children in a horizontal composition.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -791,7 +790,7 @@ impl BorderGlyphs {
             ("bottom_right", &bottom_right),
         ] {
             let graphemes = glyph.graphemes(true).count();
-            let width = UnicodeWidthStr::width(glyph.as_str());
+            let width = crate::physical::text_cell_width(glyph.as_str());
             if graphemes != 1 || width != 1 {
                 return Err(BorderGlyphError {
                     field,

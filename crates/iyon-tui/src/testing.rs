@@ -175,13 +175,49 @@ pub struct PaintedFlags {
     pub fg_rgb: Option<(u8, u8, u8)>,
 }
 
+/// Physical cell column of the first leader whose visible text contains `needle`.
+///
+/// Unlike `str::find`, this is a terminal column, not a UTF-8 byte offset.
+#[doc(hidden)]
+pub fn cell_x_of_text(view: &View, width: u16, needle: &str) -> usize {
+    cell_x_of_text_matching(view, width, needle, |_| true)
+}
+
+/// Like [`cell_x_of_text`], but only searches rows whose plain text matches `pred`.
+#[doc(hidden)]
+pub fn cell_x_of_text_matching(
+    view: &View,
+    width: u16,
+    needle: &str,
+    pred: impl Fn(&str) -> bool,
+) -> usize {
+    let block =
+        crate::presentation::layout::compile_view_with_theme(view, width, &crate::Theme::default());
+    for row in &block.rows {
+        let text = row.plain_text();
+        if !pred(&text) {
+            continue;
+        }
+        if let Some(x) = row.cell_x_of(needle) {
+            return x;
+        }
+    }
+    panic!(
+        "did not find {needle:?} in {:?}",
+        block
+            .rows
+            .iter()
+            .map(PhysicalRow::plain_text)
+            .collect::<Vec<_>>()
+    );
+}
+
 #[doc(hidden)]
 pub fn style_at_text(view: &View, width: u16, theme: &Theme, needle: &str) -> PaintedFlags {
     let block = crate::presentation::layout::compile_view_with_theme(view, width, theme);
     for row in &block.rows {
-        let text = row.plain_text();
-        if let Some(index) = text.find(needle) {
-            let style = row.cells()[index].style;
+        if let Some(index) = row.cell_x_of(needle) {
+            let style = row.style_at(index).expect("painted cell");
             let fg_rgb = match style.foreground {
                 Some(PhysicalColor::Rgb { r, g, b }) => Some((r, g, b)),
                 _ => None,
