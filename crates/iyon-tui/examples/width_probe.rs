@@ -36,6 +36,8 @@ const CORPUS: &[&str] = &[
     "👩‍🔬",
     "🐕‍🦺",
     "👨‍👩‍👧‍👦",
+    "👋🏻",
+    "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
 ];
 
 fn iyon_width(grapheme: &str) -> usize {

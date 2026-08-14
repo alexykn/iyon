@@ -11,6 +11,12 @@ pub(crate) struct FrozenPhysicalRows(pub(crate) Vec<PhysicalRow>);
 
 impl FrozenPhysicalRows {
     pub(crate) fn new(rows: Vec<PhysicalRow>) -> Self {
+        debug_assert!(
+            rows.iter().all(|row| row.validate_cell_geometry().is_ok()),
+            "frozen History rows must be wide-cell valid: {:?}",
+            rows.iter()
+                .find_map(|row| row.validate_cell_geometry().err())
+        );
         Self(rows)
     }
 

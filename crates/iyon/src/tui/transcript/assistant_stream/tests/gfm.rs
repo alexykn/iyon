@@ -527,6 +527,29 @@ fn live_gfm_table_evolution_converges_with_one_shot() {
 }
 
 #[test]
+fn open_table_stays_behind_stable_through_so_native_history_cannot_freeze_it() {
+    let mut stream = AssistantStream::new();
+    stream.push_delta_paced(
+        SegmentKind::Text,
+        "Hello\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n",
+    );
+    drain_pacing(&mut stream);
+    let snapshot = stream.snapshot();
+    let table_start = "Hello\n\n".len() as u64;
+    assert!(
+        snapshot.stable_through().as_u64() <= table_start,
+        "open table must remain past stable_through: stable={:?} table_start={table_start}",
+        snapshot.stable_through()
+    );
+    assert!(
+        blocks(&stream)
+            .iter()
+            .all(|block| !matches!(block.kind(), BlockKind::Table(_))),
+        "open table source must still be raw pipes"
+    );
+}
+
+#[test]
 fn split_strikethrough_delimiter_seals_without_stale_markers() {
     let mut stream = stream_with(&[
         (SegmentKind::Text, "before ~~ol"),

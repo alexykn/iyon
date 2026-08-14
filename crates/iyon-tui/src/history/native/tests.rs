@@ -1408,3 +1408,130 @@ fn stream_and_projection_agree_when_padding_leaves_no_content_width() {
     transfer(&mut history, &mut sink, 3, 8);
     assert_eq!(sink.rows, expected);
 }
+
+#[derive(Clone)]
+struct RevisableTableSource {
+    state: Rc<RefCell<RevisableTableState>>,
+}
+
+struct RevisableTableState {
+    snapshot: StreamSnapshot,
+    sealed: bool,
+}
+
+const TABLE_PREFIX: &str = "intro\n";
+const RAW_TABLE: &str = "| A | B |\n| 1 | 2 |\n";
+const GRID_TABLE: &str = "A    B\n1    2";
+
+fn table_start() -> u64 {
+    TABLE_PREFIX.len() as u64
+}
+
+fn table_end() -> u64 {
+    table_start() + RAW_TABLE.len() as u64
+}
+
+fn table_snapshot(revision: u64, closed: bool) -> StreamSnapshot {
+    let start = StreamOffset::new(table_start());
+    let end = StreamOffset::new(table_end());
+    let stable = if closed {
+        end
+    } else {
+        StreamOffset::new(table_start())
+    };
+    let table = if closed {
+        View::text(GRID_TABLE).into_view()
+    } else {
+        View::text(RAW_TABLE).into_view()
+    };
+    StreamSnapshotBuilder::new(
+        StreamRevision::new(revision),
+        StreamOffset::ZERO,
+        stable,
+        end,
+    )
+    .exact_text(
+        StreamRange::new(StreamOffset::ZERO, start),
+        [TextSpan::plain(TABLE_PREFIX)],
+    )
+    .atomic(StreamRange::new(start, end), table)
+    .unwrap()
+    .finish()
+    .unwrap()
+}
+
+impl RevisableTableSource {
+    fn new() -> Self {
+        Self {
+            state: Rc::new(RefCell::new(RevisableTableState {
+                snapshot: table_snapshot(0, false),
+                sealed: false,
+            })),
+        }
+    }
+
+    fn close_table(&mut self) {
+        let mut state = self.state.borrow_mut();
+        state.snapshot = table_snapshot(state.snapshot.revision.as_u64() + 1, true);
+    }
+}
+
+impl StreamingSource for RevisableTableSource {
+    fn snapshot(&self) -> StreamSnapshot {
+        self.state.borrow().snapshot.clone()
+    }
+
+    fn seal(&mut self) {
+        let mut state = self.state.borrow_mut();
+        state.sealed = true;
+        state.snapshot.stable_through = state.snapshot.source_end;
+        state.snapshot.revision = state.snapshot.revision.next();
+    }
+
+    fn is_sealed(&self) -> bool {
+        self.state.borrow().sealed
+    }
+}
+
+#[test]
+fn native_history_does_not_transfer_a_range_that_can_still_change_shape() {
+    let mut history = History::new();
+    let handle = history.push_stream(RevisableTableSource::new()).unwrap();
+    let mut sink = TestSink::default();
+    transfer_native_prefix(&mut history, &mut sink, 40, 40).unwrap();
+
+    let committed = history
+        .native
+        .stream
+        .as_ref()
+        .map(|state| state.committed_through)
+        .unwrap_or(StreamOffset::ZERO);
+    assert!(
+        committed.as_u64() <= table_start(),
+        "open table source {committed:?} must not enter native History"
+    );
+    assert!(
+        sink.rows
+            .iter()
+            .all(|row| !row.plain_text().contains("A    B")),
+        "Grid shape must not appear before the table range is stable"
+    );
+    let frozen_prefix = sink.rows.clone();
+
+    history
+        .update_stream(handle, |source| source.close_table())
+        .unwrap();
+    transfer_native_prefix(&mut history, &mut sink, 40, 40).unwrap();
+
+    assert_eq!(
+        &sink.rows[..frozen_prefix.len()],
+        frozen_prefix.as_slice(),
+        "already-transferred native rows must not change when the suffix is reinterpreted"
+    );
+    assert!(
+        sink.rows
+            .iter()
+            .any(|row| row.plain_text().contains("A    B")),
+        "once stable, the table range may transfer as its final Grid shape"
+    );
+}
