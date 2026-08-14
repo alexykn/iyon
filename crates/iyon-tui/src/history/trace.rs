@@ -39,6 +39,7 @@ macro_rules! trace_event {
     };
 }
 
+#[cfg(test)]
 pub(crate) use trace_event;
 
 /// Emit a projection-state trace line.
