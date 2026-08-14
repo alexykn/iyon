@@ -18,7 +18,7 @@ impl TextInput {
     }
 
     pub(super) fn semantic_view(&self) -> View {
-        let Some(size) = self.layout_size else {
+        let Some(layout_size) = self.layout_size else {
             let text =
                 View::text(self.buffer.text().to_owned()).wrap(crate::WrapMode::WordThenGrapheme);
             return self.decorated(if self.focused {
@@ -28,6 +28,7 @@ impl TextInput {
             });
         };
 
+        let size = self.inner_size(layout_size);
         if size.width == 0 || size.height == 0 {
             return self.decorated(View::vertical(|_| {}).fill_width().fill_height());
         }
