@@ -54,6 +54,10 @@ fn multiline_enter_and_single_line_enter_have_distinct_meanings() {
 
     let multi = TextInput::new().multiline(true);
     assert_eq!(
+        command_for_key(&multi, key(Key::Enter)),
+        Some(TextInputCommand::Submit)
+    );
+    assert_eq!(
         command_for_key(&multi, modified(Key::Enter, Modifiers::SHIFT)),
         Some(TextInputCommand::InsertNewline)
     );
