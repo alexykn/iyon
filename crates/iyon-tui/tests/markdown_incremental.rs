@@ -203,3 +203,81 @@ fn gfm_table_streaming_keeps_stable_prefix_honest() {
             .any(|block| matches!(block.kind(), BlockKind::Table(_)))
     );
 }
+
+#[test]
+fn thematic_break_inside_blockquote_is_nested_not_overlapping() {
+    let source = "> quote\n>\n> ---\n";
+    let mut projector = MarkdownProjector::new(MarkdownOptions::gfm());
+    let output = projector
+        .project(&input(source, source.len(), true))
+        .unwrap();
+    let blocks = blocks(&output);
+    assert_eq!(blocks.len(), 1, "{:?}", kinds(&output));
+    match blocks[0].kind() {
+        BlockKind::BlockQuote { blocks: inner } => {
+            assert!(
+                inner
+                    .iter()
+                    .any(|block| matches!(block.kind(), BlockKind::ThematicBreak)),
+                "{inner:?}"
+            );
+        }
+        other => panic!("expected blockquote, got {other:?}"),
+    }
+}
+
+#[test]
+fn live_markdown_guide_prefixes_stay_valid() {
+    let sources = [
+        concat!(
+            "What is Markdown?\n\n",
+            "---\n\n",
+            "```markdown\n",
+            "# H1 Heading\n",
+            "## H2 Heading\n",
+            "### H3 Heading\n\n",
+            "Emphasis\n\n",
+            "- Bold → **bold**\n",
+            "- Italic → *italic*\n",
+            "-",
+        ),
+        concat!(
+            "> This is a blockquote.\n",
+            "> It can span multiple lines.\n",
+            ">\n",
+            "> > And it can be nested.\n\n",
+            "> Tip: remember bold vs italic.\n\n",
+            "---\n\n",
+            "- First item\n",
+            "- Second item\n\n",
+            "  - Nested item\n",
+            "- Third item\n",
+        ),
+        "> quote\n>\n> ---\n",
+        "- Bold → **bold**\n- Italic → *italic*\n-",
+        "*italic*\n**bold**\n-",
+        "```markdown\n# H1 Heading\n",
+    ];
+    for source in sources {
+        let mut projector = MarkdownProjector::new(MarkdownOptions::gfm());
+        let mut previous = None;
+        for end in 1..=source.len() {
+            if !source.is_char_boundary(end) {
+                continue;
+            }
+            let next = projector
+                .project(&input(&source[..end], end, false))
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "prefix {end} of {source:?} failed: {error:?}\n{:?}",
+                        &source[..end]
+                    )
+                });
+            validate_text_projection(&next).unwrap();
+            if let Some(previous) = &previous {
+                validate_projection_transition(previous, &next).unwrap();
+            }
+            previous = Some(next);
+        }
+    }
+}
