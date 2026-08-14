@@ -203,7 +203,7 @@ pub(crate) fn text_flow<'a>(
         WidthRule::Fit => intrinsic_width.min(usize::from(max_width)) as u16,
         WidthRule::Fill => max_width,
     };
-    let mut rows = if source.filter(|_| text.cursor.is_some()).is_some() {
+    let mut rows = if source.is_some() && text.cursor.is_some() && text.wrap != WrapMode::NoWrap {
         wrap_input_styled_lines(&hard_lines, width)
     } else {
         wrap_styled_lines(&hard_lines, width, text.wrap)
@@ -551,7 +551,9 @@ fn place_caret(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::View;
     use crate::physical::PhysicalColor;
+    use crate::presentation::{IntoView, layout::compile_view};
     fn fg(color: PhysicalColor) -> PhysicalStyle {
         PhysicalStyle {
             foreground: Some(color),
@@ -600,6 +602,45 @@ mod tests {
         assert_eq!(ranges.len(), 2, "{ranges:?}");
         assert_eq!(ranges[0], 0..sun.len());
         assert_eq!(ranges[1], sun.len()..source.len());
+    }
+
+    #[test]
+    fn no_wrap_cursor_movement_does_not_rewrap_the_row() {
+        let text = "it jump now ";
+        let compiled = [2, 7, 11]
+            .into_iter()
+            .map(|cursor| {
+                compile_view(
+                    &View::text(text).no_wrap().cursor_at(cursor).into_view(),
+                    12,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let plain_rows = compiled
+            .iter()
+            .map(|view| {
+                view.rows
+                    .iter()
+                    .map(|row| row.plain_text())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert!(plain_rows.windows(2).all(|rows| rows[0] == rows[1]));
+        assert_eq!(plain_rows[0], vec!["it jump now "]);
+
+        let reversed_columns = compiled
+            .iter()
+            .map(|view| {
+                view.rows[0]
+                    .cells()
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(column, cell)| cell.style.reversed.then_some(column))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(reversed_columns, vec![vec![2], vec![7], vec![11]]);
     }
 
     #[test]
