@@ -1,6 +1,10 @@
-use iyon_tui::projection::ProjectionBuilder;
+use iyon_tui::projection::{ProjectionBuilder, validate_projection_transition};
 use iyon_tui::stream::{StreamOffset, StreamRange};
-use iyon_tui::{MarkdownProjector, Projection, Projector, TextContent};
+use iyon_tui::text::{BlockKind, Mark, validate_text_projection};
+use iyon_tui::{
+    MarkdownOptions, MarkdownProjector, Projection, Projector, TextContent, TextOrigin,
+};
+
 fn input(s: &str, stable: usize, sealed: bool) -> Projection<TextContent> {
     let b = StreamOffset::ZERO;
     let e = StreamOffset::new(s.len() as u64);
@@ -10,6 +14,7 @@ fn input(s: &str, stable: usize, sealed: bool) -> Projection<TextContent> {
         .finish()
         .unwrap()
 }
+
 fn kinds(p: &Projection<TextContent>) -> Vec<String> {
     p.spans()
         .iter()
@@ -20,6 +25,42 @@ fn kinds(p: &Projection<TextContent>) -> Vec<String> {
         })
         .collect()
 }
+
+fn blocks(p: &Projection<TextContent>) -> Vec<&iyon_tui::Block> {
+    p.spans()
+        .iter()
+        .flat_map(|span| span.values())
+        .filter_map(|value| match value {
+            TextContent::Block(block) => Some(block),
+            TextContent::Raw(_) => None,
+        })
+        .collect()
+}
+
+fn one_shot_equals_incremental(options: MarkdownOptions, source: &str, cuts: &[usize]) {
+    let mut fresh = MarkdownProjector::new(options);
+    let sealed = fresh.project(&input(source, source.len(), true)).unwrap();
+    let mut incremental = MarkdownProjector::new(options);
+    let mut previous = None;
+    for &end in cuts {
+        if end == 0 || end > source.len() || !source.is_char_boundary(end) {
+            continue;
+        }
+        let next = incremental
+            .project(&input(&source[..end], end, false))
+            .unwrap();
+        validate_text_projection(&next).unwrap();
+        if let Some(previous) = &previous {
+            validate_projection_transition(previous, &next).unwrap();
+        }
+        previous = Some(next);
+    }
+    let finished = incremental
+        .project(&input(source, source.len(), true))
+        .unwrap();
+    assert_eq!(finished, sealed);
+}
+
 #[test]
 fn setext_stays_mutable_until_seal() {
     let mut m = MarkdownProjector::default();
@@ -30,6 +71,7 @@ fn setext_stays_mutable_until_seal() {
     let c = m.project(&input("Foo\n---\n", 8, true)).unwrap();
     assert_eq!(c.stable_through(), c.source_end());
 }
+
 #[test]
 fn references_are_parsed_and_incremental_seal_converges() {
     let source = "[foo]\n\n[foo]: /url\n";
@@ -44,9 +86,6 @@ fn references_are_parsed_and_incremental_seal_converges() {
 
 #[test]
 fn incremental_and_cached_parses_preserve_origin_metadata() {
-    use iyon_tui::TextOrigin;
-    use iyon_tui::text::BlockKind;
-
     let source = "# Hello\n\n- **hello**\n";
     let mut incremental = MarkdownProjector::default();
     let _ = incremental
@@ -71,4 +110,96 @@ fn incremental_and_cached_parses_preserve_origin_metadata() {
             }
         }
     }
+}
+
+#[test]
+fn gfm_incremental_matches_one_shot_for_table_task_and_strike() {
+    let source =
+        "| Item | State |\n| --- | --- |\n| ~~old~~ | active |\n\n- [x] complete\n- [ ] pending\n";
+    one_shot_equals_incremental(
+        MarkdownOptions::gfm(),
+        source,
+        &[
+            1,
+            source.find("State").unwrap(),
+            source.find("---").unwrap(),
+            source.find("old").unwrap(),
+            source.find("complete").unwrap(),
+            source.len(),
+        ],
+    );
+    let mut projector = MarkdownProjector::new(MarkdownOptions::gfm());
+    let output = projector
+        .project(&input(source, source.len(), true))
+        .unwrap();
+    let table = blocks(&output)
+        .into_iter()
+        .find_map(|block| match block.kind() {
+            BlockKind::Table(table) => Some(table),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(table.header_rows(), 1);
+    let list = blocks(&output)
+        .into_iter()
+        .find_map(|block| block.as_list())
+        .unwrap();
+    assert_eq!(list.items()[0].checked(), Some(true));
+    let struck = blocks(&output).into_iter().any(|block| match block.kind() {
+        BlockKind::Table(table) => table.rows().iter().any(|row| {
+            row.cells().iter().any(|cell| {
+                cell.blocks().iter().any(|block| match block.kind() {
+                    BlockKind::Paragraph(content) => content.iter().any(|inline| {
+                        inline
+                            .marks()
+                            .marks()
+                            .iter()
+                            .any(|mark| matches!(mark, Mark::Strikethrough))
+                    }),
+                    _ => false,
+                })
+            })
+        }),
+        _ => false,
+    });
+    assert!(struck);
+}
+
+#[test]
+fn gfm_table_streaming_keeps_stable_prefix_honest() {
+    let stages = [
+        "| A",
+        "| A | B",
+        "| A | B |",
+        "| A | B |\n|---|---|",
+        "| A | B |\n|---|---|\n| 1 | 2 |",
+    ];
+    let final_source = stages[stages.len() - 1];
+    let mut projector = MarkdownProjector::new(MarkdownOptions::gfm());
+    let mut previous = None;
+    for stage in stages {
+        let next = projector
+            .project(&input(stage, stage.len(), false))
+            .unwrap();
+        validate_text_projection(&next).unwrap();
+        if let Some(previous) = &previous {
+            validate_projection_transition(previous, &next).unwrap();
+        }
+        let restart = projector.restart_from(next.stable_through());
+        assert!(restart <= next.stable_through());
+        previous = Some(next);
+    }
+    let sealed = projector
+        .project(&input(final_source, final_source.len(), true))
+        .unwrap();
+    let mut fresh = MarkdownProjector::new(MarkdownOptions::gfm());
+    let batch = fresh
+        .project(&input(final_source, final_source.len(), true))
+        .unwrap();
+    assert_eq!(sealed, batch);
+    assert!(
+        blocks(&sealed)
+            .iter()
+            .any(|block| matches!(block.kind(), BlockKind::Table(_)))
+    );
 }

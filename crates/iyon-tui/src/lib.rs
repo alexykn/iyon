@@ -97,10 +97,10 @@ pub use application::{
 pub use component::{Component, ComponentCx, ComponentHandle};
 pub use controls::{TextChange, TextInput};
 pub use document::{
-    Block, HeadingLevel, Inline, InlineContent, MarkdownOptions, MarkdownProjector,
-    PlainTextProjector, RawText, Renderer, SoftBreakPolicy, TextContent, TextListKind, TextOrigin,
-    TextPart, TextRenderPolicy, TextRenderer, TextRole, TextSelector, TextTableSection,
-    TextTaskState,
+    Block, CodeBlockLabelPolicy, HeadingLevel, Inline, InlineContent, MarkdownOptions,
+    MarkdownProjector, PlainTextProjector, RawText, Renderer, SoftBreakPolicy, TableColumnSizing,
+    TaskListMarkerPolicy, TextContent, TextListKind, TextOrigin, TextPart, TextRenderPolicy,
+    TextRenderer, TextRole, TextSelector, TextTableSection, TextTaskState,
 };
 pub use history::{
     FlowBoundary, History, HistoryError, HistoryLayout, HistoryStreamHandle, HistoryUnitId,

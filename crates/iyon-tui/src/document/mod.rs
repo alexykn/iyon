@@ -30,7 +30,10 @@ pub use markdown_options::MarkdownOptions;
 pub use origin::TextOrigin;
 pub use plain::PlainTextProjector;
 pub use provenance::{LiteralText, TextProvenance, TextRun};
-pub use render::{Renderer, SoftBreakPolicy, TextRenderPolicy, TextRenderer};
+pub use render::{
+    CodeBlockLabelPolicy, Renderer, SoftBreakPolicy, TableColumnSizing, TaskListMarkerPolicy,
+    TextRenderPolicy, TextRenderer,
+};
 #[allow(unused_imports)]
 pub(crate) use style::{TEXT_THEME_KEY, TextFacts, text_style_ref};
 pub use style::{TextListKind, TextPart, TextRole, TextSelector, TextTableSection, TextTaskState};
