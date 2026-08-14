@@ -55,9 +55,13 @@ impl AssistantPipeline {
             .markdown
             .project(&raw)
             .map_err(AssistantPipelineError::Markdown)?;
-        AssistantThinkingRewriter::new(&paced)
+        let tables = super::pipe_table::PipeTableRewriter
             .into_projector()
             .project(&markdown)
+            .map_err(AssistantPipelineError::Annotation)?;
+        AssistantThinkingRewriter::new(&paced)
+            .into_projector()
+            .project(&tables)
             .map_err(AssistantPipelineError::Annotation)
     }
 
@@ -241,7 +245,7 @@ fn assistant_render_policy() -> TextRenderPolicy {
     TextRenderPolicy::new()
         .with_block_gap(1)
         .with_soft_break(SoftBreakPolicy::LineBreak)
-        .with_table_column_sizing(TableColumnSizing::Flex)
+        .with_table_column_sizing(TableColumnSizing::Content)
         .with_table_column_gap(1)
         .with_table_row_gap(0)
         .with_task_list_marker(TaskListMarkerPolicy::TaskOnly)

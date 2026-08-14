@@ -1,4 +1,5 @@
 pub(crate) mod assistant_stream;
+mod pipe_table;
 pub(crate) mod pipeline;
 pub(crate) mod semantic;
 

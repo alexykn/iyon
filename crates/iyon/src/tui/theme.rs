@@ -273,7 +273,7 @@ mod tests {
         let policy = assistant_renderer().policy().clone();
         assert_eq!(policy.block_gap(), 1);
         assert_eq!(policy.soft_break(), SoftBreakPolicy::LineBreak);
-        assert_eq!(policy.table_column_sizing(), TableColumnSizing::Flex);
+        assert_eq!(policy.table_column_sizing(), TableColumnSizing::Content);
         assert_eq!(policy.table_column_gap(), 1);
         assert_eq!(policy.table_row_gap(), 0);
         assert_eq!(policy.task_list_marker(), TaskListMarkerPolicy::TaskOnly);
