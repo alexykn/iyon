@@ -1,7 +1,7 @@
 use super::super::{
-    Alignment, Block, BlockKind, CodeBlock, HeadingLevel, InlineContent, List, ListItem,
-    ListMarker, NumberDelimiter, NumberStyle, Table, TableCell, TextListKind, TextPart, TextRole,
-    TextTableSection, TextTaskState,
+    Alignment, Block, BlockKind, CodeBlock, HeadingLevel, InlineContent, InlineKind, List,
+    ListItem, ListMarker, NumberDelimiter, NumberStyle, Table, TableCell, TextListKind, TextPart,
+    TextRole, TextTableSection, TextTaskState,
 };
 use super::TextRenderer;
 use super::identity::{RenderContext, part_facts, semantic_view_facts, stamp_text, stamp_view};
@@ -63,6 +63,11 @@ impl TextRenderer {
         let mut text = self.render_inline_content(content, context);
         if let Some(alignment) = alignment {
             text = text.text_align(alignment);
+        }
+        // Open pipe tables stay raw until they close. Word-wrap reflows them at
+        // every ` | ` boundary, so the last fragment jumps by a row as cells arrive.
+        if is_pipe_source_paragraph(content) {
+            text = text.no_wrap();
         }
         stamp_text(text, facts)
     }
@@ -389,4 +394,26 @@ fn to_horizontal_align(alignment: Alignment) -> HorizontalAlign {
         Alignment::Center => HorizontalAlign::Center,
         Alignment::End => HorizontalAlign::End,
     }
+}
+
+fn is_pipe_source_paragraph(content: &InlineContent) -> bool {
+    let mut text = String::new();
+    for inline in content.iter() {
+        match inline.kind() {
+            InlineKind::Text(run) => text.push_str(run.text()),
+            InlineKind::Break(_) => text.push('\n'),
+            _ => return false,
+        }
+    }
+    let mut saw_pipe_line = false;
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if !line.trim_start().starts_with('|') {
+            return false;
+        }
+        saw_pipe_line = true;
+    }
+    saw_pipe_line
 }

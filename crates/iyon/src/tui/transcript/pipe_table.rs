@@ -2,26 +2,121 @@
 //!
 //! GFM tables need a `| --- |` row. Models often omit it, so pulldown leaves a
 //! paragraph of `|` lines. Those never become a Grid and cannot share tracks.
+//! Open trailing pipe paragraphs stay raw until a following block or seal so
+//! live tables do not re-align on every row.
 
+use iyon_tui::projection::{Projection, Projector};
 use iyon_tui::stream::{StreamOffset, StreamRange};
 use iyon_tui::text::{
-    Alignment, Block, BlockKind, InlineContent, InlineKind, Table, TableCell, TableColumn,
-    TableRow, TextIrError, TextProvenance, TextRewriter, TextRun, walk_rewrite_block,
+    Alignment, Block, BlockKind, InlineContent, InlineKind, List, ListItem, RewriteProjectionError,
+    Table, TableCell, TableColumn, TableRow, TextContent, TextIrError, TextProjectionError,
+    TextProvenance, TextRun, validate_text_projection,
 };
 
 pub(super) struct PipeTableRewriter;
 
-impl TextRewriter for PipeTableRewriter {
-    type Error = TextIrError;
+impl Projector<TextContent> for PipeTableRewriter {
+    type Output = TextContent;
+    type Error = RewriteProjectionError<TextIrError>;
 
-    fn rewrite_block(&mut self, block: Block) -> Result<Block, Self::Error> {
-        if let BlockKind::Paragraph(content) = block.kind()
-            && let Some(table) = table_from_pipe_paragraph(content)
-        {
-            return Ok(Block::table(table).with_annotations(block.annotations().clone()));
+    fn project(
+        &mut self,
+        input: &Projection<TextContent>,
+    ) -> Result<Projection<Self::Output>, Self::Error> {
+        let mut output = input.rebuild();
+        let spans = input.spans();
+        for (index, span) in spans.iter().enumerate() {
+            let following = input.is_sealed()
+                || spans[index + 1..]
+                    .iter()
+                    .any(|later| !later.values().is_empty());
+            let values = span
+                .values()
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(value_index, value)| {
+                    let closed = following || value_index + 1 < span.values().len();
+                    rewrite_content(value, closed).map_err(RewriteProjectionError::Rewrite)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            output = output.emit_many(span.source(), values);
         }
-        walk_rewrite_block(self, block)
+        let output = output.finish().map_err(|error| {
+            RewriteProjectionError::Invalid(TextProjectionError::Projection(error))
+        })?;
+        validate_text_projection(&output).map_err(RewriteProjectionError::Invalid)?;
+        Ok(output)
     }
+}
+
+fn rewrite_content(content: TextContent, closed: bool) -> Result<TextContent, TextIrError> {
+    match content {
+        TextContent::Raw(_) => Ok(content),
+        TextContent::Block(block) => Ok(TextContent::Block(rewrite_block(block, closed)?)),
+    }
+}
+
+fn rewrite_block(block: Block, closed: bool) -> Result<Block, TextIrError> {
+    match block.kind() {
+        BlockKind::Paragraph(content) => {
+            if closed {
+                if let Some(table) = table_from_pipe_paragraph(content) {
+                    return Ok(Block::table(table).with_annotations(block.annotations().clone()));
+                }
+            }
+            Ok(block)
+        }
+        BlockKind::BlockQuote { blocks } => {
+            let rewritten = rewrite_blocks(blocks, closed)?;
+            if rewritten.as_slice() == blocks.as_ref() {
+                return Ok(block);
+            }
+            Ok(Block::block_quote(rewritten).with_annotations(block.annotations().clone()))
+        }
+        BlockKind::Container { blocks } => {
+            let rewritten = rewrite_blocks(blocks, closed)?;
+            if rewritten.as_slice() == blocks.as_ref() {
+                return Ok(block);
+            }
+            Ok(Block::container(rewritten).with_annotations(block.annotations().clone()))
+        }
+        BlockKind::List(list) => {
+            let item_count = list.items().len();
+            let mut changed = false;
+            let mut items = Vec::with_capacity(item_count);
+            for (index, item) in list.items().iter().enumerate() {
+                let item_closed = index + 1 < item_count || closed;
+                let blocks = rewrite_blocks(item.blocks(), item_closed)?;
+                if blocks.as_slice() != item.blocks() {
+                    changed = true;
+                }
+                items.push(
+                    ListItem::new(blocks)
+                        .with_annotations(item.annotations().clone())
+                        .with_checked(item.checked()),
+                );
+            }
+            if !changed {
+                return Ok(block);
+            }
+            Ok(Block::list(List::new(list.marker(), list.tight(), items))
+                .with_annotations(block.annotations().clone()))
+        }
+        _ => Ok(block),
+    }
+}
+
+fn rewrite_blocks(blocks: &[Block], trailing_closed: bool) -> Result<Vec<Block>, TextIrError> {
+    let count = blocks.len();
+    blocks
+        .iter()
+        .enumerate()
+        .map(|(index, block)| {
+            let closed = index + 1 < count || trailing_closed;
+            rewrite_block(block.clone(), closed)
+        })
+        .collect()
 }
 
 fn table_from_pipe_paragraph(content: &InlineContent) -> Option<Table> {

@@ -57,7 +57,6 @@ impl AssistantPipeline {
             .project(&raw)
             .map_err(AssistantPipelineError::Markdown)?;
         let tables = super::pipe_table::PipeTableRewriter
-            .into_projector()
             .project(&markdown)
             .map_err(AssistantPipelineError::Annotation)?;
         AssistantThinkingRewriter::new(&paced)

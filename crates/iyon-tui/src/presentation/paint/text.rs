@@ -7,7 +7,6 @@
 use std::borrow::Cow;
 
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 use crate::{
     physical::{PhysicalCell, PhysicalRow, PhysicalStyle, Surface},
@@ -58,7 +57,8 @@ impl ViewCompiler {
                 if source.painted {
                     if !source.continuation
                         && source.grapheme.as_deref().is_some_and(|grapheme| {
-                            UnicodeWidthStr::width(grapheme) > usize::from(width).saturating_sub(x)
+                            crate::presentation::wrap::grapheme_display_width(grapheme)
+                                > usize::from(width).saturating_sub(x)
                         })
                     {
                         continue;
@@ -170,7 +170,7 @@ pub(crate) fn row_from_string(text: &str, style: PhysicalStyle) -> PhysicalRow {
         .graphemes(true)
         .map(|text| StyledGrapheme {
             text: Cow::Owned(text.to_string()),
-            width: UnicodeWidthStr::width(text),
+            width: crate::presentation::wrap::grapheme_display_width(text),
             style,
             source: None,
         })

@@ -48,6 +48,73 @@ impl<'a> WrappedLine<'a> {
     }
 }
 
+/// Terminal cell count for one extended grapheme cluster.
+///
+/// `unicode-width` reports 1 for keycaps (`4⃣`) and many VS-16 emoji (`☀️`),
+/// but terminals draw those as two cells. Under-counting makes a row wider
+/// than the backend thinks, so the terminal wraps and the next painted row
+/// overwrites the overflow.
+pub(crate) fn grapheme_display_width(text: &str) -> usize {
+    let measured = UnicodeWidthStr::width(text);
+    if measured == 0 {
+        return 0;
+    }
+    if occupies_two_cells(text) {
+        measured.max(2)
+    } else {
+        measured
+    }
+}
+
+pub(crate) fn display_width(text: &str) -> usize {
+    text.graphemes(true).map(grapheme_display_width).sum()
+}
+
+fn occupies_two_cells(text: &str) -> bool {
+    text.chars().any(|ch| {
+        matches!(
+            ch,
+            '\u{FE0F}'
+                | '\u{20E3}'
+                | '\u{200D}'
+                | '\u{231A}'..='\u{231B}'
+                | '\u{23E9}'..='\u{23EC}'
+                | '\u{23F0}'
+                | '\u{23F3}'
+                | '\u{25FD}'..='\u{25FE}'
+                | '\u{2614}'..='\u{2615}'
+                | '\u{2648}'..='\u{2653}'
+                | '\u{267F}'
+                | '\u{2693}'
+                | '\u{26A1}'
+                | '\u{26AA}'..='\u{26AB}'
+                | '\u{26BD}'..='\u{26BE}'
+                | '\u{26C4}'..='\u{26C5}'
+                | '\u{26CE}'
+                | '\u{26D4}'
+                | '\u{26EA}'
+                | '\u{26F2}'..='\u{26F3}'
+                | '\u{26F5}'
+                | '\u{26FA}'
+                | '\u{26FD}'
+                | '\u{2705}'
+                | '\u{270A}'..='\u{270B}'
+                | '\u{2728}'
+                | '\u{274C}'
+                | '\u{274E}'
+                | '\u{2753}'..='\u{2755}'
+                | '\u{2757}'
+                | '\u{2795}'..='\u{2797}'
+                | '\u{27B0}'
+                | '\u{27BF}'
+                | '\u{2B1B}'..='\u{2B1C}'
+                | '\u{2B50}'
+                | '\u{2B55}'
+                | '\u{1F000}'..='\u{1FFFF}'
+        )
+    })
+}
+
 /// Internal span fragment within a hard line.
 #[derive(Debug, Clone)]
 struct SpanFragment<'a> {
@@ -100,7 +167,7 @@ fn tokenize_hard_line<'a>(fragments: Vec<SpanFragment<'a>>) -> Vec<StyledGraphem
         let frag = &fragments[0];
         let mut line = Vec::new();
         for (g_rel, g_text) in frag.slice.grapheme_indices(true) {
-            let width = UnicodeWidthStr::width(g_text);
+            let width = grapheme_display_width(g_text);
             let src = frag
                 .source_start
                 .map(|base| (base + g_rel)..(base + g_rel + g_text.len()));
@@ -156,7 +223,7 @@ fn tokenize_hard_line<'a>(fragments: Vec<SpanFragment<'a>>) -> Vec<StyledGraphem
             Cow::Owned(g_text.to_string())
         };
 
-        let width = UnicodeWidthStr::width(g_text);
+        let width = grapheme_display_width(g_text);
         line.push(StyledGrapheme {
             text,
             width,
@@ -671,6 +738,73 @@ mod tests {
         let wrapped = wrap_styled_lines(&hard, 4, WrapMode::WordThenGrapheme);
         assert_eq!(to_strings(&wrapped), vec!["abcd", "efgh", "ij"]);
         assert!(wrapped.iter().all(|r| r.fits));
+    }
+
+    #[test]
+    fn emoji_keycaps_and_vs16_sequences_are_two_cells() {
+        for sample in [
+            "🥇",
+            "🏅",
+            "4⃣",
+            "5⃣",
+            "☀️",
+            "🌡️",
+            "⚠️",
+            "☁️",
+            "🌤️",
+            "⭐",
+            "🍿",
+            "🌿",
+            "🕹️",
+            "🗡️",
+            "✈️",
+            "🗓️",
+            "🏷️",
+            "👩‍🔬",
+            "🐕‍🦺",
+            "🇮🇩",
+            "🇵🇪",
+            "✔️",
+            "⚖️",
+            "☕",
+            "⭐",
+        ] {
+            let hard = styled_hard_lines(vec![(sample, PhysicalStyle::default(), None)]);
+            assert_eq!(hard.len(), 1, "{sample:?}");
+            assert_eq!(hard[0].len(), 1, "{sample:?} is one grapheme");
+            assert_eq!(
+                hard[0][0].width, 2,
+                "{sample:?} must occupy two terminal cells (unicode-width={})",
+                unicode_width::UnicodeWidthStr::width(sample)
+            );
+        }
+    }
+
+    #[test]
+    fn medal_and_keycap_reserve_the_same_columns() {
+        let medal = styled_hard_lines(vec![("🥇Inception", PhysicalStyle::default(), None)]);
+        let keycap = styled_hard_lines(vec![("4⃣Mad Max", PhysicalStyle::default(), None)]);
+        assert_eq!(medal[0][0].width, 2);
+        assert_eq!(keycap[0][0].width, 2);
+        let medal_text = medal[0][1].text.as_ref();
+        let keycap_text = keycap[0][1].text.as_ref();
+        assert_eq!(medal_text.chars().next(), Some('I'));
+        assert_eq!(keycap_text.chars().next(), Some('M'));
+    }
+
+    #[test]
+    fn zwj_and_flag_clusters_stay_one_wide_glyph() {
+        for sample in ["👩‍🔬", "🐕‍🦺", "🇮🇩", "🇯🇵"] {
+            let hard = styled_hard_lines(vec![(sample, PhysicalStyle::default(), None)]);
+            assert_eq!(hard[0].len(), 1, "{sample} must be one cluster");
+            assert_eq!(hard[0][0].width, 2, "{sample} must be two cells");
+        }
+    }
+
+    #[test]
+    fn text_presentation_stars_stay_narrow() {
+        let hard = styled_hard_lines(vec![("☆", PhysicalStyle::default(), None)]);
+        assert_eq!(hard[0][0].width, 1, "outline star is text presentation");
     }
 
     #[test]

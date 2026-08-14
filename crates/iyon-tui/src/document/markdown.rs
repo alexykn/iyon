@@ -190,7 +190,8 @@ impl Projector<TextContent> for MarkdownProjector {
                 index += 1;
             }
             let domain = RawDomain::from_spans(&input.spans()[start..index])?;
-            let parsed = self.parse_domain(&domain)?;
+            let domain_closed = input.is_sealed() || index < input.spans().len();
+            let parsed = self.parse_domain(&domain, domain_closed)?;
             for span in parsed.projection.spans() {
                 output = output.emit_many(span.source(), span.values().iter().cloned());
             }
@@ -322,7 +323,7 @@ impl MarkdownProjector {
                 let Ok(suffix) = suffix.prefix(suffix_end) else {
                     return domain.source_base();
                 };
-                self.parse_uncached(&suffix)
+                self.parse_uncached(&suffix, true)
                     .ok()
                     .and_then(|parsed| prepend_cached(&cache, parsed.projection).ok())
             }
@@ -337,7 +338,7 @@ impl MarkdownProjector {
             ) else {
                 return domain.source_base();
             };
-            self.parse_uncached(&prefix)
+            self.parse_uncached(&prefix, true)
                 .ok()
                 .map(|parsed| parsed.projection)
         };
@@ -366,18 +367,20 @@ impl MarkdownProjector {
     fn parse_uncached(
         &mut self,
         domain: &RawDomain,
+        sealed: bool,
     ) -> Result<ParsedDomain, MarkdownProjectionError> {
         #[cfg(feature = "test-util")]
         {
             self.parser_invocations = self.parser_invocations.saturating_add(1);
             self.parser_bytes = self.parser_bytes.saturating_add(domain.len());
         }
-        parse_domain_uncached(domain, self.options)
+        parse_domain_uncached(domain, self.options, sealed)
     }
 
     fn parse_domain(
         &mut self,
         domain: &RawDomain,
+        sealed: bool,
     ) -> Result<ParsedDomain, MarkdownProjectionError> {
         if let Some(cache) = self
             .caches
@@ -400,7 +403,7 @@ impl MarkdownProjector {
                     });
                 }
                 if cache.has_reference_context {
-                    return self.parse_uncached(domain);
+                    return self.parse_uncached(domain, sealed);
                 }
                 let local = usize::try_from(
                     cache
@@ -412,7 +415,7 @@ impl MarkdownProjector {
                     context: "cache restart offset",
                 })?;
                 let suffix = domain.suffix(local)?;
-                let parsed = self.parse_uncached(&suffix)?;
+                let parsed = self.parse_uncached(&suffix, sealed)?;
                 return Ok(ParsedDomain {
                     projection: prepend_cached(&cache, parsed.projection)?,
                     unstable_from: parsed.unstable_from,
@@ -420,7 +423,7 @@ impl MarkdownProjector {
                 });
             }
         }
-        self.parse_uncached(domain)
+        self.parse_uncached(domain, sealed)
     }
 
     fn update_cache(
@@ -562,6 +565,7 @@ fn snap_stable_to_span_boundary<T>(
 fn parse_domain_uncached(
     domain: &RawDomain,
     options: MarkdownOptions,
+    sealed: bool,
 ) -> Result<ParsedDomain, MarkdownProjectionError> {
     let broken = Rc::new(RefCell::new(Vec::<Range<usize>>::new()));
     let broken_for_callback = Rc::clone(&broken);
@@ -572,7 +576,7 @@ fn parse_domain_uncached(
     let parser =
         Parser::new_with_broken_link_callback(domain.text(), options.pulldown(), Some(callback));
     let has_reference_context = parser.reference_definitions().iter().next().is_some();
-    let mut builder = Builder::new(domain);
+    let mut builder = Builder::new(domain, sealed);
     for (event, range) in parser.into_offset_iter() {
         builder.event(event, range)?;
     }
@@ -599,6 +603,7 @@ fn parse_domain_uncached(
 #[derive(Debug)]
 struct Builder<'a> {
     domain: &'a RawDomain,
+    sealed: bool,
     frames: Vec<Frame>,
     root: Vec<OwnedBlock>,
     marks: Vec<Mark>,
@@ -666,9 +671,10 @@ struct OwnedBlock {
 }
 
 impl<'a> Builder<'a> {
-    fn new(domain: &'a RawDomain) -> Self {
+    fn new(domain: &'a RawDomain, sealed: bool) -> Self {
         Self {
             domain,
+            sealed,
             frames: vec![Frame::Root],
             root: Vec::new(),
             marks: Vec::new(),
@@ -996,6 +1002,10 @@ impl<'a> Builder<'a> {
                 else {
                     return Err(MarkdownProjectionError::InvalidNesting { context: "table" });
                 };
+                if !self.table_is_closed(&source) {
+                    let block = self.raw_table_paragraph(source.clone())?;
+                    return self.add_block(source, block);
+                }
                 let table = Table::new(None::<Vec<Block>>, columns, header_rows, rows)?;
                 self.add_block(source, Block::table(table))
             }
@@ -1173,6 +1183,47 @@ impl<'a> Builder<'a> {
         }
     }
 
+    fn table_is_closed(&self, source: &Range<usize>) -> bool {
+        if self.sealed {
+            return true;
+        }
+        let Some(table_source) = self.domain.text().get(source.start..source.end) else {
+            return false;
+        };
+        let after = self.domain.text().get(source.end..).unwrap_or("");
+        following_line_closes_table(table_source, after)
+    }
+
+    fn raw_table_paragraph(&self, source: Range<usize>) -> Result<Block, MarkdownProjectionError> {
+        let text = self.domain.source_slice(source.clone())?;
+        let content_end = if text.ends_with('\n') {
+            source.end.saturating_sub(1)
+        } else {
+            source.end
+        };
+        let mut inlines = Vec::new();
+        let mut segment_start = source.start;
+        for (offset, character) in self.domain.text()[source.start..content_end].char_indices() {
+            if character != '\n' {
+                continue;
+            }
+            let abs = source.start + offset;
+            if segment_start < abs {
+                for run in self.domain.exact_runs(segment_start..abs)? {
+                    inlines.push(Inline::text(run));
+                }
+            }
+            inlines.push(Inline::break_(BreakKind::Hard));
+            segment_start = abs + character.len_utf8();
+        }
+        if segment_start < content_end {
+            for run in self.domain.exact_runs(segment_start..content_end)? {
+                inlines.push(Inline::text(run));
+            }
+        }
+        Ok(Block::paragraph(InlineContent::new(inlines)))
+    }
+
     fn finish(self) -> Result<Projection<TextContent>, MarkdownProjectionError> {
         if self.frames.len() != 1 || !self.marks.is_empty() {
             return Err(MarkdownProjectionError::InvalidNesting {
@@ -1220,7 +1271,7 @@ impl<'a> Builder<'a> {
     }
 }
 
-// A GFM table is still open while the following span could be another row.
+// A GFM table is still open while the following line could be another row.
 // Caching it as stable splits the next row into a paragraph; a later one-shot
 // re-parse of the suffix merges them and breaks compaction identity.
 fn open_block_start(
@@ -1247,7 +1298,7 @@ fn open_block_start(
         if span.source().end() > last.source().start() {
             continue;
         }
-        if span_is_table(span) || span_can_extend_table(span) {
+        if span_can_extend_table(span) {
             open_start = span.source().start();
             continue;
         }
@@ -1256,19 +1307,29 @@ fn open_block_start(
     open_start
 }
 
-fn span_is_table(span: &ProjectionSpan<TextContent>) -> bool {
+fn span_can_extend_table(span: &ProjectionSpan<TextContent>) -> bool {
     span.values().iter().any(|value| match value {
-        TextContent::Block(block) => matches!(block.kind(), BlockKind::Table(_)),
+        TextContent::Block(block) => is_pipe_paragraph(block),
         TextContent::Raw(_) => false,
     })
 }
 
-fn span_can_extend_table(span: &ProjectionSpan<TextContent>) -> bool {
-    span_is_table(span)
-        || span.values().iter().any(|value| match value {
-            TextContent::Block(block) => is_pipe_paragraph(block),
-            TextContent::Raw(_) => false,
-        })
+fn following_line_closes_table(table_source: &str, after: &str) -> bool {
+    let next_line = if table_source.ends_with('\n') {
+        after
+    } else if let Some(rest) = after.strip_prefix('\n') {
+        rest
+    } else {
+        return false;
+    };
+    if next_line.is_empty() {
+        return false;
+    }
+    if next_line.starts_with('\n') {
+        return true;
+    }
+    let line = next_line.lines().next().unwrap_or(next_line);
+    !line.trim_start().starts_with('|')
 }
 
 fn is_pipe_paragraph(block: &Block) -> bool {

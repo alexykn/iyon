@@ -189,6 +189,13 @@ fn gfm_table_streaming_keeps_stable_prefix_honest() {
         assert!(restart <= next.stable_through());
         previous = Some(next);
     }
+    let live = previous.as_ref().expect("unsealed table stages");
+    assert!(
+        blocks(live)
+            .iter()
+            .all(|block| !matches!(block.kind(), BlockKind::Table(_))),
+        "unsealed GFM tables stay raw pipe paragraphs until a closer or seal"
+    );
     let sealed = projector
         .project(&input(final_source, final_source.len(), true))
         .unwrap();
