@@ -251,3 +251,5 @@ fn empty_and_whitespace_sources_have_valid_snapshots() {
         assert_eq!(snapshot.stable_through(), snapshot.source_end());
     }
 }
+
+mod gfm;

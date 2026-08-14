@@ -9,6 +9,8 @@ mod inline;
 mod policy;
 
 #[cfg(test)]
+mod source_format;
+#[cfg(test)]
 mod structured;
 #[cfg(test)]
 mod tests;

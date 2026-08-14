@@ -3,11 +3,12 @@
 use iyon_tui::projection::{Projection, Projector};
 use iyon_tui::stream::{StreamOffset, StreamRange};
 use iyon_tui::text::{
-    Inline, InlineContent, InlineKind, LiteralText, MarkdownProjectionError, MarkdownProjector,
-    Renderer, RewriteProjectionError, SemanticTag, SoftBreakPolicy, TextContent, TextIrError,
+    CodeBlockLabelPolicy, Inline, InlineContent, InlineKind, LiteralText, MarkdownOptions,
+    MarkdownProjectionError, MarkdownProjector, Renderer, RewriteProjectionError, SemanticTag,
+    SoftBreakPolicy, TableColumnSizing, TaskListMarkerPolicy, TextContent, TextIrError,
     TextProvenance, TextRenderPolicy, TextRenderer, TextRewriter, TextRun, walk_rewrite_inline,
 };
-use iyon_tui::{Insets, View};
+use iyon_tui::{Insets, View, WrapMode};
 
 use super::assistant_stream::AssistantPacingAtom;
 use super::semantic::{SegmentKind, thinking_tag};
@@ -38,7 +39,7 @@ impl Default for AssistantPipeline {
     fn default() -> Self {
         Self {
             smoother: iyon_tui::Smooth::default(),
-            markdown: MarkdownProjector::default(),
+            markdown: MarkdownProjector::new(MarkdownOptions::gfm()),
         }
     }
 }
@@ -236,8 +237,21 @@ impl TextRewriter for AssistantThinkingRewriter {
     }
 }
 
+fn assistant_render_policy() -> TextRenderPolicy {
+    TextRenderPolicy::new()
+        .with_block_gap(1)
+        .with_soft_break(SoftBreakPolicy::LineBreak)
+        .with_table_column_sizing(TableColumnSizing::Flex)
+        .with_table_column_gap(1)
+        .with_table_row_gap(0)
+        .with_task_list_marker(TaskListMarkerPolicy::TaskOnly)
+        .with_code_block_label(CodeBlockLabelPolicy::Language)
+        .with_code_block_gap(0)
+        .with_code_wrap(WrapMode::NoWrap)
+}
+
 pub(crate) fn assistant_renderer() -> TextRenderer {
-    TextRenderer::with_policy(TextRenderPolicy::new().with_soft_break(SoftBreakPolicy::LineBreak))
+    TextRenderer::with_policy(assistant_render_policy())
 }
 
 pub(crate) struct AssistantPresentationChunk {

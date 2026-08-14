@@ -171,6 +171,7 @@ pub struct PaintedFlags {
     pub italic: bool,
     pub underline: bool,
     pub dim: bool,
+    pub strikethrough: bool,
     pub fg_rgb: Option<(u8, u8, u8)>,
 }
 
@@ -190,6 +191,7 @@ pub fn style_at_text(view: &View, width: u16, theme: &Theme, needle: &str) -> Pa
                 italic: style.italic,
                 underline: style.underline,
                 dim: style.dim,
+                strikethrough: style.strikethrough,
                 fg_rgb,
             };
         }

@@ -251,3 +251,38 @@ fn public_text_input_contract_is_backend_free() {
     let _: fn(ComponentHandle<TextInput>) -> View = component_view::<TextInput>;
     let _: (Output<String>, Output<usize>) = (submitted, changed);
 }
+
+#[test]
+fn public_structured_text_freeze_surface_is_externally_usable() {
+    use iyon_tui::{
+        CodeBlockLabelPolicy, ColorSpec, GridCellSpec, GridTrack, MarkdownOptions,
+        MarkdownProjector, StyleSpec, TableColumnSizing, TaskListMarkerPolicy, TextOrigin,
+        TextPart, TextRenderPolicy, TextRenderer, TextSelector, Theme, WrapMode,
+    };
+
+    let _theme = Theme::new()
+        .with_text_style(
+            TextSelector::heading(),
+            StyleSpec::new().foreground(ColorSpec::theme("heading")),
+        )
+        .with_text_style(
+            TextSelector::part(TextPart::CodeLabel),
+            StyleSpec::new().dim(),
+        );
+    let _markdown = MarkdownProjector::new(MarkdownOptions::gfm());
+    let _renderer = TextRenderer::with_policy(
+        TextRenderPolicy::new()
+            .with_table_column_sizing(TableColumnSizing::Flex)
+            .with_task_list_marker(TaskListMarkerPolicy::TaskOnly)
+            .with_code_block_label(CodeBlockLabelPolicy::Language)
+            .with_code_wrap(WrapMode::NoWrap),
+    );
+    let _ = TextSelector::heading().origin(TextOrigin::MARKDOWN);
+    let _ = View::grid(|grid| {
+        grid.columns([GridTrack::content(), GridTrack::flex()]);
+        grid.row(|row| {
+            row.cell("Name");
+            row.cell_with(GridCellSpec::new(), "Value");
+        });
+    });
+}

@@ -1,8 +1,8 @@
 use iyon_tui::{
     Block, CodeBlockLabelPolicy, Component, GridCellSpec, GridTrack, HeadingLevel, History, Inline,
     MarkdownOptions, MarkdownProjector, Projector, Renderer, Smooth, SoftBreakPolicy,
-    TableColumnSizing, TaskListMarkerPolicy, TextContent, TextOrigin, TextRenderPolicy,
-    TextRenderer, TextSelector, TextStream, View, WrapMode,
+    TableColumnSizing, TaskListMarkerPolicy, TextContent, TextOrigin, TextPart, TextRenderPolicy,
+    TextRenderer, TextRole, TextSelector, TextStream, View, WrapMode,
 };
 use iyon_tui::projection::{ProjectionBuilder, ProjectionTransitionError, validate_projection_transition};
 use iyon_tui::stream::{
@@ -27,9 +27,12 @@ fn root_vocabulary() {
         .with_code_block_label(CodeBlockLabelPolicy::Language)
         .with_code_wrap(WrapMode::Grapheme);
     let _ = MarkdownOptions::gfm();
+    let _ = TextSelector::heading();
+    let _ = TextSelector::part(TextPart::CodeLabel);
+    let _ = TextSelector::heading().origin(TextOrigin::MARKDOWN);
+    let _ = TextRole::Heading;
     let _ = Block::heading(HeadingLevel::H1, "Heading");
     let _ = Inline::text("text");
-    let _ = TextSelector::heading().origin(TextOrigin::MARKDOWN);
     let _ = View::grid(|grid| {
         grid.columns([GridTrack::content(), GridTrack::flex()]);
         grid.row(|row| {
