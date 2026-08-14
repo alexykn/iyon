@@ -284,6 +284,107 @@ fn delimiterless_pipe_rows_align_when_they_fit() {
     assert_eq!(find_x(&lines, "In progress"), find_x(&lines, "Pending"));
 }
 
+const EMOJI_TABLE_FIXTURE: &str = r#"```markdown
+| 🌿 Plant       | ☀️ Light     | 💧 Water    | 🌡️ Temp   | ⚠️ Warning      |
+|---------------|-------------|-------------|-----------|-----------------|
+| 🪴 Snake Plant | Low ☁️      | Every 3w   | 15-30°C   | ✅ Pet-safe     |
+| 🌵 Cactus      | Direct ☀️   | Every 4w   | 20-35°C   | ⚠️ Spiky!      |
+| 🌸 Orchid      | Bright 📎   | Weekly     | 18-28°C   | 🥶 No drafts    |
+| 🌿 Monstera    | Medium 🌤️    | Bi-weekly  ||18-30°C   | ☣️ Toxic 🐱     |
+| 🍃 Pothos      | Low-Med 🌥️  | When dry   -| 15-30°C   | ☣️ Toxic 🐾    | |
+```
+
+| 🌿 Plant       | ☀️ Light     | 💧 Water    | 🌡️ Temp   | ⚠️ Warning      |
+|---------------|-------------|-------------|-----------|-----------------|
+| 🪴 Snake Plant | Low ☁️      | Every 3w   | 15-30°C   | ✅ Pet-safe     |
+| 🌵 Cactus      | Direct ☀️   | Every 4w   | 20-35°C   | ⚠️ Spiky!      |
+| 🌸 Orchid      | Bright 📎   | Weekly     | 18-28°C   | 🥶 No drafts    |
+| 🌿 Monstera    | Medium 🌤️    | Bi-weekly  ||18-30°C   | ☣️ Toxic 🐱     |
+| 🍃 Pothos      | Low-Med 🌥️  | When dry   -| 15-30°C   | ☣️ Toxic 🐾    | |
+
+---
+
+🎉 Enjoy your tables! Each one is shown fenced (code block with markdown header)
+and then unfenced (live rendered version) right below it. 🚀
+"#;
+
+#[test]
+fn emoji_table_does_not_corrupt_following_prose() {
+    let stream = sealed_text(EMOJI_TABLE_FIXTURE);
+    let view = assistant_view(&stream.semantic, &assistant_renderer());
+    let lines = painted(&view, 80);
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("```") || lines.iter().any(|line| line.contains('|')),
+        "fenced copy must keep raw pipes: {joined}"
+    );
+    assert!(
+        joined.contains("fenced") && joined.contains("unfenced"),
+        "closing sentence must stay intact: {joined}"
+    );
+    assert!(
+        !joined.contains("fencedT"),
+        "following prose must not pick up spilled table cells: {joined}"
+    );
+
+    let rule = lines
+        .iter()
+        .find(|line| line.contains('─'))
+        .expect("thematic break");
+    let spilled = rule
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .collect::<String>();
+    assert!(
+        spilled.is_empty(),
+        "table cells must not leak onto the rule: {rule:?}"
+    );
+}
+
+const RETRO_GAMING_TABLE: &str = r#"```markdown
+| 🕹️ Game         | 🏷️ Genre   | 📅 Release | 👾 High Score  |
+|:----------------|:------------|:----------:|:--------------:|
+| Super Mario 🍄  | Platformer  | 1985       | 999,999 🏆     |
+| Tetris 🧱       | Puzzle      | 1984       | 9,999,999 💎   |
+| Sonic ⚡        | Platformer  | 1991       | 500,000 🥇     |
+| Pac-Man 👻      | Arcade      | 1980       | 3,333,360 🎯   |
+| Zelda 🗡️         | Adventure   | 1986       | N/A 🔑         |
+```
+
+| 🕹️ Game         | 🏷️ Genre   | 📅 Release | 👾 High Score  |
+|:----------------|:------------|:----------:|:--------------:|
+| Super Mario 🍄  | Platformer  | 1985       | 999,999 🏆     |
+| Tetris 🧱       | Puzzle      | 1984       | 9,999,999 💎   |
+| Sonic ⚡        | Platformer  | 1991       | 500,000 🥇     |
+| Pac-Man 👻      | Arcade      | 1980       | 3,333,360 🎯   |
+| Zelda 🗡️         | Adventure   | 1986       | N/A 🔑         |
+"#;
+
+#[test]
+fn emoji_grid_does_not_spill_letters_into_neighbors() {
+    let stream = sealed_text(RETRO_GAMING_TABLE);
+    let view = assistant_view(&stream.semantic, &assistant_renderer());
+    let lines = painted(&view, 80);
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains("Game  e") && !joined.contains("Score   h") && !joined.contains("🗡️ n"),
+        "wide glyphs must not wrap into neighboring cells: {joined}"
+    );
+    let unfenced: Vec<_> = lines
+        .iter()
+        .filter(|line| !line.contains('|'))
+        .cloned()
+        .collect();
+    assert!(
+        unfenced.iter().any(|line| line.contains("Super Mario")),
+        "{joined}"
+    );
+    let mario_x = find_x(&unfenced, "Super Mario");
+    let zelda_x = find_x(&unfenced, "Zelda");
+    assert_eq!(mario_x, zelda_x, "{joined}");
+}
+
 #[test]
 fn gfm_snapshot_and_final_assistant_view_match_across_widths() {
     let renderer = assistant_renderer();
@@ -331,6 +432,15 @@ fn live_gfm_table_evolution_converges_with_one_shot() {
             })
             .expect("live GFM table evolution must not fail History");
     }
+    history
+        .update_stream(handle, |source| {
+            let joined = painted(&source.snapshot().view_for_test(), 40).join("\n");
+            assert!(
+                joined.contains('|'),
+                "live GFM table stays unaligned pipes until seal: {joined}"
+            );
+        })
+        .unwrap();
     let (live_semantic, live_view) = history
         .update_stream(handle, |source| {
             source.seal();
