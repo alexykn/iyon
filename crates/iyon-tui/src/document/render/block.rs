@@ -1,11 +1,12 @@
 use super::super::{
-    Alignment, Block, BlockKind, HeadingLevel, InlineContent, List, ListItem, ListMarker,
-    NumberDelimiter, NumberStyle, Table, TableCell, TextListKind, TextPart, TextRole,
+    Alignment, Block, BlockKind, CodeBlock, HeadingLevel, InlineContent, List, ListItem,
+    ListMarker, NumberDelimiter, NumberStyle, Table, TableCell, TextListKind, TextPart, TextRole,
     TextTableSection, TextTaskState,
 };
 use super::TextRenderer;
 use super::identity::{RenderContext, part_facts, semantic_view_facts, stamp_text, stamp_view};
-use crate::{HorizontalAlign, View};
+use super::policy::{CodeBlockLabelPolicy, TableColumnSizing, TaskListMarkerPolicy};
+use crate::{GridCellSpec, GridTrack, HorizontalAlign, View};
 
 impl TextRenderer {
     pub(super) fn lower_block(&self, block: &Block, context: &RenderContext) -> View {
@@ -17,20 +18,7 @@ impl TextRenderer {
             }
             BlockKind::BlockQuote { blocks } => self.render_quote(block, blocks, &context),
             BlockKind::List(list) => self.render_list(block, list, &context),
-            BlockKind::CodeBlock(code) => {
-                let mut facts =
-                    semantic_view_facts(&context, TextRole::CodeBlock, block.annotations());
-                if let Some(language) = code.language() {
-                    facts = facts.language(language);
-                }
-                let child_context = context
-                    .with_role(TextRole::CodeBlock)
-                    .with_language(code.language());
-                stamp_text(
-                    self.render_literal(code.body(), &child_context).no_wrap(),
-                    facts,
-                )
-            }
+            BlockKind::CodeBlock(code) => self.render_code_block(block, code, &context),
             BlockKind::Table(table) => self.render_table(block, table, &context),
             BlockKind::ThematicBreak => stamp_text(
                 View::text("───").no_wrap(),
@@ -90,8 +78,8 @@ impl TextRenderer {
     fn render_quote(&self, block: &Block, blocks: &[Block], context: &RenderContext) -> View {
         let facts = semantic_view_facts(context, TextRole::BlockQuote, block.annotations());
         let marker_facts = part_facts(context, TextPart::QuoteMarker, block.annotations());
-        let prefix = stamp_text(View::text("> "), marker_facts.clone());
-        let continuation = stamp_text(View::text("> "), marker_facts);
+        let prefix = stamp_text(View::text("> ").no_wrap(), marker_facts.clone());
+        let continuation = stamp_text(View::text("> ").no_wrap(), marker_facts);
         let body = self.render_blocks(blocks, &context.with_role(TextRole::BlockQuote));
         stamp_view(View::hanging(prefix, continuation, body), facts)
     }
@@ -136,36 +124,84 @@ impl TextRenderer {
         if let Some(state) = task_state {
             facts = facts.task_state(state);
         }
-        let marker_text = list_marker_text(marker, index, item.checked());
-        let continuation = " ".repeat(marker_text.chars().count());
-        let part = if task_state.is_some() {
-            TextPart::TaskMarker
-        } else {
-            TextPart::ListMarker
-        };
         let mut marker_context = item_context.clone();
         marker_context.task_state = task_state;
-        let prefix = stamp_text(
-            View::text(marker_text),
-            part_facts(&marker_context, part, item.annotations()),
-        );
+        let prefix = self.list_item_prefix(marker, index, item, &marker_context);
         let body = self.render_blocks(
             item.blocks(),
             &item_context
                 .with_role(TextRole::ListItem)
                 .with_task_state(task_state),
         );
-        stamp_view(View::hanging(prefix, continuation, body), facts)
+        stamp_view(View::hanging(prefix, View::spacer(0), body), facts)
+    }
+
+    fn list_item_prefix(
+        &self,
+        marker: ListMarker,
+        index: usize,
+        item: &ListItem,
+        context: &RenderContext,
+    ) -> View {
+        let list_marker = stamp_text(
+            View::text(list_marker_text(marker, index)).no_wrap(),
+            part_facts(context, TextPart::ListMarker, item.annotations()),
+        );
+        let Some(checked) = item.checked() else {
+            return list_marker;
+        };
+        let task_marker = stamp_text(
+            View::text(if checked { "[x] " } else { "[ ] " }).no_wrap(),
+            part_facts(context, TextPart::TaskMarker, item.annotations()),
+        );
+        match self.policy.task_list_marker() {
+            TaskListMarkerPolicy::TaskOnly => task_marker,
+            TaskListMarkerPolicy::TaskAndList => View::horizontal(|row| {
+                row.child(task_marker);
+                row.child(list_marker);
+            }),
+        }
+    }
+
+    fn render_code_block(&self, block: &Block, code: &CodeBlock, context: &RenderContext) -> View {
+        let mut facts = semantic_view_facts(context, TextRole::CodeBlock, block.annotations());
+        if let Some(language) = code.language() {
+            facts = facts.language(language);
+        }
+        let child_context = context
+            .with_role(TextRole::CodeBlock)
+            .with_language(code.language());
+        let body = self
+            .render_literal(code.body(), &child_context)
+            .wrap(self.policy.code_wrap());
+        let inner = match code_label_text(code, self.policy.code_block_label()) {
+            Some(label) => {
+                let label_context = context.with_language(code.language());
+                let label_facts =
+                    part_facts(&label_context, TextPart::CodeLabel, block.annotations());
+                View::vertical(|column| {
+                    column.gap(self.policy.code_block_gap());
+                    column.child(stamp_text(View::text(label).no_wrap(), label_facts));
+                    column.child(body);
+                })
+            }
+            None => body.container(),
+        };
+        stamp_view(inner, facts)
     }
 
     fn render_table(&self, block: &Block, table: &Table, context: &RenderContext) -> View {
         let facts = semantic_view_facts(context, TextRole::Table, block.annotations());
         let table_context = context.with_role(TextRole::Table);
-        let body = View::vertical(|column| {
-            column.gap(self.policy.block_gap());
-            if let Some(caption) = table.caption() {
-                column.child(self.render_blocks(caption, &table_context));
-            }
+        let start_columns = table.cell_start_columns();
+        let track = match self.policy.table_column_sizing() {
+            TableColumnSizing::Content => GridTrack::content(),
+            TableColumnSizing::Flex => GridTrack::flex(),
+        };
+        let mut grid = View::grid(|grid| {
+            grid.columns(table.columns().iter().map(|_| track));
+            grid.column_gap(self.policy.table_column_gap());
+            grid.row_gap(self.policy.table_row_gap());
             for (row_index, row) in table.rows().iter().enumerate() {
                 let section = if row_index < table.header_rows() {
                     TextTableSection::Header
@@ -177,19 +213,41 @@ impl TextRenderer {
                     .with_table_section(section);
                 let row_facts =
                     semantic_view_facts(&row_context, TextRole::TableRow, row.annotations());
-                let row_view = View::horizontal(|horizontal| {
-                    for (column_index, cell) in row.cells().iter().enumerate() {
-                        horizontal.flex(self.render_cell(
+                grid.row(|grid_row| {
+                    for (cell_index, cell) in row.cells().iter().enumerate() {
+                        let logical_column = start_columns[row_index][cell_index];
+                        let cell_view = self.render_cell(
                             cell,
                             table,
-                            column_index,
+                            logical_column,
                             &row_context.with_role(TextRole::TableRow),
-                        ));
+                        );
+                        let alignment = cell
+                            .alignment()
+                            .unwrap_or_else(|| table.columns()[logical_column].alignment());
+                        grid_row.cell_with(
+                            GridCellSpec::new()
+                                .row_span(cell.row_span().get())
+                                .column_span(cell.col_span().get())
+                                .horizontal_align(to_horizontal_align(alignment)),
+                            stamp_view(cell_view.container(), row_facts.clone()),
+                        );
                     }
                 });
-                column.child(stamp_view(row_view, row_facts));
             }
         });
+        if matches!(self.policy.table_column_sizing(), TableColumnSizing::Flex) {
+            grid = grid.fill_width();
+        }
+        let body = if let Some(caption) = table.caption() {
+            View::vertical(|column| {
+                column.gap(self.policy.block_gap());
+                column.child(self.render_blocks(caption, &table_context));
+                column.child(grid);
+            })
+        } else {
+            grid
+        };
         stamp_view(body, facts)
     }
 
@@ -197,28 +255,24 @@ impl TextRenderer {
         &self,
         cell: &TableCell,
         table: &Table,
-        column_index: usize,
+        logical_column: usize,
         context: &RenderContext,
     ) -> View {
         let context = context.for_node(cell.annotations());
         let facts = semantic_view_facts(&context, TextRole::TableCell, cell.annotations());
         let child_context = context.with_role(TextRole::TableCell);
+        let horizontal = to_horizontal_align(
+            cell.alignment()
+                .unwrap_or_else(|| table.columns()[logical_column].alignment()),
+        );
         let inner = if cell.blocks().len() == 1 {
             match cell.blocks()[0].kind() {
-                BlockKind::Paragraph(content) => {
-                    let alignment = cell.alignment().or_else(|| {
-                        table
-                            .columns()
-                            .get(column_index)
-                            .map(|column| column.alignment())
-                    });
-                    self.render_paragraph(
-                        &cell.blocks()[0],
-                        content,
-                        &child_context,
-                        alignment.map(to_horizontal_align),
-                    )
-                }
+                BlockKind::Paragraph(content) => self.render_paragraph(
+                    &cell.blocks()[0],
+                    content,
+                    &child_context,
+                    Some(horizontal),
+                ),
                 _ => self.render_blocks(cell.blocks(), &child_context),
             }
         } else {
@@ -228,19 +282,28 @@ impl TextRenderer {
     }
 }
 
-fn list_marker_text(marker: ListMarker, index: usize, checked: Option<bool>) -> String {
-    let marker = match marker {
+fn code_label_text(code: &CodeBlock, policy: CodeBlockLabelPolicy) -> Option<String> {
+    match policy {
+        CodeBlockLabelPolicy::Hidden => None,
+        CodeBlockLabelPolicy::Language => {
+            code.language().map(|language| language.as_str().to_owned())
+        }
+        CodeBlockLabelPolicy::Info => code
+            .info()
+            .filter(|info| !info.is_empty())
+            .map(str::to_owned)
+            .or_else(|| code.language().map(|language| language.as_str().to_owned())),
+    }
+}
+
+fn list_marker_text(marker: ListMarker, index: usize) -> String {
+    match marker {
         ListMarker::Bullet => "- ".to_owned(),
         ListMarker::Ordered {
             start,
             style,
             delimiter,
         } => format_marker(start.saturating_add(index as u64), style, delimiter),
-    };
-    match checked {
-        Some(true) => format!("[x] {marker}"),
-        Some(false) => format!("[ ] {marker}"),
-        None => marker,
     }
 }
 

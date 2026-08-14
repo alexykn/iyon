@@ -202,7 +202,7 @@ impl Table {
         Ok(table)
     }
 
-    pub fn validate(&self) -> Result<(), TextIrError> {
+    fn compute_cell_columns(&self) -> Result<Vec<Vec<usize>>, TextIrError> {
         if self.header_rows > self.rows.len() {
             return Err(TextIrError::InvalidTableHeaderRows {
                 header_rows: self.header_rows,
@@ -211,8 +211,10 @@ impl Table {
         }
         let width = self.columns.len();
         let mut occupied = vec![0usize; width];
+        let mut starts = Vec::with_capacity(self.rows.len());
         for (row_index, row) in self.rows.iter().enumerate() {
             let mut column = 0usize;
+            let mut row_starts = Vec::with_capacity(row.cells.len());
             for (cell_index, cell) in row.cells.iter().enumerate() {
                 while column < width && occupied[column] > row_index {
                     column += 1;
@@ -247,10 +249,21 @@ impl Table {
                 for slot in &mut occupied[column..end] {
                     *slot = (*slot).max(row_index + cell.row_span.get() as usize);
                 }
+                row_starts.push(column);
                 column = end;
             }
+            starts.push(row_starts);
         }
-        Ok(())
+        Ok(starts)
+    }
+
+    pub fn validate(&self) -> Result<(), TextIrError> {
+        self.compute_cell_columns().map(|_| ())
+    }
+
+    pub(crate) fn cell_start_columns(&self) -> Vec<Vec<usize>> {
+        self.compute_cell_columns()
+            .expect("Table instances are validated at construction")
     }
     pub fn caption(&self) -> Option<&[Block]> {
         self.caption.as_deref()
@@ -515,5 +528,107 @@ impl Block {
 
     pub(crate) fn from_parts(kind: BlockKind, annotations: Annotations) -> Self {
         Self(Arc::new(BlockData { kind, annotations }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::num::NonZeroU16;
+
+    fn nz(span: u16) -> NonZeroU16 {
+        NonZeroU16::new(span).unwrap()
+    }
+
+    fn cell(text: &str) -> TableCell {
+        TableCell::text(text)
+    }
+
+    fn spanned(text: &str, row_span: u16, col_span: u16) -> TableCell {
+        TableCell::new([Block::paragraph(text)], None, nz(row_span), nz(col_span))
+    }
+
+    fn columns(count: usize) -> Vec<TableColumn> {
+        vec![TableColumn::start(); count]
+    }
+
+    #[test]
+    fn ordinary_rows_place_cells_in_source_order() {
+        let table = Table::new(
+            None::<Vec<Block>>,
+            columns(2),
+            1,
+            [
+                TableRow::new([cell("H1"), cell("H2")]),
+                TableRow::new([cell("A"), cell("B")]),
+            ],
+        )
+        .unwrap();
+        assert_eq!(table.cell_start_columns(), vec![vec![0, 1], vec![0, 1]]);
+    }
+
+    #[test]
+    fn column_span_advances_the_next_start_column() {
+        let table = Table::new(
+            None::<Vec<Block>>,
+            columns(3),
+            0,
+            [
+                TableRow::new([spanned("A", 1, 2), cell("B")]),
+                TableRow::new([cell("C"), cell("D"), cell("E")]),
+            ],
+        )
+        .unwrap();
+        assert_eq!(table.cell_start_columns(), vec![vec![0, 2], vec![0, 1, 2]]);
+    }
+
+    #[test]
+    fn row_span_skips_occupied_columns_on_later_rows() {
+        let table = Table::new(
+            None::<Vec<Block>>,
+            columns(2),
+            0,
+            [
+                TableRow::new([spanned("A", 2, 1), cell("B")]),
+                TableRow::new([cell("C")]),
+            ],
+        )
+        .unwrap();
+        assert_eq!(table.cell_start_columns(), vec![vec![0, 1], vec![1]]);
+    }
+
+    #[test]
+    fn combined_spans_preserve_logical_columns() {
+        let table = Table::new(
+            None::<Vec<Block>>,
+            columns(3),
+            0,
+            [
+                TableRow::new([spanned("A", 2, 2), cell("B")]),
+                TableRow::new([cell("C")]),
+                TableRow::new([cell("D"), cell("E"), cell("F")]),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            table.cell_start_columns(),
+            vec![vec![0, 2], vec![2], vec![0, 1, 2]]
+        );
+    }
+
+    #[test]
+    fn overlapping_spans_are_rejected() {
+        assert!(matches!(
+            Table::new(
+                None::<Vec<Block>>,
+                columns(3),
+                0,
+                [
+                    TableRow::new([cell("A"), spanned("B", 2, 1), cell("C")]),
+                    TableRow::new([spanned("D", 1, 2)]),
+                ],
+            ),
+            Err(TextIrError::TableCellOverlaps { .. })
+        ));
     }
 }

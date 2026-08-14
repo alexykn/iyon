@@ -9,9 +9,14 @@ mod inline;
 mod policy;
 
 #[cfg(test)]
+mod structured;
+#[cfg(test)]
 mod tests;
 
-pub use policy::{SoftBreakPolicy, TextRenderPolicy};
+pub use policy::{
+    CodeBlockLabelPolicy, SoftBreakPolicy, TableColumnSizing, TaskListMarkerPolicy,
+    TextRenderPolicy,
+};
 
 use super::{Block, TextContent, text_style_ref};
 use crate::{IntoView, View};

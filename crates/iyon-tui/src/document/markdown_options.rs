@@ -18,6 +18,21 @@ impl MarkdownOptions {
         }
     }
 
+    /// GitHub-Flavored-Markdown-oriented extension preset supported by
+    /// `MarkdownProjector`.
+    ///
+    /// Enables the GFM extensions represented by the generic text IR:
+    /// tables, strikethrough, and task-list markers.
+    ///
+    /// `Default` remains strict CommonMark.
+    pub const fn gfm() -> Self {
+        Self {
+            tables: true,
+            strikethrough: true,
+            task_lists: true,
+        }
+    }
+
     pub const fn with_tables(mut self, enabled: bool) -> Self {
         self.tables = enabled;
         self

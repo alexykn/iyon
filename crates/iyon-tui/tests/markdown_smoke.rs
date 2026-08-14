@@ -1,7 +1,9 @@
 use iyon_tui::projection::ProjectionBuilder;
 use iyon_tui::stream::{StreamOffset, StreamRange};
-use iyon_tui::text::{BlockKind, TextProvenance};
-use iyon_tui::{MarkdownOptions, MarkdownProjector, Projection, Projector, RawText, TextContent};
+use iyon_tui::text::{BlockKind, Mark, TextProvenance};
+use iyon_tui::{
+    MarkdownOptions, MarkdownProjector, Projection, Projector, RawText, TextContent, TextOrigin,
+};
 
 fn projection(source: &str, sealed: bool) -> Projection<TextContent> {
     let end = StreamOffset::new(source.len() as u64);
@@ -61,6 +63,104 @@ fn markdown_extensions_are_independent() {
         let mut projector = MarkdownProjector::new(options);
         projector.project(&projection(source, true)).unwrap();
     }
+}
+
+fn gfm_fixture() -> &'static str {
+    "| Item | State |\n| --- | --- |\n| ~~old~~ | active |\n\n- [x] complete\n- [ ] pending\n"
+}
+
+#[test]
+fn gfm_preset_maps_tables_strikethrough_and_tasks() {
+    assert_eq!(MarkdownOptions::default(), MarkdownOptions::commonmark());
+    assert!(MarkdownOptions::gfm().tables());
+    assert!(MarkdownOptions::gfm().strikethrough());
+    assert!(MarkdownOptions::gfm().task_lists());
+
+    let mut projector = MarkdownProjector::new(MarkdownOptions::gfm());
+    let output = projector.project(&projection(gfm_fixture(), true)).unwrap();
+    let blocks: Vec<_> = values(&output)
+        .into_iter()
+        .filter_map(|value| match value {
+            TextContent::Block(block) => Some(block),
+            TextContent::Raw(_) => None,
+        })
+        .collect();
+
+    let table = blocks
+        .iter()
+        .find_map(|block| match block.kind() {
+            BlockKind::Table(table) => Some((block, table)),
+            _ => None,
+        })
+        .expect("GFM table");
+    assert_eq!(table.0.origin(), Some(TextOrigin::MARKDOWN));
+    assert_eq!(table.1.header_rows(), 1);
+    assert_eq!(table.1.columns().len(), 2);
+    assert_eq!(
+        table.1.columns()[0].alignment(),
+        iyon_tui::text::Alignment::Default
+    );
+    assert_eq!(
+        table.1.columns()[1].alignment(),
+        iyon_tui::text::Alignment::Default
+    );
+
+    let body_cell = &table.1.rows()[1].cells()[0];
+    let BlockKind::Paragraph(content) = body_cell.blocks()[0].kind() else {
+        panic!("expected paragraph cell");
+    };
+    assert!(
+        content.iter().any(|inline| {
+            inline.as_text().is_some_and(|run| run.text() == "old")
+                && inline
+                    .marks()
+                    .marks()
+                    .iter()
+                    .any(|mark| matches!(mark, Mark::Strikethrough))
+        }),
+        "GFM strikethrough must map to Mark::Strikethrough"
+    );
+
+    let list = blocks
+        .iter()
+        .find_map(|block| block.as_list())
+        .expect("GFM task list");
+    assert_eq!(list.items()[0].checked(), Some(true));
+    assert_eq!(list.items()[1].checked(), Some(false));
+    assert_eq!(list.items()[0].origin(), Some(TextOrigin::MARKDOWN));
+}
+
+#[test]
+fn commonmark_does_not_claim_gfm_extensions() {
+    let mut projector = MarkdownProjector::new(MarkdownOptions::commonmark());
+    let output = projector.project(&projection(gfm_fixture(), true)).unwrap();
+    let blocks: Vec<_> = values(&output)
+        .into_iter()
+        .filter_map(|value| match value {
+            TextContent::Block(block) => Some(block),
+            TextContent::Raw(_) => None,
+        })
+        .collect();
+    assert!(
+        blocks
+            .iter()
+            .all(|block| !matches!(block.kind(), BlockKind::Table(_))),
+        "CommonMark must not emit a Table"
+    );
+    assert!(blocks.iter().all(|block| match block.kind() {
+        BlockKind::List(list) => list.items().iter().all(|item| item.checked().is_none()),
+        _ => true,
+    }));
+    assert!(blocks.iter().all(|block| match block.kind() {
+        BlockKind::Paragraph(content) => content.iter().all(|inline| {
+            !inline
+                .marks()
+                .marks()
+                .iter()
+                .any(|mark| matches!(mark, Mark::Strikethrough))
+        }),
+        _ => true,
+    }));
 }
 
 #[test]
