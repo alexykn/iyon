@@ -68,6 +68,18 @@ pub(crate) fn transfer_native_prefix_with_theme<S: NativeHistorySink>(
     max_rows: usize,
     theme: &crate::Theme,
 ) -> Result<NativeTransferOutcome, NativeTransferError<S::Error>> {
+    let outcome = transfer_native_prefix_inner(history, sink, width, max_rows, theme)?;
+    history.native.record_physical_rows(outcome.inserted);
+    Ok(outcome)
+}
+
+fn transfer_native_prefix_inner<S: NativeHistorySink>(
+    history: &mut History,
+    sink: &mut S,
+    width: u16,
+    max_rows: usize,
+    theme: &crate::Theme,
+) -> Result<NativeTransferOutcome, NativeTransferError<S::Error>> {
     if max_rows == 0 || width == 0 || history.units.is_empty() {
         return Ok(outcome(0, 0, NativeTransferStatus::Idle));
     }
@@ -112,7 +124,7 @@ pub(crate) fn transfer_native_prefix_with_theme<S: NativeHistorySink>(
             let rows = static_rows(view, width, history.layout(), theme);
             if rows.is_empty() {
                 retire_front(history);
-                return transfer_native_prefix_with_theme(history, sink, width, max_rows, theme);
+                return transfer_native_prefix_inner(history, sink, width, max_rows, theme);
             }
             transfer_static(history, sink, rows, max_rows)
         }
@@ -336,7 +348,7 @@ fn transfer_stream<S: NativeHistorySink>(
             partial: None,
         });
         state.committed_through = next;
-        return transfer_native_prefix_with_theme(history, sink, width, max_rows, theme);
+        return transfer_native_prefix_inner(history, sink, width, max_rows, theme);
     }
     let plan = plan_stream_transfer(
         &compiled,

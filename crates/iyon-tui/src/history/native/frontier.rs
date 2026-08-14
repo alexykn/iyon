@@ -33,6 +33,7 @@ pub(crate) struct StreamFrontierState {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct NativeFrontier {
+    pub(crate) physical_rows_inserted: u64,
     pub(crate) last_native_unit: Option<HistoryUnitId>,
     pub(crate) top_padding: SpacingTransferState,
     pub(crate) leading_gap: Option<SpacingTransferState>,
@@ -41,6 +42,15 @@ pub(crate) struct NativeFrontier {
 }
 
 impl NativeFrontier {
+    #[allow(dead_code)]
+    pub(crate) fn has_physical_rows(&self) -> bool {
+        self.physical_rows_inserted != 0
+    }
+
+    pub(crate) fn record_physical_rows(&mut self, count: usize) {
+        self.physical_rows_inserted = self.physical_rows_inserted.saturating_add(count as u64);
+    }
+
     pub(super) fn reset_unit_state(&mut self) {
         self.leading_gap = None;
         self.frozen_static = None;

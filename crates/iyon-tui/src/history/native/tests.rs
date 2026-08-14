@@ -355,6 +355,8 @@ fn invalid_acknowledgement_is_rejected_without_mutation() {
         })
     );
     assert_eq!(history.native, before);
+    assert_eq!(history.native.physical_rows_inserted, 0);
+    assert!(!history.native.has_physical_rows());
     assert_eq!(history.units.len(), 1);
 }
 
@@ -1611,4 +1613,127 @@ fn stable_no_wrap_code_does_not_pin_following_assistant_text() {
         sink.rows.iter().any(|r| r.plain_text().contains("AFTER")),
         "sink must contain AFTER"
     );
+}
+
+#[test]
+fn native_row_ledger_starts_at_zero() {
+    let history = History::new();
+    assert_eq!(history.native.physical_rows_inserted, 0);
+    assert!(!history.native.has_physical_rows());
+}
+
+#[test]
+fn full_static_ack_increments_native_row_ledger() {
+    let mut history = History::new();
+    history.push("A\nB\nC").unwrap();
+    let mut sink = FakeSink::default();
+
+    let outcome = transfer(&mut history, &mut sink, 8, 8);
+    assert_eq!(outcome.inserted, 3);
+    assert_eq!(history.native.physical_rows_inserted, 3);
+    assert!(history.native.has_physical_rows());
+}
+
+#[test]
+fn partial_ack_counts_only_accepted_rows() {
+    let mut history = History::new();
+    history.push("A\nB\nC").unwrap();
+    let mut sink = FakeSink::accepting([Ok(1), Ok(2)]);
+
+    let first = transfer(&mut history, &mut sink, 8, 3);
+    assert_eq!(first.inserted, 1);
+    assert_eq!(history.native.physical_rows_inserted, 1);
+    assert!(history.native.has_physical_rows());
+
+    let second = transfer(&mut history, &mut sink, 8, 3);
+    assert_eq!(second.inserted, 2);
+    assert_eq!(history.native.physical_rows_inserted, 3);
+    assert!(history.native.has_physical_rows());
+}
+
+#[test]
+fn zero_row_semantic_progress_does_not_start_native_history() {
+    let mut history = History::new();
+    let zero = history.push(View::spacer(0)).unwrap();
+    let mut sink = FakeSink::default();
+
+    let outcome = transfer(&mut history, &mut sink, 8, 8);
+    assert_eq!(outcome.inserted, 0);
+    assert_eq!(history.native.last_native_unit, Some(zero));
+    assert_eq!(history.native.physical_rows_inserted, 0);
+    assert!(!history.native.has_physical_rows());
+}
+
+#[test]
+fn zero_height_top_padding_crossing_does_not_count_as_physical() {
+    let mut history = History::new();
+    history.set_layout(HistoryLayout::from_parts(Insets::ZERO, 0));
+    let zero = history.push(View::spacer(0)).unwrap();
+    let mut sink = FakeSink::default();
+
+    let outcome = transfer(&mut history, &mut sink, 8, 8);
+    assert_eq!(outcome.inserted, 0);
+    assert_eq!(history.native.last_native_unit, Some(zero));
+    assert_eq!(
+        history.native.top_padding,
+        crate::history::native::frontier::SpacingTransferState::Native
+    );
+    assert_eq!(history.native.physical_rows_inserted, 0);
+    assert!(!history.native.has_physical_rows());
+}
+
+#[test]
+fn invalid_ack_does_not_mutate_native_row_ledger() {
+    let mut history = History::new();
+    history.push("A").unwrap();
+    let before = history.native.clone();
+    let result = transfer_native_prefix(&mut history, &mut InvalidAckSink, 8, 8);
+
+    assert_eq!(
+        result,
+        Err(NativeTransferError::InvalidAcknowledgement {
+            requested: 1,
+            accepted: 2,
+        })
+    );
+    assert_eq!(history.native, before);
+    assert_eq!(history.native.physical_rows_inserted, 0);
+    assert!(!history.native.has_physical_rows());
+    assert_eq!(history.units.len(), 1);
+}
+
+#[test]
+fn sink_error_does_not_advance_native_row_ledger() {
+    let mut history = History::new();
+    history.push("A").unwrap();
+    history.push("B").unwrap();
+    let mut sink = FakeSink::accepting([Ok(1), Err("sink error")]);
+
+    let first = transfer(&mut history, &mut sink, 8, 8);
+    assert_eq!(first.inserted, 1);
+    assert_eq!(history.native.physical_rows_inserted, 1);
+    assert!(history.native.has_physical_rows());
+
+    let before = history.native.clone();
+    let result = transfer_native_prefix(&mut history, &mut sink, 8, 8);
+    assert_eq!(result, Err(NativeTransferError::Sink("sink error")));
+    assert_eq!(history.native, before);
+    assert_eq!(history.native.physical_rows_inserted, 1);
+    assert!(history.native.has_physical_rows());
+    assert_eq!(history.units.len(), 1);
+}
+
+#[test]
+fn recursive_zero_height_skips_count_ledger_exactly_once() {
+    let mut history = History::new();
+    history.push(View::spacer(0)).unwrap();
+    history.push(View::spacer(0)).unwrap();
+    history.push("A\nB").unwrap();
+    let mut sink = FakeSink::default();
+
+    let outcome = transfer(&mut history, &mut sink, 8, 8);
+    assert_eq!(outcome.inserted, 2);
+    assert_eq!(history.native.physical_rows_inserted, 2);
+    assert!(history.native.has_physical_rows());
+    assert!(history.units.is_empty());
 }
