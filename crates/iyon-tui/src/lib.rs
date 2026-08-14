@@ -4,11 +4,62 @@
 //! retained mounted state, [`History`] owns ordered historical/live/stream
 //! content, and [`Scene`] is the terminal semantic root.
 //!
-//! Semantic text follows the ordinary pipeline
-//! `Projection<TextContent> -> MarkdownProjector -> TextRenderer -> View`.
-//! [`Smooth`] is an optional generic temporal publication stage whose pacing
-//! granularity comes from upstream projection spans; it is not a Markdown
-//! parser or renderer. Renderers do not parse or perform terminal layout.
+//! Semantic text is claimed by a source projector and then lowered to [`View`]:
+//!
+//! ```text
+//! Raw TextContent
+//!     ↓ source projector (Markdown, PlainText, future formats)
+//! semantic TextContent
+//!     ↓ optional semantic rewrites
+//! TextRenderer
+//!     ↓
+//! View
+//!     ↓
+//! layout / Theme / paint
+//! ```
+//!
+//! Markdown is one projector, not the text model. [`MarkdownOptions::gfm`]
+//! enables the supported GFM extensions (tables, strikethrough, and task lists);
+//! [`MarkdownOptions::default`] remains strict CommonMark. [`TextRenderer`] is
+//! source-format independent: it emits structure and semantic identity, never
+//! application paint. [`TextSelector`] themes semantic roles and generated
+//! parts. Origin specialization is optional. Terminal geometry remains below
+//! the renderer in the View pipeline.
+//!
+//! Styling has three channels:
+//!
+//! - inherited runtime/application context (style state)
+//! - node-local semantic identity (roles, parts, annotations)
+//! - resolved physical paint, which inherits normally
+//!
+//! A heading can therefore be presented as `plain` while nested strong text
+//! remains bold: semantic identity is local, physical style inherits.
+//!
+//! ```
+//! use iyon_tui::{
+//!     CodeBlockLabelPolicy, ColorSpec, MarkdownOptions, MarkdownProjector, StyleSpec,
+//!     TaskListMarkerPolicy, TextPart, TextRenderPolicy, TextRenderer, TextSelector, Theme,
+//! };
+//!
+//! let theme = Theme::new()
+//!     .with_text_style(
+//!         TextSelector::heading(),
+//!         StyleSpec::new().foreground(ColorSpec::theme("heading")),
+//!     )
+//!     .with_text_style(
+//!         TextSelector::part(TextPart::CodeLabel),
+//!         StyleSpec::new().dim(),
+//!     );
+//!
+//! let markdown = MarkdownProjector::new(MarkdownOptions::gfm());
+//!
+//! let renderer = TextRenderer::with_policy(
+//!     TextRenderPolicy::new()
+//!         .with_task_list_marker(TaskListMarkerPolicy::TaskOnly)
+//!         .with_code_block_label(CodeBlockLabelPolicy::Language),
+//! );
+//! # let _ = (theme, markdown, renderer);
+//! ```
 //!
 //! A basic History stream uses [`TextStream`] and the lifecycle
 //! `push_stream -> update_stream -> seal_stream`; an open stream must remain

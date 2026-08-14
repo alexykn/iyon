@@ -1,6 +1,7 @@
 use crate::WrapMode;
 
 /// How a soft line break is presented as ordinary semantic text.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SoftBreakPolicy {
     #[default]
@@ -12,6 +13,7 @@ pub enum SoftBreakPolicy {
 ///
 /// Semantic [`super::super::TableColumn`] currently carries alignment only, so
 /// the renderer maps every column through one structural policy.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TableColumnSizing {
     Content,
@@ -21,6 +23,7 @@ pub enum TableColumnSizing {
 }
 
 /// How task-list items present checkbox chrome relative to the list marker.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TaskListMarkerPolicy {
     TaskOnly,
@@ -30,6 +33,7 @@ pub enum TaskListMarkerPolicy {
 }
 
 /// Optional code-block label presentation.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CodeBlockLabelPolicy {
     #[default]

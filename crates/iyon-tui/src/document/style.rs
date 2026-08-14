@@ -72,18 +72,21 @@ pub enum TextPart {
     ImageFallback,
 }
 
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextListKind {
     Bullet,
     Ordered,
 }
 
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextTaskState {
     Checked,
     Unchecked,
 }
 
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextTableSection {
     Header,

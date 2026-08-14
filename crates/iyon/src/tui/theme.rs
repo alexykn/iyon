@@ -1,6 +1,7 @@
 use iyon_api::ReasoningLevel;
 use iyon_tui::{
-    ColorSpec, StyleSelector, StyleSpec, StyleStateKey, StyleStateValue, TextSelector, Theme,
+    ColorSpec, StyleSelector, StyleSpec, StyleStateKey, StyleStateValue, TextPart, TextSelector,
+    Theme,
 };
 
 use super::transcript::thinking_tag;
@@ -174,6 +175,28 @@ pub(crate) fn iyon_theme() -> Theme {
             StyleSpec::new().foreground(ColorSpec::theme("text.code")),
         )
         .with_text_style(
+            TextSelector::part(TextPart::CodeLabel),
+            StyleSpec::new()
+                .foreground(ColorSpec::theme("text.muted"))
+                .dim(),
+        )
+        .with_text_style(
+            TextSelector::part(TextPart::QuoteMarker),
+            StyleSpec::new().foreground(ColorSpec::theme("text.muted")),
+        )
+        .with_text_style(
+            TextSelector::part(TextPart::ListMarker),
+            StyleSpec::new().foreground(ColorSpec::theme("text.muted")),
+        )
+        .with_text_style(
+            TextSelector::part(TextPart::TaskMarker),
+            StyleSpec::new().foreground(ColorSpec::theme("text.muted")),
+        )
+        .with_text_style(
+            TextSelector::part(TextPart::ThematicRule),
+            StyleSpec::new().foreground(ColorSpec::theme("text.muted")),
+        )
+        .with_text_style(
             TextSelector::annotation(&thinking_tag()),
             StyleSpec::new()
                 .foreground(ColorSpec::theme("text.muted"))
@@ -234,28 +257,52 @@ mod tests {
         );
         assert!(theme.style("markdown.header").is_none());
         assert!(theme.style("markdown.code").is_none());
+        assert!(theme.style("markdown.bold").is_none());
+        assert!(theme.style("markdown.italic").is_none());
+        assert!(theme.style("markdown.list").is_none());
+    }
+
+    #[test]
+    fn assistant_render_policy_is_product_owned() {
+        use crate::tui::transcript::pipeline::assistant_renderer;
+        use iyon_tui::{
+            CodeBlockLabelPolicy, MarkdownOptions, MarkdownProjector, SoftBreakPolicy,
+            TableColumnSizing, TaskListMarkerPolicy, WrapMode,
+        };
+
+        let policy = assistant_renderer().policy().clone();
+        assert_eq!(policy.block_gap(), 1);
+        assert_eq!(policy.soft_break(), SoftBreakPolicy::LineBreak);
+        assert_eq!(policy.table_column_sizing(), TableColumnSizing::Flex);
+        assert_eq!(policy.table_column_gap(), 1);
+        assert_eq!(policy.table_row_gap(), 0);
+        assert_eq!(policy.task_list_marker(), TaskListMarkerPolicy::TaskOnly);
+        assert_eq!(policy.code_block_label(), CodeBlockLabelPolicy::Language);
+        assert_eq!(policy.code_block_gap(), 0);
+        assert_eq!(policy.code_wrap(), WrapMode::NoWrap);
+        assert_eq!(
+            MarkdownProjector::default().options(),
+            MarkdownOptions::commonmark()
+        );
     }
 
     #[test]
     fn assistant_text_styles_come_from_theme_not_the_renderer() {
         use crate::tui::transcript::pipeline::assistant_renderer;
-        use iyon_tui::text::{CodeBlock, Inline, InlineContent, LanguageId, LiteralText, Renderer};
-        use iyon_tui::{Block, HeadingLevel, MarkdownOptions, MarkdownProjector};
+        use iyon_tui::text::{
+            CodeBlock, Inline, InlineContent, LanguageId, List, ListItem, LiteralText, Renderer,
+        };
+        use iyon_tui::{Block, HeadingLevel};
 
         let renderer = assistant_renderer();
-        assert_eq!(
-            renderer.policy().soft_break(),
-            iyon_tui::SoftBreakPolicy::LineBreak
-        );
-        assert_eq!(
-            MarkdownProjector::default().options(),
-            MarkdownOptions::commonmark()
-        );
-
         let theme = iyon_theme();
+        let muted = Some((113, 128, 150));
+        let heading_rgb = Some((255, 196, 87));
+        let code_rgb = Some((120, 200, 210));
+
         let heading = renderer.render(&Block::heading(HeadingLevel::H1, "Title"));
         let heading_style = iyon_tui::testing::style_at_text(&heading, 40, &theme, "Title");
-        assert_eq!(heading_style.fg_rgb, Some((255, 196, 87)));
+        assert_eq!(heading_style.fg_rgb, heading_rgb);
         assert!(heading_style.bold);
         assert!(heading_style.underline);
 
@@ -265,7 +312,7 @@ mod tests {
         .code()])));
         assert_eq!(
             iyon_tui::testing::style_at_text(&code, 40, &theme, "code").fg_rgb,
-            Some((120, 200, 210))
+            code_rgb
         );
 
         let rust = LanguageId::new("rust").unwrap();
@@ -274,18 +321,45 @@ mod tests {
             Some("rust"),
             LiteralText::from("fn"),
         )));
+        let label = iyon_tui::testing::style_at_text(&block, 40, &theme, "rust");
+        assert_eq!(label.fg_rgb, muted);
+        assert!(label.dim);
         assert_eq!(
             iyon_tui::testing::style_at_text(&block, 40, &theme, "fn").fg_rgb,
-            Some((120, 200, 210))
+            code_rgb
+        );
+
+        let quote = renderer.render(&Block::block_quote([Block::paragraph("quoted")]));
+        assert_eq!(
+            iyon_tui::testing::style_at_text(&quote, 40, &theme, ">").fg_rgb,
+            muted
+        );
+
+        let list = renderer.render(&Block::list(List::bulleted([ListItem::paragraph("item")])));
+        assert_eq!(
+            iyon_tui::testing::style_at_text(&list, 40, &theme, "-").fg_rgb,
+            muted
+        );
+
+        let task = renderer.render(&Block::list(List::bulleted([ListItem::task("done", true)])));
+        assert_eq!(
+            iyon_tui::testing::style_at_text(&task, 40, &theme, "[").fg_rgb,
+            muted
+        );
+
+        let rule = renderer.render(&Block::thematic_break());
+        assert_eq!(
+            iyon_tui::testing::style_at_text(&rule, 40, &theme, "─").fg_rgb,
+            muted
         );
 
         let think = iyon_tui::text::TextRun::from("think")
             .map_annotations(|annotations| annotations.with_tag(crate::transcript::thinking_tag()));
         let thinking_view =
             renderer.render(&Block::paragraph(InlineContent::new([Inline::text(think)])));
-        let muted = iyon_tui::testing::style_at_text(&thinking_view, 40, &theme, "think");
-        assert_eq!(muted.fg_rgb, Some((113, 128, 150)));
-        assert!(muted.italic);
+        let thinking = iyon_tui::testing::style_at_text(&thinking_view, 40, &theme, "think");
+        assert_eq!(thinking.fg_rgb, muted);
+        assert!(thinking.italic);
 
         let think_code = iyon_tui::text::TextRun::from("fnx")
             .map_annotations(|annotations| annotations.with_tag(crate::transcript::thinking_tag()));
@@ -294,7 +368,7 @@ mod tests {
         )
         .code()])));
         let overlay = iyon_tui::testing::style_at_text(&thinking_code, 40, &theme, "fnx");
-        assert_eq!(overlay.fg_rgb, Some((113, 128, 150)));
+        assert_eq!(overlay.fg_rgb, muted);
         assert!(overlay.italic);
     }
 }
