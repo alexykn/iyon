@@ -221,6 +221,12 @@ impl Projector<TextContent> for MarkdownProjector {
             .max(input.source_base());
 
         let provisional = output.finish().map_err(TextProjectionError::from)?;
+        global_stable = snap_stable_to_span_boundary(
+            global_stable,
+            input.source_base(),
+            input.source_end(),
+            provisional.spans(),
+        );
         let mut final_builder = ProjectionBuilder::new(
             input.source_base(),
             global_stable,
@@ -495,11 +501,31 @@ fn prepend_cached(
         suffix.source_end(),
         suffix.is_sealed(),
     );
-    for span in &cache.spans {
-        builder = builder.emit_many(span.source, span.values.clone());
+    let mut cursor = cache.source_base;
+    let cached = cache
+        .spans
+        .iter()
+        .map(|span| (span.source, span.values.as_slice()));
+    let extra = suffix
+        .spans()
+        .iter()
+        .map(|span| (span.source(), span.values()));
+    for (source, values) in cached.chain(extra) {
+        if source.end() <= cursor {
+            continue;
+        }
+        let start = source.start().max(cursor);
+        if start > cursor {
+            builder = builder.elide(StreamRange::new(cursor, start));
+        }
+        builder = builder.emit_many(
+            StreamRange::new(start, source.end()),
+            values.iter().cloned(),
+        );
+        cursor = source.end();
     }
-    for span in suffix.spans() {
-        builder = builder.emit_many(span.source(), span.values().iter().cloned());
+    if cursor < suffix.source_end() {
+        builder = builder.elide(StreamRange::new(cursor, suffix.source_end()));
     }
     builder
         .finish()
@@ -509,6 +535,33 @@ fn prepend_cached(
 
 fn is_raw_span(span: &ProjectionSpan<TextContent>) -> bool {
     span.values().len() == 1 && matches!(span.values()[0], TextContent::Raw(_))
+}
+
+fn snap_stable_to_span_boundary<T>(
+    stable: StreamOffset,
+    source_base: StreamOffset,
+    source_end: StreamOffset,
+    spans: &[ProjectionSpan<T>],
+) -> StreamOffset {
+    let stable = stable.min(source_end).max(source_base);
+    if stable == source_base
+        || stable == source_end
+        || spans.iter().any(|span| span.source.end() == stable)
+    {
+        return stable;
+    }
+    if let Some(end) = spans
+        .iter()
+        .map(|span| span.source.end())
+        .filter(|end| *end <= stable)
+        .max()
+    {
+        return end;
+    }
+    spans
+        .iter()
+        .find(|span| span.source.start() <= stable && stable < span.source.end())
+        .map_or(source_base, |span| span.source.end().min(source_end))
 }
 
 fn parse_domain_uncached(
@@ -641,13 +694,7 @@ impl<'a> Builder<'a> {
             Event::Html(text) => self.html(text.as_ref(), range),
             Event::SoftBreak => self.push_inline(Inline::break_(BreakKind::Soft)),
             Event::HardBreak => self.push_inline(Inline::break_(BreakKind::Hard)),
-            Event::Rule => {
-                self.root.push(OwnedBlock {
-                    range,
-                    block: Block::thematic_break(),
-                });
-                Ok(())
-            }
+            Event::Rule => self.add_block(range, Block::thematic_break()),
             Event::TaskListMarker(checked) => {
                 let Some(Frame::Item { checked: slot, .. }) = self.frames.last_mut() else {
                     return Err(MarkdownProjectionError::InvalidNesting {
@@ -1128,13 +1175,16 @@ impl<'a> Builder<'a> {
         );
         let mut cursor = 0;
         for owned in self.root {
-            let start = owned.range.start;
-            let end = owned.range.end.max(start);
+            let end = owned.range.end.max(owned.range.start);
+            let start = owned.range.start.max(cursor);
             if start > cursor {
                 builder = builder.elide(StreamRange::new(
                     self.domain.source_base().saturating_add(cursor as u64),
                     self.domain.source_base().saturating_add(start as u64),
                 ));
+            }
+            if start >= end {
+                continue;
             }
             builder = builder.emit(
                 StreamRange::new(

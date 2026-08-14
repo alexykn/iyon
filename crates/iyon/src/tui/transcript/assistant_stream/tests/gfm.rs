@@ -143,6 +143,26 @@ fn advance_some(source: &mut AssistantStream, steps: usize) {
 }
 
 #[test]
+fn incomplete_markdown_guide_does_not_panic_the_pipeline() {
+    let source = concat!(
+        "What is Markdown?\n\n---\n\n",
+        "```markdown\n# H1 Heading\n## H2 Heading\n",
+        "Emphasis\n\n- Bold → **bold**\n- Italic → *italic*\n-",
+        "\n\n> quote\n>\n> ---\n",
+    );
+    let mut stream = AssistantStream::new();
+    for character in source.chars() {
+        stream.push_delta_paced(SegmentKind::Text, &character.to_string());
+        advance_some(&mut stream, 2);
+    }
+    stream.seal();
+    assert!(
+        !blocks(&stream).is_empty(),
+        "sealed guide must still project blocks"
+    );
+}
+
+#[test]
 fn assistant_pipeline_projects_gfm_semantics() {
     let stream = sealed_text(GFM_FIXTURE);
     let table = table_of(&stream);
