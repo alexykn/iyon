@@ -1,7 +1,7 @@
 use iyon_tui::{
-    Block, Component, HeadingLevel, History, Inline, MarkdownProjector, Projector,
-    Renderer, Smooth, SoftBreakPolicy, TextContent, TextOrigin, TextRenderPolicy, TextRenderer,
-    TextSelector, TextStream,
+    Block, Component, GridCellSpec, GridTrack, HeadingLevel, History, Inline, MarkdownProjector,
+    Projector, Renderer, Smooth, SoftBreakPolicy, TextContent, TextOrigin, TextRenderPolicy,
+    TextRenderer, TextSelector, TextStream, View,
 };
 use iyon_tui::projection::{ProjectionBuilder, ProjectionTransitionError, validate_projection_transition};
 use iyon_tui::stream::{
@@ -22,6 +22,13 @@ fn root_vocabulary() {
     let _ = Block::heading(HeadingLevel::H1, "Heading");
     let _ = Inline::text("text");
     let _ = TextSelector::heading().origin(TextOrigin::MARKDOWN);
+    let _ = View::grid(|grid| {
+        grid.columns([GridTrack::content(), GridTrack::flex()]);
+        grid.row(|row| {
+            row.cell("Name");
+            row.cell_with(GridCellSpec::new(), "Value");
+        });
+    });
 }
 
 fn advanced_namespaces() {

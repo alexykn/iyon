@@ -57,6 +57,12 @@
 //!
 //! let _ = Horizontal::new();
 //! ```
+//!
+//! ```compile_fail
+//! use iyon_tui::Grid;
+//!
+//! let _ = Grid::new();
+//! ```
 
 mod application;
 mod backend;
@@ -108,9 +114,10 @@ pub use theme::Theme;
 
 pub use presentation::api::{
     AnsiColor, BorderEdges, BorderGlyphError, BorderGlyphs, BorderSpec, BorderStyle, ColorSpec,
-    Horizontal, HorizontalAlign, Insets, IntoView, OverflowIndicator, StyleRef, StyleSelector,
-    StyleSpec, StyleStateKey, StyleStateValue, Text, TextAttribute, TextAttributeSpec, TextSpan,
-    ThemeColor, ThemeKey, Vertical, VerticalAlign, View, WrapMode,
+    Grid, GridCellSpec, GridRow, GridTrack, Horizontal, HorizontalAlign, Insets, IntoView,
+    OverflowIndicator, StyleRef, StyleSelector, StyleSpec, StyleStateKey, StyleStateValue, Text,
+    TextAttribute, TextAttributeSpec, TextSpan, ThemeColor, ThemeKey, Vertical, VerticalAlign,
+    View, WrapMode,
 };
 pub use stream::{StreamPane, TextStream};
 

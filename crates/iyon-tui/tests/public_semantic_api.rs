@@ -109,6 +109,33 @@ fn public_hanging_composition_is_externally_usable() {
 }
 
 #[test]
+fn public_grid_composition_is_externally_usable() {
+    use iyon_tui::{GridCellSpec, GridTrack};
+
+    let view = View::grid(|grid| {
+        grid.columns([GridTrack::content(), GridTrack::flex(), GridTrack::fixed(8)]);
+        grid.column_gap(1);
+        grid.row_gap(1);
+        grid.row(|row| {
+            row.cell("Name");
+            row.cell("Value");
+            row.cell("Status");
+        });
+        grid.row(|row| {
+            row.cell("requests");
+            row.cell_with(
+                GridCellSpec::new().horizontal_align(HorizontalAlign::End),
+                "42",
+            );
+            row.cell_with(GridCellSpec::new().row_span(1), "ok");
+        });
+    })
+    .fill_width()
+    .padding(1);
+    let _: View = view;
+}
+
+#[test]
 fn public_height_composition_is_externally_usable() {
     let view = View::vertical(add_bounded_details)
         .fill_width()
