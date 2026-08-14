@@ -7,6 +7,7 @@ use termwiz::{
 use crate::{
     physical::{
         AnsiColor as IyonAnsiColor, PhysicalCell, PhysicalColor, PhysicalRow, PhysicalStyle,
+        text_cell_width,
     },
     scene::PreparedSceneFrame,
 };
@@ -162,7 +163,29 @@ pub(crate) fn row_changes(row: &PhysicalRow, y: usize, clear_tail: bool) -> Vec<
         text.push_str(grapheme);
     }
     flush_text(&mut changes, &mut text, active_style);
+    debug_assert_eq!(
+        iyon_leader_cell_width(row, last_written),
+        termwiz_emitted_cell_width(&changes),
+        "Iyon leader widths must match termwiz widths of emitted Change::Text"
+    );
     changes
+}
+
+fn iyon_leader_cell_width(row: &PhysicalRow, last_written: usize) -> usize {
+    row.glyphs()
+        .filter(|glyph| glyph.start <= last_written)
+        .map(|glyph| glyph.width)
+        .sum()
+}
+
+fn termwiz_emitted_cell_width(changes: &[Change]) -> usize {
+    changes
+        .iter()
+        .map(|change| match change {
+            Change::Text(text) => text_cell_width(text),
+            _ => 0,
+        })
+        .sum()
 }
 
 fn flush_text(changes: &mut Vec<Change>, text: &mut String, style: Option<CellAttributes>) {
@@ -323,6 +346,8 @@ mod tests {
             "👨‍👩‍👧‍👦",
             "e\u{301}",
             "漢",
+            "👋🏻",
+            "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
         ];
         for sample in samples {
             let row =
@@ -353,6 +378,13 @@ mod tests {
             assert!(
                 canary.starts_with('K'),
                 "{sample:?} must not wrap onto the canary row under termwiz; screen={screen:?}"
+            );
+            let changes = row_changes(&row, 0, false);
+            let last_written = row.cells().iter().rposition(|cell| cell.painted).unwrap();
+            assert_eq!(
+                iyon_leader_cell_width(&row, last_written),
+                termwiz_emitted_cell_width(&changes),
+                "{sample:?} Iyon leaders must occupy the same cells as emitted termwiz text"
             );
         }
     }

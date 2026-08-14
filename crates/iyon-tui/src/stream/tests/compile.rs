@@ -193,3 +193,35 @@ fn empty_hard_newline_transfers_as_one_row() {
         StreamRowTransfer::Checkpoint(StreamOffset::new(3))
     );
 }
+
+#[test]
+fn atomic_beyond_stable_through_is_blocked_from_native_transfer() {
+    let table = StreamRange::new(StreamOffset::new(5), StreamOffset::new(20));
+    let view = StreamView::new(vec![
+        StreamNode::exact_text(
+            StreamRange::new(StreamOffset::ZERO, StreamOffset::new(5)),
+            vec![crate::TextSpan::plain("intro")],
+        ),
+        StreamNode::atomic(table, View::text("| A | B |\n| 1 | 2 |").into_view()),
+    ]);
+    let open = compile_stream(&view, 40, StreamOffset::new(5));
+    assert_eq!(open.transferable_prefix_rows, 1);
+    assert!(
+        open.rows
+            .iter()
+            .filter(
+                |row| matches!(row.anchor, StreamRowAnchor::Atomic { range, .. } if range == table)
+            )
+            .all(|row| matches!(row.transfer, StreamRowTransfer::Blocked)),
+        "raw table rows must not transfer while the range is still revisable"
+    );
+
+    let closed = compile_stream(&view, 40, table.end());
+    assert!(
+        closed.rows.iter().any(|row| matches!(
+            row.transfer,
+            StreamRowTransfer::Atomic { source_end, .. } if source_end == table.end()
+        )),
+        "the same range may transfer only after it is stable"
+    );
+}

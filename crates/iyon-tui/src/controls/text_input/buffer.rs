@@ -1,10 +1,11 @@
 use std::ops::Range;
 
 use super::{
-    cursor::{cursor_for_display_col, logical_line_ranges, wrapped_line_index_by_start},
+    cursor::{
+        cursor_for_display_col, display_col_at, logical_line_ranges, wrapped_line_index_by_start,
+    },
     edit::{canonicalize, is_separator},
 };
-use crate::physical::text_cell_width;
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Debug)]
@@ -225,7 +226,7 @@ impl TextBuffer {
         let current = &rows[index];
         let target = self
             .preferred_col
-            .unwrap_or_else(|| text_cell_width(&self.text[current.start..self.cursor]));
+            .unwrap_or_else(|| display_col_at(&self.text, current.start, current.end, self.cursor));
         self.preferred_col = Some(target);
         let previous = &rows[index - 1];
         let next = cursor_for_display_col(&self.text, previous.start, previous.end, target);
@@ -242,7 +243,7 @@ impl TextBuffer {
         let current = &rows[index];
         let target = self
             .preferred_col
-            .unwrap_or_else(|| text_cell_width(&self.text[current.start..self.cursor]));
+            .unwrap_or_else(|| display_col_at(&self.text, current.start, current.end, self.cursor));
         self.preferred_col = Some(target);
         let next_row = &rows[index + 1];
         let next = cursor_for_display_col(&self.text, next_row.start, next_row.end, target);

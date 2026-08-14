@@ -41,14 +41,12 @@ impl PhysicalRow {
         Self::from_cells(Vec::new())
     }
 
-    #[allow(dead_code)]
     pub(crate) fn width(&self) -> usize {
         self.cells.len()
     }
 
     /// Columns through the last painted cell, including left padding if this
     /// row was `placed` into a wider destination.
-    #[allow(dead_code)]
     pub(crate) fn occupied_width(&self) -> usize {
         self.cells
             .iter()
@@ -65,7 +63,6 @@ impl PhysicalRow {
         self.cells.get(index)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn glyphs(&self) -> impl Iterator<Item = PhysicalGlyph<'_>> {
         glyphs(&self.cells)
     }

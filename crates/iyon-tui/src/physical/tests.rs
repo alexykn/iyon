@@ -1,6 +1,7 @@
 use super::*;
 use crate::geometry::Size;
 use crate::physical::grapheme_cell_width;
+use proptest::prelude::*;
 
 fn leader(text: &str) -> PhysicalCell {
     PhysicalCell {
@@ -143,4 +144,61 @@ fn truncated_wide_leader_fails_geometry_validation() {
     assert!(row.validate_cell_geometry().is_ok());
     let invalid = vec![leader("界")];
     assert!(super::glyph::validate_cells(&invalid).is_err());
+}
+
+const GEOMETRY_ATOMS: &[&str] = &[
+    "a",
+    "b",
+    " ",
+    "漢",
+    "💛",
+    "🇮🇩",
+    "👩‍🔬",
+    "e\u{301}",
+    "👋🏻",
+    "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+    "☆",
+    "⭐",
+    "4⃣",
+    "☀️",
+];
+
+fn geometry_text() -> impl Strategy<Value = String> {
+    prop::collection::vec(prop::sample::select(GEOMETRY_ATOMS), 0..10)
+        .prop_map(|parts| parts.concat())
+}
+
+proptest! {
+    #[test]
+    fn physical_rows_and_crops_keep_wide_cell_geometry(
+        text in geometry_text(),
+        width in 1u16..24,
+    ) {
+        let row = row_for(&text);
+        prop_assert!(row.validate_cell_geometry().is_ok());
+        for glyph in row.glyphs() {
+            if let Some(grapheme) = glyph.leader.grapheme.as_deref() {
+                prop_assert_eq!(glyph.width, grapheme_cell_width(grapheme));
+            }
+        }
+
+        let (placed, _) = row.place(width, 0);
+        prop_assert!(placed.validate_cell_geometry().is_ok());
+        prop_assert!(placed.occupied_width() <= usize::from(width));
+        prop_assert!(placed.glyphs().all(|glyph| glyph.start + glyph.width <= placed.cells().len()));
+
+        let mut surface = Surface::new(row.width().max(1) as u16, 1);
+        for (x, cell) in row.cells().iter().enumerate() {
+            if x >= usize::from(surface.width()) {
+                break;
+            }
+            *surface.get_mut(x as u16, 0) = cell.clone();
+        }
+        let cropped = surface.crop_to(width, 1);
+        let crop_width = usize::from(cropped.width());
+        if crop_width > 0 {
+            prop_assert!(super::glyph::validate_cells(&cropped.cells[..crop_width]).is_ok());
+        }
+        prop_assert!(cropped.width() <= width);
+    }
 }

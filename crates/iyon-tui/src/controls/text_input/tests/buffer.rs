@@ -95,6 +95,21 @@ fn synthetic_soft_wrap_rows_use_the_same_vertical_algorithm() {
     assert_eq!(buffer.cursor_bytes(), 5);
 }
 
+#[test]
+fn vertical_motion_uses_stored_cell_widths_not_utf8_bytes() {
+    // 💛 occupies two cells. Treating the caret's UTF-8 offset as a display
+    // column would land four cells into the next line instead of two.
+    let mut buffer = TextBuffer::new();
+    buffer.set_text("💛ab\ncdefg", true);
+    buffer.set_cursor("💛".len());
+    assert!(buffer.move_down_in_rows(&buffer.logical_rows()));
+    assert_eq!(
+        buffer.cursor_bytes(),
+        "💛ab\ncd".len(),
+        "display column 2 is the leading edge of 'e', not UTF-8 byte 4"
+    );
+}
+
 proptest! {
     #[test]
     fn cursor_invariant_survives_unicode_edit_sequences(
