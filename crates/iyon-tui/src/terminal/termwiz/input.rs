@@ -13,6 +13,11 @@ pub(crate) fn map_input(event: InputEvent) -> Option<crate::terminal::TerminalEv
 
 pub(crate) fn key_stroke(event: KeyEvent) -> Option<KeyStroke> {
     let key = match event.key {
+        // CSI-u encodes shifted CR/LF as characters (for example, CSI 13;2u).
+        // Keep the framework's canonical Enter shape used by modifyOtherKeys.
+        KeyCode::Char('\n' | '\r') if event.modifiers.contains(TermwizModifiers::SHIFT) => {
+            Key::Enter
+        }
         KeyCode::Char(character) => Key::Char(character),
         KeyCode::Enter => Key::Enter,
         KeyCode::Escape => Key::Escape,
@@ -97,6 +102,62 @@ fn modifiers(value: TermwizModifiers) -> Modifiers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use termwiz::input::InputParser;
+
+    fn parsed_key(sequence: &[u8]) -> KeyEvent {
+        let mut parser = InputParser::new();
+        let events = parser.parse_as_vec(sequence, false);
+        assert_eq!(events.len(), 1);
+        match events
+            .into_iter()
+            .next()
+            .expect("parser returned one event")
+        {
+            InputEvent::Key(event) => event,
+            event => panic!("expected key event, got {event:?}"),
+        }
+    }
+
+    fn mapped_key(event: KeyEvent) -> KeyStroke {
+        match map_input(InputEvent::Key(event)) {
+            Some(crate::terminal::TerminalEvent::Key(stroke)) => stroke,
+            event => panic!("expected mapped key event, got {event:?}"),
+        }
+    }
+
+    #[test]
+    fn modify_other_keys_shift_enter_csi_27_2_13_tilde_decodes_to_enter_with_shift() {
+        let event = parsed_key(b"\x1b[27;2;13~");
+        assert_eq!(
+            event,
+            KeyEvent {
+                key: KeyCode::Enter,
+                modifiers: TermwizModifiers::SHIFT,
+            }
+        );
+        assert_eq!(
+            mapped_key(event),
+            KeyStroke::with_modifiers(Key::Enter, Modifiers::SHIFT)
+        );
+    }
+
+    #[test]
+    fn csi_u_shifted_cr_and_lf_decode_to_enter_with_shift() {
+        for (sequence, character) in [(&b"\x1b[13;2u"[..], '\r'), (&b"\x1b[10;2u"[..], '\n')] {
+            let event = parsed_key(sequence);
+            assert_eq!(
+                event,
+                KeyEvent {
+                    key: KeyCode::Char(character),
+                    modifiers: TermwizModifiers::SHIFT,
+                }
+            );
+            assert_eq!(
+                mapped_key(event),
+                KeyStroke::with_modifiers(Key::Enter, Modifiers::SHIFT)
+            );
+        }
+    }
 
     #[test]
     fn shift_tab_keeps_the_framework_canonical_shape() {
