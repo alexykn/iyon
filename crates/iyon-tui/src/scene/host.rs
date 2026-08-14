@@ -49,6 +49,7 @@ fn drain_native_pressure<S: NativeHistorySink>(
     width: u16,
     overflow_rows: usize,
     theme: &Theme,
+    transfer_calls: &mut usize,
 ) -> Result<NativePressure, crate::history::NativeTransferError<S::Error>> {
     use crate::history::NativeTransferStatus::{Idle, Progress, SemanticBlocked, SinkBlocked};
 
@@ -56,9 +57,24 @@ fn drain_native_pressure<S: NativeHistorySink>(
     let mut inserted_any = false;
 
     while remaining > 0 {
+        let physical_before = history.physical_rows_inserted();
         let outcome = crate::history::transfer_native_prefix_with_theme(
             history, sink, width, remaining, theme,
         )?;
+        *transfer_calls += 1;
+        crate::history::trace::trace_transfer(
+            overflow_rows,
+            remaining,
+            outcome.inserted,
+            match outcome.status {
+                Progress => "Progress",
+                Idle => "Idle",
+                SinkBlocked => "SinkBlocked",
+                SemanticBlocked { .. } => "SemanticBlocked",
+            },
+            physical_before,
+            history.physical_rows_inserted(),
+        );
 
         if outcome.inserted > 0 {
             inserted_any = true;
@@ -247,9 +263,12 @@ impl SceneHost {
         S: NativeHistorySink,
         F: FnMut(&mut S) -> Result<Size>,
     {
+        let mut resolves = 0usize;
+        let mut transfer_calls = 0usize;
         loop {
             let size = viewport(sink).map_err(SceneHostError::Viewport)?;
 
+            resolves += 1;
             let resolved = self.resolve_stable_at_with_anchor(
                 scene,
                 registry,
@@ -259,10 +278,12 @@ impl SceneHost {
             )?;
 
             if resolved.root.history_overflow_rows == 0 {
+                crate::history::trace::trace_resolve_pressure(resolves, 0, transfer_calls);
                 return Ok(self.paint(resolved, theme));
             }
 
             let Some(history) = scene.history_mut() else {
+                crate::history::trace::trace_resolve_pressure(resolves, 0, transfer_calls);
                 return Ok(self.paint(resolved, theme));
             };
 
@@ -272,6 +293,7 @@ impl SceneHost {
                 size.width,
                 resolved.root.history_overflow_rows,
                 theme,
+                &mut transfer_calls,
             )
             .map_err(SceneHostError::Transfer)?;
 
@@ -282,6 +304,7 @@ impl SceneHost {
                     // size may be reused: no native rows were inserted during
                     // the final blocked drain attempt, so viewport geometry did
                     // not change.
+                    resolves += 1;
                     let pinned = self.resolve_stable_at_with_anchor(
                         scene,
                         registry,
@@ -289,6 +312,7 @@ impl SceneHost {
                         now,
                         HistoryViewportAnchor::NativeFrontier,
                     )?;
+                    crate::history::trace::trace_resolve_pressure(resolves, 0, transfer_calls);
                     return Ok(self.paint(pinned, theme));
                 }
             }

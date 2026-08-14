@@ -382,6 +382,28 @@ fn project_into_session_with_mode(
         push_spacer(&mut children, slack);
     }
 
+    crate::history::trace::trace_projection(
+        size.width,
+        size.height,
+        0,
+        size.height,
+        match anchor {
+            HistoryViewportAnchor::FollowEnd => "FollowEnd",
+            HistoryViewportAnchor::NativeFrontier => "NativeFrontier",
+        },
+        history.native.physical_rows_inserted,
+        history.native.last_native_unit.map(|id| id.value()),
+        history.units.len(),
+        history
+            .native
+            .stream
+            .as_ref()
+            .map(|state| state.committed_through.as_u64()),
+        total_flow_height,
+        overflow_rows,
+        slack,
+    );
+
     let mut root = View::vertical(|column| {
         column.children(children);
     });
