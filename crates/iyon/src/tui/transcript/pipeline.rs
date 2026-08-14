@@ -5,12 +5,12 @@ use iyon_tui::stream::{StreamOffset, StreamRange};
 use iyon_tui::text::{
     Inline, InlineContent, InlineKind, LiteralText, MarkdownProjectionError, MarkdownProjector,
     Renderer, RewriteProjectionError, SemanticTag, SoftBreakPolicy, TextContent, TextIrError,
-    TextProvenance, TextRenderStyle, TextRenderer, TextRewriter, TextRun, walk_rewrite_inline,
+    TextProvenance, TextRenderPolicy, TextRenderer, TextRewriter, TextRun, walk_rewrite_inline,
 };
 use iyon_tui::{Insets, View};
 
 use super::assistant_stream::AssistantPacingAtom;
-use super::semantic::SegmentKind;
+use super::semantic::{SegmentKind, thinking_tag};
 
 #[derive(Debug)]
 pub(crate) enum AssistantPipelineError {
@@ -135,7 +135,7 @@ impl AssistantThinkingRewriter {
     fn new(paced: &Projection<AssistantPacingAtom>) -> Self {
         Self {
             map: ThinkingMap::from_projection(paced),
-            tag: SemanticTag::new("app", "thinking").expect("static semantic tag is valid"),
+            tag: thinking_tag(),
         }
     }
 
@@ -237,24 +237,7 @@ impl TextRewriter for AssistantThinkingRewriter {
 }
 
 pub(crate) fn assistant_renderer() -> TextRenderer {
-    let heading =
-        iyon_tui::StyleSpec::new().foreground(iyon_tui::ColorSpec::theme("markdown.header"));
-    let code = iyon_tui::StyleSpec::new().foreground(iyon_tui::ColorSpec::theme("markdown.code"));
-    let thinking = iyon_tui::StyleSpec::new()
-        .foreground(iyon_tui::ColorSpec::theme("text.muted"))
-        .italic();
-    TextRenderer::with_style(
-        TextRenderStyle::new()
-            .with_soft_break(SoftBreakPolicy::LineBreak)
-            .with_heading_style(1, heading.clone())
-            .with_heading_style(2, heading.clone())
-            .with_heading_style(3, heading.clone())
-            .with_heading_style(4, heading.clone())
-            .with_heading_style(5, heading.clone())
-            .with_heading_style(6, heading)
-            .with_code_style(code)
-            .with_annotation_tag("app:thinking", thinking),
-    )
+    TextRenderer::with_policy(TextRenderPolicy::new().with_soft_break(SoftBreakPolicy::LineBreak))
 }
 
 pub(crate) struct AssistantPresentationChunk {
@@ -296,7 +279,7 @@ pub(crate) fn assistant_presentation(
                 if index == 0 && semantic.source_base() == StreamOffset::ZERO {
                     0
                 } else {
-                    renderer.style().block_gap()
+                    renderer.policy().block_gap()
                 },
                 2,
                 0,

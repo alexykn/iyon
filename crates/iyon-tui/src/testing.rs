@@ -9,11 +9,11 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 
 use crate::{
-    App, AppCx, AppHandle, KeyStroke, RunError, RuntimeError, View,
+    App, AppCx, AppHandle, KeyStroke, RunError, RuntimeError, Theme, View,
     application::{KernelError, RunningApp},
     backend::NativeHistorySink,
     geometry::Size,
-    physical::{PhysicalRow, Surface},
+    physical::{PhysicalColor, PhysicalRow, Surface},
     scene::PreparedSceneFrame,
 };
 
@@ -161,6 +161,40 @@ pub fn compile_view_lines(view: &View, width: u16) -> Vec<String> {
         .iter()
         .map(PhysicalRow::plain_text)
         .collect()
+}
+
+/// Painted attributes at the first cell of `needle` after compiling `view`.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PaintedFlags {
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub dim: bool,
+    pub fg_rgb: Option<(u8, u8, u8)>,
+}
+
+#[doc(hidden)]
+pub fn style_at_text(view: &View, width: u16, theme: &Theme, needle: &str) -> PaintedFlags {
+    let block = crate::presentation::layout::compile_view_with_theme(view, width, theme);
+    for row in &block.rows {
+        let text = row.plain_text();
+        if let Some(index) = text.find(needle) {
+            let style = row.cells()[index].style;
+            let fg_rgb = match style.foreground {
+                Some(PhysicalColor::Rgb { r, g, b }) => Some((r, g, b)),
+                _ => None,
+            };
+            return PaintedFlags {
+                bold: style.bold,
+                italic: style.italic,
+                underline: style.underline,
+                dim: style.dim,
+                fg_rgb,
+            };
+        }
+    }
+    panic!("did not find {needle:?}");
 }
 
 fn surface_lines(surface: &Surface) -> Vec<String> {

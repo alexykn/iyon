@@ -1,8 +1,13 @@
 use iyon_tui::stream::StreamingSource;
+use iyon_tui::text::SemanticTag;
 use iyon_tui::{ColorSpec, Insets, IntoView, OverflowIndicator, ThemeKey, View};
 
 use crate::tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput};
 use crate::transcript::pipeline::{assistant_renderer, assistant_view};
+
+pub(crate) fn thinking_tag() -> SemanticTag {
+    SemanticTag::new("app", "thinking").expect("static semantic tag is valid")
+}
 
 /// The kind of an assistant-message segment. `Thinking` is streamed reasoning,
 /// kept logically distinct from answer text so it can be styled independently.

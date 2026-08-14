@@ -93,7 +93,7 @@ pub use controls::{TextChange, TextInput};
 pub use document::{
     Block, HeadingLevel, Inline, InlineContent, MarkdownOptions, MarkdownProjector,
     PlainTextProjector, RawText, Renderer, SoftBreakPolicy, TextContent, TextListKind, TextOrigin,
-    TextPart, TextRenderStyle, TextRenderer, TextRole, TextSelector, TextTableSection,
+    TextPart, TextRenderPolicy, TextRenderer, TextRole, TextSelector, TextTableSection,
     TextTaskState,
 };
 pub use history::{
@@ -145,6 +145,7 @@ pub mod prelude {
         App, AppCx, Block, Component, ComponentCx, EventCx, History, HistoryLayout, Inline,
         InlineContent, IntoView, MarkdownProjector, Output, PlainTextProjector, Projection,
         Projector, ProjectorExt, Renderer, Scene, ScrollPane, Smooth, StreamPane, TextContent,
-        TextInput, TextOrigin, TextRenderer, TextSelector, TextStream, Theme, View,
+        TextInput, TextOrigin, TextRenderPolicy, TextRenderer, TextSelector, TextStream, Theme,
+        View,
     };
 }

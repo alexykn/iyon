@@ -217,8 +217,7 @@ impl View {
         self
     }
 
-    /// Assigns a self-only semantic styling fact. This is crate-private until
-    /// the typed text selector API is introduced.
+    /// Assigns a self-only semantic styling fact.
     #[allow(dead_code)]
     pub(crate) fn style_fact(
         mut self,
@@ -226,6 +225,11 @@ impl View {
         value: impl Into<StyleStateValue>,
     ) -> Self {
         self.style_facts.set(key, value);
+        self
+    }
+
+    pub(crate) fn with_style_facts(mut self, facts: StyleFacts) -> Self {
+        self.style_facts = facts;
         self
     }
 
