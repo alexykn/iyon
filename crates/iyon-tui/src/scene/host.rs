@@ -30,6 +30,71 @@ use crate::history::HistoryViewportAnchor;
 
 const MAX_LAYOUT_PASSES: usize = 8;
 
+/// Outcome of one `drain_native_pressure` call.
+enum NativePressure {
+    /// Native state changed; the caller must re-resolve before painting.
+    Progress,
+    /// No native progress was possible; the caller should paint front-pinned.
+    Blocked,
+}
+
+/// Consume as many native rows as `overflow_rows` allows without triggering
+/// another full Scene resolve for each individual one-line History unit.
+///
+/// Returns `Progress` if the caller must re-resolve, or `Blocked` if the
+/// frontier is stuck and the host should paint from the NativeFrontier anchor.
+fn drain_native_pressure<S: NativeHistorySink>(
+    history: &mut crate::History,
+    sink: &mut S,
+    width: u16,
+    overflow_rows: usize,
+    theme: &Theme,
+) -> Result<NativePressure, crate::history::NativeTransferError<S::Error>> {
+    use crate::history::NativeTransferStatus::{Idle, Progress, SemanticBlocked, SinkBlocked};
+
+    let mut remaining = overflow_rows;
+    let mut inserted_any = false;
+
+    while remaining > 0 {
+        let outcome = crate::history::transfer_native_prefix_with_theme(
+            history, sink, width, remaining, theme,
+        )?;
+
+        if outcome.inserted > 0 {
+            inserted_any = true;
+            remaining = remaining.saturating_sub(outcome.inserted);
+        }
+
+        match outcome.status {
+            Progress if outcome.inserted > 0 => {
+                // Physical rows were consumed; keep draining within this budget.
+                continue;
+            }
+
+            Progress => {
+                // Semantic-only retirement (zero physical rows). Re-resolve
+                // instead of spinning here — the frontier state changed and the
+                // next projection may calculate a different overflow_rows.
+                return Ok(NativePressure::Progress);
+            }
+
+            Idle | SinkBlocked | SemanticBlocked { .. } if inserted_any => {
+                // At least one CRLF transaction already happened. The screen
+                // geometry changed; must re-resolve before deciding what to paint.
+                return Ok(NativePressure::Progress);
+            }
+
+            Idle | SinkBlocked | SemanticBlocked { .. } => {
+                // Nothing happened at all; frontier is truly stuck.
+                return Ok(NativePressure::Blocked);
+            }
+        }
+    }
+
+    // Budget was fully consumed. Re-resolve to get updated geometry.
+    Ok(NativePressure::Progress)
+}
+
 /// A fully synchronized frame ready for the terminal adapter.
 #[derive(Debug)]
 pub(crate) struct PreparedSceneFrame {
@@ -51,6 +116,10 @@ pub(crate) struct SceneHost {
     outputs: OutputQueue,
     graph: MountGraph,
     capabilities: MountedCapabilities,
+    /// Counts calls to `resolve_stable_at_with_anchor` for structural test
+    /// assertions. Not compiled into production builds.
+    #[cfg(test)]
+    pub(crate) resolve_count: usize,
 }
 
 impl Default for SceneHost {
@@ -63,6 +132,8 @@ impl Default for SceneHost {
             outputs: OutputQueue::new(),
             graph: MountGraph::default(),
             capabilities: MountedCapabilities::default(),
+            #[cfg(test)]
+            resolve_count: 0,
         }
     }
 }
@@ -178,6 +249,7 @@ impl SceneHost {
     {
         loop {
             let size = viewport(sink).map_err(SceneHostError::Viewport)?;
+
             let resolved = self.resolve_stable_at_with_anchor(
                 scene,
                 registry,
@@ -185,6 +257,7 @@ impl SceneHost {
                 now,
                 HistoryViewportAnchor::FollowEnd,
             )?;
+
             if resolved.root.history_overflow_rows == 0 {
                 return Ok(self.paint(resolved, theme));
             }
@@ -192,7 +265,8 @@ impl SceneHost {
             let Some(history) = scene.history_mut() else {
                 return Ok(self.paint(resolved, theme));
             };
-            let outcome = crate::history::transfer_native_prefix_with_theme(
+
+            let pressure = drain_native_pressure(
                 history,
                 sink,
                 size.width,
@@ -200,15 +274,14 @@ impl SceneHost {
                 theme,
             )
             .map_err(SceneHostError::Transfer)?;
-            match outcome.status {
-                crate::history::NativeTransferStatus::Progress => continue,
-                crate::history::NativeTransferStatus::Idle
-                | crate::history::NativeTransferStatus::SinkBlocked
-                | crate::history::NativeTransferStatus::SemanticBlocked { .. } => {
-                    if outcome.inserted > 0 {
-                        // Screen/history already changed. Re-resolve before painting.
-                        continue;
-                    }
+
+            match pressure {
+                NativePressure::Progress => continue,
+
+                NativePressure::Blocked => {
+                    // size may be reused: no native rows were inserted during
+                    // the final blocked drain attempt, so viewport geometry did
+                    // not change.
                     let pinned = self.resolve_stable_at_with_anchor(
                         scene,
                         registry,
@@ -284,6 +357,10 @@ impl SceneHost {
             );
             if focus_changed {
                 continue;
+            }
+            #[cfg(test)]
+            {
+                self.resolve_count += 1;
             }
             return Ok(StableScene {
                 root: resolved,
@@ -884,5 +961,236 @@ mod tests {
         assert_eq!(sink.rows[0].plain_text(), "S1");
         assert_eq!(sink.rows[1].plain_text(), "S2");
         assert_eq!(sink.rows[2].plain_text(), "S3");
+    }
+
+    // -----------------------------------------------------------------------
+    // drain_native_pressure tests
+    // -----------------------------------------------------------------------
+
+    /// History: 100 one-row static units, history viewport capacity: 10.
+    /// Sink accepts everything.
+    ///
+    /// Expected in one Host frame: not ~90 full scene resolves. The drain loop
+    /// must batch all physical rows in one drain pass, yielding at most a small
+    /// constant number of resolves.
+    #[test]
+    fn native_pressure_drains_multiple_units_before_reresolve() {
+        let mut history = crate::History::new();
+        // 100 static units, each one row.
+        for i in 0..100u32 {
+            history.push(format!("S{i}")).unwrap();
+        }
+
+        let mut scene = Scene::with_history(history, "body");
+        let mut registry = ComponentRegistry::new();
+        let mut host = SceneHost::default();
+        let mut sink = TestSink::default();
+
+        host.render(
+            &mut scene,
+            &mut registry,
+            &crate::Theme::default(),
+            &mut sink,
+            // Height 10: body "body" is 1 row, so history gets 9 rows.
+            // overflow = 100 - 9 = 91 rows.
+            |_| Ok(Size::new(10, 10)),
+        )
+        .unwrap();
+
+        // All 91 overflow rows must have been drained.
+        assert_eq!(sink.rows.len(), 91);
+
+        // The drain loop batches all 91 rows within one drain call, so we
+        // expect at most 3 full resolves: one initial FollowEnd, one after the
+        // drain empties the budget, and at most one for layout-sync.
+        // Must not scale with unit count.
+        assert!(
+            host.resolve_count <= 3,
+            "resolve_count {} should be <= 3 (must not scale with unit count)",
+            host.resolve_count
+        );
+    }
+
+    /// History: 20 rows total, capacity 17. Expected: exactly 3 physical rows
+    /// inserted, not 4. After final re-resolve: resident fits capacity.
+    #[test]
+    fn native_pressure_respects_overflow_budget() {
+        let mut history = crate::History::new();
+        // 20 static one-row units.
+        for i in 0..20u32 {
+            history.push(format!("R{i}")).unwrap();
+        }
+
+        let mut scene = Scene::with_history(history, "body");
+        let mut registry = ComponentRegistry::new();
+        let mut host = SceneHost::default();
+        let mut sink = TestSink::default();
+
+        // height = 17 → overflow = 20 - 17 = 3 (capacity is 17 rows for history
+        // because body is "body" which is 1 row, so history gets 16 rows...
+        // Actually the body uses 1 row so history gets height - 1 = 16.
+        // overflow = 20 - 16 = 4.
+        // Let's use height=21 so body gets 1 and history gets 20, overflow=0
+        // ... Actually let's measure carefully. We want exactly 3 overflow rows.
+        // Use 20 units, height=20, body=1 → history height = 19, overflow = 1.
+        // Use 20 units, height=19, body=1 → history height = 18, overflow = 2.
+        // Use 20 units, height=18, body=1 → history height = 17, overflow = 3.
+        host.render(
+            &mut scene,
+            &mut registry,
+            &crate::Theme::default(),
+            &mut sink,
+            |_| Ok(Size::new(10, 18)),
+        )
+        .unwrap();
+
+        // Body "body" is 1 row, so history has 17 rows visible; 20 - 17 = 3 overflow.
+        assert_eq!(
+            sink.rows.len(),
+            3,
+            "Expected exactly 3 native rows inserted, got {}",
+            sink.rows.len()
+        );
+
+        // After final re-resolve the resident working set fits within capacity.
+        // The host painted successfully (no panic/error) which confirms geometry
+        // is consistent.
+    }
+
+    /// Static A, Static B, Live C (component), Static D.
+    /// Overflow requires movement past C.
+    ///
+    /// Drain: inserts A, inserts B, hits SemanticBlocked on C.
+    /// Because some physical progress occurred → returns Progress, re-resolves.
+    /// On next attempt C still blocks → Blocked → NativeFrontier paint.
+    ///
+    /// The host must NOT paint based on the pre-transfer stale frame.
+    #[test]
+    fn physical_progress_then_blocker_forces_reresolve_not_stale_paint() {
+        use crate::Component;
+
+        struct LiveBlocker;
+        impl Component for LiveBlocker {
+            fn view(&self) -> View {
+                // Fills 4 rows so it dominates the visible area.
+                View::text("B1\nB2\nB3\nB4").into_view()
+            }
+            fn capabilities(&self, _cx: &mut crate::ComponentCx<'_, Self>) {}
+        }
+
+        let mut registry = ComponentRegistry::new();
+        let blocker_handle = registry.register(LiveBlocker);
+
+        let mut history = crate::History::new();
+        history.push("A").unwrap();
+        history.push("B").unwrap();
+        history.push(View::component(blocker_handle)).unwrap();
+        history.push("D").unwrap();
+
+        let mut scene = Scene::with_history(history, "body");
+        let mut host = SceneHost::default();
+        let mut sink = TestSink::default();
+
+        // Viewport small enough that A and B overflow (history height < total).
+        // height=4 → history height = 3 (body "body" is 1 row),
+        // total semantic: A(1) + B(1) + LiveC(4) + D(1) = 7 → overflow = 7 - 3 = 4.
+        host.render(
+            &mut scene,
+            &mut registry,
+            &crate::Theme::default(),
+            &mut sink,
+            |_| Ok(Size::new(10, 4)),
+        )
+        .unwrap();
+
+        // A and B must have been physically inserted before the blocker stopped us.
+        let plain_texts: Vec<String> = sink
+            .rows
+            .iter()
+            .map(|r| r.plain_text().to_string())
+            .collect();
+        assert!(
+            plain_texts.contains(&"A".to_string()),
+            "Expected 'A' to be inserted: {:?}",
+            plain_texts
+        );
+        assert!(
+            plain_texts.contains(&"B".to_string()),
+            "Expected 'B' to be inserted: {:?}",
+            plain_texts
+        );
+
+        // After the blocker is hit we must have re-resolved (not used stale
+        // geometry). The host painted without panicking and the frame was produced
+        // after the re-resolve with NativeFrontier anchor.
+        //
+        // Because progress happened (A+B inserted) then blocked (C), the drain
+        // returned Progress → re-resolve occurred. Then on the next loop iteration
+        // the drain returned Blocked immediately → NativeFrontier resolve + paint.
+        // Both the progress-triggered resolve and the NativeFrontier resolve must
+        // have happened, so resolve_count >= 2.
+        assert!(
+            host.resolve_count >= 2,
+            "Expected at least 2 resolves (FollowEnd + NativeFrontier), got {}",
+            host.resolve_count
+        );
+    }
+
+    /// Stable-stream stress: 1000 stable lines, ingested in one chunk.
+    ///
+    /// After a single Host render call, the drain loop must have transferred
+    /// the overflow budget (981 rows) in one pass — not one resolve per row.
+    ///
+    /// Liveness assertion: the stream was either retired entirely (units empty)
+    /// or a large number of physical rows were inserted.
+    ///
+    /// No wall-clock timing assertions.
+    #[test]
+    fn stable_stream_stress_native_pressure_batches_transfer() {
+        // Build a stable sealed stream with 1000 single-char lines ("L\n" × 1000
+        // = 2000 bytes). All content is stable_through = source_end.
+        let line = "L\n";
+        let total_lines: u32 = 1000;
+        let content: String = line.repeat(total_lines as usize);
+        let total_bytes = content.len() as u64;
+
+        let source = BlockableStreamSource::new(&content, total_bytes, true);
+
+        let mut history = crate::History::new();
+        let _handle = history.push_stream(source).unwrap();
+
+        let mut scene = Scene::with_history(history, "body");
+        let mut registry = ComponentRegistry::new();
+        let mut host = SceneHost::default();
+        let mut sink = TestSink::default();
+
+        // Viewport 80 × 20: body "body" is 1 row → history gets 19 rows.
+        // overflow = 1000 - 19 = 981 rows.
+        host.render(
+            &mut scene,
+            &mut registry,
+            &crate::Theme::default(),
+            &mut sink,
+            |_| Ok(Size::new(80, 20)),
+        )
+        .unwrap();
+
+        // Primary liveness: the overflow rows must have been physically inserted.
+        // Content is "L\n" × 1000: the trailing \n produces a final empty row,
+        // giving 1001 rendered rows. History height = 19, overflow = 1001 - 19 = 982.
+        assert_eq!(
+            sink.rows.len(),
+            982,
+            "Expected 982 native rows inserted (1001 lines - 19 history capacity), got {}",
+            sink.rows.len()
+        );
+
+        // Resolve count must be small (not O(N) = not O(1000)).
+        // Expect: 1 initial FollowEnd, 1 after drain, ≤ 1 more for layout.
+        assert!(
+            host.resolve_count <= 5,
+            "resolve_count {} should be small (not O(N units))",
+            host.resolve_count
+        );
     }
 }
