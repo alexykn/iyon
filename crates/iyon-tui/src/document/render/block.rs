@@ -40,8 +40,12 @@ impl TextRenderer {
     }
 
     pub(super) fn render_blocks(&self, blocks: &[Block], context: &RenderContext) -> View {
+        self.render_blocks_with_gap(blocks, context, self.policy.block_gap())
+    }
+
+    fn render_blocks_with_gap(&self, blocks: &[Block], context: &RenderContext, gap: u16) -> View {
         View::vertical(|column| {
-            column.gap(self.policy.block_gap());
+            column.gap(gap);
             for block in blocks {
                 column.child(self.lower_block(block, context));
             }
@@ -101,7 +105,13 @@ impl TextRenderer {
                 self.policy.block_gap()
             });
             for (index, item) in list.items().iter().enumerate() {
-                column.child(self.render_list_item(list.marker(), index, item, &item_context));
+                column.child(self.render_list_item(
+                    list.marker(),
+                    index,
+                    item,
+                    list.tight(),
+                    &item_context,
+                ));
             }
         });
         stamp_view(items, facts)
@@ -112,6 +122,7 @@ impl TextRenderer {
         marker: ListMarker,
         index: usize,
         item: &ListItem,
+        tight: bool,
         context: &RenderContext,
     ) -> View {
         let item_context = context.for_node(item.annotations());
@@ -129,11 +140,16 @@ impl TextRenderer {
         let mut marker_context = item_context.clone();
         marker_context.task_state = task_state;
         let prefix = self.list_item_prefix(marker, index, item, &marker_context);
-        let body = self.render_blocks(
+        let body = self.render_blocks_with_gap(
             item.blocks(),
             &item_context
                 .with_role(TextRole::ListItem)
                 .with_task_state(task_state),
+            if tight || item.blocks().len() <= 1 {
+                0
+            } else {
+                self.policy.block_gap()
+            },
         );
         stamp_view(View::hanging(prefix, View::spacer(0), body), facts)
     }
