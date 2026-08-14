@@ -1182,7 +1182,7 @@ fn native_predecessor_keeps_default_gap_in_resident_projection() {
     .rows;
     assert_eq!(
         rows.iter().map(PhysicalRow::plain_text).collect::<Vec<_>>(),
-        ["", "B"]
+        ["B", ""]
     );
 }
 

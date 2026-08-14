@@ -581,3 +581,223 @@ fn zero_size_projection_still_resolves_live_units() {
     assert_eq!(scene.scene.mounts.ids().collect::<Vec<_>>(), [handle.id()]);
     assert!(rows(&history, &registry, Size::new(0, 0)).is_empty());
 }
+
+#[derive(Default)]
+struct TestSink {
+    rows: Vec<crate::physical::PhysicalRow>,
+}
+
+impl crate::backend::NativeHistorySink for TestSink {
+    type Error = ();
+
+    fn insert_history_rows(
+        &mut self,
+        rows: &[crate::physical::PhysicalRow],
+    ) -> Result<usize, Self::Error> {
+        self.rows.extend(rows.iter().cloned());
+        Ok(rows.len())
+    }
+}
+
+fn assert_resident_frontier_contiguous(
+    history: &History,
+    registry: &ComponentRegistry,
+    size: Size,
+    expected_first_row: &str,
+) {
+    assert!(
+        history.native.has_physical_rows(),
+        "assertion applies only when native physical rows exist"
+    );
+    let rendered = rows(history, registry, size);
+    assert!(!rendered.is_empty(), "rendered viewport must not be empty");
+    assert_eq!(
+        rendered[0].trim(),
+        expected_first_row,
+        "first visible resident row must begin at the native boundary (no blank gap above it)"
+    );
+}
+
+#[test]
+fn fresh_history_still_bottom_follows() {
+    let mut history = History::new();
+    history.push("A").unwrap();
+    history.push("B").unwrap();
+    let registry = ComponentRegistry::new();
+    assert_eq!(
+        rows(&history, &registry, Size::new(8, 4)),
+        ["", "", "A", "B"]
+    );
+}
+
+#[test]
+fn native_prefix_underflow_places_slack_after_resident_suffix() {
+    let mut history = History::new();
+    history.push("A").unwrap();
+    history.push("B").unwrap();
+    history.push("C").unwrap();
+    history.push("D").unwrap();
+    history.push("E").unwrap();
+    let mut sink = TestSink::default();
+    let outcome1 = transfer_native_prefix(&mut history, &mut sink, 8, 2).unwrap();
+    assert_eq!(outcome1.inserted, 1);
+    let outcome2 = transfer_native_prefix(&mut history, &mut sink, 8, 1).unwrap();
+    assert_eq!(outcome2.inserted, 1);
+    assert_eq!(history.native.physical_rows_inserted, 2);
+    assert!(history.native.has_physical_rows());
+
+    let registry = ComponentRegistry::new();
+    assert_eq!(
+        rows(&history, &registry, Size::new(8, 5)),
+        ["C", "D", "E", "", ""]
+    );
+    assert_resident_frontier_contiguous(&history, &registry, Size::new(8, 5), "C");
+}
+
+#[test]
+fn body_shrink_does_not_create_gap_above_resident_history() {
+    let mut history = History::new();
+    history.push("A").unwrap();
+    history.push("B").unwrap();
+    history.push("C").unwrap();
+    history.push("D").unwrap();
+    history.push("E").unwrap();
+    let mut sink = TestSink::default();
+    let outcome1 = transfer_native_prefix(&mut history, &mut sink, 8, 2).unwrap();
+    assert_eq!(outcome1.inserted, 1);
+    let outcome2 = transfer_native_prefix(&mut history, &mut sink, 8, 1).unwrap();
+    assert_eq!(outcome2.inserted, 1);
+    assert_eq!(history.native.physical_rows_inserted, 2);
+
+    let registry = ComponentRegistry::new();
+    assert_eq!(rows(&history, &registry, Size::new(8, 3)), ["C", "D", "E"]);
+
+    // Body shrinks / History viewport expands from 3 to 6:
+    // First resident row C remains at y=0, not shifted down to y=3
+    assert_eq!(
+        rows(&history, &registry, Size::new(8, 6)),
+        ["C", "D", "E", "", "", ""]
+    );
+    assert_resident_frontier_contiguous(&history, &registry, Size::new(8, 6), "C");
+}
+
+#[test]
+fn stream_growth_consumes_bottom_slack_before_native_transfer() {
+    let mut history = History::new();
+    history.push("S1").unwrap();
+    history.push("S2").unwrap();
+    history.push("S3").unwrap();
+    history.push("S4").unwrap();
+    history.push("S5").unwrap();
+    let mut sink = TestSink::default();
+
+    let outcome1 = transfer_native_prefix(&mut history, &mut sink, 10, 2).unwrap();
+    assert_eq!(outcome1.inserted, 1);
+    let outcome2 = transfer_native_prefix(&mut history, &mut sink, 10, 1).unwrap();
+    assert_eq!(outcome2.inserted, 1);
+    assert_eq!(history.native.physical_rows_inserted, 2);
+
+    let registry = ComponentRegistry::new();
+    // 3 resident rows (S3, S4, S5) in viewport height 5 => 2 bottom slack rows
+    assert_eq!(
+        rows(&history, &registry, Size::new(10, 5)),
+        ["S3", "S4", "S5", "", ""]
+    );
+
+    // Row growth consumes 1 bottom slack row, physical_rows_inserted remains 2
+    history.push("S6").unwrap();
+    assert_eq!(history.native.physical_rows_inserted, 2);
+    assert_eq!(
+        rows(&history, &registry, Size::new(10, 5)),
+        ["S3", "S4", "S5", "S6", ""]
+    );
+
+    // Row growth consumes final bottom slack row, physical_rows_inserted remains 2
+    history.push("S7").unwrap();
+    assert_eq!(history.native.physical_rows_inserted, 2);
+    assert_eq!(
+        rows(&history, &registry, Size::new(10, 5)),
+        ["S3", "S4", "S5", "S6", "S7"]
+    );
+
+    // Row growth overflows height 5 by 1 row
+    history.push("S8").unwrap();
+    let mut session = crate::scene::ResolveSession::new(&registry);
+    let parts = project_into_session_for_host(
+        &history,
+        Size::new(10, 5),
+        &mut session,
+        HistoryViewportAnchor::FollowEnd,
+    )
+    .unwrap();
+    assert_eq!(parts.overflow_rows, 1);
+
+    // Now transferring the 1 overflow row advances native frontier to 3
+    let outcome = transfer_native_prefix(&mut history, &mut sink, 10, parts.overflow_rows).unwrap();
+    assert_eq!(outcome.inserted, 1);
+    assert_eq!(history.native.physical_rows_inserted, 3);
+    assert_eq!(
+        rows(&history, &registry, Size::new(10, 5)),
+        ["S4", "S5", "S6", "S7", "S8"]
+    );
+}
+
+#[test]
+fn frozen_overlay_underflow_is_not_shifted_by_bottom_slack() {
+    let mut history = History::new();
+    history.push("A1\nA2\nA3\nA4").unwrap();
+    history.push("B").unwrap();
+    let mut sink = TestSink::default();
+    let outcome = transfer_native_prefix(&mut history, &mut sink, 10, 2).unwrap();
+    assert_eq!(outcome.inserted, 2);
+    assert!(history.native.has_physical_rows());
+    assert!(history.native.frozen_static.is_some());
+
+    let registry = ComponentRegistry::new();
+    // Project into height 6 (resident: A3, A4, B = 3 rows, slack = 3 rows)
+    let projection = project(&history, &registry, Size::new(10, 6)).unwrap();
+    let overlay = projection.frozen_overlay.expect("frozen overlay exists");
+    // Row must be 0 (the on-screen location of the resident row), NOT 3 (slack)!
+    assert_eq!(overlay.row, 0);
+    assert_eq!(overlay.rows.len(), 2);
+    assert_eq!(overlay.rows[0].plain_text(), "A3");
+    assert_eq!(overlay.rows[1].plain_text(), "A4");
+
+    let rendered =
+        crate::presentation::layout::compile_bounded_view(&projection.scene.view, Size::new(10, 6))
+            .rows
+            .into_iter()
+            .map(|row| row.plain_text())
+            .collect::<Vec<_>>();
+    assert_eq!(rendered, ["", "", "B", "", "", ""]);
+}
+
+#[test]
+fn native_frontier_anchor_pins_front_items() {
+    let mut history = History::new();
+    history.push("A1\nA2\nA3\nA4").unwrap();
+    history.push("B1\nB2\nB3").unwrap();
+    let registry = ComponentRegistry::new();
+
+    // In FollowEnd mode, height 3 shows suffix ["B1", "B2", "B3"]
+    assert_eq!(
+        rows(&history, &registry, Size::new(10, 3)),
+        ["B1", "B2", "B3"]
+    );
+
+    // In NativeFrontier mode, height 3 shows prefix ["A1", "A2", "A3"]
+    let pinned = project_with_anchor(
+        &history,
+        &registry,
+        Size::new(10, 3),
+        HistoryViewportAnchor::NativeFrontier,
+    )
+    .unwrap();
+    let rendered =
+        crate::presentation::layout::compile_bounded_view(&pinned.scene.view, Size::new(10, 3))
+            .rows
+            .into_iter()
+            .map(|row| row.plain_text())
+            .collect::<Vec<_>>();
+    assert_eq!(rendered, ["A1", "A2", "A3"]);
+}

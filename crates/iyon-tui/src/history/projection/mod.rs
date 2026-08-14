@@ -63,6 +63,13 @@ struct Selected {
     height: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum HistoryViewportAnchor {
+    #[default]
+    FollowEnd,
+    NativeFrontier,
+}
+
 #[cfg(test)]
 pub(crate) fn project(
     history: &History,
@@ -79,12 +86,34 @@ pub(crate) fn project(
 }
 
 #[cfg(test)]
+pub(crate) fn project_with_anchor(
+    history: &History,
+    registry: &ComponentRegistry,
+    size: Size,
+    anchor: HistoryViewportAnchor,
+) -> Result<HistoryProjection, ResolveError> {
+    let mut session = ResolveSession::new(registry);
+    let projection = project_into_session_with_mode(history, size, &mut session, false, anchor)?;
+    let scene = session.finish(projection.view);
+    Ok(HistoryProjection {
+        scene,
+        frozen_overlay: projection.frozen_overlay,
+    })
+}
+
+#[cfg(test)]
 pub(crate) fn project_into_session(
     history: &History,
     size: Size,
     session: &mut ResolveSession<'_>,
 ) -> Result<HistoryProjectionParts, ResolveError> {
-    project_into_session_with_mode(history, size, session, false)
+    project_into_session_with_mode(
+        history,
+        size,
+        session,
+        false,
+        HistoryViewportAnchor::FollowEnd,
+    )
 }
 
 /// Host projection mode eagerly measures retained streams so native overflow
@@ -93,8 +122,9 @@ pub(crate) fn project_into_session_for_host(
     history: &History,
     size: Size,
     session: &mut ResolveSession<'_>,
+    anchor: HistoryViewportAnchor,
 ) -> Result<HistoryProjectionParts, ResolveError> {
-    project_into_session_with_mode(history, size, session, true)
+    project_into_session_with_mode(history, size, session, true, anchor)
 }
 
 fn project_into_session_with_mode(
@@ -102,6 +132,7 @@ fn project_into_session_with_mode(
     size: Size,
     session: &mut ResolveSession<'_>,
     eager_stream_overflow: bool,
+    anchor: HistoryViewportAnchor,
 ) -> Result<HistoryProjectionParts, ResolveError> {
     let layout = history.layout();
     let content_width = size
@@ -177,93 +208,122 @@ fn project_into_session_with_mode(
         has_unmeasured_stream && total_flow_height >= capacity,
     ));
 
-    // An open Stream tail follows its semantic end, but resident blockers
-    // before it form a protected band. Reserve that real flow geometry first;
-    // only the remaining capacity belongs to the Stream suffix. If the band
-    // itself does not fit, retain the ordinary end-follow overflow behavior.
-    if let Some((blocker, stream)) = protected_stream_bounds(&units) {
-        let protected_height = protected_band_height(
-            history,
-            &mut plans,
-            &units,
-            &items,
-            blocker,
-            stream,
-            content_width,
-        );
-        if protected_height <= remaining {
-            for item in items
-                .iter()
-                .copied()
-                .filter(|item| protected_band_item(*item, blocker, stream))
-            {
-                take_full(
-                    item,
-                    item_height(
+    match anchor {
+        HistoryViewportAnchor::FollowEnd => {
+            // An open Stream tail follows its semantic end, but resident blockers
+            // before it form a protected band. Reserve that real flow geometry first;
+            // only the remaining capacity belongs to the Stream suffix. If the band
+            // itself does not fit, retain the ordinary end-follow overflow behavior.
+            if let Some((blocker, stream)) = protected_stream_bounds(&units) {
+                let protected_height = protected_band_height(
+                    history,
+                    &mut plans,
+                    &units,
+                    &items,
+                    blocker,
+                    stream,
+                    content_width,
+                );
+                if protected_height <= remaining {
+                    for item in items
+                        .iter()
+                        .copied()
+                        .filter(|item| protected_band_item(*item, blocker, stream))
+                    {
+                        take_full(
+                            item,
+                            item_height(
+                                history,
+                                &mut plans,
+                                &units,
+                                item,
+                                content_width,
+                                top_padding,
+                            ),
+                            &mut remaining,
+                            &mut selected_units,
+                            &mut selected_items,
+                        );
+                    }
+                    for item in items
+                        .iter()
+                        .rev()
+                        .copied()
+                        .filter(|item| stream_region_item(*item, stream))
+                    {
+                        let height = item_height(
+                            history,
+                            &mut plans,
+                            &units,
+                            item,
+                            content_width,
+                            top_padding,
+                        );
+                        take_selected(
+                            item,
+                            height,
+                            &mut remaining,
+                            &mut selected_units,
+                            &mut selected_items,
+                        );
+                        if remaining == 0 {
+                            break;
+                        }
+                    }
+                    for item in items
+                        .iter()
+                        .rev()
+                        .copied()
+                        .filter(|item| preceding_item(*item, blocker))
+                    {
+                        let height = item_height(
+                            history,
+                            &mut plans,
+                            &units,
+                            item,
+                            content_width,
+                            top_padding,
+                        );
+                        take_selected(
+                            item,
+                            height,
+                            &mut remaining,
+                            &mut selected_units,
+                            &mut selected_items,
+                        );
+                        if remaining == 0 {
+                            break;
+                        }
+                    }
+                } else {
+                    select_end_following(
                         history,
                         &mut plans,
                         &units,
-                        item,
+                        &items,
                         content_width,
                         top_padding,
-                    ),
-                    &mut remaining,
-                    &mut selected_units,
-                    &mut selected_items,
-                );
-            }
-            for item in items
-                .iter()
-                .rev()
-                .copied()
-                .filter(|item| stream_region_item(*item, stream))
-            {
-                let height = item_height(
+                        &mut remaining,
+                        &mut selected_units,
+                        &mut selected_items,
+                    );
+                }
+            } else {
+                select_end_following(
                     history,
                     &mut plans,
                     &units,
-                    item,
+                    &items,
                     content_width,
                     top_padding,
-                );
-                take_selected(
-                    item,
-                    height,
                     &mut remaining,
                     &mut selected_units,
                     &mut selected_items,
                 );
-                if remaining == 0 {
-                    break;
-                }
             }
-            for item in items
-                .iter()
-                .rev()
-                .copied()
-                .filter(|item| preceding_item(*item, blocker))
-            {
-                let height = item_height(
-                    history,
-                    &mut plans,
-                    &units,
-                    item,
-                    content_width,
-                    top_padding,
-                );
-                take_selected(
-                    item,
-                    height,
-                    &mut remaining,
-                    &mut selected_units,
-                    &mut selected_items,
-                );
-                if remaining == 0 {
-                    break;
-                }
-            }
-        } else {
-            select_end_following(
+        }
+        HistoryViewportAnchor::NativeFrontier => {
+            select_native_frontier(
                 history,
                 &mut plans,
                 &units,
@@ -275,23 +335,14 @@ fn project_into_session_with_mode(
                 &mut selected_items,
             );
         }
-    } else {
-        select_end_following(
-            history,
-            &mut plans,
-            &units,
-            &items,
-            content_width,
-            top_padding,
-            &mut remaining,
-            &mut selected_units,
-            &mut selected_items,
-        );
     }
     let mut children = Vec::new();
     let slack = remaining;
-    push_spacer(&mut children, slack);
-    let mut rendered_row = slack;
+    let native_anchored = history.native.has_physical_rows();
+    if !native_anchored {
+        push_spacer(&mut children, slack);
+    }
+    let mut rendered_row = if native_anchored { 0 } else { slack };
     let mut frozen_overlay = None;
     for item in items {
         match item {
@@ -326,6 +377,9 @@ fn project_into_session_with_mode(
                 }
             }
         }
+    }
+    if native_anchored {
+        push_spacer(&mut children, slack);
     }
 
     let mut root = View::vertical(|column| {
@@ -492,6 +546,38 @@ fn select_end_following(
         if *remaining == 0 {
             break;
         }
+    }
+}
+
+fn select_native_frontier(
+    history: &History,
+    plans: &mut [UnitPlan],
+    units: &[&super::HistoryUnit],
+    items: &[FlowItem],
+    width: u16,
+    top_padding: usize,
+    remaining: &mut usize,
+    selected_units: &mut [Option<Selected>],
+    selected_items: &mut Vec<(FlowItem, Selected)>,
+) {
+    for item in items.iter().copied() {
+        if *remaining == 0 {
+            break;
+        }
+        let height = item_height(history, plans, units, item, width, top_padding);
+        if height == 0 {
+            continue;
+        }
+        let visible = (*remaining).min(height);
+        let selected = Selected {
+            offset: 0,
+            height: visible,
+        };
+        match item {
+            FlowItem::Unit(index) => selected_units[index] = Some(selected),
+            _ => selected_items.push((item, selected)),
+        }
+        *remaining = (*remaining).saturating_sub(visible);
     }
 }
 

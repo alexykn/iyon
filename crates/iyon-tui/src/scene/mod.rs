@@ -13,7 +13,9 @@ pub(crate) use resolve::resolve_scene;
 pub(crate) use resolve::{ResolveError, ResolveSession};
 pub(crate) use resolved::ResolvedScene;
 pub use root::Scene;
-pub(crate) use root::{ResolvedRootScene, resolve_root_scene};
+#[cfg(test)]
+pub(crate) use root::resolve_root_scene;
+pub(crate) use root::{ResolvedRootScene, resolve_root_scene_with_anchor};
 
 #[cfg(test)]
 mod root_tests;

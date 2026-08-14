@@ -24,8 +24,9 @@ use crate::{
 
 use super::{
     LayoutSynchronizer, ResolveError, ResolvedRootScene, ResolvedSceneLayout, Scene,
-    layout_resolved_scene, resolve_root_scene,
+    layout_resolved_scene, resolve_root_scene_with_anchor,
 };
+use crate::history::HistoryViewportAnchor;
 
 const MAX_LAYOUT_PASSES: usize = 8;
 
@@ -177,7 +178,13 @@ impl SceneHost {
     {
         loop {
             let size = viewport(sink).map_err(SceneHostError::Viewport)?;
-            let resolved = self.resolve_stable_at(scene, registry, size, now)?;
+            let resolved = self.resolve_stable_at_with_anchor(
+                scene,
+                registry,
+                size,
+                now,
+                HistoryViewportAnchor::FollowEnd,
+            )?;
             if resolved.root.history_overflow_rows == 0 {
                 return Ok(self.paint(resolved, theme));
             }
@@ -185,7 +192,7 @@ impl SceneHost {
             let Some(history) = scene.history_mut() else {
                 return Ok(self.paint(resolved, theme));
             };
-            let transfer = crate::history::transfer_native_prefix_with_theme(
+            let outcome = crate::history::transfer_native_prefix_with_theme(
                 history,
                 sink,
                 size.width,
@@ -193,12 +200,23 @@ impl SceneHost {
                 theme,
             )
             .map_err(SceneHostError::Transfer)?;
-            match transfer.status {
+            match outcome.status {
                 crate::history::NativeTransferStatus::Progress => continue,
                 crate::history::NativeTransferStatus::Idle
                 | crate::history::NativeTransferStatus::SinkBlocked
                 | crate::history::NativeTransferStatus::SemanticBlocked { .. } => {
-                    return Ok(self.paint(resolved, theme));
+                    if outcome.inserted > 0 {
+                        // Screen/history already changed. Re-resolve before painting.
+                        continue;
+                    }
+                    let pinned = self.resolve_stable_at_with_anchor(
+                        scene,
+                        registry,
+                        size,
+                        now,
+                        HistoryViewportAnchor::NativeFrontier,
+                    )?;
+                    return Ok(self.paint(pinned, theme));
                 }
             }
         }
@@ -214,6 +232,7 @@ impl SceneHost {
         self.resolve_stable_at(scene, registry, size, Instant::now())
     }
 
+    #[cfg(test)]
     fn resolve_stable_at<E>(
         &mut self,
         scene: &Scene,
@@ -221,9 +240,26 @@ impl SceneHost {
         size: Size,
         now: Instant,
     ) -> Result<StableScene, SceneHostError<E>> {
+        self.resolve_stable_at_with_anchor(
+            scene,
+            registry,
+            size,
+            now,
+            HistoryViewportAnchor::FollowEnd,
+        )
+    }
+
+    fn resolve_stable_at_with_anchor<E>(
+        &mut self,
+        scene: &Scene,
+        registry: &mut ComponentRegistry,
+        size: Size,
+        now: Instant,
+        anchor: HistoryViewportAnchor,
+    ) -> Result<StableScene, SceneHostError<E>> {
         for _ in 0..MAX_LAYOUT_PASSES {
-            let resolved =
-                resolve_root_scene(scene, registry, size).map_err(SceneHostError::Resolve)?;
+            let resolved = resolve_root_scene_with_anchor(scene, registry, size, anchor)
+                .map_err(SceneHostError::Resolve)?;
             let layout = layout_resolved_scene(&resolved.scene, size);
             let sync = self.synchronizer.synchronize(
                 &resolved.scene.mounts,
@@ -677,5 +713,176 @@ mod tests {
         .unwrap();
 
         assert!(sink.rows.iter().any(|row| row.plain_text() == "S1"));
+    }
+
+    struct LiveBlocker;
+
+    impl Component for LiveBlocker {
+        fn view(&self) -> View {
+            View::text("B1\nB2\nB3\nB4").into_view()
+        }
+
+        fn capabilities(&self, _cx: &mut ComponentCx<'_, Self>) {}
+    }
+
+    #[derive(Clone)]
+    struct BlockableStreamSource {
+        text: String,
+        stable_through: u64,
+        revision: u64,
+        sealed: bool,
+    }
+
+    impl BlockableStreamSource {
+        fn new(text: &str, stable_through: u64, sealed: bool) -> Self {
+            Self {
+                text: text.to_string(),
+                stable_through,
+                revision: 0,
+                sealed,
+            }
+        }
+
+        fn set_stable_through(&mut self, stable_through: u64) {
+            self.stable_through = stable_through;
+            self.revision += 1;
+        }
+    }
+
+    impl StreamingSource for BlockableStreamSource {
+        fn snapshot(&self) -> StreamSnapshot {
+            let end = self.text.len() as u64;
+            StreamSnapshotBuilder::new(
+                StreamRevision::new(self.revision),
+                StreamOffset::ZERO,
+                StreamOffset::new(self.stable_through.min(end)),
+                StreamOffset::new(end),
+            )
+            .exact_text(
+                StreamRange::new(StreamOffset::ZERO, StreamOffset::new(end)),
+                [TextSpan::plain(self.text.clone())],
+            )
+            .finish()
+            .unwrap()
+        }
+
+        fn seal(&mut self) {
+            self.sealed = true;
+            self.revision += 1;
+        }
+
+        fn is_sealed(&self) -> bool {
+            self.sealed
+        }
+    }
+
+    #[test]
+    fn semantic_blocked_live_prefix_is_pinned_not_skipped() {
+        let mut history = crate::History::new();
+        history.push("A").unwrap();
+        let mut registry = ComponentRegistry::new();
+        let blocker = registry.register(LiveBlocker);
+        history.push(View::component(blocker)).unwrap();
+        history.push("C1\nC2\nC3").unwrap();
+
+        let mut sink = TestSink::default();
+        let outcome =
+            crate::history::transfer_native_prefix(&mut history, &mut sink, 10, 1).unwrap();
+        assert_eq!(outcome.inserted, 1);
+        assert_eq!(sink.rows.len(), 1);
+        assert_eq!(sink.rows[0].plain_text(), "A");
+
+        let mut scene = Scene::with_history(history, "body");
+        let mut host = SceneHost::default();
+
+        let frame = host
+            .render(
+                &mut scene,
+                &mut registry,
+                &crate::Theme::default(),
+                &mut sink,
+                |_| Ok(Size::new(10, 4)),
+            )
+            .unwrap();
+
+        let rendered = (0..4)
+            .map(|y| {
+                (0..10)
+                    .map(|x| frame.surface.get(x, y).grapheme.as_deref().unwrap_or(" "))
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(rendered, ["B1", "B2", "B3", "body"]);
+    }
+
+    #[test]
+    fn blocked_then_stable_stream_preserves_contiguous_flow() {
+        let mut history = crate::History::new();
+        let source = BlockableStreamSource::new("S1\nS2\nS3\nS4\nS5\nS6", 0, false);
+        let stream = history.push_stream(source).unwrap();
+
+        let mut scene = Scene::with_history(history, "body");
+        let mut registry = ComponentRegistry::new();
+        let mut host = SceneHost::default();
+        let mut sink = TestSink::default();
+
+        let frame = host
+            .render(
+                &mut scene,
+                &mut registry,
+                &crate::Theme::default(),
+                &mut sink,
+                |_| Ok(Size::new(10, 4)),
+            )
+            .unwrap();
+
+        let rendered = (0..4)
+            .map(|y| {
+                (0..10)
+                    .map(|x| frame.surface.get(x, y).grapheme.as_deref().unwrap_or(" "))
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rendered, ["S1", "S2", "S3", "body"]);
+        assert_eq!(sink.rows.len(), 0);
+
+        let full_text = "S1\nS2\nS3\nS4\nS5\nS6";
+        scene
+            .history_mut()
+            .unwrap()
+            .update_stream(stream, |source| {
+                source.set_stable_through(full_text.len() as u64);
+            })
+            .unwrap();
+
+        let frame = host
+            .render(
+                &mut scene,
+                &mut registry,
+                &crate::Theme::default(),
+                &mut sink,
+                |_| Ok(Size::new(10, 4)),
+            )
+            .unwrap();
+
+        let rendered = (0..4)
+            .map(|y| {
+                (0..10)
+                    .map(|x| frame.surface.get(x, y).grapheme.as_deref().unwrap_or(" "))
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rendered, ["S4", "S5", "S6", "body"]);
+        assert_eq!(sink.rows.len(), 3);
+        assert_eq!(sink.rows[0].plain_text(), "S1");
+        assert_eq!(sink.rows[1].plain_text(), "S2");
+        assert_eq!(sink.rows[2].plain_text(), "S3");
     }
 }
