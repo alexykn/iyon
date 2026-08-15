@@ -53,12 +53,12 @@ pub(super) fn tool_call(text_value: String, style: impl Into<StyleRef>) -> View 
 
 pub(super) fn tool_call_line(text_value: String, input: ToolCallRenderInput<'_>) -> View {
     let style = tool_style(input.status);
-    let bullet_style = preparing_bullet_style(style.clone(), input);
+    let bullet_style = pulse_bullet_style(style.clone(), input);
     hanging_tool_call(text_value, style, Some(bullet_style))
 }
 
-fn preparing_bullet_style(style: StyleRef, input: ToolCallRenderInput<'_>) -> StyleRef {
-    if input.status == ToolTimelineStatus::Preparing && !input.pulse {
+fn pulse_bullet_style(style: StyleRef, input: ToolCallRenderInput<'_>) -> StyleRef {
+    if input.pulse {
         style.overrides(StyleSpec::new().dim())
     } else {
         style

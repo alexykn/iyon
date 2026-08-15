@@ -50,7 +50,8 @@ pub(crate) struct ConversationActivity {
     finished: bool,
     pending_steers: Vec<String>,
     waiting_style: bool,
-    bullet_pulse: bool,
+    pulsing: bool,
+    pulse_bright: bool,
 }
 
 impl ConversationActivity {
@@ -66,7 +67,8 @@ impl ConversationActivity {
             finished: false,
             pending_steers,
             waiting_style,
-            bullet_pulse: false,
+            pulsing: false,
+            pulse_bright: false,
         }
     }
 
@@ -95,7 +97,8 @@ impl ConversationActivity {
             finished: false,
             pending_steers: Vec::new(),
             waiting_style: false,
-            bullet_pulse: false,
+            pulsing: true,
+            pulse_bright: false,
         }
     }
 
@@ -126,6 +129,7 @@ impl ConversationActivity {
         approval_id: Option<u64>,
         output: ComponentHandle<ScrollPane>,
     ) {
+        let already_tool = matches!(self.state, ActivityState::Tool { .. });
         self.state = ActivityState::Tool {
             tool_call_id: non_empty(tool_call_id),
             tool_name,
@@ -137,7 +141,9 @@ impl ConversationActivity {
         self.result = None;
         self.argument_preview.clear();
         self.finished = false;
-        self.bullet_pulse = false;
+        if !already_tool {
+            self.set_pulsing(true);
+        }
     }
 
     pub(crate) fn update_tool_identity(&mut self, id: Option<String>, name: Option<String>) {
@@ -195,6 +201,15 @@ impl ConversationActivity {
         self.approval_id = None;
     }
 
+    /// Turns the live bullet pulse on or off without resetting phase when it
+    /// is already running, so Preparing → Running keeps a continuous beat.
+    pub(crate) fn set_pulsing(&mut self, pulsing: bool) {
+        if pulsing && !self.pulsing {
+            self.pulse_bright = false;
+        }
+        self.pulsing = pulsing;
+    }
+
     pub(crate) fn set_status(&mut self, status: ToolTimelineStatus, approval_id: Option<u64>) {
         if let ActivityState::Tool {
             status: current, ..
@@ -222,6 +237,7 @@ impl ConversationActivity {
             };
         }
         self.finished = true;
+        self.set_pulsing(false);
     }
 
     pub(crate) fn cancel(&mut self) {
@@ -230,6 +246,7 @@ impl ConversationActivity {
         }
         self.approval_id = None;
         self.finished = true;
+        self.set_pulsing(false);
     }
 
     pub(crate) fn fail(&mut self) {
@@ -238,6 +255,7 @@ impl ConversationActivity {
         }
         self.approval_id = None;
         self.finished = true;
+        self.set_pulsing(false);
     }
 
     pub(crate) fn is_finished(&self) -> bool {
@@ -264,7 +282,7 @@ impl ConversationActivity {
             tool_name: tool_name.clone(),
             arguments: arguments.clone(),
             status: *status,
-            pulse: *status == ToolTimelineStatus::Preparing && self.bullet_pulse,
+            pulse: self.pulsing && !self.pulse_bright,
         });
         let Some(result) = &self.result else {
             return Some(
@@ -322,34 +340,19 @@ impl ConversationActivity {
         }))
     }
 
-    fn is_preparing(&self) -> bool {
-        matches!(
-            self.state,
-            ActivityState::Tool {
-                status: ToolTimelineStatus::Preparing,
-                ..
-            }
-        )
-    }
-
     fn tick(&mut self, _now: Instant, _cx: &mut EventCx<'_>) -> bool {
-        match &mut self.state {
-            ActivityState::Working { frame } => {
-                *frame = frame.wrapping_add(1);
-                if *frame % SPINNER_FRAMES.len() == 0 {
-                    self.waiting_style = !self.pending_steers.is_empty();
-                }
-                true
+        if let ActivityState::Working { frame } = &mut self.state {
+            *frame = frame.wrapping_add(1);
+            if *frame % SPINNER_FRAMES.len() == 0 {
+                self.waiting_style = !self.pending_steers.is_empty();
             }
-            ActivityState::Tool {
-                status: ToolTimelineStatus::Preparing,
-                ..
-            } => {
-                self.bullet_pulse = !self.bullet_pulse;
-                true
-            }
-            ActivityState::Tool { .. } => false,
+            return true;
         }
+        if !self.pulsing {
+            return false;
+        }
+        self.pulse_bright = !self.pulse_bright;
+        true
     }
 
     fn map_key(activity: &Self, key: KeyStroke) -> Option<ActivityCommand> {
@@ -385,6 +388,9 @@ impl ConversationActivity {
             },
             None,
         );
+        if matches!(command, ActivityCommand::Reject) {
+            activity.set_pulsing(false);
+        }
         cx.emit(
             activity.approval,
             ApprovalDecision {
@@ -438,7 +444,7 @@ impl Component for ConversationActivity {
     fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
         if matches!(self.state, ActivityState::Working { .. }) {
             cx.tick(Duration::from_millis(80), Self::tick_callback);
-        } else if self.is_preparing() {
+        } else if self.pulsing {
             cx.tick(Duration::from_millis(480), Self::tick_callback);
         }
         if self.approval_id.is_some() {
