@@ -1,6 +1,6 @@
 use crate::tools::{
     registry::ToolRenderer,
-    renderers::{column, result_lines, result_style, text, tool_call, tool_result_line},
+    renderers::{column, result_lines, result_style, text, tool_result_line},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
 use iyon_tui::{ColorSpec, IntoView, StyleSpec, View};
@@ -19,9 +19,9 @@ impl ToolRenderer for EditRenderer {
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("...");
-        let mut children = vec![tool_call(
+        let mut children = vec![super::tool_call_line(
             format!("edit {path} — {}", status_label(input.status)),
-            super::tool_style(input.status),
+            input,
         )];
         // Debug-only: surface the raw edits payload; the normal view keeps the
         // call compact and lets the result's diff carry the detail.

@@ -1,5 +1,6 @@
-use iyon_tui::{StyleRef, Text, TextSpan, View};
+use iyon_tui::{StyleRef, StyleSpec, Text, TextSpan, View};
 
+use crate::tools::types::ToolCallRenderInput;
 use crate::transcript::ToolTimelineStatus;
 
 mod bash;
@@ -47,9 +48,27 @@ pub(super) fn text(text: impl Into<String>, style: impl Into<StyleRef>) -> Text 
 }
 
 pub(super) fn tool_call(text_value: String, style: impl Into<StyleRef>) -> View {
-    let style = style.into();
+    hanging_tool_call(text_value, style.into(), None)
+}
+
+pub(super) fn tool_call_line(text_value: String, input: ToolCallRenderInput<'_>) -> View {
+    let style = tool_style(input.status);
+    let bullet_style = preparing_bullet_style(style.clone(), input);
+    hanging_tool_call(text_value, style, Some(bullet_style))
+}
+
+fn preparing_bullet_style(style: StyleRef, input: ToolCallRenderInput<'_>) -> StyleRef {
+    if input.status == ToolTimelineStatus::Preparing && !input.pulse {
+        style.overrides(StyleSpec::new().dim())
+    } else {
+        style
+    }
+}
+
+fn hanging_tool_call(text_value: String, style: StyleRef, bullet_style: Option<StyleRef>) -> View {
+    let bullet_style = bullet_style.unwrap_or_else(|| style.clone());
     View::hanging(
-        text("● ", style.clone()).no_wrap(),
+        text("● ", bullet_style).no_wrap(),
         View::text("  ").no_wrap(),
         text(text_value, style).fill_width(),
     )

@@ -10,6 +10,7 @@ pub(crate) struct ToolCallRenderInput<'a> {
     pub(crate) arguments: &'a serde_json::Value,
     pub(crate) status: ToolTimelineStatus,
     pub(crate) show_arg_preview: bool,
+    pub(crate) pulse: bool,
 }
 
 /// FEATURE EXTENSION API.

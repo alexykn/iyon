@@ -50,6 +50,7 @@ pub(crate) struct ConversationActivity {
     finished: bool,
     pending_steers: Vec<String>,
     waiting_style: bool,
+    bullet_pulse: bool,
 }
 
 impl ConversationActivity {
@@ -65,6 +66,7 @@ impl ConversationActivity {
             finished: false,
             pending_steers,
             waiting_style,
+            bullet_pulse: true,
         }
     }
 
@@ -93,6 +95,7 @@ impl ConversationActivity {
             finished: false,
             pending_steers: Vec::new(),
             waiting_style: false,
+            bullet_pulse: true,
         }
     }
 
@@ -134,6 +137,7 @@ impl ConversationActivity {
         self.result = None;
         self.argument_preview.clear();
         self.finished = false;
+        self.bullet_pulse = true;
     }
 
     pub(crate) fn update_tool_identity(&mut self, id: Option<String>, name: Option<String>) {
@@ -260,6 +264,7 @@ impl ConversationActivity {
             tool_name: tool_name.clone(),
             arguments: arguments.clone(),
             status: *status,
+            pulse: *status == ToolTimelineStatus::Preparing && self.bullet_pulse,
         });
         let Some(result) = &self.result else {
             return Some(
@@ -313,18 +318,38 @@ impl ConversationActivity {
             tool_name: tool_name.clone(),
             arguments: arguments.clone(),
             status: *status,
+            pulse: false,
         }))
     }
 
+    fn is_preparing(&self) -> bool {
+        matches!(
+            self.state,
+            ActivityState::Tool {
+                status: ToolTimelineStatus::Preparing,
+                ..
+            }
+        )
+    }
+
     fn tick(&mut self, _now: Instant, _cx: &mut EventCx<'_>) -> bool {
-        let ActivityState::Working { frame } = &mut self.state else {
-            return false;
-        };
-        *frame = frame.wrapping_add(1);
-        if *frame % SPINNER_FRAMES.len() == 0 {
-            self.waiting_style = !self.pending_steers.is_empty();
+        match &mut self.state {
+            ActivityState::Working { frame } => {
+                *frame = frame.wrapping_add(1);
+                if *frame % SPINNER_FRAMES.len() == 0 {
+                    self.waiting_style = !self.pending_steers.is_empty();
+                }
+                true
+            }
+            ActivityState::Tool {
+                status: ToolTimelineStatus::Preparing,
+                ..
+            } => {
+                self.bullet_pulse = !self.bullet_pulse;
+                true
+            }
+            ActivityState::Tool { .. } => false,
         }
-        true
     }
 
     fn map_key(activity: &Self, key: KeyStroke) -> Option<ActivityCommand> {
@@ -413,6 +438,8 @@ impl Component for ConversationActivity {
     fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
         if matches!(self.state, ActivityState::Working { .. }) {
             cx.tick(Duration::from_millis(80), Self::tick_callback);
+        } else if self.is_preparing() {
+            cx.tick(Duration::from_millis(480), Self::tick_callback);
         }
         if self.approval_id.is_some() {
             cx.focusable();

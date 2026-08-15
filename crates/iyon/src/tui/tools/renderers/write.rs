@@ -1,6 +1,6 @@
 use crate::tools::{
     registry::ToolRenderer,
-    renderers::{column, result_lines, result_style, tool_call},
+    renderers::{column, result_lines, result_style},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
 use iyon_tui::View;
@@ -19,9 +19,9 @@ impl ToolRenderer for WriteRenderer {
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("...");
-        let mut children = vec![tool_call(
+        let mut children = vec![super::tool_call_line(
             format!("write {path} — {}", status_label(input.status)),
-            super::tool_style(input.status),
+            input,
         )];
         if input.show_arg_preview
             && let Some(content) = input
