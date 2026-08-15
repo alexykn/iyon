@@ -723,6 +723,64 @@ async fn approval_freezes_a_user_batch_delivered_after_an_existing_tool() {
     assert_ne!(user, approval);
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn steered_user_message_keeps_working_as_stream_tail() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 60, 20).unwrap();
+    let handle = harness.handle();
+    for event in [
+        FrontendEvent::TurnStarted,
+        FrontendEvent::UserMessage {
+            text: "initial user".into(),
+        },
+        FrontendEvent::ToolCallStarted {
+            tool_call_id: "steer-tool".into(),
+            tool_name: "bash".into(),
+            arguments: serde_json::json!({"command":"true"}),
+        },
+        FrontendEvent::ToolResult {
+            tool_call_id: "steer-tool".into(),
+            tool_name: "bash".into(),
+            text: "tool output".into(),
+            details: serde_json::json!({}),
+            is_error: false,
+        },
+        FrontendEvent::UserMessage {
+            text: "steered user".into(),
+        },
+        FrontendEvent::AssistantDelta {
+            text: "assistant after steering".into(),
+        },
+    ] {
+        handle.send(IyonAction::Backend(event)).unwrap();
+        while harness.step().unwrap() {}
+    }
+    for _ in 0..120 {
+        harness.advance_time(Duration::from_millis(16)).unwrap();
+        while harness.step().unwrap() {}
+    }
+
+    let lines = transcript_lines(&harness);
+    let steered = lines
+        .iter()
+        .position(|line| line.contains("steered user"))
+        .expect("steered user message");
+    let assistant = lines
+        .iter()
+        .position(|line| line.contains("assistant after steering"))
+        .expect("assistant response after steered message");
+    assert!(
+        steered < assistant,
+        "steered message must precede assistant"
+    );
+    assert!(
+        !lines.iter().any(|line| line.contains("Working")),
+        "stream replaced Working instead of leaving a leftover row\n{}",
+        lines.join("\n")
+    );
+}
+
 const NUMBERED_GUIDE: &str = r#"Markdown: A Complete Guide
 
 What is Markdown?
