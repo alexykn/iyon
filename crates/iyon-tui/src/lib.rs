@@ -18,6 +18,9 @@
 //! layout / Theme / paint
 //! ```
 //!
+//! Semantic diffs lower through the same View pipeline:
+//!
+//! ```text
 //! DiffHunk / DiffLine
 //!     ↓
 //! DiffRenderer
@@ -25,6 +28,7 @@
 //! View
 //!     ↓
 //! layout / Theme / paint
+//! ```
 //!
 //! ```
 //! use iyon_tui::{
