@@ -113,7 +113,7 @@ fn bounded_text_input_uses_width_for_vertical_motion_and_scroll() {
     assert_eq!(input.scroll_row, 2);
 
     let view = input.view();
-    let compiled = compile_view(&view, 4);
+    let compiled = compile_bounded_view(&view, Size::new(4, 2));
     assert_eq!(compiled.rows.len(), 2);
     assert_eq!(compiled.rows[0].plain_text(), "ghi");
     assert_eq!(compiled.rows[1].plain_text(), "j");
@@ -122,6 +122,52 @@ fn bounded_text_input_uses_width_for_vertical_motion_and_scroll() {
     let ranges = crate::presentation::wrap::input_wrap_ranges("abcdefghij", 4);
     input.move_up_in_rows_for_test(&ranges);
     assert_eq!(input.cursor_bytes(), 6);
+}
+
+#[test]
+fn previous_layout_height_does_not_cap_multiline_growth() {
+    let mut input = TextInput::new().multiline(true);
+    input.layout_size = Some(Size::new(20, 1));
+    input.set_text("a\nb\nc\nd\ne");
+    input.set_cursor_for_test(0);
+    input.repair_scroll();
+    assert_eq!(input.scroll_row, 0);
+    let compiled = compile_view(&input.view(), 20);
+    assert_eq!(compiled.rows.len(), 5);
+    assert_eq!(compiled.rows[0].plain_text(), "a");
+    assert_eq!(compiled.rows[4].plain_text(), "e");
+
+    let mut bordered = TextInput::new()
+        .multiline(true)
+        .border(BorderSpec::plain().edges(BorderEdges::TOP_BOTTOM));
+    bordered.layout_size = Some(Size::new(20, 3));
+    bordered.set_text("a\nb\nc\nd\ne");
+    bordered.set_cursor_for_test(0);
+    bordered.repair_scroll();
+    assert_eq!(bordered.scroll_row, 0);
+    let compiled = compile_view(&bordered.view(), 20);
+    assert_eq!(compiled.rows.len(), 7);
+}
+
+#[test]
+fn bordered_empty_text_input_keeps_caret_inside_inner_rows() {
+    let mut input = TextInput::new()
+        .multiline(true)
+        .border(BorderSpec::plain().edges(BorderEdges::TOP_BOTTOM));
+    input.layout_size = Some(Size::new(20, 3));
+    input.focused = true;
+    input.repair_scroll();
+    assert_eq!(input.scroll_row, 0);
+
+    let compiled = compile_bounded_view(&input.view(), Size::new(20, 3));
+    assert_eq!(compiled.rows.len(), 3);
+    let cursor_row = compiled
+        .rows
+        .iter()
+        .enumerate()
+        .find_map(|(row, physical)| has_reversed(physical).then_some(row))
+        .expect("focused empty input should render a reversed caret");
+    assert_eq!(cursor_row, 1);
 }
 
 #[test]
