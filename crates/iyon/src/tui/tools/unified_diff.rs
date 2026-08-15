@@ -148,11 +148,13 @@ impl HunkBuilder {
     }
 
     fn take_old(&mut self) -> Result<DiffLineNumber, UnifiedDiffParseError> {
-        take_coordinate(&mut self.next_old, "old")
+        let has_more = self.old_consumed < self.old.line_count();
+        take_coordinate(&mut self.next_old, "old", has_more)
     }
 
     fn take_new(&mut self) -> Result<DiffLineNumber, UnifiedDiffParseError> {
-        take_coordinate(&mut self.next_new, "new")
+        let has_more = self.new_consumed < self.new_side.line_count();
+        take_coordinate(&mut self.next_new, "new", has_more)
     }
 
     fn consume_old(&mut self) -> Result<(), UnifiedDiffParseError> {
@@ -197,17 +199,19 @@ fn first_line(range: DiffRange) -> Result<Option<u64>, UnifiedDiffParseError> {
 fn take_coordinate(
     coordinate: &mut Option<u64>,
     side: &str,
+    has_more: bool,
 ) -> Result<DiffLineNumber, UnifiedDiffParseError> {
     let value = coordinate
         .take()
         .ok_or_else(|| UnifiedDiffParseError::new(format!("hunk body has no {side} line left")))?;
     let number = DiffLineNumber::new(value)
         .ok_or_else(|| UnifiedDiffParseError::new(format!("{side} line number is zero")))?;
-    *coordinate = Some(
-        value
-            .checked_add(1)
-            .ok_or_else(|| UnifiedDiffParseError::new(format!("{side} line number overflows")))?,
-    );
+    if has_more {
+        *coordinate =
+            Some(value.checked_add(1).ok_or_else(|| {
+                UnifiedDiffParseError::new(format!("{side} line number overflows"))
+            })?);
+    }
     Ok(number)
 }
 
@@ -291,8 +295,8 @@ mod tests {
     fn parses_one_hunk_and_file_headers_without_classifying_headers() {
         let hunks = parse("--- a/file\n+++ b/file\n@@ -1,2 +1,2 @@ suffix\n context\n-old\n+new\n");
         assert_eq!(hunks.len(), 1);
-        assert_eq!(hunks[0].old(), range(0, 2));
-        assert_eq!(hunks[0].new_side(), range(0, 2));
+        assert_eq!(hunks[0].old_range(), range(0, 2));
+        assert_eq!(hunks[0].new_range(), range(0, 2));
         assert_eq!(hunks[0].lines()[0].kind(), DiffLineKind::Context);
         assert_eq!(hunks[0].lines()[0].old_line(), Some(number(1)));
         assert_eq!(hunks[0].lines()[0].new_line(), Some(number(1)));
@@ -311,29 +315,29 @@ mod tests {
     fn parses_multiple_hunks_and_omitted_counts() {
         let hunks = parse("@@ -1 +1 @@\n-a\n+b\n@@ -4,2 +4,3 @@\n c\n-d\n+e\n+f\n");
         assert_eq!(hunks.len(), 2);
-        assert_eq!(hunks[0].old(), range(0, 1));
-        assert_eq!(hunks[0].new_side(), range(0, 1));
-        assert_eq!(hunks[1].old(), range(3, 2));
-        assert_eq!(hunks[1].new_side(), range(3, 3));
+        assert_eq!(hunks[0].old_range(), range(0, 1));
+        assert_eq!(hunks[0].new_range(), range(0, 1));
+        assert_eq!(hunks[1].old_range(), range(3, 2));
+        assert_eq!(hunks[1].new_range(), range(3, 3));
         assert_eq!(hunks[1].lines()[0].text(), "c");
     }
 
     #[test]
     fn translates_zero_length_sides_and_insertions() {
         let beginning = parse("@@ -0,0 +1,2 @@\n+x\n+y\n");
-        assert_eq!(beginning[0].old(), range(0, 0));
-        assert_eq!(beginning[0].new_side(), range(0, 2));
+        assert_eq!(beginning[0].old_range(), range(0, 0));
+        assert_eq!(beginning[0].new_range(), range(0, 2));
         assert_eq!(beginning[0].lines()[0].new_line(), Some(number(1)));
         assert_eq!(beginning[0].lines()[1].new_line(), Some(number(2)));
 
         let after_existing = parse("@@ -2,0 +3,1 @@\n+insert\n");
-        assert_eq!(after_existing[0].old(), range(2, 0));
-        assert_eq!(after_existing[0].new_side(), range(2, 1));
+        assert_eq!(after_existing[0].old_range(), range(2, 0));
+        assert_eq!(after_existing[0].new_range(), range(2, 1));
         assert_eq!(after_existing[0].lines()[0].new_line(), Some(number(3)));
 
         let deletion = parse("@@ -2,2 +2,0 @@\n-left\n-right\n");
-        assert_eq!(deletion[0].old(), range(1, 2));
-        assert_eq!(deletion[0].new_side(), range(2, 0));
+        assert_eq!(deletion[0].old_range(), range(1, 2));
+        assert_eq!(deletion[0].new_range(), range(2, 0));
         assert_eq!(deletion[0].lines()[0].old_line(), Some(number(2)));
         assert_eq!(deletion[0].lines()[1].old_line(), Some(number(3)));
     }
@@ -415,5 +419,19 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn parses_hunks_ending_at_maximum_coordinates() {
+        let max = u64::MAX;
+        let deletion = parse(&format!("@@ -{max} +{max},0 @@\n-deleted\n"));
+        assert_eq!(deletion[0].lines()[0].old_line(), Some(number(max)));
+
+        let addition = parse(&format!("@@ -{max},0 +{max} @@\n+added\n"));
+        assert_eq!(addition[0].lines()[0].new_line(), Some(number(max)));
+
+        let context = parse(&format!("@@ -{max} +{max} @@\n same\n"));
+        assert_eq!(context[0].lines()[0].old_line(), Some(number(max)));
+        assert_eq!(context[0].lines()[0].new_line(), Some(number(max)));
     }
 }

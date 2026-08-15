@@ -13,7 +13,7 @@ impl DiffRenderer {
     pub fn render_hunk(&self, hunk: &DiffHunk) -> View {
         View::vertical(|column| {
             column.gap(0);
-            column.child(header(hunk.old(), hunk.new_side()));
+            column.child(header(hunk.old_range(), hunk.new_range()));
             for line in hunk.lines() {
                 column.child(render_line(line));
                 if line.termination() == DiffLineTermination::Unterminated {

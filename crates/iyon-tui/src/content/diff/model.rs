@@ -263,31 +263,31 @@ impl Error for DiffValidationError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiffHunk {
     old: DiffRange,
-    new_side: DiffRange,
+    new_range: DiffRange,
     lines: Arc<[DiffLine]>,
 }
 
 impl DiffHunk {
     pub fn new(
         old: DiffRange,
-        new_side: DiffRange,
+        new_range: DiffRange,
         lines: impl IntoIterator<Item = DiffLine>,
     ) -> Result<Self, DiffValidationError> {
         let hunk = Self {
             old,
-            new_side,
+            new_range,
             lines: lines.into_iter().collect::<Vec<_>>().into(),
         };
         hunk.validate()?;
         Ok(hunk)
     }
 
-    pub const fn old(&self) -> DiffRange {
+    pub const fn old_range(&self) -> DiffRange {
         self.old
     }
 
-    pub const fn new_side(&self) -> DiffRange {
-        self.new_side
+    pub const fn new_range(&self) -> DiffRange {
+        self.new_range
     }
 
     pub fn lines(&self) -> &[DiffLine] {
@@ -298,7 +298,7 @@ impl DiffHunk {
         let mut old_consumed = 0;
         let mut new_consumed = 0;
         let mut next_old = first_line(self.old)?;
-        let mut next_new = first_line(self.new_side)?;
+        let mut next_new = first_line(self.new_range)?;
 
         for (index, line) in self.lines.iter().enumerate() {
             let (expected_old, expected_new) = match line.kind() {
@@ -321,19 +321,23 @@ impl DiffHunk {
 
             if expected_old.is_some() {
                 old_consumed += 1;
-                next_old = next_coordinate(next_old, index, "old")?;
+                if old_consumed < self.old.line_count() {
+                    next_old = next_coordinate(next_old, index, "old")?;
+                }
             }
             if expected_new.is_some() {
                 new_consumed += 1;
-                next_new = next_coordinate(next_new, index, "new")?;
+                if new_consumed < self.new_range.line_count() {
+                    next_new = next_coordinate(next_new, index, "new")?;
+                }
             }
         }
 
-        if old_consumed != self.old.line_count() || new_consumed != self.new_side.line_count() {
+        if old_consumed != self.old.line_count() || new_consumed != self.new_range.line_count() {
             return Err(DiffValidationError::CountMismatch {
                 expected_old: self.old.line_count(),
                 consumed_old: old_consumed,
-                expected_new: self.new_side.line_count(),
+                expected_new: self.new_range.line_count(),
                 consumed_new: new_consumed,
             });
         }
@@ -439,8 +443,8 @@ mod tests {
         let hunk =
             DiffHunk::new(range(10, 2), range(20, 2), [context, deletion, addition]).unwrap();
         assert_eq!(hunk.lines().len(), 3);
-        assert_eq!(hunk.old(), range(10, 2));
-        assert_eq!(hunk.new_side(), range(20, 2));
+        assert_eq!(hunk.old_range(), range(10, 2));
+        assert_eq!(hunk.new_range(), range(20, 2));
 
         DiffHunk::new(
             range(8, 0),
@@ -460,6 +464,37 @@ mod tests {
             ],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn hunks_accept_final_maximum_coordinates_without_successors() {
+        let final_range = range(u64::MAX - 1, 1);
+        let empty_range = range(u64::MAX, 0);
+        let final_number = number(u64::MAX);
+
+        let deletion = DiffHunk::new(
+            final_range,
+            empty_range,
+            [DiffLine::deletion(final_number, "deleted")],
+        )
+        .unwrap();
+        deletion.validate().unwrap();
+
+        let addition = DiffHunk::new(
+            empty_range,
+            final_range,
+            [DiffLine::addition(final_number, "added")],
+        )
+        .unwrap();
+        addition.validate().unwrap();
+
+        let context = DiffHunk::new(
+            final_range,
+            final_range,
+            [DiffLine::context(final_number, final_number, "same")],
+        )
+        .unwrap();
+        context.validate().unwrap();
     }
 
     #[test]

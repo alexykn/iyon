@@ -18,6 +18,30 @@
 //! layout / Theme / paint
 //! ```
 //!
+//! DiffHunk / DiffLine
+//!     ↓
+//! DiffRenderer
+//!     ↓
+//! View
+//!     ↓
+//! layout / Theme / paint
+//!
+//! ```
+//! use iyon_tui::{
+//!     DiffHunk, DiffLine, DiffLineNumber, DiffLineOffset, DiffRange, DiffRenderer, Renderer,
+//! };
+//!
+//! let range = DiffRange::new(DiffLineOffset::new(0), 1).unwrap();
+//! let line = DiffLine::context(
+//!     DiffLineNumber::new(1).unwrap(),
+//!     DiffLineNumber::new(1).unwrap(),
+//!     "unchanged",
+//! );
+//! let hunk = DiffHunk::new(range, range, [line]).unwrap();
+//! let view = DiffRenderer::new().render(&hunk);
+//! # let _ = view;
+//! ```
+//!
 //! Markdown is one projector, not the text model. [`MarkdownOptions::gfm`]
 //! enables the supported GFM extensions (tables, strikethrough, and task lists);
 //! [`MarkdownOptions::default`] remains strict CommonMark. [`TextRenderer`] is
