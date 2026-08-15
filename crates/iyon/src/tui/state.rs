@@ -166,12 +166,8 @@ impl IyonState {
                 effort_style_value(self.info.reasoning_effort),
             )
             .fill_width();
-        let steering = View::component(self.steering).fill_width();
         let footer = View::text(self.footer_text()).fill_width();
         View::vertical(|column| {
-            if self.conversation.working.is_none() {
-                column.child(steering);
-            }
             column.content_max(MAX_COMPOSER_ROWS, composer);
             column.child(footer);
         })
@@ -271,7 +267,7 @@ impl IyonState {
         }
         let pending_steers = cx
             .with_component(self.steering, SteeringQueuePanel::pending)
-            .ok_or_else(|| anyhow!("steering panel disappeared"))?;
+            .unwrap_or_default();
         let component = cx.register(ConversationActivity::working(
             self.conversation.formatter.clone(),
             pending_steers,

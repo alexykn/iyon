@@ -782,7 +782,7 @@ async fn steered_user_message_keeps_working_as_stream_tail() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn pending_steer_is_shown_on_working_row() {
+async fn pending_steer_shows_muted_queue_beside_working() {
     let core = IyonCore::spawn_default_on_current_runtime();
     let (commands, _events) = core.split();
     let mut harness = testing::start(build_app(commands, selection()), 60, 20).unwrap();
@@ -810,9 +810,9 @@ async fn pending_steer_is_shown_on_working_row() {
 
     let lines = harness.screen_lines();
     let screen = lines.join("\n");
+    assert!(screen.contains("Working"), "{screen}");
+    assert!(screen.contains("Queue:"), "{screen}");
     assert!(screen.contains("look at iyon-tui"), "{screen}");
-    assert!(screen.contains("Steering"), "{screen}");
-    assert!(!screen.contains("Working"), "{screen}");
 }
 
 const NUMBERED_GUIDE: &str = r#"Markdown: A Complete Guide

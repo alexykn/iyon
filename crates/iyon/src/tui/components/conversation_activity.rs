@@ -1,15 +1,14 @@
 use std::time::{Duration, Instant};
 
 use iyon_tui::{
-    BorderSpec, ColorSpec, Component, ComponentCx, ComponentHandle, EventCx, InteractionResult,
-    IntoView, Key, KeyStroke, Modifiers, Output, ScrollPane, VerticalAlign, View,
+    ColorSpec, Component, ComponentCx, ComponentHandle, EventCx, InteractionResult, IntoView, Key,
+    KeyStroke, Modifiers, Output, ScrollPane, View,
 };
 
 use crate::transcript::{TimelineItem, ToolTimelineStatus, TuiFormatter};
 
 const SPINNER_FRAMES: &[&str] = &["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"];
 const MAX_TOOL_OUTPUT_ROWS: u16 = 16;
-const MAX_PENDING_STEER_ROWS: usize = 4;
 
 #[derive(Debug, Clone)]
 pub(crate) enum ActivityState {
@@ -299,49 +298,26 @@ enum ActivityCommand {
 impl Component for ConversationActivity {
     fn view(&self) -> View {
         match &self.state {
-            ActivityState::Working { frame } if self.pending_steers.is_empty() => View::text(
-                format!("{} Working", SPINNER_FRAMES[*frame % SPINNER_FRAMES.len()]),
-            )
-            .no_wrap()
-            .fill_width()
-            .into_view()
-            .padding(crate::tui::viewport_gutter()),
             ActivityState::Working { frame } => {
-                let mut pending = self
-                    .pending_steers
-                    .iter()
-                    .take(MAX_PENDING_STEER_ROWS)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                let overflow = self
-                    .pending_steers
-                    .len()
-                    .saturating_sub(MAX_PENDING_STEER_ROWS);
-                if overflow > 0 {
-                    pending.push(format!("↑ {overflow} more queued"));
-                }
-                let chip = View::text(pending.join("\n"))
-                    .border(
-                        BorderSpec::rounded()
-                            .color(ColorSpec::theme("input.border"))
-                            .top_label("Steering…"),
-                    )
-                    .into_view();
-                let row = View::horizontal(|row| {
-                    row.vertical_align(VerticalAlign::Center);
-                    row.child(View::text(SPINNER_FRAMES[*frame % SPINNER_FRAMES.len()]).no_wrap());
-                    row.flex(View::spacer(0));
-                    row.child(chip);
-                    row.flex(View::spacer(0));
-                });
-                View::vertical(|column| {
-                    column.flex(View::spacer(0));
-                    column.child(row);
-                    column.flex(View::spacer(0));
-                })
-                .fill_width()
-                .fill_height()
-                .padding(crate::tui::viewport_gutter())
+                let working = View::text(format!(
+                    "{} Working",
+                    SPINNER_FRAMES[*frame % SPINNER_FRAMES.len()]
+                ))
+                .no_wrap();
+                let row = match queue_label(&self.pending_steers) {
+                    Some(label) => View::horizontal(|row| {
+                        row.gap(4);
+                        row.child(working);
+                        row.flex(
+                            View::text(label)
+                                .no_wrap()
+                                .italic()
+                                .foreground(ColorSpec::theme("text.muted")),
+                        );
+                    }),
+                    None => working.into_view(),
+                };
+                row.fill_width().padding(crate::tui::viewport_gutter())
             }
             ActivityState::Tool { .. } => self.tool_view().unwrap_or_else(|| View::spacer(0)),
         }
@@ -357,6 +333,35 @@ impl Component for ConversationActivity {
             cx.key_commands(Self::map_key, Self::handle_key);
         }
     }
+}
+
+const QUEUE_PREVIEW_CHARS: usize = 36;
+
+fn queue_label(pending: &[String]) -> Option<String> {
+    let first = pending.first()?.as_str();
+    let preview = truncate_preview(first, QUEUE_PREVIEW_CHARS);
+    let extra = pending.len() - 1;
+    if extra == 0 {
+        Some(format!("Queue: {preview}"))
+    } else {
+        Some(format!("Queue: {preview} + {extra} more"))
+    }
+}
+
+fn truncate_preview(text: &str, max_chars: usize) -> String {
+    let collapsed: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() <= max_chars {
+        return collapsed;
+    }
+    let mut preview = String::new();
+    for ch in collapsed.chars() {
+        if preview.chars().count() + 3 >= max_chars {
+            break;
+        }
+        preview.push(ch);
+    }
+    preview.push_str("...");
+    preview
 }
 
 #[derive(Debug)]
