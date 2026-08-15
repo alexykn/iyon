@@ -18,7 +18,7 @@ pub use state::IyonState;
 use backend::{BackendCommands, CoreBridge};
 use transcript::SegmentKind;
 
-pub(crate) use theme::iyon_theme;
+pub(crate) use theme::{iyon_theme, viewport_gutter, viewport_pad};
 
 pub fn build_app(
     command_tx: iyon_core::CoreCommandSender,

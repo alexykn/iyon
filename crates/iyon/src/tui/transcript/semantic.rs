@@ -1,6 +1,6 @@
 use iyon_tui::stream::StreamingSource;
 use iyon_tui::text::SemanticTag;
-use iyon_tui::{ColorSpec, Insets, IntoView, OverflowIndicator, ThemeKey, View};
+use iyon_tui::{BorderEdges, BorderSpec, ColorSpec, IntoView, OverflowIndicator, View};
 
 use crate::tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput};
 use crate::transcript::pipeline::{assistant_renderer, assistant_view};
@@ -118,18 +118,19 @@ impl TuiFormatter {
             );
         })
         .fill_width()
-        .padding(Insets::new(1, 0, 1, 0))
-        .background(ColorSpec::Theme(ThemeKey::from("surface.user")))
+        .border(
+            BorderSpec::plain()
+                .edges(BorderEdges::TOP_BOTTOM)
+                .color(ColorSpec::theme("input.border")),
+        )
     }
 
     fn format_error_message(&self, text: &str) -> View {
         View::text(text)
             .fill_width()
-            .style(
-                iyon_tui::StyleSpec::new()
-                    .foreground(ColorSpec::Theme(ThemeKey::from("text.error"))),
-            )
+            .style(iyon_tui::StyleSpec::new().foreground(ColorSpec::theme("text.error")))
             .into_view()
+            .padding(crate::tui::viewport_gutter())
     }
 
     fn format_tool_call(
@@ -191,7 +192,7 @@ impl TuiFormatter {
 
 fn truncation_footer_style_spec() -> iyon_tui::StyleSpec {
     iyon_tui::StyleSpec::new()
-        .foreground(ColorSpec::Theme(ThemeKey::from("truncation_footer")))
+        .foreground(ColorSpec::theme("truncation_footer"))
         .italic()
         .dim()
 }

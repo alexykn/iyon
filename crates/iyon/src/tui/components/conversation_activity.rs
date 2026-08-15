@@ -7,7 +7,7 @@ use iyon_tui::{
 
 use crate::transcript::{TimelineItem, ToolTimelineStatus, TuiFormatter};
 
-const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_FRAMES: &[&str] = &["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"];
 const MAX_TOOL_OUTPUT_ROWS: u16 = 16;
 
 #[derive(Debug, Clone)]
@@ -289,15 +289,17 @@ impl Component for ConversationActivity {
                 "{} Working",
                 SPINNER_FRAMES[*frame % SPINNER_FRAMES.len()]
             ))
+            .no_wrap()
             .fill_width()
-            .into_view(),
+            .into_view()
+            .padding(crate::tui::viewport_gutter()),
             ActivityState::Tool { .. } => self.tool_view().unwrap_or_else(|| View::spacer(0)),
         }
     }
 
     fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
         if matches!(self.state, ActivityState::Working { .. }) {
-            cx.tick(Duration::from_millis(80), Self::tick_callback);
+            cx.tick(Duration::from_millis(160), Self::tick_callback);
         }
         if self.approval_id.is_some() {
             cx.focusable();

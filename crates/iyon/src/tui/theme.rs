@@ -1,8 +1,19 @@
 use iyon_api::ReasoningLevel;
 use iyon_tui::{
-    ColorSpec, StyleSelector, StyleSpec, StyleStateKey, StyleStateValue, TextPart, TextSelector,
-    Theme,
+    ColorSpec, Insets, StyleSelector, StyleSpec, StyleStateKey, StyleStateValue, TextPart,
+    TextSelector, Theme,
 };
+
+/// Left/right inset shared by assistant, user, and working chrome.
+pub(crate) const VIEWPORT_GUTTER: u16 = 2;
+
+pub(crate) fn viewport_gutter() -> Insets {
+    Insets::horizontal(VIEWPORT_GUTTER)
+}
+
+pub(crate) fn viewport_pad(top: u16, bottom: u16) -> Insets {
+    Insets::new(top, VIEWPORT_GUTTER, bottom, VIEWPORT_GUTTER)
+}
 
 use super::transcript::thinking_tag;
 

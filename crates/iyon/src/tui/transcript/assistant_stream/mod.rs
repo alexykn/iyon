@@ -152,7 +152,7 @@ impl AssistantStream {
                 builder = builder
                     .atomic(
                         StreamRange::new(self.semantic.source_base(), self.semantic.source_end()),
-                        iyon_tui::View::spacer(0).padding(iyon_tui::Insets::horizontal(2)),
+                        iyon_tui::View::spacer(0).padding(crate::tui::viewport_gutter()),
                     )
                     .expect("assistant empty semantic ownership is valid");
             }
