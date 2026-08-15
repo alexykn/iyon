@@ -5,11 +5,11 @@ use iyon_tui::{
     Output, ScrollPane, View,
 };
 
+use crate::tools::MAX_COLLAPSED_TOOL_ROWS;
 use crate::transcript::{TimelineItem, ToolTimelineStatus, TuiFormatter};
 use crate::tui::components::steering_queue::status_row;
 
 const SPINNER_FRAMES: &[&str] = &["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"];
-const MAX_TOOL_OUTPUT_ROWS: u16 = 16;
 
 #[derive(Debug, Clone)]
 pub(crate) enum ActivityState {
@@ -289,11 +289,11 @@ impl ConversationActivity {
                 View::vertical(|column| {
                     column.child(call);
                     column.flex_max(
-                        MAX_TOOL_OUTPUT_ROWS,
+                        MAX_COLLAPSED_TOOL_ROWS,
                         View::component(*output)
                             .fill_width()
                             .min_height(1)
-                            .max_height(MAX_TOOL_OUTPUT_ROWS),
+                            .max_height(MAX_COLLAPSED_TOOL_ROWS),
                     );
                 })
                 .fill_width()
