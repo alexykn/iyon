@@ -8,6 +8,8 @@ test-util = []
 
 [dependencies]
 anyhow.workspace = true
+crossterm.workspace = true
+futures-util.workspace = true
 termwiz.workspace = true
 unicode-segmentation.workspace = true
 unicode-linebreak.workspace = true
