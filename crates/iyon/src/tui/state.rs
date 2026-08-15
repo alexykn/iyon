@@ -237,10 +237,12 @@ impl IyonState {
                 .ok_or_else(|| anyhow!("user batch disappeared"))?;
         } else {
             let component = cx.register(UserBatch::new(text.clone()));
-            let unit = cx
-                .history_mut()
-                .ok_or_else(|| anyhow!("history unavailable"))?
-                .push(View::component(component).fill_width())?;
+            let unit = self.with_working_parked(cx, |cx| {
+                Ok(cx
+                    .history_mut()
+                    .ok_or_else(|| anyhow!("history unavailable"))?
+                    .push(View::component(component).fill_width())?)
+            })?;
             self.conversation.user_batch = Some((unit, component));
         }
         let _ = cx.with_component_mut(self.steering, |panel| panel.delivered(&text));
@@ -297,6 +299,19 @@ impl IyonState {
             .discard_live(unit)?;
         cx.remove_component(component);
         Ok(())
+    }
+
+    fn with_working_parked<T>(
+        &mut self,
+        cx: &mut AppCx<'_, IyonAction>,
+        append: impl FnOnce(&mut AppCx<'_, IyonAction>) -> Result<T>,
+    ) -> Result<T> {
+        self.remove_working(cx)?;
+        let result = append(cx);
+        if self.conversation.turn_started && self.conversation.stream.is_none() {
+            self.start_working(cx)?;
+        }
+        result
     }
 
     pub(crate) fn start_assistant_delta(
@@ -407,10 +422,12 @@ impl IyonState {
                 None,
                 output,
             ));
-            let unit = cx
-                .history_mut()
-                .ok_or_else(|| anyhow!("history unavailable"))?
-                .push(View::component(component).fill_width().fill_height())?;
+            let unit = self.with_working_parked(cx, |cx| {
+                Ok(cx
+                    .history_mut()
+                    .ok_or_else(|| anyhow!("history unavailable"))?
+                    .push(View::component(component).fill_width().fill_height())?)
+            })?;
             (unit, component)
         };
         self.conversation.tools.insert(
@@ -626,9 +643,12 @@ impl IyonState {
                 is_error,
                 collapsed: true,
             });
-        cx.history_mut()
-            .ok_or_else(|| anyhow!("history unavailable"))?
-            .push_with_boundary(view, boundary)?;
+        self.with_working_parked(cx, |cx| {
+            Ok(cx
+                .history_mut()
+                .ok_or_else(|| anyhow!("history unavailable"))?
+                .push_with_boundary(view, boundary)?)
+        })?;
         Ok(())
     }
 
