@@ -10,7 +10,7 @@ use anyhow::Result;
 use iyon_core::ModelSelection;
 use iyon_tui::{App, AppCx, History, HistoryLayout, Insets, View};
 
-pub use backend::{FrontendEvent, ToolUpdatePresentation};
+pub use backend::{FrontendEvent, ToolDraftKey, ToolUpdatePresentation};
 pub use components::ApprovalDecision;
 pub use controller::IyonAction;
 pub use state::IyonState;
@@ -123,6 +123,9 @@ fn apply_backend_event(
         FrontendEvent::ThinkingDelta { text } => {
             push_stream(state, cx, SegmentKind::Thinking, text)?
         }
+        FrontendEvent::ToolCallPreparing { .. }
+        | FrontendEvent::ToolCallArguments { .. }
+        | FrontendEvent::ToolCallPrepared { .. } => {}
         FrontendEvent::TurnFinished => state.finish_turn(cx)?,
         FrontendEvent::TurnFailed { message } => state.fail_turn(cx, message)?,
         FrontendEvent::TurnCancelled => state.finish_turn(cx)?,
