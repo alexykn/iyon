@@ -20,9 +20,9 @@ pub use policy::{
     TextRenderPolicy,
 };
 
-use super::{Block, TextContent, text_style_ref};
+use super::{Block, BlockKind, ListMarker, TextContent, text_style_ref};
 use crate::content::Renderer;
-use crate::{IntoView, View};
+use crate::{Insets, IntoView, View};
 use identity::RenderContext;
 
 /// The one generic renderer for the frozen text IR.
@@ -67,10 +67,63 @@ impl Renderer<Block> for TextRenderer {
 impl Renderer<[TextContent]> for TextRenderer {
     fn render(&self, input: &[TextContent]) -> View {
         View::vertical(|column| {
-            column.gap(self.policy.block_gap());
+            column.gap(0);
+            let mut previous = None;
             for content in input {
-                column.child(Renderer::render(self, content));
+                let gap = previous
+                    .and_then(list_of)
+                    .zip(list_of(content))
+                    .map_or_else(
+                        || {
+                            if previous.is_some() {
+                                self.policy.block_gap()
+                            } else {
+                                0
+                            }
+                        },
+                        |(left, right)| {
+                            if same_list_kind(left.marker(), right.marker())
+                                && left.tight()
+                                && right.tight()
+                            {
+                                0
+                            } else {
+                                self.policy.block_gap()
+                            }
+                        },
+                    );
+                column.child(Renderer::render(self, content).padding(Insets::new(gap, 0, 0, 0)));
+                previous = Some(content);
             }
         })
+    }
+}
+
+fn list_of(content: &TextContent) -> Option<&super::List> {
+    match content {
+        TextContent::Block(block) => match block.kind() {
+            BlockKind::List(list) => Some(list),
+            _ => None,
+        },
+        TextContent::Raw(_) => None,
+    }
+}
+
+fn same_list_kind(left: ListMarker, right: ListMarker) -> bool {
+    match (left, right) {
+        (ListMarker::Bullet, ListMarker::Bullet) => true,
+        (
+            ListMarker::Ordered {
+                style: left_style,
+                delimiter: left_delimiter,
+                ..
+            },
+            ListMarker::Ordered {
+                style: right_style,
+                delimiter: right_delimiter,
+                ..
+            },
+        ) => left_style == right_style && left_delimiter == right_delimiter,
+        _ => false,
     }
 }
