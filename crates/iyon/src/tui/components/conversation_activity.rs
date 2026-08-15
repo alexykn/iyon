@@ -1,11 +1,12 @@
 use std::time::{Duration, Instant};
 
 use iyon_tui::{
-    ColorSpec, Component, ComponentCx, ComponentHandle, EventCx, InteractionResult, IntoView, Key,
-    KeyStroke, Modifiers, Output, ScrollPane, View,
+    Component, ComponentCx, ComponentHandle, EventCx, InteractionResult, Key, KeyStroke, Modifiers,
+    Output, ScrollPane, View,
 };
 
 use crate::transcript::{TimelineItem, ToolTimelineStatus, TuiFormatter};
+use crate::tui::components::steering_queue::status_row;
 
 const SPINNER_FRAMES: &[&str] = &["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"];
 const MAX_TOOL_OUTPUT_ROWS: u16 = 16;
@@ -96,6 +97,10 @@ impl ConversationActivity {
         if let Some(index) = self.pending_steers.iter().position(|item| item == text) {
             self.pending_steers.remove(index);
         }
+    }
+
+    pub(crate) fn has_queue(&self) -> bool {
+        !self.pending_steers.is_empty()
     }
 
     pub(crate) fn approval_output(&self) -> Output<ApprovalDecision> {
@@ -299,25 +304,18 @@ impl Component for ConversationActivity {
     fn view(&self) -> View {
         match &self.state {
             ActivityState::Working { frame } => {
-                let working = View::text(format!(
-                    "{} Working",
-                    SPINNER_FRAMES[*frame % SPINNER_FRAMES.len()]
-                ))
-                .no_wrap();
-                let row = match queue_label(&self.pending_steers) {
-                    Some(label) => View::horizontal(|row| {
-                        row.gap(4);
-                        row.child(working);
-                        row.flex(
-                            View::text(label)
-                                .no_wrap()
-                                .italic()
-                                .foreground(ColorSpec::theme("text.muted")),
-                        );
-                    }),
-                    None => working.into_view(),
+                let queued = !self.pending_steers.is_empty();
+                let frame = *frame % SPINNER_FRAMES.len();
+                let spinner = if queued {
+                    SPINNER_FRAMES[frame]
+                } else {
+                    SPINNER_FRAMES[SPINNER_FRAMES.len() - 1 - frame]
                 };
-                row.fill_width().padding(crate::tui::viewport_gutter())
+                status_row(
+                    spinner,
+                    if queued { "waiting" } else { "Working" },
+                    &self.pending_steers,
+                )
             }
             ActivityState::Tool { .. } => self.tool_view().unwrap_or_else(|| View::spacer(0)),
         }
@@ -333,35 +331,6 @@ impl Component for ConversationActivity {
             cx.key_commands(Self::map_key, Self::handle_key);
         }
     }
-}
-
-const QUEUE_PREVIEW_CHARS: usize = 36;
-
-fn queue_label(pending: &[String]) -> Option<String> {
-    let first = pending.first()?.as_str();
-    let preview = truncate_preview(first, QUEUE_PREVIEW_CHARS);
-    let extra = pending.len() - 1;
-    if extra == 0 {
-        Some(format!("Queue: {preview}"))
-    } else {
-        Some(format!("Queue: {preview} + {extra} more"))
-    }
-}
-
-fn truncate_preview(text: &str, max_chars: usize) -> String {
-    let collapsed: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if collapsed.chars().count() <= max_chars {
-        return collapsed;
-    }
-    let mut preview = String::new();
-    for ch in collapsed.chars() {
-        if preview.chars().count() + 3 >= max_chars {
-            break;
-        }
-        preview.push(ch);
-    }
-    preview.push_str("...");
-    preview
 }
 
 #[derive(Debug)]

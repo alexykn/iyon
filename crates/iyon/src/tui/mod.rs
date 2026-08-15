@@ -117,7 +117,7 @@ fn apply_backend_event(
 ) -> Result<()> {
     match event {
         FrontendEvent::TurnStarted => state.turn_started(cx)?,
-        FrontendEvent::SteerQueued { text } => state.enqueue_steer(cx, text),
+        FrontendEvent::SteerQueued { text } => state.enqueue_steer(cx, text)?,
         FrontendEvent::UserMessage { text } => state.submit_user_message(cx, text)?,
         FrontendEvent::AssistantDelta { text } => push_stream(state, cx, SegmentKind::Text, text)?,
         FrontendEvent::ThinkingDelta { text } => {

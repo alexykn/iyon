@@ -810,7 +810,7 @@ async fn pending_steer_shows_muted_queue_beside_working() {
 
     let lines = harness.screen_lines();
     let screen = lines.join("\n");
-    assert!(screen.contains("Working"), "{screen}");
+    assert!(screen.contains("waiting"), "{screen}");
     assert!(screen.contains("Queue:"), "{screen}");
     assert!(screen.contains("look at iyon-tui"), "{screen}");
 }
