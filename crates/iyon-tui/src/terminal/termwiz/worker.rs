@@ -3,20 +3,13 @@ use std::sync::mpsc::{Receiver, Sender, SyncSender};
 use anyhow::{Context, Result, anyhow};
 use termwiz::{
     caps::{Capabilities, ProbeHints},
-    input::InputEvent,
     surface::{Change, CursorVisibility, Surface},
-    terminal::{Terminal, TerminalWaker, new_terminal},
+    terminal::{Terminal, new_terminal},
 };
-use tokio::sync::{oneshot, watch};
-
-type EventSender = tokio::sync::mpsc::UnboundedSender<Result<crate::terminal::TerminalEvent>>;
+use tokio::sync::oneshot;
 
 type Reply<T> = Sender<Result<T>>;
 type AsyncReply<T> = oneshot::Sender<Result<T>>;
-
-// Kitty keyboard protocol push/pop; flag 1 means disambiguate escape codes.
-const KITTY_KEYBOARD_PUSH: &str = "\x1b[>1u";
-const KITTY_KEYBOARD_POP: &str = "\x1b[<1u";
 
 pub(crate) enum TerminalCommand {
     Present {
@@ -36,17 +29,12 @@ pub(crate) enum TerminalCommand {
 }
 
 pub(crate) struct Startup {
-    pub(crate) waker: TerminalWaker,
+    pub(crate) size: crate::geometry::Size,
 }
 
-pub(crate) fn run(
-    commands: Receiver<TerminalCommand>,
-    events: EventSender,
-    startup: SyncSender<Result<Startup>>,
-    size_sender: watch::Sender<crate::geometry::Size>,
-) {
+pub(crate) fn run(commands: Receiver<TerminalCommand>, startup: SyncSender<Result<Startup>>) {
     let setup = setup_terminal();
-    let (mut terminal, waker, mut presenter, size) = match setup {
+    let (mut terminal, mut presenter, size) = match setup {
         Ok(value) => value,
         Err(error) => {
             let _ = startup.send(Err(error));
@@ -54,63 +42,15 @@ pub(crate) fn run(
         }
     };
 
-    size_sender.send_replace(size);
-    if startup.send(Ok(Startup { waker })).is_err() {
+    if startup.send(Ok(Startup { size })).is_err() {
         presenter.finish_sync_output_best_effort(&mut *terminal);
         let _ = restore_terminal(&mut *terminal);
         return;
     }
 
-    let mut stopping = false;
-    while !stopping {
-        while let Ok(command) = commands.try_recv() {
-            stopping = handle_command(command, &mut *terminal, &mut presenter);
-            if stopping {
-                break;
-            }
-        }
-        if stopping {
+    while let Ok(command) = commands.recv() {
+        if handle_command(command, &mut *terminal, &mut presenter) {
             break;
-        }
-
-        match terminal.poll_input(None) {
-            Ok(Some(InputEvent::Wake)) => {}
-            Ok(Some(InputEvent::Resized { .. })) => {
-                let result = terminal
-                    .get_screen_size()
-                    .and_then(|size| {
-                        presenter.finish_sync_output_best_effort(&mut *terminal);
-                        presenter.resize(size.cols, size.rows);
-                        Ok(crate::geometry::Size::new(
-                            u16::try_from(size.cols)
-                                .context("terminal width exceeds framework range")?,
-                            u16::try_from(size.rows)
-                                .context("terminal height exceeds framework range")?,
-                        ))
-                    })
-                    .map_err(anyhow::Error::from);
-                match result {
-                    Ok(size) => {
-                        size_sender.send_replace(size);
-                    }
-                    Err(error) => {
-                        let _ = events.send(Err(error));
-                        stopping = true;
-                    }
-                }
-            }
-            Ok(Some(event)) => {
-                if let Some(event) = super::input::map_input(event)
-                    && events.send(Ok(event)).is_err()
-                {
-                    stopping = true;
-                }
-            }
-            Ok(None) => {}
-            Err(error) => {
-                let _ = events.send(Err(anyhow!(error)));
-                stopping = true;
-            }
         }
     }
 
@@ -120,7 +60,6 @@ pub(crate) fn run(
 
 fn setup_terminal() -> Result<(
     Box<dyn Terminal + Send>,
-    TerminalWaker,
     super::presenter::TermwizPresenter,
     crate::geometry::Size,
 )> {
@@ -129,12 +68,7 @@ fn setup_terminal() -> Result<(
         Capabilities::new_with_hints(hints).context("construct terminal capabilities")?;
     let terminal = new_terminal(capabilities).context("open system terminal")?;
     let mut terminal: Box<dyn Terminal + Send> = Box::new(terminal);
-    terminal.set_raw_mode().context("set terminal raw mode")?;
-    if let Err(error) = terminal
-        .render(&[Change::Text(KITTY_KEYBOARD_PUSH.to_owned())])
-        .and_then(|_| terminal.flush())
-        .context("enable Kitty keyboard disambiguation")
-    {
+    if let Err(error) = crate::terminal::crossterm::setup().context("set terminal input mode") {
         return setup_error(&mut *terminal, error);
     }
 
@@ -159,10 +93,8 @@ fn setup_terminal() -> Result<(
     {
         return setup_error(&mut *terminal, error);
     }
-    let waker = terminal.waker();
     Ok((
         terminal,
-        waker,
         presenter,
         crate::geometry::Size::new(
             u16::try_from(size.cols).context("terminal width exceeds framework range")?,
@@ -217,17 +149,10 @@ fn restore_terminal(terminal: &mut dyn Terminal) -> Result<()> {
     {
         first_error = Some(anyhow!(error));
     }
-    if let Err(error) = terminal
-        .render(&[Change::Text(KITTY_KEYBOARD_POP.to_owned())])
-        .and_then(|_| terminal.flush())
+    if let Err(error) = crate::terminal::crossterm::restore()
         && first_error.is_none()
     {
-        first_error = Some(anyhow!(error));
-    }
-    if let Err(error) = terminal.set_cooked_mode()
-        && first_error.is_none()
-    {
-        first_error = Some(anyhow!(error));
+        first_error = Some(error);
     }
     if let Err(error) = terminal.flush()
         && first_error.is_none()
@@ -235,15 +160,4 @@ fn restore_terminal(terminal: &mut dyn Terminal) -> Result<()> {
         first_error = Some(anyhow!(error));
     }
     first_error.map_or(Ok(()), Err)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{KITTY_KEYBOARD_POP, KITTY_KEYBOARD_PUSH};
-
-    #[test]
-    fn kitty_keyboard_protocol_sequences_are_exact() {
-        assert_eq!(KITTY_KEYBOARD_PUSH.as_bytes(), b"\x1b[>1u");
-        assert_eq!(KITTY_KEYBOARD_POP.as_bytes(), b"\x1b[<1u");
-    }
 }

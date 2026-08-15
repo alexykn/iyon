@@ -4,8 +4,9 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use termwiz::terminal::TerminalWaker;
-use tokio::sync::{oneshot, watch};
+use crossterm::event::{Event, EventStream};
+use futures_util::{FutureExt, StreamExt};
+use tokio::sync::oneshot;
 
 use crate::{
     backend::NativeHistorySink,
@@ -19,9 +20,8 @@ use super::worker::{Startup, TerminalCommand};
 
 pub(crate) struct TermwizBackend {
     commands: Sender<TerminalCommand>,
-    events: tokio::sync::mpsc::UnboundedReceiver<Result<TerminalEvent>>,
-    size_receiver: watch::Receiver<Size>,
-    waker: TerminalWaker,
+    events: EventStream,
+    size: Size,
     worker: Option<JoinHandle<()>>,
     restored: bool,
 }
@@ -30,13 +30,9 @@ impl TermwizBackend {
     pub(crate) fn enter() -> Result<Self> {
         let (commands, command_receiver) = mpsc::channel();
         let (startup_sender, startup_receiver) = mpsc::sync_channel(1);
-        let (events_sender, events) = tokio::sync::mpsc::unbounded_channel();
-        let (size_sender, size_receiver) = watch::channel(Size::new(0, 0));
         let worker = thread::Builder::new()
             .name("iyon-terminal".to_string())
-            .spawn(move || {
-                super::worker::run(command_receiver, events_sender, startup_sender, size_sender)
-            })
+            .spawn(move || super::worker::run(command_receiver, startup_sender))
             .context("spawn terminal worker")?;
 
         let startup = match startup_receiver.recv() {
@@ -49,8 +45,7 @@ impl TermwizBackend {
 
         Ok(Self::from_startup(
             commands,
-            events,
-            size_receiver,
+            EventStream::new(),
             worker,
             startup,
         ))
@@ -58,17 +53,14 @@ impl TermwizBackend {
 
     fn from_startup(
         commands: Sender<TerminalCommand>,
-        events: tokio::sync::mpsc::UnboundedReceiver<Result<TerminalEvent>>,
-        mut size_receiver: watch::Receiver<Size>,
+        events: EventStream,
         worker: JoinHandle<()>,
         startup: Startup,
     ) -> Self {
-        size_receiver.borrow_and_update();
         Self {
             commands,
             events,
-            size_receiver,
-            waker: startup.waker,
+            size: startup.size,
             worker: Some(worker),
             restored: false,
         }
@@ -78,7 +70,6 @@ impl TermwizBackend {
         self.commands
             .send(command)
             .context("terminal worker stopped")?;
-        self.waker.wake().context("wake terminal worker")?;
         receiver.recv().context("terminal worker reply lost")?
     }
 }
@@ -100,34 +91,33 @@ impl NativeHistorySink for TermwizBackend {
 
 impl TerminalBackend for TermwizBackend {
     async fn next_event(&mut self) -> Result<TerminalEvent> {
-        tokio::select! {
-            event = self.events.recv() => event
-                .ok_or_else(|| anyhow!("terminal worker event stream closed"))?,
-            changed = self.size_receiver.changed() => {
-                changed.context("terminal size stream closed")?;
-                self.size_receiver.borrow_and_update();
-                Ok(TerminalEvent::Resize)
+        loop {
+            let event = self
+                .events
+                .next()
+                .await
+                .context("terminal event stream closed")??;
+            if let Some(event) = self.map_event(event) {
+                return Ok(event);
             }
         }
     }
 
     fn try_next_event(&mut self) -> Result<Option<TerminalEvent>> {
-        match self.events.try_recv() {
-            Ok(event) => return event.map(Some),
-            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
-            | Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {}
-        }
-        match self.size_receiver.has_changed() {
-            Ok(true) => {
-                self.size_receiver.borrow_and_update();
-                Ok(Some(TerminalEvent::Resize))
+        loop {
+            let event = match self.events.next().now_or_never() {
+                None => return Ok(None),
+                Some(None) => return Err(anyhow!("terminal event stream closed")),
+                Some(Some(event)) => event.context("read terminal event")?,
+            };
+            if let Some(event) = self.map_event(event) {
+                return Ok(Some(event));
             }
-            Ok(false) | Err(_) => Ok(None),
         }
     }
 
     fn viewport(&mut self) -> Result<Size> {
-        Ok(*self.size_receiver.borrow())
+        Ok(self.size)
     }
 
     fn begin_frame(&mut self, frame: &PreparedSceneFrame) -> Result<PresentReceipt> {
@@ -136,7 +126,6 @@ impl TerminalBackend for TermwizBackend {
         self.commands
             .send(TerminalCommand::Present { desired, reply })
             .context("terminal worker stopped")?;
-        self.waker.wake().context("wake terminal worker")?;
         Ok(receiver)
     }
 
@@ -156,6 +145,16 @@ impl TerminalBackend for TermwizBackend {
             let _ = worker.join();
         }
         result
+    }
+}
+
+impl TermwizBackend {
+    fn map_event(&mut self, event: Event) -> Option<TerminalEvent> {
+        if let Event::Resize(width, height) = event {
+            self.size = Size::new(width, height);
+            return Some(TerminalEvent::Resize);
+        }
+        crate::terminal::crossterm::map_event(event)
     }
 }
 
