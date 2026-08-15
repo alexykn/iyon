@@ -48,10 +48,12 @@ pub(crate) struct ConversationActivity {
     result: Option<ToolResultState>,
     finished: bool,
     pending_steers: Vec<String>,
+    waiting_style: bool,
 }
 
 impl ConversationActivity {
     pub(crate) fn working(formatter: TuiFormatter, pending_steers: Vec<String>) -> Self {
+        let waiting_style = !pending_steers.is_empty();
         Self {
             state: ActivityState::Working { frame: 0 },
             approval_id: None,
@@ -60,6 +62,7 @@ impl ConversationActivity {
             result: None,
             finished: false,
             pending_steers,
+            waiting_style,
         }
     }
 
@@ -86,6 +89,7 @@ impl ConversationActivity {
             result: None,
             finished: false,
             pending_steers: Vec::new(),
+            waiting_style: false,
         }
     }
 
@@ -242,6 +246,9 @@ impl ConversationActivity {
             return false;
         };
         *frame = frame.wrapping_add(1);
+        if *frame % SPINNER_FRAMES.len() == 0 {
+            self.waiting_style = !self.pending_steers.is_empty();
+        }
         true
     }
 
@@ -304,16 +311,19 @@ impl Component for ConversationActivity {
     fn view(&self) -> View {
         match &self.state {
             ActivityState::Working { frame } => {
-                let queued = !self.pending_steers.is_empty();
                 let frame = *frame % SPINNER_FRAMES.len();
-                let spinner = if queued {
+                let spinner = if self.waiting_style {
                     SPINNER_FRAMES[frame]
                 } else {
                     SPINNER_FRAMES[SPINNER_FRAMES.len() - 1 - frame]
                 };
                 status_row(
                     spinner,
-                    if queued { "waiting" } else { "Working" },
+                    if self.waiting_style {
+                        "waiting"
+                    } else {
+                        "Working"
+                    },
                     &self.pending_steers,
                 )
             }

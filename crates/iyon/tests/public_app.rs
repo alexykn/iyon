@@ -810,9 +810,19 @@ async fn pending_steer_shows_muted_queue_beside_working() {
 
     let lines = harness.screen_lines();
     let screen = lines.join("\n");
-    assert!(screen.contains("waiting"), "{screen}");
     assert!(screen.contains("Queue:"), "{screen}");
     assert!(screen.contains("look at iyon-tui"), "{screen}");
+    assert!(screen.contains("Working"), "{screen}");
+    assert!(!screen.contains("waiting"), "{screen}");
+
+    for _ in 0..5 {
+        harness.advance_time(Duration::from_millis(160)).unwrap();
+        while harness.step().unwrap() {}
+    }
+
+    let screen = harness.screen_lines().join("\n");
+    assert!(screen.contains("waiting"), "{screen}");
+    assert!(screen.contains("Queue:"), "{screen}");
 }
 
 const NUMBERED_GUIDE: &str = r#"Markdown: A Complete Guide
