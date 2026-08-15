@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use iyon::tui::{FrontendEvent, IyonAction, ToolUpdatePresentation, build_app};
+use iyon::tui::{FrontendEvent, IyonAction, ToolDraftKey, ToolUpdatePresentation, build_app};
 use iyon_core::{IyonCore, ModelSelection};
 use iyon_tui::{Key, KeyStroke, testing};
 
@@ -21,6 +21,28 @@ where
     let mut lines = harness.native_history_lines();
     lines.extend(harness.screen_lines());
     lines
+}
+
+macro_rules! send_backend {
+    ($harness:expr, $event:expr) => {{
+        $harness.handle().send(IyonAction::Backend($event)).unwrap();
+        while $harness.step().unwrap() {}
+    }};
+}
+
+fn tool_status_count(lines: &[String], tool_name: &str, status: &str) -> usize {
+    let marker = format!(" — {status}");
+    lines
+        .iter()
+        .filter(|line| line.contains(tool_name) && line.contains(&marker))
+        .count()
+}
+
+fn tool_line_position(lines: &[String], tool_name: &str) -> usize {
+    lines
+        .iter()
+        .position(|line| line.contains(tool_name) && line.contains(" — "))
+        .unwrap_or_else(|| panic!("tool row {tool_name:?} missing\n{}", lines.join("\n")))
 }
 
 fn assert_history_and_composer(
@@ -314,6 +336,390 @@ async fn completed_tool_keeps_composer_below_history() {
     let lines = harness.screen_lines();
     assert!(lines.iter().any(|line| line.contains("final output")));
     assert!(lines.last().is_some_and(|line| line.contains("effort")));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn streamed_tool_draft_is_visible_before_execution_and_reuses_one_card() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 80, 20).unwrap();
+    let key = ToolDraftKey {
+        message_id: 7,
+        content_index: 0,
+    };
+
+    send_backend!(harness, FrontendEvent::TurnStarted);
+    send_backend!(
+        harness,
+        FrontendEvent::UserMessage {
+            text: "Inspect the repository".into(),
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::AssistantDelta {
+            text: "Checking...".into(),
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPreparing {
+            key,
+            tool_call_id: None,
+            tool_name: Some("read".into()),
+        }
+    );
+
+    let lines = transcript_lines(&harness);
+    assert_eq!(tool_status_count(&lines, "read", "preparing"), 1);
+    assert_eq!(tool_status_count(&lines, "read", "running"), 0);
+    assert!(lines.iter().any(|line| line.contains("Checking...")));
+
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallArguments {
+            key,
+            tool_call_id: None,
+            tool_name: None,
+            delta: "{\"path\":\"README.md\"}".into(),
+        }
+    );
+    let lines = transcript_lines(&harness);
+    assert_eq!(tool_status_count(&lines, "read", "preparing"), 1);
+    assert_eq!(tool_status_count(&lines, "read", "running"), 0);
+
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPrepared {
+            key,
+            tool_call_id: "call_1".into(),
+            tool_name: "read".into(),
+            arguments: serde_json::json!({"path": "README.md"}),
+        }
+    );
+    let lines = transcript_lines(&harness);
+    assert_eq!(tool_status_count(&lines, "read", "ready"), 1);
+    assert_eq!(tool_status_count(&lines, "read", "running"), 0);
+
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallStarted {
+            tool_call_id: "call_1".into(),
+            tool_name: "read".into(),
+            arguments: serde_json::json!({"path": "README.md"}),
+        }
+    );
+    let lines = transcript_lines(&harness);
+    assert_eq!(tool_status_count(&lines, "read", "running"), 1);
+    assert_eq!(tool_status_count(&lines, "read", "ready"), 0);
+    assert_eq!(
+        tool_status_count(&lines, "read", "running")
+            + tool_status_count(&lines, "read", "ready")
+            + tool_status_count(&lines, "read", "preparing"),
+        1,
+        "execution must reuse the prepared card\n{}",
+        lines.join("\n")
+    );
+
+    send_backend!(
+        harness,
+        FrontendEvent::ToolResult {
+            tool_call_id: "call_1".into(),
+            tool_name: "read".into(),
+            text: "repository contents".into(),
+            details: serde_json::json!({}),
+            is_error: false,
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallFinished {
+            tool_call_id: "call_1".into(),
+            is_error: false,
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::AssistantDelta {
+            text: "Next step.".into(),
+        }
+    );
+    send_backend!(harness, FrontendEvent::TurnFinished);
+
+    let lines = transcript_lines(&harness);
+    assert_eq!(tool_status_count(&lines, "read", "finished"), 1);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("repository contents"))
+    );
+    assert!(lines.iter().any(|line| line.contains("Next step.")));
+    assert!(
+        harness
+            .screen_lines()
+            .last()
+            .is_some_and(|line| line.contains("effort"))
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn prepared_tools_keep_order_and_only_started_tool_runs() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 80, 20).unwrap();
+    let read_key = ToolDraftKey {
+        message_id: 7,
+        content_index: 0,
+    };
+    let bash_key = ToolDraftKey {
+        message_id: 7,
+        content_index: 1,
+    };
+
+    send_backend!(harness, FrontendEvent::TurnStarted);
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPreparing {
+            key: read_key,
+            tool_call_id: None,
+            tool_name: Some("read".into()),
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPrepared {
+            key: read_key,
+            tool_call_id: "call_a".into(),
+            tool_name: "read".into(),
+            arguments: serde_json::json!({"path": "a.txt"}),
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPreparing {
+            key: bash_key,
+            tool_call_id: None,
+            tool_name: Some("bash".into()),
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPrepared {
+            key: bash_key,
+            tool_call_id: "call_b".into(),
+            tool_name: "bash".into(),
+            arguments: serde_json::json!({"command": "echo b"}),
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallStarted {
+            tool_call_id: "call_a".into(),
+            tool_name: "read".into(),
+            arguments: serde_json::json!({"path": "a.txt"}),
+        }
+    );
+
+    let lines = transcript_lines(&harness);
+    assert_eq!(tool_status_count(&lines, "read", "running"), 1);
+    assert_eq!(
+        tool_status_count(&lines, "echo b", "ready"),
+        1,
+        "bash should remain ready\n{}",
+        lines.join("\n")
+    );
+    let read = tool_line_position(&lines, "read");
+    let bash = tool_line_position(&lines, "echo b");
+    assert!(
+        read < bash,
+        "prepared tool order changed\n{}",
+        lines.join("\n")
+    );
+    assert!(
+        !lines[read + 1..bash]
+            .iter()
+            .any(|line| line.contains("Working"))
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn approval_updates_prepared_tool_card_in_place() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 80, 20).unwrap();
+    let key = ToolDraftKey {
+        message_id: 7,
+        content_index: 0,
+    };
+
+    send_backend!(harness, FrontendEvent::TurnStarted);
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPreparing {
+            key,
+            tool_call_id: None,
+            tool_name: Some("read".into()),
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPrepared {
+            key,
+            tool_call_id: "approval_call".into(),
+            tool_name: "read".into(),
+            arguments: serde_json::json!({"path": "secrets.txt"}),
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolApprovalRequested {
+            approval_id: 42,
+            tool_call_id: "approval_call".into(),
+            tool_name: "read".into(),
+            arguments: serde_json::json!({"path": "secrets.txt"}),
+        }
+    );
+
+    let lines = transcript_lines(&harness);
+    assert_eq!(tool_status_count(&lines, "read", "waiting for approval"), 1);
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.contains("read") && line.contains(" — "))
+            .count(),
+        1,
+        "approval must update the existing card\n{}",
+        lines.join("\n")
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn cancelling_preparing_tool_freezes_cancelled_card() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 80, 20).unwrap();
+    let key = ToolDraftKey {
+        message_id: 7,
+        content_index: 0,
+    };
+
+    send_backend!(harness, FrontendEvent::TurnStarted);
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPreparing {
+            key,
+            tool_call_id: None,
+            tool_name: Some("read".into()),
+        }
+    );
+    send_backend!(harness, FrontendEvent::TurnCancelled);
+
+    let lines = transcript_lines(&harness);
+    assert_eq!(tool_status_count(&lines, "read", "cancelled"), 1);
+    assert_eq!(tool_status_count(&lines, "read", "running"), 0);
+    assert_eq!(tool_status_count(&lines, "read", "finished"), 0);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn cancelling_running_tool_does_not_mark_it_finished() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 80, 20).unwrap();
+    let key = ToolDraftKey {
+        message_id: 7,
+        content_index: 0,
+    };
+
+    send_backend!(harness, FrontendEvent::TurnStarted);
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPreparing {
+            key,
+            tool_call_id: None,
+            tool_name: Some("read".into()),
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPrepared {
+            key,
+            tool_call_id: "running_call".into(),
+            tool_name: "read".into(),
+            arguments: serde_json::json!({"path": "live.txt"}),
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallStarted {
+            tool_call_id: "running_call".into(),
+            tool_name: "read".into(),
+            arguments: serde_json::json!({"path": "live.txt"}),
+        }
+    );
+    send_backend!(harness, FrontendEvent::TurnCancelled);
+
+    let lines = transcript_lines(&harness);
+    assert_eq!(tool_status_count(&lines, "read", "cancelled"), 1);
+    assert_eq!(tool_status_count(&lines, "read", "running"), 0);
+    assert_eq!(tool_status_count(&lines, "read", "finished"), 0);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn error_result_marks_prepared_card_failed_without_orphan_result_row() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 80, 20).unwrap();
+    let key = ToolDraftKey {
+        message_id: 7,
+        content_index: 0,
+    };
+
+    send_backend!(harness, FrontendEvent::TurnStarted);
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPreparing {
+            key,
+            tool_call_id: None,
+            tool_name: Some("read".into()),
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallPrepared {
+            key,
+            tool_call_id: "failed_call".into(),
+            tool_name: "read".into(),
+            arguments: serde_json::json!({"path": "missing.txt"}),
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolResult {
+            tool_call_id: "failed_call".into(),
+            tool_name: "read".into(),
+            text: "not found".into(),
+            details: serde_json::json!({}),
+            is_error: true,
+        }
+    );
+    send_backend!(
+        harness,
+        FrontendEvent::ToolCallFinished {
+            tool_call_id: "failed_call".into(),
+            is_error: true,
+        }
+    );
+
+    let lines = transcript_lines(&harness);
+    assert_eq!(tool_status_count(&lines, "read", "failed"), 1);
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.contains("read failed"))
+            .count(),
+        1
+    );
+    assert!(!lines.iter().any(|line| line.contains("read result")));
 }
 
 #[tokio::test(flavor = "current_thread")]
