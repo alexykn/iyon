@@ -10,6 +10,8 @@ pub(crate) struct ToolCallRenderInput<'a> {
     pub(crate) arguments: &'a serde_json::Value,
     pub(crate) status: ToolTimelineStatus,
     pub(crate) show_arg_preview: bool,
+    /// Muted beat of the live pulse. Independent of status; a finished call
+    /// can keep pulsing if the activity leaves pulsing enabled.
     pub(crate) pulse: bool,
 }
 
