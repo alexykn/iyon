@@ -50,11 +50,14 @@ impl ToolRenderer for GrepRenderer {
 
 fn status_label(status: crate::transcript::ToolTimelineStatus) -> &'static str {
     match status {
+        crate::transcript::ToolTimelineStatus::Preparing => "preparing",
+        crate::transcript::ToolTimelineStatus::Prepared => "ready",
         crate::transcript::ToolTimelineStatus::PendingApproval => "waiting for approval",
         crate::transcript::ToolTimelineStatus::Running => "running",
         crate::transcript::ToolTimelineStatus::Approved => "approved",
         crate::transcript::ToolTimelineStatus::Rejected => "rejected",
         crate::transcript::ToolTimelineStatus::Finished => "finished",
         crate::transcript::ToolTimelineStatus::Failed => "failed",
+        crate::transcript::ToolTimelineStatus::Cancelled => "cancelled",
     }
 }
