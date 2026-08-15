@@ -329,7 +329,13 @@ async fn composer_collapse_keeps_streaming_assistant_contiguous() {
         harness
             .screen_lines()
             .iter()
-            .any(|line| line.contains("composer line three")),
+            .filter(|line| {
+                line.contains("composer line one")
+                    || line.contains("composer line two")
+                    || line.contains("composer line three")
+            })
+            .count()
+            == 3,
         "multiline paste did not expand the composer"
     );
     harness.key(KeyStroke::new(Key::Enter)).unwrap();

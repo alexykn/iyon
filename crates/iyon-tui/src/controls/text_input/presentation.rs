@@ -29,34 +29,38 @@ impl TextInput {
         };
 
         let size = self.inner_size(layout_size);
-        if size.width == 0 || size.height == 0 {
+        if size.width == 0 {
             return self.decorated(View::vertical(|_| {}).fill_width().fill_height());
         }
 
         let ranges = input_wrap_ranges(self.buffer.text(), size.width);
-        let visible = usize::from(size.height).max(1);
-        let start = self.scroll_row.min(ranges.len());
-        let end = (start + visible).min(ranges.len());
         let cursor = self.buffer.cursor_bytes();
         let cursor_row = super::cursor::wrapped_line_index_by_start(&ranges, cursor).unwrap_or(0);
+        let body = View::vertical(|column| {
+            for (row_index, range) in ranges.iter().enumerate() {
+                let row_text = self.buffer.text()[range.clone()].to_owned();
+                let row = if self.focused && row_index == cursor_row {
+                    View::text(row_text)
+                        .no_wrap()
+                        .cursor_at(cursor.saturating_sub(range.start))
+                        .into_view()
+                } else {
+                    View::text(row_text).no_wrap().into_view()
+                };
+                column.child(row);
+            }
+        })
+        .fill_width();
+        // Border belongs on a parent. RowViewport copies from skip into its
+        // own surface; a border on that node overwrites the first and last
+        // copied rows.
+        let skip =
+            u16::try_from(self.scroll_row.min(ranges.len().saturating_sub(1))).unwrap_or(u16::MAX);
         self.decorated(
-            View::vertical(|column| {
-                for (row_index, range) in ranges[start..end].iter().enumerate() {
-                    let row_index = start + row_index;
-                    let row_text = self.buffer.text()[range.clone()].to_owned();
-                    let row = if self.focused && row_index == cursor_row {
-                        View::text(row_text)
-                            .no_wrap()
-                            .cursor_at(cursor.saturating_sub(range.start))
-                            .into_view()
-                    } else {
-                        View::text(row_text).no_wrap().into_view()
-                    };
-                    column.child(row);
-                }
-            })
-            .fill_width()
-            .fill_height(),
+            View::row_viewport(body, skip)
+                .fill_width()
+                .fill_height()
+                .container(),
         )
     }
 }
