@@ -14,6 +14,10 @@ type EventSender = tokio::sync::mpsc::UnboundedSender<Result<crate::terminal::Te
 type Reply<T> = Sender<Result<T>>;
 type AsyncReply<T> = oneshot::Sender<Result<T>>;
 
+// Kitty keyboard protocol push/pop; flag 1 means disambiguate escape codes.
+const KITTY_KEYBOARD_PUSH: &str = "\x1b[>1u";
+const KITTY_KEYBOARD_POP: &str = "\x1b[<1u";
+
 pub(crate) enum TerminalCommand {
     Present {
         desired: Surface,
@@ -126,6 +130,13 @@ fn setup_terminal() -> Result<(
     let terminal = new_terminal(capabilities).context("open system terminal")?;
     let mut terminal: Box<dyn Terminal + Send> = Box::new(terminal);
     terminal.set_raw_mode().context("set terminal raw mode")?;
+    if let Err(error) = terminal
+        .render(&[Change::Text(KITTY_KEYBOARD_PUSH.to_owned())])
+        .and_then(|_| terminal.flush())
+        .context("enable Kitty keyboard disambiguation")
+    {
+        return setup_error(&mut *terminal, error);
+    }
 
     let size = match terminal.get_screen_size().context("get terminal size") {
         Ok(size) => size,
@@ -206,6 +217,13 @@ fn restore_terminal(terminal: &mut dyn Terminal) -> Result<()> {
     {
         first_error = Some(anyhow!(error));
     }
+    if let Err(error) = terminal
+        .render(&[Change::Text(KITTY_KEYBOARD_POP.to_owned())])
+        .and_then(|_| terminal.flush())
+        && first_error.is_none()
+    {
+        first_error = Some(anyhow!(error));
+    }
     if let Err(error) = terminal.set_cooked_mode()
         && first_error.is_none()
     {
@@ -217,4 +235,15 @@ fn restore_terminal(terminal: &mut dyn Terminal) -> Result<()> {
         first_error = Some(anyhow!(error));
     }
     first_error.map_or(Ok(()), Err)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{KITTY_KEYBOARD_POP, KITTY_KEYBOARD_PUSH};
+
+    #[test]
+    fn kitty_keyboard_protocol_sequences_are_exact() {
+        assert_eq!(KITTY_KEYBOARD_PUSH.as_bytes(), b"\x1b[>1u");
+        assert_eq!(KITTY_KEYBOARD_POP.as_bytes(), b"\x1b[<1u");
+    }
 }
