@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    CoreEvent, MessageDelta, MessageRole,
+    CoreEvent, MessageDelta, MessageRole, ToolCallDelta,
     agent::{
         tool_call::{ToolCallAssembler, ToolCallRequest},
         transcript::AgentMessage,
@@ -176,34 +176,169 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
                 content_index,
                 id,
                 name,
-            } => handle_tool_call_start(
-                &mut content,
-                &mut text,
-                &mut thinking,
-                &mut tool_calls,
-                content_index,
-                id,
-                name,
-            )?,
+            } => {
+                let is_new = handle_tool_call_start(
+                    &mut content,
+                    &mut text,
+                    &mut thinking,
+                    &mut tool_calls,
+                    content_index,
+                    id.clone(),
+                    name.clone(),
+                )?;
+                if is_new
+                    && !send_event(
+                        &event_tx,
+                        &cancellation,
+                        CoreEvent::MessageDelta {
+                            turn_id: turn_id.0,
+                            message_id: assistant_message_id.0,
+                            delta: MessageDelta::ToolCall(ToolCallDelta::Start {
+                                content_index,
+                                tool_call_id: id,
+                                tool_name: name,
+                            }),
+                        },
+                    )
+                    .await?
+                {
+                    return finish_interrupted(FinishModelTurnInput {
+                        event_tx: &event_tx,
+                        turn_id,
+                        assistant_message_id,
+                        content,
+                        text,
+                        thinking,
+                        usage,
+                        tool_calls,
+                        stop_reason: StopReason::Aborted,
+                        cancellation: cancellation.clone(),
+                    })
+                    .await;
+                }
+            }
             ModelStreamEvent::ToolCallDelta {
                 content_index,
                 id,
                 name,
                 arguments_delta,
-            } => handle_tool_call_delta(&mut tool_calls, content_index, id, name, arguments_delta)?,
+            } => {
+                let is_new = handle_tool_call_delta(
+                    &mut content,
+                    &mut text,
+                    &mut thinking,
+                    &mut tool_calls,
+                    content_index,
+                    id.clone(),
+                    name.clone(),
+                    &arguments_delta,
+                )?;
+                if is_new
+                    && !send_event(
+                        &event_tx,
+                        &cancellation,
+                        CoreEvent::MessageDelta {
+                            turn_id: turn_id.0,
+                            message_id: assistant_message_id.0,
+                            delta: MessageDelta::ToolCall(ToolCallDelta::Start {
+                                content_index,
+                                tool_call_id: id.clone(),
+                                tool_name: name.clone(),
+                            }),
+                        },
+                    )
+                    .await?
+                {
+                    return finish_interrupted(FinishModelTurnInput {
+                        event_tx: &event_tx,
+                        turn_id,
+                        assistant_message_id,
+                        content,
+                        text,
+                        thinking,
+                        usage,
+                        tool_calls,
+                        stop_reason: StopReason::Aborted,
+                        cancellation: cancellation.clone(),
+                    })
+                    .await;
+                }
+                if !send_event(
+                    &event_tx,
+                    &cancellation,
+                    CoreEvent::MessageDelta {
+                        turn_id: turn_id.0,
+                        message_id: assistant_message_id.0,
+                        delta: MessageDelta::ToolCall(ToolCallDelta::Arguments {
+                            content_index,
+                            tool_call_id: id,
+                            tool_name: name,
+                            delta: arguments_delta,
+                        }),
+                    },
+                )
+                .await?
+                {
+                    return finish_interrupted(FinishModelTurnInput {
+                        event_tx: &event_tx,
+                        turn_id,
+                        assistant_message_id,
+                        content,
+                        text,
+                        thinking,
+                        usage,
+                        tool_calls,
+                        stop_reason: StopReason::Aborted,
+                        cancellation: cancellation.clone(),
+                    })
+                    .await;
+                }
+            }
             ModelStreamEvent::ToolCallEnd {
                 content_index,
                 id,
                 name,
                 arguments,
-            } => handle_tool_call_end(
-                &mut content,
-                &mut tool_calls,
-                content_index,
-                id,
-                name,
-                arguments,
-            )?,
+            } => {
+                handle_tool_call_end(
+                    &mut content,
+                    &mut tool_calls,
+                    content_index,
+                    id.clone(),
+                    name.clone(),
+                    arguments.clone(),
+                )?;
+                if !send_event(
+                    &event_tx,
+                    &cancellation,
+                    CoreEvent::MessageDelta {
+                        turn_id: turn_id.0,
+                        message_id: assistant_message_id.0,
+                        delta: MessageDelta::ToolCall(ToolCallDelta::End {
+                            content_index,
+                            tool_call_id: id,
+                            tool_name: name,
+                            arguments,
+                        }),
+                    },
+                )
+                .await?
+                {
+                    return finish_interrupted(FinishModelTurnInput {
+                        event_tx: &event_tx,
+                        turn_id,
+                        assistant_message_id,
+                        content,
+                        text,
+                        thinking,
+                        usage,
+                        tool_calls,
+                        stop_reason: StopReason::Aborted,
+                        cancellation: cancellation.clone(),
+                    })
+                    .await;
+                }
+            }
             ModelStreamEvent::Usage {
                 usage: stream_usage,
             } => {
@@ -286,28 +421,26 @@ fn handle_tool_call_start(
     content_index: usize,
     id: Option<String>,
     name: Option<String>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     flush_text_and_thinking(content, text, thinking);
-    let id = id.unwrap_or_else(|| generated_tool_call_id(content_index));
-    tool_calls.start(id, name.unwrap_or_default())
+    tool_calls.start(content_index, id, name)
 }
 
 fn handle_tool_call_delta(
+    content: &mut Vec<ContentBlock>,
+    text: &mut String,
+    thinking: &mut String,
     tool_calls: &mut ToolCallAssembler,
     content_index: usize,
     id: Option<String>,
     name: Option<String>,
-    arguments_delta: String,
-) -> anyhow::Result<()> {
-    let id = id.unwrap_or_else(|| generated_tool_call_id(content_index));
-    if tool_calls
-        .push_arguments_delta(&id, &arguments_delta)
-        .is_err()
-    {
-        tool_calls.start(id.clone(), name.unwrap_or_default())?;
-        tool_calls.push_arguments_delta(&id, &arguments_delta)?;
+    arguments_delta: &str,
+) -> anyhow::Result<bool> {
+    let is_new = tool_calls.push_arguments_delta(content_index, id, name, arguments_delta)?;
+    if is_new {
+        flush_text_and_thinking(content, text, thinking);
     }
-    Ok(())
+    Ok(is_new)
 }
 
 fn handle_tool_call_end(
@@ -318,12 +451,10 @@ fn handle_tool_call_end(
     name: String,
     arguments: serde_json::Value,
 ) -> anyhow::Result<()> {
-    if tool_calls.finish(&id, Some(arguments.clone())).is_err() {
-        tool_calls.start(id.clone(), name.clone())?;
-        tool_calls.finish(&id, Some(arguments.clone()))?;
-    }
+    tool_calls.finish(content_index, id, name, Some(arguments.clone()))?;
+    let (id, name) = tool_calls.identity(content_index)?;
     content.push(ContentBlock::ToolCall {
-        id: non_empty_tool_call_id(id, content_index),
+        id,
         name,
         arguments,
     });
@@ -461,29 +592,20 @@ fn flush_text_and_thinking(
     }
 }
 
-fn non_empty_tool_call_id(id: String, content_index: usize) -> String {
-    if id.is_empty() {
-        generated_tool_call_id(content_index)
-    } else {
-        id
-    }
-}
-
-fn generated_tool_call_id(content_index: usize) -> String {
-    format!("tool_call_{content_index}")
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use futures_util::stream::iter;
     use iyon_api::{
-        ModelApi, ModelRequest, ModelStream, ModelStreamEvent, ModelStreamFuture, StopReason,
+        ContentBlock, ModelApi, ModelRequest, ModelStream, ModelStreamEvent, ModelStreamFuture,
+        StopReason,
     };
 
     use super::{ModelTurnInput, ModelTurnOutcome, run_model_turn};
+    use crate::agent::tool_call::ToolCallRequest;
     use crate::ids::{MessageId, TurnId};
+    use crate::{CoreEvent, MessageDelta, ToolCallDelta};
 
     struct ScriptedModel {
         events: Vec<ModelStreamEvent>,
@@ -561,6 +683,53 @@ mod tests {
         ]
     }
 
+    async fn run_scripted_turn(
+        events: Vec<ModelStreamEvent>,
+    ) -> (ModelTurnOutcome, Vec<CoreEvent>) {
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(64);
+        let model = Arc::new(ScriptedModel { events });
+        let outcome = run_model_turn(ModelTurnInput {
+            turn_id: TurnId(7),
+            assistant_message_id: MessageId(9),
+            request: ModelRequest::default(),
+            model,
+            event_tx: event_tx.clone(),
+            cancellation: tokio_util::sync::CancellationToken::new(),
+        })
+        .await
+        .expect("turn should succeed");
+        drop(event_tx);
+
+        let events = drain_events(&mut event_rx);
+        (outcome, events)
+    }
+
+    fn message_deltas(events: &[CoreEvent]) -> Vec<&MessageDelta> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                CoreEvent::MessageDelta { delta, .. } => Some(delta),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn drain_events(event_rx: &mut tokio::sync::mpsc::Receiver<CoreEvent>) -> Vec<CoreEvent> {
+        let mut events = Vec::new();
+        while let Ok(event) = event_rx.try_recv() {
+            events.push(event);
+        }
+        events
+    }
+
+    fn assert_no_tool_call_started(events: &[CoreEvent]) {
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, CoreEvent::ToolCallStarted { .. }))
+        );
+    }
+
     #[tokio::test]
     async fn thinking_deltas_are_streamed_as_core_events_in_order() {
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(64);
@@ -588,12 +757,347 @@ mod tests {
                 match delta {
                     crate::MessageDelta::Thinking(text) => deltas.push(format!("T:{text}")),
                     crate::MessageDelta::Text(text) => deltas.push(format!("X:{text}")),
-                    crate::MessageDelta::ToolCall { .. } => deltas.push("C".to_string()),
+                    crate::MessageDelta::ToolCall(_) => deltas.push("C".to_string()),
                 }
             }
         }
 
         assert_eq!(deltas, vec!["T:think1", "X:hi ", "T:think2", "X:there"]);
+    }
+
+    #[tokio::test]
+    async fn tool_call_start_is_streamed_before_done_without_execution_start() {
+        let (outcome, events) = run_scripted_turn(vec![
+            ModelStreamEvent::ToolCallStart {
+                content_index: 0,
+                id: Some("call-1".to_string()),
+                name: Some("search".to_string()),
+            },
+            ModelStreamEvent::ToolCallEnd {
+                content_index: 0,
+                id: "call-1".to_string(),
+                name: "search".to_string(),
+                arguments: serde_json::json!({"query": "iyon"}),
+            },
+            ModelStreamEvent::Done {
+                stop_reason: StopReason::ToolUse,
+            },
+        ])
+        .await;
+
+        let deltas = message_deltas(&events);
+        assert!(matches!(
+            deltas[0],
+            MessageDelta::ToolCall(ToolCallDelta::Start { .. })
+        ));
+        assert!(matches!(
+            deltas[1],
+            MessageDelta::ToolCall(ToolCallDelta::End { .. })
+        ));
+        assert_no_tool_call_started(&events);
+        assert!(matches!(outcome, ModelTurnOutcome::Completed { .. }));
+    }
+
+    #[tokio::test]
+    async fn tool_call_argument_fragments_preserve_order_before_end() {
+        let (_, events) = run_scripted_turn(vec![
+            ModelStreamEvent::ToolCallStart {
+                content_index: 1,
+                id: Some("call-1".to_string()),
+                name: Some("search".to_string()),
+            },
+            ModelStreamEvent::ToolCallDelta {
+                content_index: 1,
+                id: None,
+                name: None,
+                arguments_delta: "{\"q\":".to_string(),
+            },
+            ModelStreamEvent::ToolCallDelta {
+                content_index: 1,
+                id: None,
+                name: None,
+                arguments_delta: "\"iyon\"}".to_string(),
+            },
+            ModelStreamEvent::ToolCallEnd {
+                content_index: 1,
+                id: "call-1".to_string(),
+                name: "search".to_string(),
+                arguments: serde_json::json!({"q": "iyon"}),
+            },
+            ModelStreamEvent::Done {
+                stop_reason: StopReason::ToolUse,
+            },
+        ])
+        .await;
+
+        let deltas = message_deltas(&events);
+        assert!(matches!(
+            deltas[0],
+            MessageDelta::ToolCall(ToolCallDelta::Start { .. })
+        ));
+        assert!(matches!(
+            deltas[1],
+            MessageDelta::ToolCall(ToolCallDelta::Arguments { delta, .. }) if delta == "{\"q\":"
+        ));
+        assert!(matches!(
+            deltas[2],
+            MessageDelta::ToolCall(ToolCallDelta::Arguments { delta, .. }) if delta == "\"iyon\"}"
+        ));
+        assert!(matches!(
+            deltas[3],
+            MessageDelta::ToolCall(ToolCallDelta::End { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn tool_call_end_emits_authoritative_identity_and_arguments() {
+        let (outcome, events) = run_scripted_turn(vec![
+            ModelStreamEvent::ToolCallStart {
+                content_index: 2,
+                id: None,
+                name: Some("old-name".to_string()),
+            },
+            ModelStreamEvent::ToolCallEnd {
+                content_index: 2,
+                id: "authoritative-id".to_string(),
+                name: "authoritative-name".to_string(),
+                arguments: serde_json::json!({"value": 42}),
+            },
+            ModelStreamEvent::Done {
+                stop_reason: StopReason::ToolUse,
+            },
+        ])
+        .await;
+
+        let deltas = message_deltas(&events);
+        let MessageDelta::ToolCall(ToolCallDelta::End {
+            tool_call_id,
+            tool_name,
+            arguments,
+            ..
+        }) = deltas[1]
+        else {
+            panic!("expected tool call end");
+        };
+        assert_eq!(tool_call_id, "authoritative-id");
+        assert_eq!(tool_name, "authoritative-name");
+        assert_eq!(arguments, &serde_json::json!({"value": 42}));
+
+        let ModelTurnOutcome::Completed { tool_calls, .. } = outcome else {
+            panic!("expected completed turn");
+        };
+        let ToolCallRequest::Ready(call) = &tool_calls[0] else {
+            panic!("expected ready tool call");
+        };
+        assert_eq!(call.id.0, "authoritative-id");
+        assert_eq!(call.name, "authoritative-name");
+        assert_eq!(call.arguments, serde_json::json!({"value": 42}));
+    }
+
+    #[tokio::test]
+    async fn text_tool_text_event_order_is_preserved() {
+        let (_, events) = run_scripted_turn(vec![
+            ModelStreamEvent::TextDelta {
+                content_index: 0,
+                delta: "before".to_string(),
+            },
+            ModelStreamEvent::ToolCallStart {
+                content_index: 1,
+                id: Some("call-1".to_string()),
+                name: Some("search".to_string()),
+            },
+            ModelStreamEvent::ToolCallDelta {
+                content_index: 1,
+                id: None,
+                name: None,
+                arguments_delta: "{}".to_string(),
+            },
+            ModelStreamEvent::ToolCallEnd {
+                content_index: 1,
+                id: "call-1".to_string(),
+                name: "search".to_string(),
+                arguments: serde_json::json!({}),
+            },
+            ModelStreamEvent::TextDelta {
+                content_index: 2,
+                delta: "after".to_string(),
+            },
+            ModelStreamEvent::Done {
+                stop_reason: StopReason::ToolUse,
+            },
+        ])
+        .await;
+
+        let deltas = message_deltas(&events);
+        assert!(matches!(deltas[0], MessageDelta::Text(text) if text == "before"));
+        assert!(matches!(
+            deltas[1],
+            MessageDelta::ToolCall(ToolCallDelta::Start { .. })
+        ));
+        assert!(matches!(
+            deltas[2],
+            MessageDelta::ToolCall(ToolCallDelta::Arguments { delta, .. }) if delta == "{}"
+        ));
+        assert!(matches!(
+            deltas[3],
+            MessageDelta::ToolCall(ToolCallDelta::End { .. })
+        ));
+        assert!(matches!(deltas[4], MessageDelta::Text(text) if text == "after"));
+    }
+
+    #[tokio::test]
+    async fn thinking_is_flushed_before_tool_call_boundary() {
+        let (outcome, events) = run_scripted_turn(vec![
+            ModelStreamEvent::ThinkingDelta {
+                content_index: 0,
+                delta: "thinking".to_string(),
+            },
+            ModelStreamEvent::ToolCallStart {
+                content_index: 1,
+                id: Some("call-1".to_string()),
+                name: Some("search".to_string()),
+            },
+            ModelStreamEvent::ToolCallEnd {
+                content_index: 1,
+                id: "call-1".to_string(),
+                name: "search".to_string(),
+                arguments: serde_json::json!({}),
+            },
+            ModelStreamEvent::Done {
+                stop_reason: StopReason::ToolUse,
+            },
+        ])
+        .await;
+
+        let deltas = message_deltas(&events);
+        assert!(matches!(deltas[0], MessageDelta::Thinking(text) if text == "thinking"));
+        assert!(matches!(
+            deltas[1],
+            MessageDelta::ToolCall(ToolCallDelta::Start { .. })
+        ));
+        let ModelTurnOutcome::Completed {
+            assistant_message, ..
+        } = outcome
+        else {
+            panic!("expected completed turn");
+        };
+        let crate::agent::transcript::AgentMessage::Assistant { content, .. } = assistant_message
+        else {
+            panic!("expected assistant message");
+        };
+        assert!(matches!(
+            &content[0],
+            ContentBlock::Thinking { text } if text == "thinking"
+        ));
+        assert!(matches!(&content[1], ContentBlock::ToolCall { .. }));
+    }
+
+    #[tokio::test]
+    async fn delta_before_start_emits_one_draft_and_one_request() {
+        let (outcome, events) = run_scripted_turn(vec![
+            ModelStreamEvent::ToolCallDelta {
+                content_index: 3,
+                id: Some("call-3".to_string()),
+                name: Some("search".to_string()),
+                arguments_delta: "{}".to_string(),
+            },
+            ModelStreamEvent::ToolCallStart {
+                content_index: 3,
+                id: None,
+                name: None,
+            },
+            ModelStreamEvent::ToolCallEnd {
+                content_index: 3,
+                id: "call-3".to_string(),
+                name: "search".to_string(),
+                arguments: serde_json::json!({}),
+            },
+            ModelStreamEvent::Done {
+                stop_reason: StopReason::ToolUse,
+            },
+        ])
+        .await;
+
+        let deltas = message_deltas(&events);
+        assert_eq!(
+            deltas
+                .iter()
+                .filter(|delta| {
+                    matches!(delta, MessageDelta::ToolCall(ToolCallDelta::Start { .. }))
+                })
+                .count(),
+            1
+        );
+        assert!(matches!(
+            deltas[0],
+            MessageDelta::ToolCall(ToolCallDelta::Start { .. })
+        ));
+        assert!(matches!(
+            deltas[1],
+            MessageDelta::ToolCall(ToolCallDelta::Arguments { .. })
+        ));
+        let ModelTurnOutcome::Completed { tool_calls, .. } = outcome else {
+            panic!("expected completed turn");
+        };
+        assert_eq!(tool_calls.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancellation_after_tool_start_preserves_partial_message() {
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(64);
+        let (model, tx) = driven_model_events();
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        let cancel_token = cancellation.clone();
+        let driver = tokio::spawn(async move {
+            tx.send(ModelStreamEvent::TextDelta {
+                content_index: 0,
+                delta: "partial".to_string(),
+            })
+            .await
+            .unwrap();
+            tx.send(ModelStreamEvent::ToolCallStart {
+                content_index: 1,
+                id: Some("call-1".to_string()),
+                name: Some("search".to_string()),
+            })
+            .await
+            .unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            cancel_token.cancel();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        });
+
+        let outcome = run_model_turn(ModelTurnInput {
+            turn_id: TurnId(8),
+            assistant_message_id: MessageId(10),
+            request: ModelRequest::default(),
+            model,
+            event_tx: event_tx.clone(),
+            cancellation,
+        })
+        .await
+        .expect("turn should interrupt cleanly");
+        driver.await.unwrap();
+        drop(event_tx);
+        let events = drain_events(&mut event_rx);
+
+        let ModelTurnOutcome::Interrupted { assistant_message } = outcome else {
+            panic!("expected interrupted turn");
+        };
+        let crate::agent::transcript::AgentMessage::Assistant { content, .. } = assistant_message
+        else {
+            panic!("expected assistant message");
+        };
+        assert!(content.iter().any(|block| matches!(
+            block,
+            ContentBlock::Text { text } if text == "partial"
+        )));
+        assert!(
+            message_deltas(&events)
+                .iter()
+                .any(|delta| matches!(delta, MessageDelta::ToolCall(ToolCallDelta::Start { .. })))
+        );
+        assert_no_tool_call_started(&events);
     }
 
     #[tokio::test]
