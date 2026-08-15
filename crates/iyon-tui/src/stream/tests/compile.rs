@@ -274,21 +274,59 @@ fn unstable_clipped_atomic_remains_blocked() {
 
 #[test]
 fn stable_wide_grapheme_at_width_one_is_transferable() {
-    let source = "🐕🦺";
-    let end = StreamOffset::new(source.len() as u64);
-    let view = StreamView::exact_text(
-        StreamRange::new(StreamOffset::ZERO, end),
-        vec![crate::TextSpan::plain(source)],
-    );
-    let compiled = compile_stream(&view, 1, end);
-    assert_eq!(compiled.rows.len(), 2);
-    assert_eq!(compiled.transferable_prefix_rows, 2);
-    assert!(
-        compiled
-            .rows
-            .iter()
-            .all(|row| matches!(row.transfer, StreamRowTransfer::Checkpoint(_)))
-    );
+    for (source, expected_width) in [("🐕‍🦺", 2), ("👩‍🔬", 2), ("🇮🇩", 2), ("e\u{301}", 1)]
+    {
+        let end = StreamOffset::new(source.len() as u64);
+        assert_eq!(crate::physical::grapheme_cell_width(source), expected_width);
+        let view = StreamView::exact_text(
+            StreamRange::new(StreamOffset::ZERO, end),
+            vec![crate::TextSpan::plain(source)],
+        );
+        let compiled = compile_stream(&view, 1, end);
+
+        assert_eq!(compiled.rows.len(), 1, "source={source:?}");
+        assert_eq!(compiled.transferable_prefix_rows, 1, "source={source:?}");
+        assert_eq!(
+            compiled.rows[0].transfer,
+            StreamRowTransfer::Checkpoint(end),
+            "source={source:?}"
+        );
+        assert!(
+            compiled
+                .rows
+                .iter()
+                .all(|row| row.physical.validate_cell_geometry().is_ok()),
+            "source={source:?} produced invalid physical geometry"
+        );
+        assert!(
+            compiled.rows[0]
+                .physical
+                .cells()
+                .iter()
+                .enumerate()
+                .all(|(column, cell)| !cell.continuation || column > 0),
+            "source={source:?} produced an orphan continuation"
+        );
+        assert_eq!(
+            compiled.rows[0].physical.width(),
+            expected_width,
+            "source={source:?} must remain one complete EGC"
+        );
+        let placed = compiled.rows[0].physical.placed(1, 0);
+        assert!(
+            placed.validate_cell_geometry().is_ok(),
+            "source={source:?} produced invalid placed geometry"
+        );
+        assert_eq!(
+            placed.cells().iter().filter(|cell| cell.painted).count(),
+            usize::from(expected_width == 1),
+            "source={source:?} must be painted atomically at viewport width one"
+        );
+        assert!(
+            placed.cells().iter().all(|cell| !cell.continuation),
+            "source={source:?} must not leave an orphan continuation after placement"
+        );
+    }
 }
 
 #[test]
