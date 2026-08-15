@@ -4,9 +4,8 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use crossterm::event::{Event, EventStream};
-use futures_util::{FutureExt, StreamExt};
-use tokio::sync::oneshot;
+use crossterm::event::Event;
+use tokio::sync::{mpsc::error::TryRecvError, oneshot};
 
 use crate::{
     backend::NativeHistorySink,
@@ -20,7 +19,8 @@ use super::worker::{Startup, TerminalCommand};
 
 pub(crate) struct TermwizBackend {
     commands: Sender<TerminalCommand>,
-    events: EventStream,
+    events: tokio::sync::mpsc::UnboundedReceiver<Result<Event>>,
+    input: Option<crate::terminal::crossterm::EventReader>,
     size: Size,
     worker: Option<JoinHandle<()>>,
     restored: bool,
@@ -43,23 +43,32 @@ impl TermwizBackend {
             }
         }?;
 
-        Ok(Self::from_startup(
-            commands,
-            EventStream::new(),
-            worker,
-            startup,
-        ))
+        let (events_sender, events) = tokio::sync::mpsc::unbounded_channel();
+        let input = match crate::terminal::crossterm::EventReader::start(events_sender) {
+            Ok(input) => input,
+            Err(error) => {
+                let (reply, receiver) = mpsc::channel();
+                let _ = commands.send(TerminalCommand::Restore { reply });
+                let _ = receiver.recv();
+                let _ = worker.join();
+                return Err(error);
+            }
+        };
+
+        Ok(Self::from_startup(commands, events, input, worker, startup))
     }
 
     fn from_startup(
         commands: Sender<TerminalCommand>,
-        events: EventStream,
+        events: tokio::sync::mpsc::UnboundedReceiver<Result<Event>>,
+        input: crate::terminal::crossterm::EventReader,
         worker: JoinHandle<()>,
         startup: Startup,
     ) -> Self {
         Self {
             commands,
             events,
+            input: Some(input),
             size: startup.size,
             worker: Some(worker),
             restored: false,
@@ -71,6 +80,14 @@ impl TermwizBackend {
             .send(command)
             .context("terminal worker stopped")?;
         receiver.recv().context("terminal worker reply lost")?
+    }
+
+    fn map_event(&mut self, event: Event) -> Option<TerminalEvent> {
+        if let Event::Resize(width, height) = event {
+            self.size = Size::new(width, height);
+            return Some(TerminalEvent::Resize);
+        }
+        crate::terminal::crossterm::map_event(event)
     }
 }
 
@@ -94,10 +111,10 @@ impl TerminalBackend for TermwizBackend {
         loop {
             let event = self
                 .events
-                .next()
+                .recv()
                 .await
-                .context("terminal event stream closed")??;
-            if let Some(event) = self.map_event(event) {
+                .ok_or_else(|| anyhow!("terminal input closed"))?;
+            if let Some(event) = self.map_event(event?) {
                 return Ok(event);
             }
         }
@@ -105,13 +122,16 @@ impl TerminalBackend for TermwizBackend {
 
     fn try_next_event(&mut self) -> Result<Option<TerminalEvent>> {
         loop {
-            let event = match self.events.next().now_or_never() {
-                None => return Ok(None),
-                Some(None) => return Err(anyhow!("terminal event stream closed")),
-                Some(Some(event)) => event.context("read terminal event")?,
-            };
-            if let Some(event) = self.map_event(event) {
-                return Ok(Some(event));
+            match self.events.try_recv() {
+                Ok(event) => {
+                    if let Some(event) = self.map_event(event?) {
+                        return Ok(Some(event));
+                    }
+                }
+                Err(TryRecvError::Empty) => return Ok(None),
+                Err(TryRecvError::Disconnected) => {
+                    return Err(anyhow!("terminal input closed"));
+                }
             }
         }
     }
@@ -139,22 +159,15 @@ impl TerminalBackend for TermwizBackend {
             return Ok(());
         }
         self.restored = true;
+        if let Some(mut input) = self.input.take() {
+            input.stop();
+        }
         let (reply, receiver) = mpsc::channel();
         let result = self.send(TerminalCommand::Restore { reply }, receiver);
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
         result
-    }
-}
-
-impl TermwizBackend {
-    fn map_event(&mut self, event: Event) -> Option<TerminalEvent> {
-        if let Event::Resize(width, height) = event {
-            self.size = Size::new(width, height);
-            return Some(TerminalEvent::Resize);
-        }
-        crate::terminal::crossterm::map_event(event)
     }
 }
 
