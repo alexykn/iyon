@@ -270,6 +270,23 @@ fn focus_traversal_is_cyclic_and_not_index_owned() {
 }
 
 #[test]
+fn singleton_focus_traversal_is_ignored_without_blur() {
+    let mut registry = ComponentRegistry::new();
+    let only = registry.register(FocusProbe { focused: false });
+    let scene = scene_for(View::component(only), &registry);
+    let mounted = mount(&scene);
+    let mut focus = FocusState::default();
+    focus.reconcile_with_geometry(&scene.mounts, &scene.capabilities, None, &mut registry);
+    assert_eq!(focus.focused(), Some(only.id()));
+    assert!(registry.with(only, |probe| probe.focused).unwrap());
+
+    assert!(!focus.focus_next(mounted.current(), &scene.capabilities, &mut registry));
+    assert!(!focus.focus_previous(mounted.current(), &scene.capabilities, &mut registry));
+    assert_eq!(focus.focused(), Some(only.id()));
+    assert!(registry.with(only, |probe| probe.focused).unwrap());
+}
+
+#[test]
 fn typed_local_command_mutates_and_emits_only_before_later_drain() {
     let mut registry = ComponentRegistry::new();
     let output = Output::new();

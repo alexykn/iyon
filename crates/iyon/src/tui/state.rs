@@ -136,6 +136,10 @@ impl IyonState {
         cx.bind_key(iyon_tui::KeyStroke::new(iyon_tui::Key::Escape), || {
             IyonAction::Escape
         });
+        cx.bind_key(
+            KeyStroke::with_modifiers(Key::Tab, Modifiers::SHIFT),
+            || IyonAction::CycleReasoningEffort,
+        );
         Ok(Self {
             backend,
             composer,
