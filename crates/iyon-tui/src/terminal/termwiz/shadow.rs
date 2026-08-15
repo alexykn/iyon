@@ -19,6 +19,10 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::physical::grapheme_cell_width;
 
+pub(crate) fn physical_style(style: crate::physical::PhysicalStyle) -> CellAttributes {
+    super::lower::physical_style(style)
+}
+
 pub(crate) const SYNC_BEGIN: &str = "\x1b[?2026h";
 pub(crate) const SYNC_END: &str = "\x1b[?2026l";
 

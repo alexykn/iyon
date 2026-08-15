@@ -14,7 +14,10 @@ use crate::{
         StreamOffset, StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder,
         StreamingSource,
     },
-    terminal::termwiz::{TermwizPresenter, desired_surface, shadow::ShadowTerminal},
+    terminal::termwiz::{
+        TermwizPresenter, desired_surface,
+        shadow::{ShadowRow, ShadowTerminal, physical_style},
+    },
 };
 
 const WIDTH: u16 = 40;
@@ -94,6 +97,7 @@ impl DifferentialHistoryTerminal {
             promoted,
             "shadow scrollback must match promoted physical rows"
         );
+        assert_shadow_rows_match_promoted(&self.terminal.scrollback, &self.promoted_rows);
         let claimed = self.terminal.claim_scrollback();
         let newly_promoted = &self.promoted_rows[self.claimed_promoted..];
         assert_eq!(
@@ -102,6 +106,72 @@ impl DifferentialHistoryTerminal {
             "claimed scrollback must match newly promoted rows"
         );
         self.claimed_promoted = self.promoted_rows.len();
+    }
+}
+
+fn assert_shadow_rows_match_promoted(scrollback: &[ShadowRow], promoted_rows: &[PhysicalRow]) {
+    assert_eq!(
+        scrollback.len(),
+        promoted_rows.len(),
+        "shadow scrollback must have one row for every promoted physical row"
+    );
+
+    for (row_index, (shadow, promoted)) in scrollback.iter().zip(promoted_rows).enumerate() {
+        assert!(
+            promoted.validate_cell_geometry().is_ok(),
+            "promoted row {row_index} has invalid cell geometry: {:?}",
+            promoted.validate_cell_geometry()
+        );
+        assert!(
+            promoted.width() <= shadow.cells.len(),
+            "promoted row {row_index} is wider than its ShadowRow: {} > {}",
+            promoted.width(),
+            shadow.cells.len()
+        );
+
+        let last_painted = promoted.cells().iter().rposition(|cell| cell.painted);
+        for (column, cell) in promoted.cells().iter().enumerate() {
+            let shadow_cell = &shadow.cells[column];
+            let expected_style = if cell.painted {
+                physical_style(cell.style)
+            } else {
+                termwiz::cell::CellAttributes::default()
+            };
+            assert_eq!(
+                shadow_cell.attrs, expected_style,
+                "style mismatch at promoted row {row_index}, column {column}"
+            );
+
+            if cell.continuation {
+                assert!(
+                    shadow_cell.continuation,
+                    "expected continuation at promoted row {row_index}, column {column}"
+                );
+                assert_eq!(
+                    shadow_cell.grapheme, None,
+                    "continuation must not carry a grapheme at promoted row {row_index}, column {column}"
+                );
+                continue;
+            }
+
+            assert!(
+                !shadow_cell.continuation,
+                "unexpected continuation at promoted row {row_index}, column {column}"
+            );
+            if last_painted.is_some_and(|last| column <= last) {
+                let expected_grapheme = cell.grapheme.as_deref().unwrap_or(" ");
+                assert_eq!(
+                    shadow_cell.grapheme.as_deref(),
+                    Some(expected_grapheme),
+                    "grapheme mismatch at promoted row {row_index}, column {column}"
+                );
+            } else {
+                assert_eq!(
+                    shadow_cell.grapheme, None,
+                    "trailing blank cell must be cleared at promoted row {row_index}, column {column}"
+                );
+            }
+        }
     }
 }
 
