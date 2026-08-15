@@ -17,7 +17,7 @@ pub(crate) enum ActivityState {
         frame: usize,
     },
     Tool {
-        tool_call_id: String,
+        tool_call_id: Option<String>,
         tool_name: String,
         arguments: serde_json::Value,
         status: ToolTimelineStatus,
@@ -46,6 +46,7 @@ pub(crate) struct ConversationActivity {
     approval: Output<ApprovalDecision>,
     formatter: TuiFormatter,
     result: Option<ToolResultState>,
+    argument_preview: String,
     finished: bool,
     pending_steers: Vec<String>,
     waiting_style: bool,
@@ -60,6 +61,7 @@ impl ConversationActivity {
             approval: Output::new(),
             formatter,
             result: None,
+            argument_preview: String::new(),
             finished: false,
             pending_steers,
             waiting_style,
@@ -77,7 +79,7 @@ impl ConversationActivity {
     ) -> Self {
         Self {
             state: ActivityState::Tool {
-                tool_call_id,
+                tool_call_id: non_empty(tool_call_id),
                 tool_name,
                 arguments,
                 status,
@@ -87,6 +89,7 @@ impl ConversationActivity {
             approval: Output::new(),
             formatter,
             result: None,
+            argument_preview: String::new(),
             finished: false,
             pending_steers: Vec::new(),
             waiting_style: false,
@@ -121,7 +124,7 @@ impl ConversationActivity {
         output: ComponentHandle<ScrollPane>,
     ) {
         self.state = ActivityState::Tool {
-            tool_call_id,
+            tool_call_id: non_empty(tool_call_id),
             tool_name,
             arguments,
             status,
@@ -129,7 +132,63 @@ impl ConversationActivity {
         };
         self.approval_id = approval_id;
         self.result = None;
+        self.argument_preview.clear();
         self.finished = false;
+    }
+
+    pub(crate) fn update_tool_identity(&mut self, id: Option<String>, name: Option<String>) {
+        let ActivityState::Tool {
+            tool_call_id,
+            tool_name,
+            ..
+        } = &mut self.state
+        else {
+            return;
+        };
+        if let Some(id) = id.and_then(non_empty) {
+            *tool_call_id = Some(id);
+        }
+        if let Some(name) = name {
+            *tool_name = name;
+        }
+    }
+
+    pub(crate) fn append_argument_preview(&mut self, delta: &str) {
+        if matches!(self.state, ActivityState::Tool { .. }) {
+            self.argument_preview.push_str(delta);
+        }
+    }
+
+    pub(crate) fn prepare_tool(
+        &mut self,
+        tool_call_id: String,
+        tool_name: String,
+        arguments: serde_json::Value,
+    ) {
+        let ActivityState::Tool {
+            tool_call_id: current_id,
+            tool_name: current_name,
+            arguments: current_arguments,
+            status,
+            ..
+        } = &mut self.state
+        else {
+            return;
+        };
+        *current_id = non_empty(tool_call_id);
+        *current_name = tool_name;
+        *current_arguments = arguments;
+        *status = ToolTimelineStatus::Prepared;
+        self.approval_id = None;
+        self.result = None;
+        self.finished = false;
+    }
+
+    pub(crate) fn start_execution(&mut self) {
+        if let ActivityState::Tool { status, .. } = &mut self.state {
+            *status = ToolTimelineStatus::Running;
+        }
+        self.approval_id = None;
     }
 
     pub(crate) fn set_status(&mut self, status: ToolTimelineStatus, approval_id: Option<u64>) {
@@ -161,6 +220,22 @@ impl ConversationActivity {
         self.finished = true;
     }
 
+    pub(crate) fn cancel(&mut self) {
+        if let ActivityState::Tool { status, .. } = &mut self.state {
+            *status = ToolTimelineStatus::Cancelled;
+        }
+        self.approval_id = None;
+        self.finished = true;
+    }
+
+    pub(crate) fn fail(&mut self) {
+        if let ActivityState::Tool { status, .. } = &mut self.state {
+            *status = ToolTimelineStatus::Failed;
+        }
+        self.approval_id = None;
+        self.finished = true;
+    }
+
     pub(crate) fn is_finished(&self) -> bool {
         self.finished
     }
@@ -181,7 +256,7 @@ impl ConversationActivity {
             return None;
         };
         let call = self.formatter.format(&TimelineItem::ToolCall {
-            tool_call_id: tool_call_id.clone(),
+            tool_call_id: tool_call_id.clone().unwrap_or_default(),
             tool_name: tool_name.clone(),
             arguments: arguments.clone(),
             status: *status,
@@ -203,7 +278,7 @@ impl ConversationActivity {
             );
         };
         let result = self.formatter.format(&TimelineItem::ToolResult {
-            tool_call_id: tool_call_id.clone(),
+            tool_call_id: tool_call_id.clone().unwrap_or_default(),
             tool_name: tool_name.clone(),
             text: result.text.clone(),
             details: result.details.clone(),
@@ -234,7 +309,7 @@ impl ConversationActivity {
             return None;
         };
         Some(self.formatter.format(&TimelineItem::ToolCall {
-            tool_call_id: tool_call_id.clone(),
+            tool_call_id: tool_call_id.clone().unwrap_or_default(),
             tool_name: tool_name.clone(),
             arguments: arguments.clone(),
             status: *status,
@@ -276,7 +351,7 @@ impl ConversationActivity {
         let ActivityState::Tool { tool_call_id, .. } = &activity.state else {
             return InteractionResult::Ignored;
         };
-        let tool_call_id = tool_call_id.clone();
+        let tool_call_id = tool_call_id.clone().unwrap_or_default();
         activity.approval_id = None;
         activity.set_status(
             match command {
@@ -299,6 +374,10 @@ impl ConversationActivity {
     fn tick_callback(activity: &mut Self, now: Instant, cx: &mut EventCx<'_>) -> bool {
         activity.tick(now, cx)
     }
+}
+
+fn non_empty(value: String) -> Option<String> {
+    (!value.is_empty()).then_some(value)
 }
 
 #[derive(Clone, Copy)]
@@ -333,7 +412,7 @@ impl Component for ConversationActivity {
 
     fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
         if matches!(self.state, ActivityState::Working { .. }) {
-            cx.tick(Duration::from_millis(160), Self::tick_callback);
+            cx.tick(Duration::from_millis(80), Self::tick_callback);
         }
         if self.approval_id.is_some() {
             cx.focusable();

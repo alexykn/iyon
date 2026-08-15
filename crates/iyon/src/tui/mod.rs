@@ -123,12 +123,26 @@ fn apply_backend_event(
         FrontendEvent::ThinkingDelta { text } => {
             push_stream(state, cx, SegmentKind::Thinking, text)?
         }
-        FrontendEvent::ToolCallPreparing { .. }
-        | FrontendEvent::ToolCallArguments { .. }
-        | FrontendEvent::ToolCallPrepared { .. } => {}
+        FrontendEvent::ToolCallPreparing {
+            key,
+            tool_call_id,
+            tool_name,
+        } => state.start_tool_draft(cx, key, tool_call_id, tool_name)?,
+        FrontendEvent::ToolCallArguments {
+            key,
+            tool_call_id,
+            tool_name,
+            delta,
+        } => state.append_tool_draft_arguments(cx, key, tool_call_id, tool_name, delta)?,
+        FrontendEvent::ToolCallPrepared {
+            key,
+            tool_call_id,
+            tool_name,
+            arguments,
+        } => state.prepare_tool_draft(cx, key, tool_call_id, tool_name, arguments)?,
         FrontendEvent::TurnFinished => state.finish_turn(cx)?,
         FrontendEvent::TurnFailed { message } => state.fail_turn(cx, message)?,
-        FrontendEvent::TurnCancelled => state.finish_turn(cx)?,
+        FrontendEvent::TurnCancelled => state.cancel_turn(cx)?,
         FrontendEvent::ToolCallStarted {
             tool_call_id,
             tool_name,

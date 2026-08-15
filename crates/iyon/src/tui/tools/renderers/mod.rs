@@ -22,10 +22,14 @@ pub(crate) use write::WriteRenderer;
 
 pub(super) fn tool_style(status: ToolTimelineStatus) -> StyleRef {
     let key = match status {
-        ToolTimelineStatus::Failed | ToolTimelineStatus::Rejected => "tool.error",
-        ToolTimelineStatus::Finished | ToolTimelineStatus::Approved => "tool.finished",
+        ToolTimelineStatus::Preparing | ToolTimelineStatus::Running => "tool.running",
+        ToolTimelineStatus::Prepared
+        | ToolTimelineStatus::Approved
+        | ToolTimelineStatus::Finished => "tool.finished",
         ToolTimelineStatus::PendingApproval => "text.warning",
-        ToolTimelineStatus::Running => "tool.running",
+        ToolTimelineStatus::Failed
+        | ToolTimelineStatus::Rejected
+        | ToolTimelineStatus::Cancelled => "tool.error",
     };
     StyleRef::theme(key)
 }

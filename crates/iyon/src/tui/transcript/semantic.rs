@@ -60,12 +60,15 @@ pub(crate) enum TimelineItem {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolTimelineStatus {
+    Preparing,
+    Prepared,
     PendingApproval,
     Running,
     Approved,
     Rejected,
     Finished,
     Failed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Default)]

@@ -81,11 +81,13 @@ pub(crate) struct InfoState {
     pub(crate) reasoning_effort: ReasoningLevel,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct LiveTool {
     unit: HistoryUnitId,
     component: ComponentHandle<ConversationActivity>,
     output: ComponentHandle<ScrollPane>,
+    draft_key: Option<super::backend::ToolDraftKey>,
+    tool_call_id: Option<String>,
 }
 
 #[derive(Default)]
@@ -93,7 +95,9 @@ pub(crate) struct ConversationState {
     formatter: TuiFormatter,
     user_batch: Option<(HistoryUnitId, ComponentHandle<UserBatch>)>,
     working: Option<ComponentHandle<ConversationActivity>>,
-    tools: HashMap<String, LiveTool>,
+    tools_by_unit: HashMap<HistoryUnitId, LiveTool>,
+    draft_index: HashMap<super::backend::ToolDraftKey, HistoryUnitId>,
+    tools: HashMap<String, HistoryUnitId>,
     stream: Option<HistoryStreamHandle<AssistantStream>>,
     last_completed_tool: Option<String>,
     turn_started: bool,
@@ -216,7 +220,7 @@ impl IyonState {
         self.conversation.turn_started
             || self.conversation.working.is_some()
             || self.conversation.stream.is_some()
-            || !self.conversation.tools.is_empty()
+            || !self.conversation.tools_by_unit.is_empty()
             || self.pending_tool_approval.is_some()
     }
 
@@ -355,7 +359,15 @@ impl IyonState {
         self.seal_stream(cx)?;
         self.conversation.turn_started = false;
         self.remove_working(cx)?;
-        self.finalize_tools(cx)
+        self.terminalize_live_tools(cx, false)
+    }
+
+    pub(crate) fn cancel_turn(&mut self, cx: &mut AppCx<'_, IyonAction>) -> Result<()> {
+        self.freeze_user_batch(cx)?;
+        self.seal_stream(cx)?;
+        self.conversation.turn_started = false;
+        self.remove_working(cx)?;
+        self.terminalize_live_tools(cx, true)
     }
 
     pub(crate) fn fail_turn(
@@ -366,6 +378,7 @@ impl IyonState {
         self.freeze_user_batch(cx)?;
         self.seal_stream(cx)?;
         self.conversation.turn_started = false;
+        self.terminalize_live_tools(cx, false)?;
         let view = self
             .conversation
             .formatter
@@ -381,13 +394,31 @@ impl IyonState {
         Ok(())
     }
 
-    pub(crate) fn start_tool_call(
+    fn live_tool_for_id(&self, id: &str) -> Option<LiveTool> {
+        self.conversation
+            .tools
+            .get(id)
+            .and_then(|unit| self.conversation.tools_by_unit.get(unit))
+            .cloned()
+    }
+
+    fn live_tool_for_draft(&self, key: super::backend::ToolDraftKey) -> Option<LiveTool> {
+        self.conversation
+            .draft_index
+            .get(&key)
+            .and_then(|unit| self.conversation.tools_by_unit.get(unit))
+            .cloned()
+    }
+
+    fn materialize_tool(
         &mut self,
         cx: &mut AppCx<'_, IyonAction>,
+        draft_key: Option<super::backend::ToolDraftKey>,
         id: String,
         name: String,
         args: Value,
-    ) -> Result<()> {
+        status: ToolTimelineStatus,
+    ) -> Result<LiveTool> {
         self.freeze_user_batch(cx)?;
         self.seal_stream(cx)?;
         let output = cx.register(ScrollPane::new(View::spacer(0)));
@@ -398,7 +429,7 @@ impl IyonState {
                 id.clone(),
                 name.clone(),
                 args.clone(),
-                ToolTimelineStatus::Running,
+                status,
                 None,
                 output,
             ));
@@ -413,7 +444,7 @@ impl IyonState {
                     id.clone(),
                     name.clone(),
                     args.clone(),
-                    ToolTimelineStatus::Running,
+                    status,
                     None,
                     output,
                 )
@@ -430,7 +461,7 @@ impl IyonState {
                 id.clone(),
                 name.clone(),
                 args.clone(),
-                ToolTimelineStatus::Running,
+                status,
                 None,
                 output,
             ));
@@ -440,17 +471,132 @@ impl IyonState {
                 .push(View::component(component).fill_width().fill_height())?;
             (unit, component)
         };
-        self.conversation.tools.insert(
-            id,
-            LiveTool {
-                unit,
-                component,
-                output,
-            },
-        );
+        let live = LiveTool {
+            unit,
+            component,
+            output,
+            draft_key,
+            tool_call_id: (!id.is_empty()).then_some(id),
+        };
+        self.conversation.tools_by_unit.insert(unit, live.clone());
+        if let Some(key) = draft_key {
+            self.conversation.draft_index.insert(key, unit);
+        }
         if self.conversation.turn_started && self.conversation.working.is_none() {
             self.start_working(cx)?;
         }
+        Ok(live)
+    }
+
+    pub(crate) fn start_tool_draft(
+        &mut self,
+        cx: &mut AppCx<'_, IyonAction>,
+        key: super::backend::ToolDraftKey,
+        tool_call_id: Option<String>,
+        tool_name: Option<String>,
+    ) -> Result<()> {
+        if let Some(tool) = self.live_tool_for_draft(key) {
+            cx.with_component_mut(tool.component, |activity| {
+                activity.update_tool_identity(tool_call_id, tool_name)
+            })
+            .ok_or_else(|| anyhow!("activity disappeared"))?;
+            return Ok(());
+        }
+        self.materialize_tool(
+            cx,
+            Some(key),
+            tool_call_id.unwrap_or_default(),
+            tool_name.unwrap_or_default(),
+            serde_json::json!({}),
+            ToolTimelineStatus::Preparing,
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn append_tool_draft_arguments(
+        &mut self,
+        cx: &mut AppCx<'_, IyonAction>,
+        key: super::backend::ToolDraftKey,
+        tool_call_id: Option<String>,
+        tool_name: Option<String>,
+        delta: String,
+    ) -> Result<()> {
+        self.start_tool_draft(cx, key, tool_call_id, tool_name)?;
+        let tool = self
+            .live_tool_for_draft(key)
+            .ok_or_else(|| anyhow!("tool draft disappeared"))?;
+        cx.with_component_mut(tool.component, |activity| {
+            activity.append_argument_preview(&delta)
+        })
+        .ok_or_else(|| anyhow!("activity disappeared"))?;
+        Ok(())
+    }
+
+    pub(crate) fn prepare_tool_draft(
+        &mut self,
+        cx: &mut AppCx<'_, IyonAction>,
+        key: super::backend::ToolDraftKey,
+        id: String,
+        name: String,
+        args: Value,
+    ) -> Result<()> {
+        let tool = if let Some(tool) = self.live_tool_for_draft(key) {
+            tool
+        } else {
+            self.materialize_tool(
+                cx,
+                Some(key),
+                id.clone(),
+                name.clone(),
+                args.clone(),
+                ToolTimelineStatus::Prepared,
+            )?
+        };
+        if let Some(previous_id) = tool.tool_call_id.as_deref() {
+            if self
+                .conversation
+                .tools
+                .get(previous_id)
+                .is_some_and(|unit| *unit == tool.unit)
+            {
+                self.conversation.tools.remove(previous_id);
+            }
+        }
+        cx.with_component_mut(tool.component, |activity| {
+            activity.prepare_tool(id.clone(), name, args)
+        })
+        .ok_or_else(|| anyhow!("activity disappeared"))?;
+        if let Some(live) = self.conversation.tools_by_unit.get_mut(&tool.unit) {
+            live.tool_call_id = (!id.is_empty()).then_some(id.clone());
+        }
+        if !id.is_empty() {
+            self.conversation.tools.insert(id, tool.unit);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn start_tool_call(
+        &mut self,
+        cx: &mut AppCx<'_, IyonAction>,
+        id: String,
+        name: String,
+        args: Value,
+    ) -> Result<()> {
+        if let Some(tool) = self.live_tool_for_id(&id) {
+            self.remove_approval_route(cx, &id);
+            cx.with_component_mut(tool.component, ConversationActivity::start_execution)
+                .ok_or_else(|| anyhow!("activity disappeared"))?;
+            return Ok(());
+        }
+        let tool = self.materialize_tool(
+            cx,
+            None,
+            id.clone(),
+            name,
+            args,
+            ToolTimelineStatus::Running,
+        )?;
+        self.conversation.tools.insert(id, tool.unit);
         Ok(())
     }
 
@@ -460,7 +606,7 @@ impl IyonState {
         id: String,
         update: ToolUpdatePresentation,
     ) -> Result<()> {
-        let Some(tool) = self.conversation.tools.get(&id).copied() else {
+        let Some(tool) = self.live_tool_for_id(&id) else {
             return Ok(());
         };
         cx.with_component_mut(tool.output, |output| {
@@ -479,14 +625,11 @@ impl IyonState {
         args: Value,
     ) -> Result<()> {
         self.freeze_user_batch(cx)?;
-        if !self.conversation.tools.contains_key(&id) {
+        if self.live_tool_for_id(&id).is_none() {
             self.start_tool_call(cx, id.clone(), name.clone(), args.clone())?;
         }
         let tool = self
-            .conversation
-            .tools
-            .get(&id)
-            .copied()
+            .live_tool_for_id(&id)
             .ok_or_else(|| anyhow!("tool disappeared"))?;
         cx.with_component_mut(tool.component, |activity| {
             activity.transition_to_tool(
@@ -537,7 +680,7 @@ impl IyonState {
         {
             self.remove_approval_route(cx, &id);
         }
-        if let Some(tool) = self.conversation.tools.get(&id).copied() {
+        if let Some(tool) = self.live_tool_for_id(&id) {
             cx.with_component_mut(tool.component, |activity| {
                 activity.set_status(
                     if approved {
@@ -552,22 +695,41 @@ impl IyonState {
         Ok(())
     }
 
-    fn finalize_tools(&mut self, cx: &mut AppCx<'_, IyonAction>) -> Result<()> {
-        let tools = self.conversation.tools.keys().cloned().collect::<Vec<_>>();
-        for id in tools {
-            self.finish_tool_call(cx, id.clone(), false)?;
-            self.freeze_completed_tool(cx, &id, true)?;
+    fn terminalize_live_tools(
+        &mut self,
+        cx: &mut AppCx<'_, IyonAction>,
+        cancelled: bool,
+    ) -> Result<()> {
+        let units = self
+            .conversation
+            .tools_by_unit
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        for unit in units {
+            let Some(tool) = self.conversation.tools_by_unit.get(&unit).cloned() else {
+                continue;
+            };
+            cx.with_component_mut(tool.component, |activity| {
+                if cancelled {
+                    activity.cancel();
+                } else {
+                    activity.fail();
+                }
+            })
+            .ok_or_else(|| anyhow!("activity disappeared"))?;
+            self.freeze_tool(cx, unit, true)?;
         }
         Ok(())
     }
 
-    fn freeze_completed_tool(
+    fn freeze_tool(
         &mut self,
         cx: &mut AppCx<'_, IyonAction>,
-        id: &str,
+        unit: HistoryUnitId,
         allow_missing: bool,
     ) -> Result<bool> {
-        let Some(tool) = self.conversation.tools.get(id).copied() else {
+        let Some(tool) = self.conversation.tools_by_unit.get(&unit).cloned() else {
             return Ok(false);
         };
         let ready = cx
@@ -585,12 +747,44 @@ impl IyonState {
         cx.history_mut()
             .ok_or_else(|| anyhow!("history unavailable"))?
             .freeze(tool.unit, view)?;
-        self.remove_approval_route(cx, id);
+        if let Some(id) = tool.tool_call_id.as_deref() {
+            let is_final_id = self
+                .conversation
+                .tools
+                .get(id)
+                .is_some_and(|mapped| *mapped == unit);
+            if is_final_id {
+                self.remove_approval_route(cx, id);
+                self.conversation.tools.remove(id);
+                self.conversation.last_completed_tool = Some(id.to_string());
+            }
+        }
+        if let Some(key) = tool.draft_key {
+            if self
+                .conversation
+                .draft_index
+                .get(&key)
+                .is_some_and(|mapped| *mapped == unit)
+            {
+                self.conversation.draft_index.remove(&key);
+            }
+        }
         cx.remove_component(tool.output);
         cx.remove_component(tool.component);
-        self.conversation.tools.remove(id);
-        self.conversation.last_completed_tool = Some(id.to_string());
+        self.conversation.tools_by_unit.remove(&unit);
         Ok(true)
+    }
+
+    fn freeze_completed_tool(
+        &mut self,
+        cx: &mut AppCx<'_, IyonAction>,
+        id: &str,
+        allow_missing: bool,
+    ) -> Result<bool> {
+        let Some(unit) = self.conversation.tools.get(id).copied() else {
+            return Ok(false);
+        };
+        self.freeze_tool(cx, unit, allow_missing)
     }
 
     pub(crate) fn finish_tool_call(
@@ -599,7 +793,7 @@ impl IyonState {
         id: String,
         is_error: bool,
     ) -> Result<()> {
-        let Some(tool) = self.conversation.tools.get(&id).copied() else {
+        let Some(tool) = self.live_tool_for_id(&id) else {
             return Ok(());
         };
         cx.with_component_mut(tool.component, |activity| activity.complete(is_error))
@@ -620,7 +814,7 @@ impl IyonState {
         if self.conversation.last_completed_tool.as_ref() == Some(&id) {
             return Ok(());
         }
-        if let Some(tool) = self.conversation.tools.get(&id).copied() {
+        if let Some(tool) = self.live_tool_for_id(&id) {
             cx.with_component_mut(tool.output, |output| {
                 output.set_content(tool_output_view(Some(text.clone())));
             })
@@ -674,7 +868,7 @@ impl IyonState {
         self.seal_stream(cx)?;
         self.conversation.turn_started = false;
         self.remove_working(cx)?;
-        self.finalize_tools(cx)?;
+        self.terminalize_live_tools(cx, true)?;
         cx.history_mut()
             .ok_or_else(|| anyhow!("history unavailable"))?
             .push(View::text("Goodbye.").fill_width())?;
@@ -719,7 +913,11 @@ fn format_tool_update(update: ToolUpdatePresentation) -> Option<String> {
 mod tests {
     use iyon_tui::{App, AppCx, ComponentHandle, History, ScrollPane, View, testing};
 
-    use super::{ConversationActivity, ToolTimelineStatus, TuiFormatter, tool_output_view};
+    use super::super::components::conversation_activity::ActivityState;
+    use super::{
+        BackendCommands, ConversationActivity, IyonAction, IyonState, ToolTimelineStatus,
+        TuiFormatter, tool_output_view,
+    };
 
     #[derive(Debug)]
     enum Action {
@@ -728,6 +926,173 @@ mod tests {
 
     struct State {
         output: ComponentHandle<ScrollPane>,
+    }
+
+    #[test]
+    fn draft_lifecycle_reuses_one_live_tool_and_keeps_siblings_separate() {
+        let app = App::new(
+            |cx| {
+                let selection = iyon_core::ModelSelection {
+                    provider: "test".into(),
+                    model_id: "test".into(),
+                };
+                let mut state = IyonState::init(cx, BackendCommands::new(None), &selection)?;
+                state
+                    .start_assistant_delta(cx, vec![(super::SegmentKind::Text, "before".into())])?;
+                let key = super::super::backend::ToolDraftKey {
+                    message_id: 7,
+                    content_index: 0,
+                };
+                state.start_tool_draft(cx, key, None, Some("bash".into()))?;
+                let first = state.conversation.draft_index[&key];
+                let first_live = state.conversation.tools_by_unit[&first].clone();
+                assert!(state.conversation.stream.is_none());
+                assert!(matches!(
+                    cx.with_component(first_live.component, |activity| matches!(
+                        &activity.state,
+                        ActivityState::Tool {
+                            status: ToolTimelineStatus::Preparing,
+                            ..
+                        }
+                    )),
+                    Some(true)
+                ));
+
+                state.append_tool_draft_arguments(
+                    cx,
+                    key,
+                    None,
+                    None,
+                    "{\"command\":\"pwd\"}".into(),
+                )?;
+                let after_arguments = state.conversation.tools_by_unit[&first].clone();
+                assert_eq!(first_live.unit, after_arguments.unit);
+                assert_eq!(first_live.component, after_arguments.component);
+                assert_eq!(state.conversation.tools_by_unit.len(), 1);
+
+                state.prepare_tool_draft(
+                    cx,
+                    key,
+                    "call-1".into(),
+                    "bash".into(),
+                    serde_json::json!({"command": "pwd"}),
+                )?;
+                assert_eq!(state.conversation.tools["call-1"], first);
+                assert!(matches!(
+                    cx.with_component(first_live.component, |activity| matches!(
+                        &activity.state,
+                        ActivityState::Tool {
+                            status: ToolTimelineStatus::Prepared,
+                            ..
+                        }
+                    )),
+                    Some(true)
+                ));
+                state.start_tool_call(cx, "call-1".into(), "bash".into(), serde_json::json!({}))?;
+                let after_start = state.conversation.tools_by_unit[&first].clone();
+                assert_eq!(after_start.unit, first_live.unit);
+                assert_eq!(after_start.component, first_live.component);
+                assert!(matches!(
+                    cx.with_component(first_live.component, |activity| matches!(
+                        &activity.state,
+                        ActivityState::Tool {
+                            status: ToolTimelineStatus::Running,
+                            ..
+                        }
+                    )),
+                    Some(true)
+                ));
+
+                let second_key = super::super::backend::ToolDraftKey {
+                    message_id: 7,
+                    content_index: 1,
+                };
+                state.start_tool_draft(cx, second_key, None, Some("read".into()))?;
+                state.prepare_tool_draft(
+                    cx,
+                    second_key,
+                    "call-2".into(),
+                    "read".into(),
+                    serde_json::json!({"path": "README.md"}),
+                )?;
+                let second = state.conversation.tools["call-2"];
+                assert_ne!(first, second);
+                state.start_tool_call(cx, "call-1".into(), "bash".into(), serde_json::json!({}))?;
+                assert!(matches!(
+                    cx.with_component(
+                        state.conversation.tools_by_unit[&second].component,
+                        |activity| matches!(
+                            &activity.state,
+                            ActivityState::Tool {
+                                status: ToolTimelineStatus::Prepared,
+                                ..
+                            }
+                        )
+                    ),
+                    Some(true)
+                ));
+
+                let fallback_id = "legacy".to_string();
+                state.start_tool_call(
+                    cx,
+                    fallback_id.clone(),
+                    "bash".into(),
+                    serde_json::json!({"command": "true"}),
+                )?;
+                let fallback = state.conversation.tools[&fallback_id];
+                state.start_tool_call(
+                    cx,
+                    fallback_id.clone(),
+                    "bash".into(),
+                    serde_json::json!({}),
+                )?;
+                assert_eq!(state.conversation.tools[&fallback_id], fallback);
+                Ok::<IyonState, anyhow::Error>(state)
+            },
+            |_state: &mut IyonState, _action: IyonAction, _cx| Ok::<(), anyhow::Error>(()),
+            |state: &IyonState| state.view(),
+        )
+        .with_history(History::new());
+        testing::start(app, 80, 20).unwrap();
+    }
+
+    #[test]
+    fn cancellation_and_failure_freeze_live_drafts_without_success() {
+        let app = App::new(
+            |cx| {
+                let selection = iyon_core::ModelSelection {
+                    provider: "test".into(),
+                    model_id: "test".into(),
+                };
+                let mut state = IyonState::init(cx, BackendCommands::new(None), &selection)?;
+                let key = super::super::backend::ToolDraftKey {
+                    message_id: 9,
+                    content_index: 0,
+                };
+                state.start_tool_draft(cx, key, None, Some("bash".into()))?;
+                state.cancel_turn(cx)?;
+                assert!(state.conversation.tools_by_unit.is_empty());
+                assert!(state.conversation.draft_index.is_empty());
+                assert!(state.conversation.tools.is_empty());
+
+                let failed_key = super::super::backend::ToolDraftKey {
+                    message_id: 10,
+                    content_index: 0,
+                };
+                state.start_tool_draft(cx, failed_key, None, Some("read".into()))?;
+                state.fail_turn(cx, "turn failed".into())?;
+                assert!(state.conversation.tools_by_unit.is_empty());
+                Ok::<IyonState, anyhow::Error>(state)
+            },
+            |_state: &mut IyonState, _action: IyonAction, _cx| Ok::<(), anyhow::Error>(()),
+            |state: &IyonState| state.view(),
+        )
+        .with_history(History::new());
+        let harness = testing::start(app, 80, 20).unwrap();
+        let lines = harness.screen_lines();
+        assert!(lines.iter().any(|line| line.contains("cancelled")));
+        assert!(lines.iter().any(|line| line.contains("failed")));
+        assert!(lines.iter().any(|line| line.contains("turn failed")));
     }
 
     fn snapshot(count: usize, prefix: &str) -> String {
