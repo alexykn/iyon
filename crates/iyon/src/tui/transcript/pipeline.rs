@@ -298,7 +298,12 @@ pub(crate) fn assistant_presentation(
             let next = visible.get(index + 1).map(|span| span.values());
             let view = Renderer::render(renderer, span.values()).padding(crate::tui::viewport_pad(
                 0,
-                chunk_bottom_gap(span.values(), next, renderer.policy().block_gap()),
+                chunk_bottom_gap(
+                    span.values(),
+                    next,
+                    renderer.policy().block_gap(),
+                    semantic.is_sealed(),
+                ),
             ));
             AssistantPresentationChunk {
                 source: StreamRange::new(start, end),
@@ -309,14 +314,17 @@ pub(crate) fn assistant_presentation(
 }
 
 // Gap lives on the preceding chunk so compacting a prefix does not
-// re-pad the remaining suffix. Consecutive tight same-kind lists stay
-// visually one list after the root projector splits them per item.
-fn chunk_bottom_gap(current: &[TextContent], next: Option<&[TextContent]>, block_gap: u16) -> u16 {
-    let Some(next) = next else {
-        return 0;
-    };
+// re-pad the remaining suffix. Root lists are split per item: strip the
+// item terminator (0 gap between tight siblings) and add one break only
+// after the last proven item — a following non-list span, or seal.
+fn chunk_bottom_gap(
+    current: &[TextContent],
+    next: Option<&[TextContent]>,
+    block_gap: u16,
+    sealed: bool,
+) -> u16 {
     let curr_list = current.last().and_then(as_list);
-    let next_list = next.first().and_then(as_list);
+    let next_list = next.and_then(|next| next.first().and_then(as_list));
     if let (Some(current), Some(next)) = (curr_list, next_list)
         && same_list_kind(current.marker(), next.marker())
     {
@@ -324,6 +332,13 @@ fn chunk_bottom_gap(current: &[TextContent], next: Option<&[TextContent]>, block
             0
         } else {
             block_gap
+        };
+    }
+    if next.is_none() {
+        return if curr_list.is_some() && sealed {
+            block_gap
+        } else {
+            0
         };
     }
     block_gap

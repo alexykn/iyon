@@ -421,6 +421,13 @@ impl IyonState {
                 output,
             },
         );
+        // Tools take the Working tail. Restore it so the next assistant delta
+        // updates that unit instead of pushing a new History row (which would
+        // jump the last tool up). The next tool takes this tail again, so the
+        // reserve never sits between tools.
+        if self.conversation.turn_started {
+            self.start_working(cx)?;
+        }
         Ok(())
     }
 
