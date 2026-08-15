@@ -217,6 +217,50 @@ fn assistant_product_render_uses_gfm_and_task_only() {
 }
 
 #[test]
+fn live_list_then_paragraph_keeps_one_block_gap() {
+    let mut stream = AssistantStream::new();
+    let list_source =
+        "- iyon - main entry point\n- iyon-core - core logic\n- iyon-api - API layer\n";
+    stream.push_delta_paced(SegmentKind::Text, list_source);
+    drain_pacing(&mut stream);
+
+    let renderer = assistant_renderer();
+    let before_chunks = assistant_presentation(&stream.semantic, &renderer);
+    assert_eq!(before_chunks.len(), 3, "root list must be split per item");
+    let list_lines = painted(
+        &View::vertical(|column| {
+            column.children(before_chunks.iter().map(|chunk| chunk.view.clone()));
+        }),
+        80,
+    );
+    let first = list_lines
+        .iter()
+        .position(|line| line.contains("- iyon - main entry point"))
+        .expect("first list item");
+    let second = list_lines
+        .iter()
+        .position(|line| line.contains("- iyon-core - core logic"))
+        .expect("second list item");
+    assert_eq!(second, first + 1, "tight list items must stay adjacent");
+
+    stream.push_delta_paced(
+        SegmentKind::Text,
+        "\nBig picture: Iyon wants to be a fully-featured agent UI ...",
+    );
+    drain_pacing(&mut stream);
+    let lines = painted(&assistant_view(&stream.semantic, &renderer), 80);
+    let last_item = lines
+        .iter()
+        .position(|line| line.contains("- iyon-api - API layer"))
+        .expect("last list item");
+    let paragraph = lines
+        .iter()
+        .position(|line| line.contains("Big picture:"))
+        .expect("following paragraph");
+    assert_eq!(paragraph, last_item + 2, "closed list needs one blank row");
+}
+
+#[test]
 fn fitting_tables_keep_content_tracks_aligned() {
     let stream = sealed_text(MIGRATION_FIXTURE);
     let view = assistant_view(&stream.semantic, &assistant_renderer());
