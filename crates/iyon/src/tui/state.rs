@@ -422,55 +422,21 @@ impl IyonState {
         self.freeze_user_batch(cx)?;
         self.seal_stream(cx)?;
         let output = cx.register(ScrollPane::new(View::spacer(0)));
-        let keep_working = self.working_has_queue(cx);
-        let (unit, component) = if keep_working {
-            let component = cx.register(ConversationActivity::tool(
-                self.conversation.formatter.clone(),
-                id.clone(),
-                name.clone(),
-                args.clone(),
-                status,
-                None,
-                output,
-            ));
-            let unit = cx
-                .history_mut()
-                .ok_or_else(|| anyhow!("history unavailable"))?
-                .push(View::component(component).fill_width().fill_height())?;
-            (unit, component)
-        } else if let Some(working) = self.conversation.working.take() {
-            cx.with_component_mut(working, |activity| {
-                activity.transition_to_tool(
-                    id.clone(),
-                    name.clone(),
-                    args.clone(),
-                    status,
-                    None,
-                    output,
-                )
-            })
-            .ok_or_else(|| anyhow!("activity disappeared"))?;
-            let unit = cx
-                .history_mut()
-                .ok_or_else(|| anyhow!("history unavailable"))?
-                .push(View::component(working).fill_width().fill_height())?;
-            (unit, working)
-        } else {
-            let component = cx.register(ConversationActivity::tool(
-                self.conversation.formatter.clone(),
-                id.clone(),
-                name.clone(),
-                args.clone(),
-                status,
-                None,
-                output,
-            ));
-            let unit = cx
-                .history_mut()
-                .ok_or_else(|| anyhow!("history unavailable"))?
-                .push(View::component(component).fill_width().fill_height())?;
-            (unit, component)
-        };
+        // Keep the working spinner on its own component so a tool's 480ms pulse
+        // tick cannot replace it and restart the animation.
+        let component = cx.register(ConversationActivity::tool(
+            self.conversation.formatter.clone(),
+            id.clone(),
+            name.clone(),
+            args.clone(),
+            status,
+            None,
+            output,
+        ));
+        let unit = cx
+            .history_mut()
+            .ok_or_else(|| anyhow!("history unavailable"))?
+            .push(View::component(component).fill_width().fill_height())?;
         let live = LiveTool {
             unit,
             component,
