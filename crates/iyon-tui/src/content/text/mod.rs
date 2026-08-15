@@ -14,6 +14,7 @@ mod style;
 mod validate;
 mod visit;
 
+pub use crate::content::Renderer;
 pub use annotations::{Annotations, SemanticKey, SemanticTag, SemanticValue};
 pub use block::{
     Alignment, Block, BlockKind, CodeBlock, HeadingLevel, List, ListItem, ListMarker,
@@ -31,7 +32,7 @@ pub use origin::TextOrigin;
 pub use plain::PlainTextProjector;
 pub use provenance::{LiteralText, TextProvenance, TextRun};
 pub use render::{
-    CodeBlockLabelPolicy, Renderer, SoftBreakPolicy, TableColumnSizing, TaskListMarkerPolicy,
+    CodeBlockLabelPolicy, SoftBreakPolicy, TableColumnSizing, TaskListMarkerPolicy,
     TextRenderPolicy, TextRenderer,
 };
 #[allow(unused_imports)]

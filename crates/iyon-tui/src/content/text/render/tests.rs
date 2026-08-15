@@ -1,5 +1,5 @@
 use super::{Renderer, TextRenderer};
-use crate::document::{
+use crate::content::text::{
     Annotations, Block, CodeBlock, FormatId, HeadingLevel, Image, Inline, InlineContent,
     LanguageId, LinkTarget, List, ListItem, LiteralText, Mark, MarkdownProjector, SemanticTag,
     Table, TableCell, TableColumn, TableRow, TextContent, TextOrigin, TextPart, TextRole,

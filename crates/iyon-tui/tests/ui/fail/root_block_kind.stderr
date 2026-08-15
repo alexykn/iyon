@@ -12,7 +12,7 @@ note: the enum `BlockKind` is defined here
   |     Alignment, Annotations, BlockKind, BreakKind, CodeBlock, FormatId, Image, InlineKind,
   |                             ^^^^^^^^^
   |
- ::: src/document/block.rs
+ ::: src/content/text/block.rs
   |
   | #[non_exhaustive]
   | ----------------- cannot be constructed because it is `#[non_exhaustive]`

@@ -261,7 +261,7 @@ fn stamp_table(table: Table, origin: &TextOrigin) -> Table {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::{HeadingLevel, SemanticTag};
+    use crate::content::text::{HeadingLevel, SemanticTag};
 
     #[test]
     fn origin_accepts_open_validated_names() {

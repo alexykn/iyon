@@ -540,7 +540,7 @@ impl TextFacts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::{FormatId, LanguageId, SemanticKey, SemanticTag};
+    use crate::content::text::{FormatId, LanguageId, SemanticKey, SemanticTag};
     use crate::physical::PhysicalStyle;
     use crate::presentation::api::{StyleStates, TextAttribute};
     use crate::presentation::paint::{StyleContext, ThemeResolver};
@@ -688,7 +688,7 @@ mod tests {
     #[test]
     fn arbitrary_annotation_properties_are_not_selector_facts() {
         let extra = SemanticKey::new("app", "foo").unwrap();
-        let annotations = crate::document::Annotations::new()
+        let annotations = crate::content::text::Annotations::new()
             .with_property(extra, "bar")
             .with_origin(TextOrigin::MARKDOWN);
         assert!(annotations.origin().is_some());

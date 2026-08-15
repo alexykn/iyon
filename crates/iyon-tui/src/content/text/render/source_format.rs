@@ -1,6 +1,6 @@
 use super::{Renderer, TextRenderer};
-use crate::document::origin::stamp_block_origin;
-use crate::document::{
+use crate::content::text::origin::stamp_block_origin;
+use crate::content::text::{
     Block, BlockKind, HeadingLevel, Inline, InlineContent, List, ListItem, Table, TableCell,
     TableColumn, TableRow, TextContent, TextOrigin, TextProjectionError, TextSelector,
     validate_text_projection,
