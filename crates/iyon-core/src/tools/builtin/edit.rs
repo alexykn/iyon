@@ -224,9 +224,9 @@ fn find_replacement_ranges(
 fn find_unique_range(content: &str, old_text: &str, path: &str) -> anyhow::Result<Range<usize>> {
     let matches: Vec<_> = content.match_indices(old_text).collect();
     match matches.as_slice() {
-        [] => bail!("oldText not found in {path}: {old_text:?}"),
+        [] => bail!("oldText not found in {path}"),
         [(start, _)] => Ok(*start..start + old_text.len()),
-        _ => bail!("oldText must be unique in {path}: {old_text:?}"),
+        _ => bail!("oldText must be unique in {path}"),
     }
 }
 

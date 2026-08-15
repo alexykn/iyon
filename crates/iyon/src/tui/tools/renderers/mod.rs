@@ -1,4 +1,4 @@
-use iyon_tui::{StyleRef, StyleSpec, Text, TextSpan, View};
+use iyon_tui::{DiffRenderer, IntoView, Renderer, StyleRef, StyleSpec, Text, TextSpan, View};
 
 use crate::tools::types::ToolCallRenderInput;
 use crate::transcript::ToolTimelineStatus;
@@ -75,14 +75,12 @@ fn hanging_tool_call(text_value: String, style: StyleRef, bullet_style: Option<S
     .fill_width()
 }
 
+pub(super) fn tool_result_block(body: impl IntoView) -> View {
+    View::hanging(View::text("  ").no_wrap(), View::text("  ").no_wrap(), body).fill_width()
+}
+
 pub(super) fn tool_result_line(text_value: impl Into<String>, style: impl Into<StyleRef>) -> View {
-    let style = style.into();
-    View::hanging(
-        View::text("  ").no_wrap(),
-        View::text("  ").no_wrap(),
-        text(text_value, style).fill_width(),
-    )
-    .fill_width()
+    tool_result_block(text(text_value, style).fill_width())
 }
 
 pub(super) fn result_lines(text_value: &str, style: impl Into<StyleRef>) -> Vec<View> {
@@ -98,6 +96,26 @@ pub(super) fn column(children: Vec<View>) -> View {
         column.children(children);
     })
     .fill_width()
+}
+
+pub(super) fn structured_diff_view(details: &serde_json::Value) -> Option<View> {
+    let diff = details.get("diff").and_then(serde_json::Value::as_str)?;
+    if diff.is_empty() {
+        return None;
+    }
+    Some(match crate::tools::unified_diff::parse_unified_diff(diff) {
+        Ok(hunks) => DiffRenderer::new().render(hunks.as_slice()),
+        Err(_) => {
+            let style = result_style(false);
+            View::vertical(|column| {
+                column.children(
+                    diff.split('\n')
+                        .map(|line| text(line, style.clone()).fill_width().into_view()),
+                );
+            })
+            .fill_width()
+        }
+    })
 }
 
 #[cfg(test)]

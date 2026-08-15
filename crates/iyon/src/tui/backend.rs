@@ -105,14 +105,6 @@ pub enum ToolUpdatePresentation {
     Details(serde_json::Value),
 }
 
-#[derive(Debug, Clone)]
-struct PendingToolResultPresentation {
-    tool_call_id: String,
-    tool_name: String,
-    is_error: bool,
-    text: String,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SubmitTurnResult {
     Sent,
@@ -172,7 +164,6 @@ impl BackendCommands {
 #[derive(Default)]
 pub(crate) struct CoreEventMapper {
     message_roles: HashMap<u64, MessageRole>,
-    tool_results: HashMap<u64, PendingToolResultPresentation>,
 }
 
 impl CoreEventMapper {
@@ -194,12 +185,7 @@ impl CoreEventMapper {
             } => match self.message_roles.get(&message_id).copied() {
                 Some(MessageRole::User) => Some(FrontendEvent::UserMessage { text }),
                 Some(MessageRole::Assistant) => Some(FrontendEvent::AssistantDelta { text }),
-                Some(MessageRole::ToolResult) => {
-                    if let Some(result) = self.tool_results.get_mut(&message_id) {
-                        result.text.push_str(&text);
-                    }
-                    None
-                }
+                Some(MessageRole::ToolResult) => None,
                 Some(MessageRole::Status) | None => None,
             },
             CoreEvent::MessageDelta {
@@ -279,20 +265,7 @@ impl CoreEventMapper {
                 arguments,
             }),
             CoreEvent::MessageFinished { message_id, .. } => {
-                if matches!(
-                    self.message_roles.remove(&message_id),
-                    Some(MessageRole::ToolResult)
-                ) {
-                    return self.tool_results.remove(&message_id).map(|result| {
-                        FrontendEvent::ToolResult {
-                            tool_call_id: result.tool_call_id,
-                            tool_name: result.tool_name,
-                            text: result.text,
-                            details: serde_json::Value::Null,
-                            is_error: result.is_error,
-                        }
-                    });
-                }
+                self.message_roles.remove(&message_id);
                 None
             }
             CoreEvent::ToolCallStarted {
@@ -345,24 +318,7 @@ impl CoreEventMapper {
                 approved,
                 reason,
             }),
-            CoreEvent::ToolResultStarted {
-                tool_call_id,
-                tool_name,
-                is_error,
-                message_id,
-                ..
-            } => {
-                self.tool_results.insert(
-                    message_id,
-                    PendingToolResultPresentation {
-                        tool_call_id,
-                        tool_name,
-                        is_error,
-                        text: String::new(),
-                    },
-                );
-                None
-            }
+            CoreEvent::ToolResultStarted { .. } => None,
             CoreEvent::ToolResultFinished {
                 tool_call_id,
                 tool_name,
@@ -928,15 +884,16 @@ mod tests {
     }
 
     #[test]
-    fn mapper_accumulates_tool_result_message_deltas() {
+    fn mapper_keeps_tool_result_details_from_finished_event() {
         let mut mapper = CoreEventMapper::default();
+        let details = serde_json::json!({"diff": "@@ -1 +1 @@\n-old\n+new\n"});
         assert!(
             mapper
                 .map(CoreEvent::ToolResultStarted {
                     turn_id: 1,
                     message_id: 8,
                     tool_call_id: "tool".into(),
-                    tool_name: "bash".into(),
+                    tool_name: "edit".into(),
                     is_error: false,
                 })
                 .is_none()
@@ -950,23 +907,47 @@ mod tests {
                 })
                 .is_none()
         );
-        for text in ["one", " two"] {
-            assert!(
-                mapper
-                    .map(CoreEvent::MessageDelta {
-                        turn_id: 1,
-                        message_id: 8,
-                        delta: MessageDelta::Text(text.into()),
-                    })
-                    .is_none()
-            );
-        }
+        assert!(
+            mapper
+                .map(CoreEvent::MessageDelta {
+                    turn_id: 1,
+                    message_id: 8,
+                    delta: MessageDelta::Text("Successfully replaced 1 block(s).".into()),
+                })
+                .is_none()
+        );
+        assert!(
+            mapper
+                .map(CoreEvent::MessageFinished {
+                    turn_id: 1,
+                    message_id: 8,
+                })
+                .is_none(),
+            "message finish must not publish a details-less result"
+        );
         let event = mapper
-            .map(CoreEvent::MessageFinished {
+            .map(CoreEvent::ToolResultFinished {
                 turn_id: 1,
                 message_id: 8,
+                tool_call_id: "tool".into(),
+                tool_name: "edit".into(),
+                text: "Successfully replaced 1 block(s).".into(),
+                details: details.clone(),
+                is_error: false,
             })
             .expect("mapped result");
-        assert!(matches!(event, FrontendEvent::ToolResult { text, .. } if text == "one two"));
+        match event {
+            FrontendEvent::ToolResult {
+                text,
+                details: mapped,
+                is_error,
+                ..
+            } => {
+                assert_eq!(text, "Successfully replaced 1 block(s).");
+                assert_eq!(mapped, details);
+                assert!(!is_error);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
     }
 }

@@ -1,9 +1,9 @@
 use crate::tools::{
     registry::ToolRenderer,
-    renderers::{column, result_lines, result_style, tool_result_line},
+    renderers::{column, result_lines, result_style},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
-use iyon_tui::{DiffRenderer, Renderer, View};
+use iyon_tui::{IntoView, View};
 
 #[derive(Debug)]
 pub(crate) struct EditRenderer;
@@ -26,6 +26,12 @@ impl ToolRenderer for EditRenderer {
         // Debug-only: surface the raw edits payload; the normal view keeps the
         // call compact and lets the result's diff carry the detail.
         if input.show_arg_preview
+            && !matches!(
+                input.status,
+                crate::transcript::ToolTimelineStatus::Failed
+                    | crate::transcript::ToolTimelineStatus::Rejected
+                    | crate::transcript::ToolTimelineStatus::Cancelled
+            )
             && let Some(edits) = input.arguments.get("edits")
         {
             let preview = serde_json::to_string_pretty(edits).unwrap_or_else(|_| edits.to_string());
@@ -36,23 +42,18 @@ impl ToolRenderer for EditRenderer {
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> View {
         if input.is_error() {
-            let mut children = vec![tool_result_line("edit failed", result_style(true))];
-            children.extend(result_lines(input.text, result_style(true)));
-            return column(children);
+            return View::spacer(0);
         }
 
-        let mut children = vec![tool_result_line(input.text, result_style(false))];
-        if let Some(diff) = input
-            .details
-            .get("diff")
-            .and_then(serde_json::Value::as_str)
-        {
-            match super::super::unified_diff::parse_unified_diff(diff) {
-                Ok(hunks) => children.push(DiffRenderer::new().render(hunks.as_slice())),
-                Err(_) => children.extend(result_lines(diff, result_style(false))),
-            }
+        let mut children = vec![
+            super::text(input.text, result_style(false))
+                .fill_width()
+                .into_view(),
+        ];
+        if let Some(diff) = super::structured_diff_view(input.details) {
+            children.push(diff);
         }
-        column(children)
+        super::tool_result_block(column(children))
     }
 }
 
@@ -92,6 +93,13 @@ mod tests {
         let header = lines.iter().position(|line| line.contains("@@ -1 +1 @@"));
         let addition = lines.iter().position(|line| line.contains("+new"));
         assert!(summary < header && header < addition);
+        assert!(
+            lines
+                .iter()
+                .filter(|line| !line.trim().is_empty())
+                .all(|line| line.starts_with("  ")),
+            "edit result must share the bash hanging gutter, got {lines:?}"
+        );
     }
 
     #[test]
@@ -125,18 +133,18 @@ mod tests {
     }
 
     #[test]
-    fn error_results_do_not_parse_or_render_details_diff() {
+    fn error_results_do_not_dump_the_call_or_diff() {
         let details = serde_json::json!({ "diff": "@@ -1 +1 @@\n-old\n+raw" });
         let view = EditRenderer.render_result(ToolResultRenderInput {
             tool_name: "edit",
-            text: "permission denied",
+            text: "oldText not found in weather.py: \"#!/usr/bin/env python3\\n...\"",
             details: &details,
             outcome: ToolOutcome::Error,
         });
         let lines = iyon_tui::testing::compile_view_lines(&view, 80);
-        assert!(lines.iter().any(|line| line.contains("edit failed")));
-        assert!(lines.iter().any(|line| line.contains("permission denied")));
+        assert!(!lines.iter().any(|line| line.contains("python3")));
         assert!(!lines.iter().any(|line| line.contains("+raw")));
+        assert!(!lines.iter().any(|line| line.contains("edit failed")));
     }
 
     #[test]
@@ -150,10 +158,13 @@ mod tests {
             details: &details,
             outcome: ToolOutcome::Success,
         });
-        assert!(iyon_tui::testing::compile_view_lines(&full, 80).len() > 16);
+        assert!(
+            iyon_tui::testing::compile_view_lines(&full, 80).len()
+                > usize::from(crate::tools::MAX_COLLAPSED_TOOL_ROWS)
+        );
 
         let clamped = full.clamp_rows(
-            16,
+            crate::tools::MAX_COLLAPSED_TOOL_ROWS,
             OverflowIndicator::Footer {
                 prefix: "… more lines (full result retained)".into(),
                 style: StyleSpec::new()
@@ -163,7 +174,7 @@ mod tests {
         );
         assert_eq!(
             iyon_tui::testing::compile_view_lines(&clamped, 80).len(),
-            16
+            usize::from(crate::tools::MAX_COLLAPSED_TOOL_ROWS)
         );
     }
 }

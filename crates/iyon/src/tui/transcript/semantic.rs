@@ -2,7 +2,10 @@ use iyon_tui::stream::StreamingSource;
 use iyon_tui::text::SemanticTag;
 use iyon_tui::{BorderEdges, BorderSpec, ColorSpec, IntoView, OverflowIndicator, View};
 
-use crate::tools::{ToolCallRenderInput, ToolOutcome, ToolRendererRegistry, ToolResultRenderInput};
+use crate::tools::{
+    MAX_COLLAPSED_TOOL_ROWS, ToolCallRenderInput, ToolOutcome, ToolRendererRegistry,
+    ToolResultRenderInput,
+};
 use crate::transcript::pipeline::{assistant_renderer, assistant_view};
 
 pub(crate) fn thinking_tag() -> SemanticTag {
@@ -154,7 +157,7 @@ impl TuiFormatter {
         });
         if self.show_arg_preview {
             view.clamp_rows(
-                17,
+                MAX_COLLAPSED_TOOL_ROWS,
                 OverflowIndicator::Footer {
                     prefix: "… more argument lines".to_string(),
                     style: truncation_footer_style_spec().into(),
@@ -185,7 +188,7 @@ impl TuiFormatter {
         });
         if collapsed {
             view.clamp_rows(
-                16,
+                MAX_COLLAPSED_TOOL_ROWS,
                 OverflowIndicator::Footer {
                     prefix: "… more lines (full result retained)".to_string(),
                     style: truncation_footer_style_spec().into(),

@@ -1,9 +1,10 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use iyon_api::ContentBlock;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use similar::TextDiff;
 use tokio::fs;
 
 use crate::tools::{
@@ -89,10 +90,12 @@ async fn write_file(
     ensure_not_cancelled(ctx)?;
     create_parent_dir(&path).await?;
     ensure_not_cancelled(ctx)?;
+    let previous = existing_text(&path).await;
     fs::write(&path, input.content.as_bytes())
         .await
         .with_context(|| format!("failed to write file: {}", path.display()))?;
     ensure_not_cancelled(ctx)?;
+    let after = normalize_to_lf(&input.content);
     Ok(ToolResult {
         content: vec![ContentBlock::Text {
             text: format!(
@@ -101,10 +104,30 @@ async fn write_file(
                 input.path
             ),
         }],
-        details: json!({}),
+        details: json!({
+            "diff": generate_diff(&input.path, &previous, &after),
+        }),
         is_error: false,
         terminate: false,
     })
+}
+
+async fn existing_text(path: &Path) -> String {
+    match fs::read_to_string(path).await {
+        Ok(text) => normalize_to_lf(&text),
+        Err(_) => String::new(),
+    }
+}
+
+fn normalize_to_lf(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+fn generate_diff(path: &str, before: &str, after: &str) -> String {
+    TextDiff::from_lines(before, after)
+        .unified_diff()
+        .header(&format!("a/{path}"), &format!("b/{path}"))
+        .to_string()
 }
 
 async fn create_parent_dir(path: &std::path::Path) -> anyhow::Result<()> {
