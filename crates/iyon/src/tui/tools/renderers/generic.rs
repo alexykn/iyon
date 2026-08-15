@@ -1,6 +1,6 @@
 use crate::tools::{
     registry::ToolRenderer,
-    renderers::{column, result_lines, result_style, tool_call, tool_result_line, tool_style},
+    renderers::{column, result_lines, result_style, tool_call_line, tool_result_line, tool_style},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
 use iyon_tui::View;
@@ -14,9 +14,9 @@ impl ToolRenderer for GenericRenderer {
     }
 
     fn render_call(&self, input: ToolCallRenderInput<'_>) -> View {
-        let mut children = vec![tool_call(
+        let mut children = vec![tool_call_line(
             format!("tool {} — {}", input.tool_name, status_label(input.status)),
-            tool_style(input.status),
+            input,
         )];
         if input.show_arg_preview {
             let preview = serde_json::to_string_pretty(input.arguments)

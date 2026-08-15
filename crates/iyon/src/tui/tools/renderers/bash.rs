@@ -1,6 +1,6 @@
 use crate::tools::{
     registry::ToolRenderer,
-    renderers::{column, result_lines, result_style, tool_call, tool_result_line, tool_style},
+    renderers::{column, result_lines, result_style, tool_call_line, tool_result_line},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
 use iyon_tui::{ColorSpec, StyleSpec, View};
@@ -19,9 +19,9 @@ impl ToolRenderer for BashRenderer {
             .get("command")
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
-        tool_call(
+        tool_call_line(
             format!("$ {command} — {}", status_label(input.status)),
-            tool_style(input.status),
+            input,
         )
     }
 

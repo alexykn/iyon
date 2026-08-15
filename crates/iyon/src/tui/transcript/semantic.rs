@@ -47,6 +47,7 @@ pub(crate) enum TimelineItem {
         tool_name: String,
         arguments: serde_json::Value,
         status: ToolTimelineStatus,
+        pulse: bool,
     },
     ToolResult {
         tool_call_id: String,
@@ -99,8 +100,9 @@ impl TuiFormatter {
                 tool_name,
                 arguments,
                 status,
+                pulse,
                 ..
-            } => self.format_tool_call(tool_name, arguments, *status),
+            } => self.format_tool_call(tool_name, arguments, *status, *pulse),
             TimelineItem::ToolResult {
                 tool_name,
                 text,
@@ -141,12 +143,14 @@ impl TuiFormatter {
         tool_name: &str,
         arguments: &serde_json::Value,
         status: ToolTimelineStatus,
+        pulse: bool,
     ) -> View {
         let view = self.tool_renderers.render_call(ToolCallRenderInput {
             tool_name,
             arguments,
             status,
             show_arg_preview: self.show_arg_preview,
+            pulse,
         });
         if self.show_arg_preview {
             view.clamp_rows(

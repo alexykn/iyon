@@ -1,6 +1,6 @@
 use crate::tools::{
     registry::ToolRenderer,
-    renderers::{column, result_lines, result_style, tool_call},
+    renderers::{column, result_lines, result_style},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
 use iyon_tui::View;
@@ -34,9 +34,9 @@ impl ToolRenderer for ReadRenderer {
             (Some(offset), None) => format!(":{offset}"),
             _ => String::new(),
         };
-        tool_call(
+        super::tool_call_line(
             format!("read {path}{suffix} — {}", status_label(input.status)),
-            super::tool_style(input.status),
+            input,
         )
     }
 

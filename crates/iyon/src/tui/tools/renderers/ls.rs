@@ -1,6 +1,6 @@
 use crate::tools::{
     registry::ToolRenderer,
-    renderers::{column, result_lines, result_style, tool_call},
+    renderers::{column, result_lines, result_style},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
 use iyon_tui::View;
@@ -19,10 +19,7 @@ impl ToolRenderer for LsRenderer {
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or(".");
-        tool_call(
-            format!("ls {path} — {}", status_label(input.status)),
-            super::tool_style(input.status),
-        )
+        super::tool_call_line(format!("ls {path} — {}", status_label(input.status)), input)
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> View {
