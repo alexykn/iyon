@@ -29,3 +29,4 @@ iyon-tui.workspace = true
 
 [dev-dependencies]
 iyon-tui = { workspace = true, features = ["test-util"] }
+similar.workspace = true

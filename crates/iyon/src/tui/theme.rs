@@ -109,6 +109,42 @@ pub(crate) fn iyon_theme() -> Theme {
             },
         )
         .with_color(
+            "diff.addition",
+            iyon_tui::ThemeColor::Rgb {
+                r: 104,
+                g: 211,
+                b: 145,
+            },
+        )
+        .with_color(
+            "diff.deletion",
+            iyon_tui::ThemeColor::Named(iyon_tui::AnsiColor::Red),
+        )
+        .with_color(
+            "diff.header",
+            iyon_tui::ThemeColor::Rgb {
+                r: 255,
+                g: 196,
+                b: 87,
+            },
+        )
+        .with_color(
+            "diff.context",
+            iyon_tui::ThemeColor::Rgb {
+                r: 113,
+                g: 128,
+                b: 150,
+            },
+        )
+        .with_color(
+            "diff.meta",
+            iyon_tui::ThemeColor::Rgb {
+                r: 113,
+                g: 128,
+                b: 150,
+            },
+        )
+        .with_color(
             "truncation_footer",
             iyon_tui::ThemeColor::Rgb {
                 r: 120,
@@ -172,6 +208,26 @@ pub(crate) fn iyon_theme() -> Theme {
         .with_style(
             "text.warning",
             iyon_tui::StyleSpec::new().foreground(iyon_tui::ColorSpec::theme("text.warning")),
+        )
+        .with_style(
+            "diff.addition",
+            iyon_tui::StyleSpec::new().foreground(iyon_tui::ColorSpec::theme("diff.addition")),
+        )
+        .with_style(
+            "diff.deletion",
+            iyon_tui::StyleSpec::new().foreground(iyon_tui::ColorSpec::theme("diff.deletion")),
+        )
+        .with_style(
+            "diff.header",
+            iyon_tui::StyleSpec::new().foreground(iyon_tui::ColorSpec::theme("diff.header")),
+        )
+        .with_style(
+            "diff.context",
+            iyon_tui::StyleSpec::new().foreground(iyon_tui::ColorSpec::theme("diff.context")),
+        )
+        .with_style(
+            "diff.meta",
+            iyon_tui::StyleSpec::new().foreground(iyon_tui::ColorSpec::theme("diff.meta")),
         )
         .with_text_style(
             TextSelector::heading(),
@@ -266,6 +322,51 @@ mod tests {
                 b: 210
             })
         );
+        assert_eq!(
+            theme.color("diff.addition"),
+            Some(iyon_tui::ThemeColor::Rgb {
+                r: 104,
+                g: 211,
+                b: 145
+            })
+        );
+        assert_eq!(
+            theme.color("diff.deletion"),
+            Some(iyon_tui::ThemeColor::Named(iyon_tui::AnsiColor::Red))
+        );
+        assert_eq!(
+            theme.color("diff.header"),
+            Some(iyon_tui::ThemeColor::Rgb {
+                r: 255,
+                g: 196,
+                b: 87
+            })
+        );
+        assert_eq!(
+            theme.color("diff.context"),
+            Some(iyon_tui::ThemeColor::Rgb {
+                r: 113,
+                g: 128,
+                b: 150
+            })
+        );
+        assert_eq!(
+            theme.color("diff.meta"),
+            Some(iyon_tui::ThemeColor::Rgb {
+                r: 113,
+                g: 128,
+                b: 150
+            })
+        );
+        for key in [
+            "diff.addition",
+            "diff.deletion",
+            "diff.header",
+            "diff.context",
+            "diff.meta",
+        ] {
+            assert!(theme.style(key).is_some(), "missing style {key}");
+        }
         assert!(theme.style("markdown.header").is_none());
         assert!(theme.style("markdown.code").is_none());
         assert!(theme.style("markdown.bold").is_none());
