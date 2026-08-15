@@ -121,9 +121,26 @@ pub enum MessageDelta {
     Text(String),
     /// Streamed reasoning/thinking text (muted + italic in the TUI).
     Thinking(String),
-    ToolCall {
+    ToolCall(ToolCallDelta),
+}
+
+#[derive(Debug, Clone)]
+pub enum ToolCallDelta {
+    Start {
+        content_index: usize,
+        tool_call_id: Option<String>,
+        tool_name: Option<String>,
+    },
+    Arguments {
+        content_index: usize,
+        tool_call_id: Option<String>,
+        tool_name: Option<String>,
+        delta: String,
+    },
+    End {
+        content_index: usize,
         tool_call_id: String,
         tool_name: String,
-        arguments_delta: Option<String>,
+        arguments: serde_json::Value,
     },
 }
