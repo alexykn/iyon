@@ -9,7 +9,7 @@ use iyon_tui::text::{
     TextIrError, TextProvenance, TextRenderPolicy, TextRenderer, TextRewriter, TextRun,
     walk_rewrite_inline,
 };
-use iyon_tui::{Insets, View, WrapMode};
+use iyon_tui::{View, WrapMode};
 
 use super::assistant_stream::AssistantPacingAtom;
 use super::semantic::{SegmentKind, thinking_tag};
@@ -280,7 +280,7 @@ pub(crate) fn assistant_presentation(
         } else {
             vec![AssistantPresentationChunk {
                 source: StreamRange::new(semantic.source_base(), semantic.source_end()),
-                view: View::spacer(0).padding(Insets::horizontal(2)),
+                view: View::spacer(0).padding(crate::tui::viewport_gutter()),
             }]
         };
     }
@@ -296,11 +296,9 @@ pub(crate) fn assistant_presentation(
             };
             let end = span.source().end();
             let next = visible.get(index + 1).map(|span| span.values());
-            let view = Renderer::render(renderer, span.values()).padding(Insets::new(
+            let view = Renderer::render(renderer, span.values()).padding(crate::tui::viewport_pad(
                 0,
-                2,
                 chunk_bottom_gap(span.values(), next, renderer.policy().block_gap()),
-                2,
             ));
             AssistantPresentationChunk {
                 source: StreamRange::new(start, end),
