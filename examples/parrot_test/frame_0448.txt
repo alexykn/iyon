@@ -1,0 +1,19 @@
+[2J[3J[H[35m                         .cccc;;cc;';c.           [39m
+[35m                      .,:dkdc:;;:c:,:d:.          [39m
+[35m                     .loc'.,cc::c:::,..;:.        [39m
+[35m                   .cl;....;dkdccc::,...c;        [39m
+[35m                  .c:,';:'..ckc',;::;....;c.      [39m
+[35m                .c:'.,dkkoc:ok:;llllc,,c,';:.     [39m
+[35m               .;c,';okkkkkkkk:;lllll,:kd;.;:,.   [39m
+[35m               co..:kkkkkkkkkk:;llllc':kkc..oNc   [39m
+[35m             .cl;.,oxkkkkkkkkkc,:cll;,okkc'.cO;   [39m
+[35m             ;k:..ckkkkkkkkkkkl..,;,.;xkko:',l'   [39m
+[35m            .,...';dkkkkkkkkkkd;.....ckkkl'.cO;   [39m
+[35m         .,,:,.;oo:ckkkkkkkkkkkdoc;;cdkkkc..cd,   [39m
+[35m      .cclo;,ccdkkl;llccdkkkkkkkkkkkkkkkd,.c;     [39m
+[35m     .lol:;;okkkkkxooc::coodkkkkkkkkkkkko'.oc     [39m
+[35m   .c:'..lkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkd,.oc     [39m
+[35m  .lo;,:cdkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkd,.c;     [39m
+[35m,dx:..;lllllllllllllllllllllllllllllllllc'...     [39m
+[35mcNO;........................................      [39m
+[35m[39m

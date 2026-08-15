@@ -1,0 +1,19 @@
+[2J[3J[H[37m                                                  [39m
+[37m                                                  [39m
+[37m                   .ccccccc.                      [39m
+[37m               .ccckNKOOOOkdcc.                   [39m
+[37m            .;;cc:ccccccc:,:c::,,.                [39m
+[37m         .c;:;.,cccllxOOOxlllc,;ol.               [39m
+[37m        .lkc,coxo:;oOOxooooooo;..:,               [39m
+[37m      .cdc.,dOOOc..cOd,.',,;'....':l.             [39m
+[37m      cNx'.lOOOOxlldOc..;lll;.....cO;             [39m
+[37m     ,do;,:dOOOOOOOOOl'':lll;..:d:''c,            [39m
+[37m     co..lOOOOOOOOOOOl'':lll;.'lOd,.cd.           [39m
+[37m     co.'dOOOOOOOOOOOo,.;llc,.,dOOc..dc           [39m
+[37m     co..lOOOOOOOOOOOOc.';:,..cOOOl..oc           [39m
+[37m   .,:;.'::lxOOOOOOOOOo:'...,:oOOOc.'dc           [39m
+[37m   ;Oc..cl'':lldOOOOOOOOdcclxOOOOx,.cd.           [39m
+[37m  .:;';lxl''''':lldOOOOOOOOOOOOOOc..oc            [39m
+[37m,dl,.'cooc:::,....,::coooooooooooc'.c:            [39m
+[37mcNo.................................oc            [39m
+[37m[39m
