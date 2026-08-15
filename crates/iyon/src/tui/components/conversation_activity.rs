@@ -66,7 +66,7 @@ impl ConversationActivity {
             finished: false,
             pending_steers,
             waiting_style,
-            bullet_pulse: true,
+            bullet_pulse: false,
         }
     }
 
@@ -95,7 +95,7 @@ impl ConversationActivity {
             finished: false,
             pending_steers: Vec::new(),
             waiting_style: false,
-            bullet_pulse: true,
+            bullet_pulse: false,
         }
     }
 
@@ -137,7 +137,7 @@ impl ConversationActivity {
         self.result = None;
         self.argument_preview.clear();
         self.finished = false;
-        self.bullet_pulse = true;
+        self.bullet_pulse = false;
     }
 
     pub(crate) fn update_tool_identity(&mut self, id: Option<String>, name: Option<String>) {
