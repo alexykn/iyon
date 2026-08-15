@@ -147,6 +147,10 @@ pub use application::{
 
 pub use component::{Component, ComponentCx, ComponentHandle};
 pub use content::Renderer;
+pub use content::diff::{
+    DiffHunk, DiffLine, DiffLineKind, DiffLineNumber, DiffLineOffset, DiffLineTermination,
+    DiffRange, DiffRenderer, DiffValidationError,
+};
 pub use content::text::{
     Block, CodeBlockLabelPolicy, HeadingLevel, Inline, InlineContent, MarkdownOptions,
     MarkdownProjector, PlainTextProjector, RawText, SoftBreakPolicy, TableColumnSizing,
@@ -201,10 +205,11 @@ pub(crate) use stream::{
 /// Small, application-oriented import set.
 pub mod prelude {
     pub use crate::{
-        App, AppCx, Block, Component, ComponentCx, EventCx, History, HistoryLayout, Inline,
-        InlineContent, IntoView, MarkdownProjector, Output, PlainTextProjector, Projection,
-        Projector, ProjectorExt, Renderer, Scene, ScrollPane, Smooth, StreamPane, TextContent,
-        TextInput, TextOrigin, TextRenderPolicy, TextRenderer, TextSelector, TextStream, Theme,
-        View,
+        App, AppCx, Block, Component, ComponentCx, DiffHunk, DiffLine, DiffLineKind,
+        DiffLineNumber, DiffLineOffset, DiffLineTermination, DiffRange, DiffRenderer, EventCx,
+        History, HistoryLayout, Inline, InlineContent, IntoView, MarkdownProjector, Output,
+        PlainTextProjector, Projection, Projector, ProjectorExt, Renderer, Scene, ScrollPane,
+        Smooth, StreamPane, TextContent, TextInput, TextOrigin, TextRenderPolicy, TextRenderer,
+        TextSelector, TextStream, Theme, View,
     };
 }
