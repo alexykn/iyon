@@ -169,7 +169,9 @@ impl IyonState {
         let steering = View::component(self.steering).fill_width();
         let footer = View::text(self.footer_text()).fill_width();
         View::vertical(|column| {
-            column.child(steering);
+            if self.conversation.working.is_none() {
+                column.child(steering);
+            }
             column.content_max(MAX_COMPOSER_ROWS, composer);
             column.child(footer);
         })
@@ -246,6 +248,9 @@ impl IyonState {
             self.conversation.user_batch = Some((unit, component));
         }
         let _ = cx.with_component_mut(self.steering, |panel| panel.delivered(&text));
+        if let Some((_, component)) = self.conversation.working {
+            let _ = cx.with_component_mut(component, |activity| activity.delivered(&text));
+        }
         if self.conversation.turn_started {
             self.start_working(cx)?;
         }
@@ -264,8 +269,12 @@ impl IyonState {
         if self.conversation.working.is_some() || self.conversation.stream.is_some() {
             return Ok(());
         }
+        let pending_steers = cx
+            .with_component(self.steering, SteeringQueuePanel::pending)
+            .ok_or_else(|| anyhow!("steering panel disappeared"))?;
         let component = cx.register(ConversationActivity::working(
             self.conversation.formatter.clone(),
+            pending_steers,
         ));
         let unit = cx
             .history_mut()
@@ -653,7 +662,10 @@ impl IyonState {
     }
 
     pub(crate) fn enqueue_steer(&mut self, cx: &mut AppCx<'_, IyonAction>, text: String) {
-        let _ = cx.with_component_mut(self.steering, |panel| panel.queued(text));
+        let _ = cx.with_component_mut(self.steering, |panel| panel.queued(text.clone()));
+        if let Some((_, component)) = self.conversation.working {
+            let _ = cx.with_component_mut(component, |activity| activity.queued(text));
+        }
     }
 
     pub(crate) fn prepare_goodbye(&mut self, cx: &mut AppCx<'_, IyonAction>) -> Result<()> {

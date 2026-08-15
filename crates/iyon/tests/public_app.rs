@@ -781,6 +781,40 @@ async fn steered_user_message_keeps_working_as_stream_tail() {
     );
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn pending_steer_is_shown_on_working_row() {
+    let core = IyonCore::spawn_default_on_current_runtime();
+    let (commands, _events) = core.split();
+    let mut harness = testing::start(build_app(commands, selection()), 60, 20).unwrap();
+    let handle = harness.handle();
+    for event in [
+        FrontendEvent::TurnStarted,
+        FrontendEvent::UserMessage {
+            text: "initial user".into(),
+        },
+        FrontendEvent::AssistantDelta {
+            text: "assistant before tool".into(),
+        },
+        FrontendEvent::ToolCallStarted {
+            tool_call_id: "steer-tool".into(),
+            tool_name: "bash".into(),
+            arguments: serde_json::json!({"command":"true"}),
+        },
+        FrontendEvent::SteerQueued {
+            text: "look at iyon-tui".into(),
+        },
+    ] {
+        handle.send(IyonAction::Backend(event)).unwrap();
+        while harness.step().unwrap() {}
+    }
+
+    let lines = harness.screen_lines();
+    let screen = lines.join("\n");
+    assert!(screen.contains("look at iyon-tui"), "{screen}");
+    assert!(screen.contains("Steering"), "{screen}");
+    assert!(!screen.contains("Working"), "{screen}");
+}
+
 const NUMBERED_GUIDE: &str = r#"Markdown: A Complete Guide
 
 What is Markdown?

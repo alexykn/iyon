@@ -26,6 +26,10 @@ impl SteeringQueuePanel {
             self.pending.remove(index);
         }
     }
+
+    pub(crate) fn pending(&self) -> Vec<String> {
+        self.pending.clone()
+    }
 }
 
 impl Component for SteeringQueuePanel {

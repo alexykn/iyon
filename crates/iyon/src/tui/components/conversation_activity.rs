@@ -1,14 +1,15 @@
 use std::time::{Duration, Instant};
 
 use iyon_tui::{
-    Component, ComponentCx, ComponentHandle, EventCx, InteractionResult, IntoView, Key, KeyStroke,
-    Modifiers, Output, ScrollPane, View,
+    BorderSpec, ColorSpec, Component, ComponentCx, ComponentHandle, EventCx, InteractionResult,
+    IntoView, Key, KeyStroke, Modifiers, Output, ScrollPane, VerticalAlign, View,
 };
 
 use crate::transcript::{TimelineItem, ToolTimelineStatus, TuiFormatter};
 
 const SPINNER_FRAMES: &[&str] = &["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"];
 const MAX_TOOL_OUTPUT_ROWS: u16 = 16;
+const MAX_PENDING_STEER_ROWS: usize = 4;
 
 #[derive(Debug, Clone)]
 pub(crate) enum ActivityState {
@@ -46,10 +47,11 @@ pub(crate) struct ConversationActivity {
     formatter: TuiFormatter,
     result: Option<ToolResultState>,
     finished: bool,
+    pending_steers: Vec<String>,
 }
 
 impl ConversationActivity {
-    pub(crate) fn working(formatter: TuiFormatter) -> Self {
+    pub(crate) fn working(formatter: TuiFormatter, pending_steers: Vec<String>) -> Self {
         Self {
             state: ActivityState::Working { frame: 0 },
             approval_id: None,
@@ -57,6 +59,7 @@ impl ConversationActivity {
             formatter,
             result: None,
             finished: false,
+            pending_steers,
         }
     }
 
@@ -82,6 +85,17 @@ impl ConversationActivity {
             formatter,
             result: None,
             finished: false,
+            pending_steers: Vec::new(),
+        }
+    }
+
+    pub(crate) fn queued(&mut self, text: String) {
+        self.pending_steers.push(text);
+    }
+
+    pub(crate) fn delivered(&mut self, text: &str) {
+        if let Some(index) = self.pending_steers.iter().position(|item| item == text) {
+            self.pending_steers.remove(index);
         }
     }
 
@@ -285,14 +299,50 @@ enum ActivityCommand {
 impl Component for ConversationActivity {
     fn view(&self) -> View {
         match &self.state {
-            ActivityState::Working { frame } => View::text(format!(
-                "{} Working",
-                SPINNER_FRAMES[*frame % SPINNER_FRAMES.len()]
-            ))
+            ActivityState::Working { frame } if self.pending_steers.is_empty() => View::text(
+                format!("{} Working", SPINNER_FRAMES[*frame % SPINNER_FRAMES.len()]),
+            )
             .no_wrap()
             .fill_width()
             .into_view()
             .padding(crate::tui::viewport_gutter()),
+            ActivityState::Working { frame } => {
+                let mut pending = self
+                    .pending_steers
+                    .iter()
+                    .take(MAX_PENDING_STEER_ROWS)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let overflow = self
+                    .pending_steers
+                    .len()
+                    .saturating_sub(MAX_PENDING_STEER_ROWS);
+                if overflow > 0 {
+                    pending.push(format!("↑ {overflow} more queued"));
+                }
+                let chip = View::text(pending.join("\n"))
+                    .border(
+                        BorderSpec::rounded()
+                            .color(ColorSpec::theme("input.border"))
+                            .top_label("Steering…"),
+                    )
+                    .into_view();
+                let row = View::horizontal(|row| {
+                    row.vertical_align(VerticalAlign::Center);
+                    row.child(View::text(SPINNER_FRAMES[*frame % SPINNER_FRAMES.len()]).no_wrap());
+                    row.flex(View::spacer(0));
+                    row.child(chip);
+                    row.flex(View::spacer(0));
+                });
+                View::vertical(|column| {
+                    column.flex(View::spacer(0));
+                    column.child(row);
+                    column.flex(View::spacer(0));
+                })
+                .fill_width()
+                .fill_height()
+                .padding(crate::tui::viewport_gutter())
+            }
             ActivityState::Tool { .. } => self.tool_view().unwrap_or_else(|| View::spacer(0)),
         }
     }
