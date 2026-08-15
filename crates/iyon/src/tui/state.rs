@@ -6,7 +6,8 @@ use serde_json::Value;
 
 use iyon_tui::{
     AppCx, BorderEdges, BorderSpec, ColorSpec, ComponentHandle, FlowBoundary, HistoryStreamHandle,
-    HistoryUnitId, Key, KeyStroke, Modifiers, Output, RouteConflict, ScrollPane, TextInput, View,
+    HistoryUnitId, Insets, Key, KeyStroke, Modifiers, Output, RouteConflict, ScrollPane, TextInput,
+    View,
 };
 
 use super::{
@@ -91,7 +92,7 @@ struct LiveTool {
 pub(crate) struct ConversationState {
     formatter: TuiFormatter,
     user_batch: Option<(HistoryUnitId, ComponentHandle<UserBatch>)>,
-    working: Option<(HistoryUnitId, ComponentHandle<ConversationActivity>)>,
+    working: Option<ComponentHandle<ConversationActivity>>,
     tools: HashMap<String, LiveTool>,
     stream: Option<HistoryStreamHandle<AssistantStream>>,
     last_completed_tool: Option<String>,
@@ -168,6 +169,13 @@ impl IyonState {
             .fill_width();
         let footer = View::text(self.footer_text()).fill_width();
         View::vertical(|column| {
+            if let Some(working) = self.conversation.working {
+                column.child(
+                    View::component(working)
+                        .fill_width()
+                        .padding(Insets::new(0, 0, 1, 0)),
+                );
+            }
             column.content_max(MAX_COMPOSER_ROWS, composer);
             column.child(footer);
         })
@@ -235,17 +243,15 @@ impl IyonState {
                 .ok_or_else(|| anyhow!("user batch disappeared"))?;
         } else {
             let component = cx.register(UserBatch::new(text.clone()));
-            let unit = self.with_working_parked(cx, |cx| {
-                Ok(cx
-                    .history_mut()
-                    .ok_or_else(|| anyhow!("history unavailable"))?
-                    .push(View::component(component).fill_width())?)
-            })?;
+            let unit = cx
+                .history_mut()
+                .ok_or_else(|| anyhow!("history unavailable"))?
+                .push(View::component(component).fill_width())?;
             self.conversation.user_batch = Some((unit, component));
         }
         let _ = cx.with_component_mut(self.steering, |panel| panel.delivered(&text));
-        if let Some((_, component)) = self.conversation.working {
-            let _ = cx.with_component_mut(component, |activity| activity.delivered(&text));
+        if let Some(working) = self.conversation.working {
+            let _ = cx.with_component_mut(working, |activity| activity.delivered(&text));
         }
         if self.conversation.turn_started {
             self.start_working(cx)?;
@@ -262,22 +268,27 @@ impl IyonState {
     }
 
     fn start_working(&mut self, cx: &mut AppCx<'_, IyonAction>) -> Result<()> {
-        if self.conversation.working.is_some() || self.conversation.stream.is_some() {
+        if self.conversation.working.is_some() {
             return Ok(());
         }
         let pending_steers = cx
             .with_component(self.steering, SteeringQueuePanel::pending)
             .unwrap_or_default();
-        let component = cx.register(ConversationActivity::working(
+        if self.conversation.stream.is_some() && pending_steers.is_empty() {
+            return Ok(());
+        }
+        self.conversation.working = Some(cx.register(ConversationActivity::working(
             self.conversation.formatter.clone(),
             pending_steers,
-        ));
-        let unit = cx
-            .history_mut()
-            .ok_or_else(|| anyhow!("history unavailable"))?
-            .push(View::component(component).fill_width().fill_height())?;
-        self.conversation.working = Some((unit, component));
+        )));
         Ok(())
+    }
+
+    fn working_has_queue(&self, cx: &AppCx<'_, IyonAction>) -> bool {
+        self.conversation.working.is_some_and(|working| {
+            cx.with_component(working, ConversationActivity::has_queue)
+                .unwrap_or(false)
+        })
     }
 
     fn freeze_user_batch(&mut self, cx: &mut AppCx<'_, IyonAction>) -> Result<()> {
@@ -296,27 +307,11 @@ impl IyonState {
     }
 
     fn remove_working(&mut self, cx: &mut AppCx<'_, IyonAction>) -> Result<()> {
-        let Some((unit, component)) = self.conversation.working.take() else {
+        let Some(working) = self.conversation.working.take() else {
             return Ok(());
         };
-        cx.history_mut()
-            .ok_or_else(|| anyhow!("history unavailable"))?
-            .discard_live(unit)?;
-        cx.remove_component(component);
+        cx.remove_component(working);
         Ok(())
-    }
-
-    fn with_working_parked<T>(
-        &mut self,
-        cx: &mut AppCx<'_, IyonAction>,
-        append: impl FnOnce(&mut AppCx<'_, IyonAction>) -> Result<T>,
-    ) -> Result<T> {
-        self.remove_working(cx)?;
-        let result = append(cx);
-        if self.conversation.turn_started && self.conversation.stream.is_none() {
-            self.start_working(cx)?;
-        }
-        result
     }
 
     pub(crate) fn start_assistant_delta(
@@ -325,14 +320,10 @@ impl IyonState {
         chunks: Vec<(SegmentKind, String)>,
     ) -> Result<()> {
         self.freeze_user_batch(cx)?;
-        let stream = if let Some((unit, component)) = self.conversation.working.take() {
-            let stream = cx
-                .history_mut()
-                .ok_or_else(|| anyhow!("history unavailable"))?
-                .replace_live_with_stream(unit, AssistantStream::new())?;
-            cx.remove_component(component);
-            stream
-        } else if let Some(stream) = self.conversation.stream {
+        if !self.working_has_queue(cx) {
+            self.remove_working(cx)?;
+        }
+        let stream = if let Some(stream) = self.conversation.stream {
             stream
         } else {
             cx.history_mut()
@@ -381,12 +372,8 @@ impl IyonState {
             .format(&TimelineItem::ErrorMessage {
                 text: message.clone(),
             });
-        if let Some((unit, component)) = self.conversation.working.take() {
-            cx.history_mut()
-                .ok_or_else(|| anyhow!("history unavailable"))?
-                .freeze(unit, view)?;
-            cx.remove_component(component);
-        } else if !message.is_empty() {
+        self.remove_working(cx)?;
+        if !message.is_empty() {
             cx.history_mut()
                 .ok_or_else(|| anyhow!("history unavailable"))?
                 .push(view)?;
@@ -404,8 +391,24 @@ impl IyonState {
         self.freeze_user_batch(cx)?;
         self.seal_stream(cx)?;
         let output = cx.register(ScrollPane::new(View::spacer(0)));
-        let (unit, component) = if let Some((unit, component)) = self.conversation.working.take() {
-            cx.with_component_mut(component, |activity| {
+        let keep_working = self.working_has_queue(cx);
+        let (unit, component) = if keep_working {
+            let component = cx.register(ConversationActivity::tool(
+                self.conversation.formatter.clone(),
+                id.clone(),
+                name.clone(),
+                args.clone(),
+                ToolTimelineStatus::Running,
+                None,
+                output,
+            ));
+            let unit = cx
+                .history_mut()
+                .ok_or_else(|| anyhow!("history unavailable"))?
+                .push(View::component(component).fill_width().fill_height())?;
+            (unit, component)
+        } else if let Some(working) = self.conversation.working.take() {
+            cx.with_component_mut(working, |activity| {
                 activity.transition_to_tool(
                     id.clone(),
                     name.clone(),
@@ -416,7 +419,11 @@ impl IyonState {
                 )
             })
             .ok_or_else(|| anyhow!("activity disappeared"))?;
-            (unit, component)
+            let unit = cx
+                .history_mut()
+                .ok_or_else(|| anyhow!("history unavailable"))?
+                .push(View::component(working).fill_width().fill_height())?;
+            (unit, working)
         } else {
             let component = cx.register(ConversationActivity::tool(
                 self.conversation.formatter.clone(),
@@ -427,12 +434,10 @@ impl IyonState {
                 None,
                 output,
             ));
-            let unit = self.with_working_parked(cx, |cx| {
-                Ok(cx
-                    .history_mut()
-                    .ok_or_else(|| anyhow!("history unavailable"))?
-                    .push(View::component(component).fill_width().fill_height())?)
-            })?;
+            let unit = cx
+                .history_mut()
+                .ok_or_else(|| anyhow!("history unavailable"))?
+                .push(View::component(component).fill_width().fill_height())?;
             (unit, component)
         };
         self.conversation.tools.insert(
@@ -443,11 +448,7 @@ impl IyonState {
                 output,
             },
         );
-        // Tools take the Working tail. Restore it so the next assistant delta
-        // updates that unit instead of pushing a new History row (which would
-        // jump the last tool up). The next tool takes this tail again, so the
-        // reserve never sits between tools.
-        if self.conversation.turn_started {
+        if self.conversation.turn_started && self.conversation.working.is_none() {
             self.start_working(cx)?;
         }
         Ok(())
@@ -648,20 +649,24 @@ impl IyonState {
                 is_error,
                 collapsed: true,
             });
-        self.with_working_parked(cx, |cx| {
-            Ok(cx
-                .history_mut()
-                .ok_or_else(|| anyhow!("history unavailable"))?
-                .push_with_boundary(view, boundary)?)
-        })?;
+        cx.history_mut()
+            .ok_or_else(|| anyhow!("history unavailable"))?
+            .push_with_boundary(view, boundary)?;
         Ok(())
     }
 
-    pub(crate) fn enqueue_steer(&mut self, cx: &mut AppCx<'_, IyonAction>, text: String) {
+    pub(crate) fn enqueue_steer(
+        &mut self,
+        cx: &mut AppCx<'_, IyonAction>,
+        text: String,
+    ) -> Result<()> {
         let _ = cx.with_component_mut(self.steering, |panel| panel.queued(text.clone()));
-        if let Some((_, component)) = self.conversation.working {
-            let _ = cx.with_component_mut(component, |activity| activity.queued(text));
+        if let Some(working) = self.conversation.working {
+            let _ = cx.with_component_mut(working, |activity| activity.queued(text));
+        } else if self.conversation.turn_started {
+            self.start_working(cx)?;
         }
+        Ok(())
     }
 
     pub(crate) fn prepare_goodbye(&mut self, cx: &mut AppCx<'_, IyonAction>) -> Result<()> {
