@@ -10,7 +10,7 @@
 //! framework layer.
 
 use crate::StyleSpec;
-use crate::document::{HeadingLevel, TextSelector, TextTableSection};
+use crate::content::text::{HeadingLevel, TextSelector, TextTableSection};
 
 use super::Theme;
 

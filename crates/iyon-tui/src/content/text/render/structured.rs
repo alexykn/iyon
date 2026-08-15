@@ -2,7 +2,7 @@ use std::num::NonZeroU16;
 
 use super::TextRenderPolicy;
 use super::{Renderer, TextRenderer};
-use crate::document::{
+use crate::content::text::{
     Alignment, Annotations, Block, BlockKind, CodeBlock, LanguageId, List, ListItem, ListMarker,
     LiteralText, MarkdownOptions, MarkdownProjector, NumberDelimiter, NumberStyle, SemanticTag,
     Table, TableCell, TableColumn, TableRow, TextContent, TextOrigin, TextPart, TextRole,
@@ -538,7 +538,7 @@ fn task_only_hides_list_marker_but_keeps_list_semantics() {
     assert!(painted.contains("[x] item"));
     assert!(!painted.contains("-"));
     let theme = Theme::new().with_text_style(
-        TextSelector::list_item().list_kind(crate::document::TextListKind::Bullet),
+        TextSelector::list_item().list_kind(crate::content::text::TextListKind::Bullet),
         StyleSpec::new().dim(),
     );
     assert!(style_at(&view, &theme, "item").dim);

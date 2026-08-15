@@ -5,4 +5,4 @@
 //! the semantic-to-`View` renderer. It intentionally does not own History,
 //! streaming lifecycle, terminal geometry, or application state.
 
-pub use crate::document::*;
+pub use crate::content::text::*;

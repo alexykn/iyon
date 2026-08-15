@@ -118,8 +118,8 @@
 mod application;
 mod backend;
 mod component;
+mod content;
 mod controls;
-mod document;
 mod geometry;
 mod history;
 mod id;
@@ -146,13 +146,14 @@ pub use application::{
 };
 
 pub use component::{Component, ComponentCx, ComponentHandle};
-pub use controls::{TextChange, TextInput};
-pub use document::{
+pub use content::Renderer;
+pub use content::text::{
     Block, CodeBlockLabelPolicy, HeadingLevel, Inline, InlineContent, MarkdownOptions,
-    MarkdownProjector, PlainTextProjector, RawText, Renderer, SoftBreakPolicy, TableColumnSizing,
+    MarkdownProjector, PlainTextProjector, RawText, SoftBreakPolicy, TableColumnSizing,
     TaskListMarkerPolicy, TextContent, TextListKind, TextOrigin, TextPart, TextRenderPolicy,
     TextRenderer, TextRole, TextSelector, TextTableSection, TextTaskState,
 };
+pub use controls::{TextChange, TextInput};
 pub use history::{
     FlowBoundary, History, HistoryError, HistoryLayout, HistoryStreamHandle, HistoryUnitId,
 };
@@ -175,7 +176,7 @@ pub use stream::{StreamPane, TextStream};
 // Internal modules and unit tests may use the short names without making
 // protocol/compiler machinery part of the external crate-root vocabulary.
 #[allow(unused_imports)]
-pub(crate) use document::{
+pub(crate) use content::text::{
     Alignment, Annotations, BlockKind, BreakKind, CodeBlock, FormatId, Image, InlineKind,
     LanguageId, LinkTarget, List, ListItem, ListMarker, LiteralText, Mark, MarkSet,
     NumberDelimiter, NumberStyle, SemanticKey, SemanticTag, SemanticValue, TextIrError,

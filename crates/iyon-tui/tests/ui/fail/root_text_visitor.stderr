@@ -11,8 +11,8 @@ note: the trait `TextVisitor` is defined here
   |                                                                 ^^^^^^^^^^^
 help: import `TextVisitor` directly
   |
-2 |     fn assert_visitor<T: iyon_tui::document::visit::TextVisitor>() {}
-  |                                    +++++++++++++++++
+2 |     fn assert_visitor<T: iyon_tui::content::text::visit::TextVisitor>() {}
+  |                                    ++++++++++++++++++++++
 
 error[E0277]: the trait bound `(): TextVisitor` is not satisfied
  --> tests/ui/fail/root_text_visitor.rs:3:22
