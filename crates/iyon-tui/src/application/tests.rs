@@ -16,7 +16,8 @@ use super::{
 };
 use crate::{
     BorderSpec, Component, ComponentCx, ComponentHandle, EventCx, History, HistoryError,
-    InteractionResult, IntoView, Key, KeyStroke, Output, RouteConflict, TextInput, TextSpan, View,
+    InteractionResult, IntoView, Key, KeyStroke, Modifiers, Output, RouteConflict, TextInput,
+    TextSpan, View,
     backend::NativeHistorySink,
     geometry::Size,
     physical::PhysicalRow,
@@ -378,8 +379,9 @@ fn neutral_app_composes_input_output_action_timer_and_persistent_history() {
 
     assert_eq!(
         app.dispatch_key(KeyStroke::new(Key::Tab)).unwrap(),
-        InteractionResult::Consumed
+        InteractionResult::Ignored
     );
+    assert!(app.focused_for_test());
     for key in ['h', 'i'] {
         assert_eq!(
             app.dispatch_key(KeyStroke::new(Key::Char(key))).unwrap(),
@@ -1784,6 +1786,10 @@ fn application_global_keys_preserve_local_traversal_and_binding_lifetime() {
             let input = cx.register(TextInput::new());
             cx.bind_key(KeyStroke::new(Key::Char('x')), || Action::A);
             cx.bind_key(KeyStroke::new(Key::Tab), || Action::B);
+            cx.bind_key(
+                KeyStroke::with_modifiers(Key::Tab, Modifiers::SHIFT),
+                || Action::A,
+            );
             cx.bind_key(KeyStroke::new(Key::Char('q')), || Action::C);
             cx.bind_key(KeyStroke::new(Key::Char('r')), || Action::A);
             cx.bind_key(KeyStroke::new(Key::Char('r')), || Action::B);
@@ -1802,22 +1808,17 @@ fn application_global_keys_preserve_local_traversal_and_binding_lifetime() {
         |state: &GlobalState| {
             View::vertical(|column| {
                 column.child(View::component(state.consumer));
-                column.child(View::component(state.input));
+                column.child(View::component(state.input).min_height(1));
             })
         },
     );
     let mut app = start(app, now);
     prepare(&mut app, now);
+    assert_eq!(app.focusable_count_for_test(), 2);
+    assert!(app.focused_for_test());
 
     assert_eq!(
         app.dispatch_key(KeyStroke::new(Key::Char('x'))).unwrap(),
-        InteractionResult::Consumed
-    );
-    app.advance_ready(now).unwrap();
-    assert!(app.state.hits.is_empty());
-
-    assert_eq!(
-        app.dispatch_key(KeyStroke::new(Key::Tab)).unwrap(),
         InteractionResult::Consumed
     );
     app.advance_ready(now).unwrap();
@@ -1837,6 +1838,28 @@ fn application_global_keys_preserve_local_traversal_and_binding_lifetime() {
     );
     app.advance_ready(now).unwrap();
     assert_eq!(app.state.hits, [Action::C, Action::B]);
+
+    assert_eq!(
+        app.dispatch_key(KeyStroke::new(Key::Tab)).unwrap(),
+        InteractionResult::Consumed
+    );
+    app.advance_ready(now).unwrap();
+    assert_eq!(app.state.hits, [Action::C, Action::B]);
+
+    assert_eq!(
+        app.dispatch_key(KeyStroke::new(Key::Char('q'))).unwrap(),
+        InteractionResult::Consumed
+    );
+    app.advance_ready(now).unwrap();
+    assert_eq!(app.state.hits, [Action::C, Action::B]);
+
+    assert_eq!(
+        app.dispatch_key(KeyStroke::with_modifiers(Key::Tab, Modifiers::SHIFT))
+            .unwrap(),
+        InteractionResult::Consumed
+    );
+    app.advance_ready(now).unwrap();
+    assert_eq!(app.state.hits, [Action::C, Action::B, Action::A]);
 }
 
 #[tokio::test(flavor = "current_thread")]

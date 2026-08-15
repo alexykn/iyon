@@ -175,8 +175,7 @@ impl FocusState {
             None if next => order[0],
             None => *order.last().expect("non-empty focus order"),
         };
-        self.set_focus(Some(target), capabilities, registry);
-        true
+        self.set_focus(Some(target), capabilities, registry)
     }
 
     fn set_focus(
