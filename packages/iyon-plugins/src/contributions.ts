@@ -40,7 +40,7 @@ export type ToolContribution = ContributionValue;
 // providers; the runtime selection seam validates the executable fields when
 // it resolves a provider.
 export type ProviderContribution = ContributionValue & Partial<ProviderDefinition>;
-export type AgentContribution = ContributionValue;
+export type AgentContribution = ContributionValue & { readonly create?: (context: unknown) => unknown };
 export type AppContribution = ContributionValue & { readonly create: (context: unknown) => unknown };
 export type CommandContribution = ContributionValue & { readonly run?: (...args: readonly unknown[]) => unknown };
 export type ShortcutContribution = ContributionValue & { readonly keys?: string | readonly string[]; readonly run?: (...args: readonly unknown[]) => unknown };
