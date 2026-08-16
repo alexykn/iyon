@@ -42,11 +42,11 @@ jobs:
       - name: Test scanner
         run: cargo test -p api-surface
 
+      - name: Check stable baseline
+        run: cargo run -p api-surface -- check --config tools/api-surface/surface.toml --require-implemented
+
       - name: Regenerate stable baseline
         run: cargo run -p api-surface -- scan --config tools/api-surface/surface.toml
-
-      - name: Check stable baseline
-        run: cargo run -p api-surface -- check --config tools/api-surface/surface.toml
 
       - name: Install Bun workspace
         run: bun install --frozen-lockfile
@@ -58,7 +58,7 @@ jobs:
         run: cargo build --workspace
 
       - name: Reject generated drift
-        run: git diff --exit-code -- packages/iyon-sdk/generated packages/iyon-sdk/src/virtual-modules.d.ts
+        run: git diff --exit-code -- tools/api-surface/mappings packages/iyon-sdk/generated packages/iyon-sdk/src/virtual-modules.d.ts
 
   declared-profile-matrix:
     name: Declared profile matrix
@@ -69,5 +69,4 @@ jobs:
         with:
           components: rustfmt
       - name: Verify the repository baseline profile
-        run: cargo run -p api-surface -- check --config tools/api-surface/surface.toml
-
+        run: cargo run -p api-surface -- check --config tools/api-surface/surface.toml --require-implemented
