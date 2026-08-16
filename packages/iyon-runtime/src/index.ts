@@ -6,6 +6,7 @@ export * from "./bootstrap/index.ts";
 export * from "./tools/contract.ts";
 export * from "./tools/execution.ts";
 export * from "./tools/generic.ts";
+export * from "./tools/policy.ts";
 export * from "./tui/index.ts";
 export {
   AgentSession,

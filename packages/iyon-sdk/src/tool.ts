@@ -83,6 +83,7 @@ export interface Tool<TArgs = JsonValue, TValue = unknown> {
   readonly renderCall: (call: ToolCall<TArgs>) => View;
   readonly renderResult: (result: ToolResult<TValue>) => View;
   readonly modelSpec?: ModelToolSpec;
+  readonly policy?: unknown;
 }
 
 export type ToolDefinition<TArgs = JsonValue, TValue = unknown> = Tool<TArgs, TValue>;
