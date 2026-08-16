@@ -1,5 +1,5 @@
 import type { App } from "iyon:plugins";
-import { History, Scene, TextInput, Tui } from "iyon:tui";
+import { History, Scene, TextInput, Tui, View } from "iyon:tui";
 import { History as RuntimeHistory, TextInput as RuntimeTextInput, TextStream } from "@iyon/runtime/tui";
 import type { History as HistoryHandle, TextInput as TextInputHandle, TuiRuntime, WorkingActivityHandle } from "@iyon/runtime/tui";
 import type {
