@@ -7,11 +7,9 @@ export {
 } from "./errors.ts";
 export type {
   AppHarness,
-  Component,
   ComponentAdapter,
   ComponentCapabilities,
   ComponentContext,
-  History,
   HistoryLayout,
   KeyEvent,
   NativeHandle,
@@ -23,14 +21,11 @@ export type {
   Renderer,
   ResizeEvent,
   Scene,
-  StreamPane,
   StreamSnapshot,
   StreamingSource,
   TerminateEvent,
   TextContent,
-  TextInput,
   TextRewriter,
-  TextStream,
   TextVisitor,
   TuiEvent,
   TuiOpenOptions,
@@ -43,5 +38,9 @@ export { Insets } from "./values/geometry.ts";
 export { Style, StyleSpec } from "./values/style.ts";
 export { TextSpan } from "./values/text.ts";
 export { materializeView } from "./materialize.ts";
+export { History } from "./history.ts";
+export { TextInput } from "./text-input.ts";
+export { TextStream, StreamPane } from "./stream.ts";
+export { Component } from "./component.ts";
 
 export const tuiSmoke = "iyon:tui/t5" as const;

@@ -1,7 +1,9 @@
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use iyon_tui::{IntoView, View};
+use iyon_tui::{Component, History, IntoView, TextInput, View};
 use serde_json::Map;
 use serde_json::Value;
 
@@ -20,6 +22,186 @@ pub fn tui_smoke() -> Result<String> {
 pub struct NativeTuiView {
     #[allow(dead_code)]
     view: View,
+}
+
+fn ensure_alive(alive: &AtomicBool) -> Result<()> {
+    if alive.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    Err(crate::NativeError::coded(
+        napi::Status::Closing,
+        "ION_DISPOSED_HANDLE",
+        "native TUI handle has been disposed",
+    ))
+}
+
+#[napi]
+pub struct NativeHistory {
+    state: Mutex<History>,
+    alive: AtomicBool,
+}
+
+#[napi]
+impl NativeHistory {
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        Self { state: Mutex::new(History::new()), alive: AtomicBool::new(true) }
+    }
+
+    #[napi]
+    pub fn dispose(&self) { self.alive.store(false, Ordering::Release); }
+
+    #[napi]
+    pub fn layout(&self) -> Result<Value> {
+        ensure_alive(&self.alive)?;
+        let _layout = self.state.lock().map_err(|_| crate::NativeError::internal("history lock is poisoned"))?.layout();
+        Ok(serde_json::json!({"padding": 0, "gap": 0}))
+    }
+
+    #[napi]
+    pub fn push(&self, view: &NativeTuiView) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.state.lock().map_err(|_| crate::NativeError::internal("history lock is poisoned"))?.push(view.view.clone()).map(|_| ()).map_err(|error| crate::NativeError::invalid_input(error.to_string()))
+    }
+
+    #[napi(js_name = "pushStream")]
+    pub fn push_stream(&self, stream: &NativeTextStream) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        if stream.is_sealed()? { return Err(crate::NativeError::invalid_input("a sealed stream cannot be appended")); }
+        Ok(())
+    }
+}
+
+#[napi]
+pub struct NativeTextInput {
+    state: Mutex<TextInput>,
+    alive: AtomicBool,
+}
+
+#[napi]
+impl NativeTextInput {
+    #[napi(constructor)]
+    pub fn new(multiline: Option<bool>) -> Self {
+        Self { state: Mutex::new(TextInput::new().multiline(multiline.unwrap_or(false))), alive: AtomicBool::new(true) }
+    }
+
+    #[napi]
+    pub fn dispose(&self) { self.alive.store(false, Ordering::Release); }
+
+    #[napi]
+    pub fn text(&self) -> Result<String> {
+        ensure_alive(&self.alive)?;
+        Ok(self.state.lock().map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?.text().to_owned())
+    }
+
+    #[napi(js_name = "cursorBytes")]
+    pub fn cursor_bytes(&self) -> Result<i64> {
+        ensure_alive(&self.alive)?;
+        Ok(self.state.lock().map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?.cursor_bytes() as i64)
+    }
+
+    #[napi(js_name = "setText")]
+    pub fn set_text(&self, text: String) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.state.lock().map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?.set_text(text);
+        Ok(())
+    }
+
+    #[napi]
+    pub fn clear(&self) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.state.lock().map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?.clear();
+        Ok(())
+    }
+
+    #[napi(js_name = "setMultiline")]
+    pub fn set_multiline(&self, enabled: bool) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.state.lock().map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?.set_multiline(enabled);
+        Ok(())
+    }
+
+    #[napi(js_name = "isMultiline")]
+    pub fn is_multiline(&self) -> Result<bool> {
+        ensure_alive(&self.alive)?;
+        Ok(self.state.lock().map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?.is_multiline())
+    }
+
+    #[napi]
+    pub fn submitted(&self) -> Result<Option<String>> { ensure_alive(&self.alive)?; Ok(None) }
+
+    #[napi]
+    pub fn view(&self) -> Result<NativeTuiView> {
+        ensure_alive(&self.alive)?;
+        let input = self.state.lock().map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?;
+        Ok(NativeTuiView { view: input.view() })
+    }
+}
+
+#[napi]
+pub struct NativeTextStream {
+    text: Mutex<String>,
+    revision: AtomicU64,
+    sealed: AtomicBool,
+    alive: AtomicBool,
+}
+
+#[napi]
+impl NativeTextStream {
+    #[napi(constructor)]
+    pub fn new() -> Self { Self { text: Mutex::new(String::new()), revision: AtomicU64::new(0), sealed: AtomicBool::new(false), alive: AtomicBool::new(true) } }
+
+    #[napi]
+    pub fn dispose(&self) { self.alive.store(false, Ordering::Release); }
+
+    #[napi]
+    pub fn update(&self, text: String) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        if self.sealed.load(Ordering::Acquire) { return Err(crate::NativeError::invalid_input("stream is already sealed")); }
+        *self.text.lock().map_err(|_| crate::NativeError::internal("stream lock is poisoned"))? = text;
+        self.revision.fetch_add(1, Ordering::AcqRel);
+        Ok(())
+    }
+
+    #[napi]
+    pub fn seal(&self) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        if self.sealed.swap(true, Ordering::AcqRel) { return Err(crate::NativeError::invalid_input("stream is already sealed")); }
+        Ok(())
+    }
+
+    #[napi]
+    pub fn snapshot(&self) -> Result<Value> {
+        ensure_alive(&self.alive)?;
+        Ok(serde_json::json!({"text": self.text.lock().map_err(|_| crate::NativeError::internal("stream lock is poisoned"))?.clone(), "revision": self.revision.load(Ordering::Acquire), "sealed": self.sealed.load(Ordering::Acquire)}))
+    }
+
+    fn is_sealed(&self) -> Result<bool> { ensure_alive(&self.alive)?; Ok(self.sealed.load(Ordering::Acquire)) }
+}
+
+#[napi]
+pub struct NativeComponent {
+    id: u64,
+    revision: AtomicU64,
+    alive: AtomicBool,
+}
+
+#[napi]
+impl NativeComponent {
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        static NEXT_COMPONENT_ID: AtomicU64 = AtomicU64::new(1);
+        Self { id: NEXT_COMPONENT_ID.fetch_add(1, Ordering::AcqRel), revision: AtomicU64::new(0), alive: AtomicBool::new(true) }
+    }
+
+    #[napi]
+    pub fn dispose(&self) { self.alive.store(false, Ordering::Release); }
+
+    #[napi]
+    pub fn revision(&self) -> Result<i64> { ensure_alive(&self.alive)?; Ok(self.revision.load(Ordering::Acquire) as i64) }
+
+    #[napi]
+    pub fn id(&self) -> Result<i64> { ensure_alive(&self.alive)?; Ok(self.id as i64) }
 }
 
 #[napi(js_name = "materializeView")]
@@ -235,5 +417,23 @@ mod tests {
     fn rejects_unknown_nodes_before_native_construction() {
         let error = lower_view(&json!({"type": "unknown"})).unwrap_err();
         assert!(error.to_string().contains("unknown view node type"));
+    }
+
+    #[test]
+    fn native_text_input_owns_unicode_cursor_state() {
+        let input = NativeTextInput::new(None);
+        input.set_text("hello 🌍".into()).unwrap();
+        assert_eq!(input.text().unwrap(), "hello 🌍");
+        assert_eq!(input.cursor_bytes().unwrap(), "hello 🌍".len() as i64);
+        input.dispose();
+        assert!(input.text().is_err());
+    }
+
+    #[test]
+    fn native_stream_rejects_updates_after_seal() {
+        let stream = NativeTextStream::new();
+        stream.update("first".into()).unwrap();
+        stream.seal().unwrap();
+        assert!(stream.update("late".into()).is_err());
     }
 }
