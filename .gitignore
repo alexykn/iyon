@@ -6,7 +6,6 @@ node_modules/
 # Bun / JavaScript build artifacts
 *.node
 *.tsbuildinfo
-bun.lock
 
 # macOS
 .DS_Store
