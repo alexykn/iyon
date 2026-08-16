@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 pub(crate) mod agent;
 mod command;
 mod event;

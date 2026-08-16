@@ -31,6 +31,7 @@ pub struct OpenRouterModelApi {
 }
 
 impl OpenRouterModelApi {
+    #[deprecated(note = "use the Bun @iyon/provider-openrouter package in the product runtime")]
     pub fn new(
         api_key: impl Into<String>,
         model_id: impl Into<String>,
@@ -38,6 +39,7 @@ impl OpenRouterModelApi {
         Self::with_base_url(api_key, model_id, DEFAULT_BASE_URL)
     }
 
+    #[deprecated(note = "use the Bun @iyon/provider-openrouter package in the product runtime")]
     pub fn with_base_url(
         api_key: impl Into<String>,
         model_id: impl Into<String>,

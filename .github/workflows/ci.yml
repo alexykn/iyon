@@ -28,5 +28,7 @@ jobs:
           bun-version: 1.3.11
       - run: bun install --frozen-lockfile
       - run: bun run typecheck:plugins
+      - run: bun run typecheck
+      - run: bun test plugins/providers packages/iyon-runtime/test/providers
       - run: bun test packages/iyon-plugins/tests
       - run: test -f tranche_6_bun_refactor.md

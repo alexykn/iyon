@@ -1,4 +1,5 @@
 declare module "iyon:api" {
+  export type * from "@iyon/sdk";
   export const apiSmoke: "iyon:api/t1";
   export const nativeVersion: () => string;
   export const echoJson: (value: import("./native.ts").JsonValue) => import("./native.ts").JsonValue;

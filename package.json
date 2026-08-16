@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "plugins/providers/*"
   ],
   "scripts": {
     "workspace:install": "bun install",
@@ -24,7 +25,8 @@
   "dependencies": {
     "@iyon/cli": "workspace:*",
     "@iyon/runtime": "workspace:*",
-    "@iyon/plugins": "workspace:*"
+    "@iyon/plugins": "workspace:*",
+    "@iyon/sdk": "workspace:*"
   },
   "devDependencies": {
     "bun-types": "latest"

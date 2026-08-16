@@ -28,6 +28,7 @@ pub struct OpenAICodexModelApi {
 }
 
 impl OpenAICodexModelApi {
+    #[deprecated(note = "use the Bun @iyon/provider-openai-codex package in the product runtime")]
     pub fn new(
         access_token: impl Into<String>,
         account_id: impl Into<String>,

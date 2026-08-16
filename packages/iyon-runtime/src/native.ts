@@ -70,6 +70,10 @@ export interface NativeAddon {
   KernelSession: new (options?: JsonValue) => NativeKernelSessionContract;
   nativeCounterStats(): NativeCounterStats;
   resetNativeCounterStats(): void;
+  credentialGet(service: string, account: string): string | undefined;
+  credentialSet(service: string, account: string, secret: string): void;
+  credentialDelete(service: string, account: string): void;
+  credentialHas(service: string, account: string): boolean;
   materializeView?(value: unknown): object;
   NativeHistory?: new () => { dispose(): void; layout(): object; push(view: object): void; pushStream(stream: object): void };
   NativeTextInput?: new (multiline?: boolean) => { dispose(): void; text(): string; cursorBytes(): number; setText(value: string): void; clear(): void; submitted(): string | null; setMultiline(enabled: boolean): void; isMultiline(): boolean };
@@ -95,4 +99,8 @@ export const {
   KernelSession,
   nativeCounterStats,
   resetNativeCounterStats,
+  credentialGet,
+  credentialSet,
+  credentialDelete,
+  credentialHas,
 } = native;

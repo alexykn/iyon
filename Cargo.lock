@@ -1084,6 +1084,7 @@ dependencies = [
  "iyon-api",
  "iyon-core",
  "iyon-tui",
+ "keyring",
  "napi",
  "napi-build",
  "napi-derive",
