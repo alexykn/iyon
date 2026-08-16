@@ -3,23 +3,9 @@ use iyon_tui::{DiffRenderer, IntoView, Renderer, StyleRef, StyleSpec, Text, Text
 use crate::tools::types::ToolCallRenderInput;
 use crate::transcript::ToolTimelineStatus;
 
-mod bash;
-mod edit;
-mod find;
 mod generic;
-mod grep;
-mod ls;
-mod read;
-mod write;
 
-pub(crate) use bash::BashRenderer;
-pub(crate) use edit::EditRenderer;
-pub(crate) use find::FindRenderer;
 pub(crate) use generic::GenericRenderer;
-pub(crate) use grep::GrepRenderer;
-pub(crate) use ls::LsRenderer;
-pub(crate) use read::ReadRenderer;
-pub(crate) use write::WriteRenderer;
 
 pub(super) fn tool_style(status: ToolTimelineStatus) -> StyleRef {
     let key = match status {

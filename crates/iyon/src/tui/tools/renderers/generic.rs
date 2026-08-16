@@ -9,10 +9,6 @@ use iyon_tui::View;
 pub(crate) struct GenericRenderer;
 
 impl ToolRenderer for GenericRenderer {
-    fn tool_name(&self) -> &'static str {
-        "*"
-    }
-
     fn render_call(&self, input: ToolCallRenderInput<'_>) -> View {
         let mut children = vec![tool_call_line(
             format!("tool {} — {}", input.tool_name, status_label(input.status)),
