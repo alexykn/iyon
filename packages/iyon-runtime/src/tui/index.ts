@@ -20,7 +20,6 @@ export type {
   RenderContext,
   Renderer,
   ResizeEvent,
-  Scene,
   StreamSnapshot,
   StreamingSource,
   TerminateEvent,
@@ -55,5 +54,8 @@ export { StreamingSourceAdapter } from "./traits/streaming-source.ts";
 export { ComponentAdapterBridge } from "./traits/component.ts";
 export { OutputRouter, RouteConflict } from "./output.ts";
 export { FocusController, InteractionRouter } from "./interaction.ts";
+export { Scene } from "./scene.ts";
+export { Tui } from "./runtime.ts";
+export { keyEvent, pasteEvent, resizeEvent, terminateEvent } from "./events.ts";
 
 export const tuiSmoke = "iyon:tui/t5" as const;
