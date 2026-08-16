@@ -32,6 +32,78 @@ declare module "iyon:core" {
   export type ToolUpdateEvent = Record<string, unknown>;
   // iyon-core::TurnId [MirrorValue / T4]
   export type TurnId = Record<string, unknown>;
+  // iyon-core::agent::tool_call::AssembledToolCall::arguments [MirrorValue / T4]
+  export type agent__tool_call__AssembledToolCall__arguments = Record<string, unknown>;
+  // iyon-core::agent::tool_call::AssembledToolCall::id [MirrorValue / T4]
+  export type agent__tool_call__AssembledToolCall__id = Record<string, unknown>;
+  // iyon-core::agent::tool_call::AssembledToolCall::name [MirrorValue / T4]
+  export type agent__tool_call__AssembledToolCall__name = Record<string, unknown>;
+  // iyon-core::agent::tool_call::InvalidToolCall::error [MirrorValue / T4]
+  export type agent__tool_call__InvalidToolCall__error = Record<string, unknown>;
+  // iyon-core::agent::tool_call::InvalidToolCall::id [MirrorValue / T4]
+  export type agent__tool_call__InvalidToolCall__id = Record<string, unknown>;
+  // iyon-core::agent::tool_call::InvalidToolCall::name [MirrorValue / T4]
+  export type agent__tool_call__InvalidToolCall__name = Record<string, unknown>;
+  // iyon-core::agent::tool_call::ToolCallRequest::Invalid [MirrorValue / T4]
+  export type agent__tool_call__ToolCallRequest__Invalid = Record<string, unknown>;
+  // iyon-core::agent::tool_call::ToolCallRequest::Invalid::0 [MirrorValue / T4]
+  export type agent__tool_call__ToolCallRequest__Invalid__0 = Record<string, unknown>;
+  // iyon-core::agent::tool_call::ToolCallRequest::Ready [MirrorValue / T4]
+  export type agent__tool_call__ToolCallRequest__Ready = Record<string, unknown>;
+  // iyon-core::agent::tool_call::ToolCallRequest::Ready::0 [MirrorValue / T4]
+  export type agent__tool_call__ToolCallRequest__Ready__0 = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::Assistant [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__Assistant = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::Assistant::content [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__Assistant__content = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::Assistant::id [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__Assistant__id = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::Assistant::stop_reason [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__Assistant__stop_reason = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::Assistant::timestamp [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__Assistant__timestamp = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::Assistant::usage [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__Assistant__usage = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::Status [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__Status = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::Status::id [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__Status__id = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::Status::text [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__Status__text = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::Status::timestamp [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__Status__timestamp = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::ToolResult [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__ToolResult = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::ToolResult::content [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__ToolResult__content = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::ToolResult::details [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__ToolResult__details = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::ToolResult::id [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__ToolResult__id = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::ToolResult::is_error [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__ToolResult__is_error = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::ToolResult::timestamp [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__ToolResult__timestamp = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::ToolResult::tool_call_id [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__ToolResult__tool_call_id = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::ToolResult::tool_name [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__ToolResult__tool_name = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::User [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__User = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::User::content [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__User__content = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::User::id [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__User__id = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::User::timestamp [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__User__timestamp = Record<string, unknown>;
+  // iyon-core::agent::transcript::AgentMessage::assistant [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__assistant = (...args: readonly unknown[]) => unknown;
+  // iyon-core::agent::transcript::AgentMessage::id [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__id = (...args: readonly unknown[]) => unknown;
+  // iyon-core::agent::transcript::AgentMessage::tool_result [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__tool_result = (...args: readonly unknown[]) => unknown;
+  // iyon-core::agent::transcript::AgentMessage::user [MirrorValue / T4]
+  export type agent__transcript__AgentMessage__user = (...args: readonly unknown[]) => unknown;
   // iyon-core::command::CoreCommand::ApproveToolCall [MirrorValue / T4]
   export type command__CoreCommand__ApproveToolCall = Record<string, unknown>;
   // iyon-core::command::CoreCommand::ApproveToolCall::approval_id [NativeHandle / T4]
@@ -324,6 +396,384 @@ declare module "iyon:core" {
   export type ids__TurnId = Record<string, unknown>;
   // iyon-core::ids::TurnId::0 [NativeHandle / T4]
   export interface ids__TurnId__0 { readonly __nativeHandle: unique symbol; }
+  // iyon-core::kernel [NativeHandle / T4]
+  export interface kernel { readonly __nativeHandle: unique symbol; }
+  // iyon-core::kernel::AgentMessage [MirrorValue / T4]
+  export type kernel__AgentMessage = Record<string, unknown>;
+  // iyon-core::kernel::ApprovalDecision [MirrorValue / T4]
+  export type kernel__ApprovalDecision = Record<string, unknown>;
+  // iyon-core::kernel::ApprovalRequirement [MirrorValue / T4]
+  export type kernel__ApprovalRequirement = Record<string, unknown>;
+  // iyon-core::kernel::ApprovalState [MirrorValue / T4]
+  export type kernel__ApprovalState = Record<string, unknown>;
+  // iyon-core::kernel::ApprovalStatus [MirrorValue / T4]
+  export type kernel__ApprovalStatus = Record<string, unknown>;
+  // iyon-core::kernel::AssembledToolCall [MirrorValue / T4]
+  export type kernel__AssembledToolCall = Record<string, unknown>;
+  // iyon-core::kernel::CustomEntryError [MirrorValue / T4]
+  export type kernel__CustomEntryError = Record<string, unknown>;
+  // iyon-core::kernel::InvalidToolCall [MirrorValue / T4]
+  export type kernel__InvalidToolCall = Record<string, unknown>;
+  // iyon-core::kernel::Kernel [MirrorValue / T4]
+  export type kernel__Kernel = Record<string, unknown>;
+  // iyon-core::kernel::KernelConfig [MirrorValue / T4]
+  export type kernel__KernelConfig = Record<string, unknown>;
+  // iyon-core::kernel::KernelQueues [MirrorValue / T4]
+  export type kernel__KernelQueues = Record<string, unknown>;
+  // iyon-core::kernel::KernelSession [MirrorValue / T4]
+  export type kernel__KernelSession = Record<string, unknown>;
+  // iyon-core::kernel::ModelTurn [MirrorValue / T4]
+  export type kernel__ModelTurn = Record<string, unknown>;
+  // iyon-core::kernel::ModelTurnError [MirrorValue / T4]
+  export type kernel__ModelTurnError = Record<string, unknown>;
+  // iyon-core::kernel::ModelTurnResult [MirrorValue / T4]
+  export type kernel__ModelTurnResult = Record<string, unknown>;
+  // iyon-core::kernel::ModelTurnState [MirrorValue / T4]
+  export type kernel__ModelTurnState = Record<string, unknown>;
+  // iyon-core::kernel::QueueFull [MirrorValue / T4]
+  export type kernel__QueueFull = Record<string, unknown>;
+  // iyon-core::kernel::QueueKind [MirrorValue / T4]
+  export type kernel__QueueKind = Record<string, unknown>;
+  // iyon-core::kernel::QueueOperation [MirrorValue / T4]
+  export type kernel__QueueOperation = Record<string, unknown>;
+  // iyon-core::kernel::SessionEntry [MirrorValue / T4]
+  export type kernel__SessionEntry = Record<string, unknown>;
+  // iyon-core::kernel::SessionMessageError [MirrorValue / T4]
+  export type kernel__SessionMessageError = Record<string, unknown>;
+  // iyon-core::kernel::SessionSnapshot [MirrorValue / T4]
+  export type kernel__SessionSnapshot = Record<string, unknown>;
+  // iyon-core::kernel::ToolCallRequest [MirrorValue / T4]
+  export type kernel__ToolCallRequest = Record<string, unknown>;
+  // iyon-core::kernel::ToolLifecycleError [MirrorValue / T4]
+  export type kernel__ToolLifecycleError = Record<string, unknown>;
+  // iyon-core::kernel::ToolLifecycleEvent [MirrorValue / T4]
+  export type kernel__ToolLifecycleEvent = Record<string, unknown>;
+  // iyon-core::kernel::ToolLifecycleHandle [MirrorValue / T4]
+  export type kernel__ToolLifecycleHandle = Record<string, unknown>;
+  // iyon-core::kernel::ToolLifecycleResult [MirrorValue / T4]
+  export type kernel__ToolLifecycleResult = Record<string, unknown>;
+  // iyon-core::kernel::ToolLifecycleState [MirrorValue / T4]
+  export type kernel__ToolLifecycleState = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalDecision::Approved [MirrorValue / T4]
+  export type kernel__approval__ApprovalDecision__Approved = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalDecision::Rejected [MirrorValue / T4]
+  export type kernel__approval__ApprovalDecision__Rejected = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalDecision::Rejected::reason [MirrorValue / T4]
+  export type kernel__approval__ApprovalDecision__Rejected__reason = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalRequirement::NotRequired [MirrorValue / T4]
+  export type kernel__approval__ApprovalRequirement__NotRequired = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalRequirement::Required [MirrorValue / T4]
+  export type kernel__approval__ApprovalRequirement__Required = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalRequirement::Required::reason [MirrorValue / T4]
+  export type kernel__approval__ApprovalRequirement__Required__reason = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalState::id [MirrorValue / T4]
+  export type kernel__approval__ApprovalState__id = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalState::is_pending [MirrorValue / T4]
+  export type kernel__approval__ApprovalState__is_pending = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::approval::ApprovalState::requirement [MirrorValue / T4]
+  export type kernel__approval__ApprovalState__requirement = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalState::status [MirrorValue / T4]
+  export type kernel__approval__ApprovalState__status = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalStatus::Approved [MirrorValue / T4]
+  export type kernel__approval__ApprovalStatus__Approved = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalStatus::Cancelled [MirrorValue / T4]
+  export type kernel__approval__ApprovalStatus__Cancelled = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalStatus::Pending [MirrorValue / T4]
+  export type kernel__approval__ApprovalStatus__Pending = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalStatus::Rejected [MirrorValue / T4]
+  export type kernel__approval__ApprovalStatus__Rejected = Record<string, unknown>;
+  // iyon-core::kernel::approval::ApprovalStatus::Rejected::reason [MirrorValue / T4]
+  export type kernel__approval__ApprovalStatus__Rejected__reason = Record<string, unknown>;
+  // iyon-core::kernel::kernel::KernelConfig [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig = Record<string, unknown>;
+  // iyon-core::kernel::kernel::KernelConfig::approval_requirement [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__approval_requirement = Record<string, unknown>;
+  // iyon-core::kernel::kernel::KernelConfig::cancellation [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__cancellation = Record<string, unknown>;
+  // iyon-core::kernel::kernel::KernelConfig::command_capacity [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__command_capacity = Record<string, unknown>;
+  // iyon-core::kernel::kernel::KernelConfig::default [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__default = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::KernelConfig::event_capacity [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__event_capacity = Record<string, unknown>;
+  // iyon-core::kernel::kernel::KernelConfig::host_tool_call_ceiling [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__host_tool_call_ceiling = Record<string, unknown>;
+  // iyon-core::kernel::kernel::KernelConfig::new [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__new = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::KernelConfig::session [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__session = Record<string, unknown>;
+  // iyon-core::kernel::kernel::KernelConfig::tools [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__tools = Record<string, unknown>;
+  // iyon-core::kernel::kernel::KernelConfig::with_approval_requirement [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__with_approval_requirement = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::KernelConfig::with_cancellation [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__with_cancellation = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::KernelConfig::with_capacities [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__with_capacities = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::KernelConfig::with_host_tool_call_ceiling [MirrorValue / T4]
+  export type kernel__kernel__KernelConfig__with_host_tool_call_ceiling = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::Kernel::approval_requirement [MirrorValue / T4]
+  export type kernel__kernel__Kernel__approval_requirement = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::Kernel::cancellation [MirrorValue / T4]
+  export type kernel__kernel__Kernel__cancellation = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::Kernel::command_capacity [MirrorValue / T4]
+  export type kernel__kernel__Kernel__command_capacity = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::Kernel::event_capacity [MirrorValue / T4]
+  export type kernel__kernel__Kernel__event_capacity = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::Kernel::host_tool_call_ceiling [MirrorValue / T4]
+  export type kernel__kernel__Kernel__host_tool_call_ceiling = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::Kernel::new [MirrorValue / T4]
+  export type kernel__kernel__Kernel__new = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::Kernel::queues [MirrorValue / T4]
+  export type kernel__kernel__Kernel__queues = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::Kernel::queues_mut [MirrorValue / T4]
+  export type kernel__kernel__Kernel__queues_mut = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::Kernel::session [MirrorValue / T4]
+  export type kernel__kernel__Kernel__session = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::Kernel::session_mut [MirrorValue / T4]
+  export type kernel__kernel__Kernel__session_mut = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::kernel::Kernel::tools [MirrorValue / T4]
+  export type kernel__kernel__Kernel__tools = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnError::Assembly [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnError__Assembly = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnError::Assembly::0 [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnError__Assembly__0 = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnError::InvalidState [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnError__InvalidState = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnError::InvalidState::0 [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnError__InvalidState__0 = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnError::MissingStopReason [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnError__MissingStopReason = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnError::Provider [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnError__Provider = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnError::Provider::0 [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnError__Provider__0 = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnResult::assistant_message [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnResult__assistant_message = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnResult::cancelled [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnResult__cancelled = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnResult::stop_reason [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnResult__stop_reason = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnResult::tool_calls [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnResult__tool_calls = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnResult::turn_id [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnResult__turn_id = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnState::Active [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnState__Active = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnState::Cancelled [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnState__Cancelled = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnState::Failed [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnState__Failed = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurnState::Finished [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurnState__Finished = Record<string, unknown>;
+  // iyon-core::kernel::model_turn::ModelTurn::assistant_message_id [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__assistant_message_id = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::begin [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__begin = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::cancel [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__cancel = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::events [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__events = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::fail [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__fail = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::failure [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__failure = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::finish [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__finish = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::finish_with_test_stop [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__finish_with_test_stop = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::new [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__new = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::push [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__push = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::push_many [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__push_many = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::state [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__state = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::take_events [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__take_events = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::model_turn::ModelTurn::turn_id [MirrorValue / T4]
+  export type kernel__model_turn__ModelTurn__turn_id = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::abort [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__abort = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::abort_requested [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__abort_requested = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::apply [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__apply = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::drain_follow_ups_after_settle [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__drain_follow_ups_after_settle = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::drain_steers_at_boundary [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__drain_steers_at_boundary = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::follow_up [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__follow_up = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::new [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__new = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::pending_follow_ups [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__pending_follow_ups = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::pending_prompts [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__pending_prompts = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::pending_steers [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__pending_steers = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::prompt [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__prompt = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::set_active [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__set_active = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::steer [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__steer = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::submit_turn_compat [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__submit_turn_compat = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::take_prompt [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__take_prompt = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::QueueFull::kind [MirrorValue / T4]
+  export type kernel__queue__QueueFull__kind = Record<string, unknown>;
+  // iyon-core::kernel::queue::QueueKind::FollowUp [MirrorValue / T4]
+  export type kernel__queue__QueueKind__FollowUp = Record<string, unknown>;
+  // iyon-core::kernel::queue::QueueKind::Prompt [MirrorValue / T4]
+  export type kernel__queue__QueueKind__Prompt = Record<string, unknown>;
+  // iyon-core::kernel::queue::QueueKind::Steer [MirrorValue / T4]
+  export type kernel__queue__QueueKind__Steer = Record<string, unknown>;
+  // iyon-core::kernel::queue::QueueOperation::Abort [MirrorValue / T4]
+  export type kernel__queue__QueueOperation__Abort = Record<string, unknown>;
+  // iyon-core::kernel::queue::QueueOperation::FollowUp [MirrorValue / T4]
+  export type kernel__queue__QueueOperation__FollowUp = Record<string, unknown>;
+  // iyon-core::kernel::queue::QueueOperation::FollowUp::0 [MirrorValue / T4]
+  export type kernel__queue__QueueOperation__FollowUp__0 = Record<string, unknown>;
+  // iyon-core::kernel::queue::QueueOperation::Prompt [MirrorValue / T4]
+  export type kernel__queue__QueueOperation__Prompt = Record<string, unknown>;
+  // iyon-core::kernel::queue::QueueOperation::Prompt::0 [MirrorValue / T4]
+  export type kernel__queue__QueueOperation__Prompt__0 = Record<string, unknown>;
+  // iyon-core::kernel::queue::QueueOperation::Steer [MirrorValue / T4]
+  export type kernel__queue__QueueOperation__Steer = Record<string, unknown>;
+  // iyon-core::kernel::queue::QueueOperation::Steer::0 [MirrorValue / T4]
+  export type kernel__queue__QueueOperation__Steer__0 = Record<string, unknown>;
+  // iyon-core::kernel::session::CustomEntryError::namespace [MirrorValue / T4]
+  export type kernel__session__CustomEntryError__namespace = Record<string, unknown>;
+  // iyon-core::kernel::session::KernelSession::append_entry [MirrorValue / T4]
+  export type kernel__session__KernelSession__append_entry = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::session::KernelSession::append_message [MirrorValue / T4]
+  export type kernel__session__KernelSession__append_message = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::session::KernelSession::entries [MirrorValue / T4]
+  export type kernel__session__KernelSession__entries = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::session::KernelSession::from_legacy [MirrorValue / T4]
+  export type kernel__session__KernelSession__from_legacy = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::session::KernelSession::id [MirrorValue / T4]
+  export type kernel__session__KernelSession__id = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::session::KernelSession::messages [MirrorValue / T4]
+  export type kernel__session__KernelSession__messages = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::session::KernelSession::new [MirrorValue / T4]
+  export type kernel__session__KernelSession__new = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::session::KernelSession::next_message_id [MirrorValue / T4]
+  export type kernel__session__KernelSession__next_message_id = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::session::KernelSession::snapshot [MirrorValue / T4]
+  export type kernel__session__KernelSession__snapshot = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::session::KernelSession::sync_to_legacy [MirrorValue / T4]
+  export type kernel__session__KernelSession__sync_to_legacy = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::session::KernelSession::to_model_messages [MirrorValue / T4]
+  export type kernel__session__KernelSession__to_model_messages = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::session::KernelSession::with_next_message_id [MirrorValue / T4]
+  export type kernel__session__KernelSession__with_next_message_id = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::session::SessionEntry::Custom [MirrorValue / T4]
+  export type kernel__session__SessionEntry__Custom = Record<string, unknown>;
+  // iyon-core::kernel::session::SessionEntry::Custom::data [MirrorValue / T4]
+  export type kernel__session__SessionEntry__Custom__data = Record<string, unknown>;
+  // iyon-core::kernel::session::SessionEntry::Custom::namespace [MirrorValue / T4]
+  export type kernel__session__SessionEntry__Custom__namespace = Record<string, unknown>;
+  // iyon-core::kernel::session::SessionEntry::Message [MirrorValue / T4]
+  export type kernel__session__SessionEntry__Message = Record<string, unknown>;
+  // iyon-core::kernel::session::SessionEntry::Message::0 [MirrorValue / T4]
+  export type kernel__session__SessionEntry__Message__0 = Record<string, unknown>;
+  // iyon-core::kernel::session::SessionMessageError::ConflictingMessageId [MirrorValue / T4]
+  export type kernel__session__SessionMessageError__ConflictingMessageId = Record<string, unknown>;
+  // iyon-core::kernel::session::SessionMessageError::ConflictingMessageId::0 [MirrorValue / T4]
+  export type kernel__session__SessionMessageError__ConflictingMessageId__0 = Record<string, unknown>;
+  // iyon-core::kernel::session::SessionMessageError::IdExhausted [MirrorValue / T4]
+  export type kernel__session__SessionMessageError__IdExhausted = Record<string, unknown>;
+  // iyon-core::kernel::session::SessionMessageError::InvalidNamespace [MirrorValue / T4]
+  export type kernel__session__SessionMessageError__InvalidNamespace = Record<string, unknown>;
+  // iyon-core::kernel::session::SessionMessageError::InvalidNamespace::0 [MirrorValue / T4]
+  export type kernel__session__SessionMessageError__InvalidNamespace__0 = Record<string, unknown>;
+  // iyon-core::kernel::session::SessionSnapshot::entries [MirrorValue / T4]
+  export type kernel__session__SessionSnapshot__entries = Record<string, unknown>;
+  // iyon-core::kernel::session::SessionSnapshot::session_id [MirrorValue / T4]
+  export type kernel__session__SessionSnapshot__session_id = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleError::DuplicateApprovalResolution [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleError__DuplicateApprovalResolution = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleError::DuplicateApprovalResolution::0 [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleError__DuplicateApprovalResolution__0 = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleError::InvalidTransition [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleError__InvalidTransition = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleError::InvalidTransition::from [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleError__InvalidTransition__from = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleError::InvalidTransition::operation [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleError__InvalidTransition__operation = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleError::StaleApproval [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleError__StaleApproval = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleError::StaleApproval::0 [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleError__StaleApproval__0 = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleEvent::approval_id [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleEvent__approval_id = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleEvent::sequence [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleEvent__sequence = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleEvent::state [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleEvent__state = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleEvent::tool_call_id [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleEvent__tool_call_id = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::approval [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__approval = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::call [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__call = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::cancel [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__cancel = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::cancellation_reason [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__cancellation_reason = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::error [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__error = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::events [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__events = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::fail [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__fail = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::finish [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__finish = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::new [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__new = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::prepare [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__prepare = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::prepared [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__prepared = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::prepared_arguments [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__prepared_arguments = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::request_approval [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__request_approval = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::resolve_approval [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__resolve_approval = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::result [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__result = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::start [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__start = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleHandle::state [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleHandle__state = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::tool::ToolLifecycleResult::content [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleResult__content = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleResult::details [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleResult__details = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleResult::is_error [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleResult__is_error = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleState::Cancelled [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleState__Cancelled = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleState::Failed [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleState__Failed = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleState::Finished [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleState__Finished = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleState::PendingApproval [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleState__PendingApproval = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleState::Prepared [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleState__Prepared = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleState::Preparing [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleState__Preparing = Record<string, unknown>;
+  // iyon-core::kernel::tool::ToolLifecycleState::Running [MirrorValue / T4]
+  export type kernel__tool__ToolLifecycleState__Running = Record<string, unknown>;
   // iyon-core::session::state::ModelSelection::model_id [NativeHandle / T4]
   export interface session__state__ModelSelection__model_id { readonly __nativeHandle: unique symbol; }
   // iyon-core::session::state::ModelSelection::provider [NativeHandle / T4]
@@ -362,10 +812,134 @@ declare module "iyon:core" {
   export interface tools__BeforeToolCallHook {}
   // iyon-core::tools::BeforeToolCallResolution [MirrorValue / T4]
   export type tools__BeforeToolCallResolution = Record<string, unknown>;
+  // iyon-core::tools::ToolApprovalPolicy [MirrorValue / T4]
+  export type tools__ToolApprovalPolicy = Record<string, unknown>;
+  // iyon-core::tools::ToolContext [MirrorValue / T4]
+  export type tools__ToolContext = Record<string, unknown>;
+  // iyon-core::tools::ToolDefinition [MirrorValue / T4]
+  export type tools__ToolDefinition = Record<string, unknown>;
+  // iyon-core::tools::ToolExecutionMode [MirrorValue / T4]
+  export type tools__ToolExecutionMode = Record<string, unknown>;
+  // iyon-core::tools::ToolExecutor [MirrorValue / T4]
+  export type tools__ToolExecutor = Record<string, unknown>;
+  // iyon-core::tools::ToolFuture [MirrorValue / T4]
+  export type tools__ToolFuture = Record<string, unknown>;
   // iyon-core::tools::ToolHookSet [MirrorValue / T4]
   export type tools__ToolHookSet = Record<string, unknown>;
   // iyon-core::tools::ToolHookSnapshot [MirrorValue / T4]
   export type tools__ToolHookSnapshot = Record<string, unknown>;
+  // iyon-core::tools::ToolRegistry [MirrorValue / T4]
+  export type tools__ToolRegistry = Record<string, unknown>;
+  // iyon-core::tools::ToolResult [MirrorValue / T4]
+  export type tools__ToolResult = Record<string, unknown>;
+  // iyon-core::tools::ToolSource [MirrorValue / T4]
+  export type tools__ToolSource = Record<string, unknown>;
+  // iyon-core::tools::ToolUpdate [MirrorValue / T4]
+  export type tools__ToolUpdate = Record<string, unknown>;
+  // iyon-core::tools::ToolUpdateSink [MirrorValue / T4]
+  export type tools__ToolUpdateSink = Record<string, unknown>;
+  // iyon-core::tools::definition [NativeHandle / T4]
+  export interface tools__definition { readonly __nativeHandle: unique symbol; }
+  // iyon-core::tools::definition::ToolApprovalPolicy [MirrorValue / T4]
+  export type tools__definition__ToolApprovalPolicy = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolApprovalPolicy::AlwaysAsk [MirrorValue / T4]
+  export type tools__definition__ToolApprovalPolicy__AlwaysAsk = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolApprovalPolicy::NeverAsk [MirrorValue / T4]
+  export type tools__definition__ToolApprovalPolicy__NeverAsk = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolDefinition [MirrorValue / T4]
+  export type tools__definition__ToolDefinition = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolDefinition::approval [MirrorValue / T4]
+  export type tools__definition__ToolDefinition__approval = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolDefinition::description [MirrorValue / T4]
+  export type tools__definition__ToolDefinition__description = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolDefinition::execution_mode [MirrorValue / T4]
+  export type tools__definition__ToolDefinition__execution_mode = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolDefinition::input_schema [MirrorValue / T4]
+  export type tools__definition__ToolDefinition__input_schema = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolDefinition::label [MirrorValue / T4]
+  export type tools__definition__ToolDefinition__label = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolDefinition::name [MirrorValue / T4]
+  export type tools__definition__ToolDefinition__name = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolDefinition::prompt_guidelines [MirrorValue / T4]
+  export type tools__definition__ToolDefinition__prompt_guidelines = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolDefinition::prompt_snippet [MirrorValue / T4]
+  export type tools__definition__ToolDefinition__prompt_snippet = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolDefinition::source [MirrorValue / T4]
+  export type tools__definition__ToolDefinition__source = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolExecutionMode [MirrorValue / T4]
+  export type tools__definition__ToolExecutionMode = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolExecutionMode::Parallel [MirrorValue / T4]
+  export type tools__definition__ToolExecutionMode__Parallel = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolExecutionMode::Sequential [MirrorValue / T4]
+  export type tools__definition__ToolExecutionMode__Sequential = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolSource [MirrorValue / T4]
+  export type tools__definition__ToolSource = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolSource::Builtin [MirrorValue / T4]
+  export type tools__definition__ToolSource__Builtin = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolSource::Extension [MirrorValue / T4]
+  export type tools__definition__ToolSource__Extension = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolSource::Extension::extension_id [MirrorValue / T4]
+  export type tools__definition__ToolSource__Extension__extension_id = Record<string, unknown>;
+  // iyon-core::tools::definition::ToolSource::Sdk [MirrorValue / T4]
+  export type tools__definition__ToolSource__Sdk = Record<string, unknown>;
+  // iyon-core::tools::executor [NativeHandle / T4]
+  export interface tools__executor { readonly __nativeHandle: unique symbol; }
+  // iyon-core::tools::executor::ToolContext [MirrorValue / T4]
+  export type tools__executor__ToolContext = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolContext::cancellation [MirrorValue / T4]
+  export type tools__executor__ToolContext__cancellation = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolContext::cwd [MirrorValue / T4]
+  export type tools__executor__ToolContext__cwd = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolContext::from [MirrorValue / T4]
+  export type tools__executor__ToolContext__from = (...args: readonly unknown[]) => unknown;
+  // iyon-core::tools::executor::ToolContext::session_id [MirrorValue / T4]
+  export type tools__executor__ToolContext__session_id = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolContext::tool_call_id [MirrorValue / T4]
+  export type tools__executor__ToolContext__tool_call_id = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolContext::turn_id [MirrorValue / T4]
+  export type tools__executor__ToolContext__turn_id = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolContext::workspace [MirrorValue / T4]
+  export type tools__executor__ToolContext__workspace = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolExecutor [MirrorValue / T4]
+  export type tools__executor__ToolExecutor = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolExecutor::definition [MirrorValue / T4]
+  export type tools__executor__ToolExecutor__definition = (...args: readonly unknown[]) => unknown;
+  // iyon-core::tools::executor::ToolExecutor::execute [MirrorValue / T4]
+  export type tools__executor__ToolExecutor__execute = (...args: readonly unknown[]) => unknown;
+  // iyon-core::tools::executor::ToolFuture [MirrorValue / T4]
+  export type tools__executor__ToolFuture = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolResult [MirrorValue / T4]
+  export type tools__executor__ToolResult = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolResult::content [MirrorValue / T4]
+  export type tools__executor__ToolResult__content = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolResult::details [MirrorValue / T4]
+  export type tools__executor__ToolResult__details = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolResult::is_error [MirrorValue / T4]
+  export type tools__executor__ToolResult__is_error = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolResult::terminate [MirrorValue / T4]
+  export type tools__executor__ToolResult__terminate = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolUpdate [MirrorValue / T4]
+  export type tools__executor__ToolUpdate = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolUpdateSink [MirrorValue / T4]
+  export type tools__executor__ToolUpdateSink = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolUpdateSink::send [MirrorValue / T4]
+  export type tools__executor__ToolUpdateSink__send = (...args: readonly unknown[]) => unknown;
+  // iyon-core::tools::executor::ToolUpdate::Details [MirrorValue / T4]
+  export type tools__executor__ToolUpdate__Details = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolUpdate::Details::0 [MirrorValue / T4]
+  export type tools__executor__ToolUpdate__Details__0 = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolUpdate::Progress [MirrorValue / T4]
+  export type tools__executor__ToolUpdate__Progress = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolUpdate::Progress::current [MirrorValue / T4]
+  export type tools__executor__ToolUpdate__Progress__current = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolUpdate::Progress::label [MirrorValue / T4]
+  export type tools__executor__ToolUpdate__Progress__label = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolUpdate::Progress::total [MirrorValue / T4]
+  export type tools__executor__ToolUpdate__Progress__total = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolUpdate::Text [MirrorValue / T4]
+  export type tools__executor__ToolUpdate__Text = Record<string, unknown>;
+  // iyon-core::tools::executor::ToolUpdate::Text::0 [MirrorValue / T4]
+  export type tools__executor__ToolUpdate__Text__0 = Record<string, unknown>;
   // iyon-core::tools::hooks [MirrorValue / T4]
   export type tools__hooks = Record<string, unknown>;
   // iyon-core::tools::hooks::AfterHookFuture [MirrorValue / T4]
@@ -528,4 +1102,24 @@ declare module "iyon:core" {
   export function tools__output__truncate_tail(...args: readonly unknown[]): Promise<unknown>;
   // iyon-core::tools::output::truncation_details [NativeAsync / T4]
   export function tools__output__truncation_details(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-core::tools::registry [NativeHandle / T4]
+  export interface tools__registry { readonly __nativeHandle: unique symbol; }
+  // iyon-core::tools::registry::ToolRegistry [MirrorValue / T4]
+  export type tools__registry__ToolRegistry = Record<string, unknown>;
+  // iyon-core::tools::registry::ToolRegistry::active_definitions [MirrorValue / T4]
+  export type tools__registry__ToolRegistry__active_definitions = (...args: readonly unknown[]) => unknown;
+  // iyon-core::tools::registry::ToolRegistry::active_tool_names [MirrorValue / T4]
+  export type tools__registry__ToolRegistry__active_tool_names = (...args: readonly unknown[]) => unknown;
+  // iyon-core::tools::registry::ToolRegistry::definitions [MirrorValue / T4]
+  export type tools__registry__ToolRegistry__definitions = (...args: readonly unknown[]) => unknown;
+  // iyon-core::tools::registry::ToolRegistry::get [MirrorValue / T4]
+  export type tools__registry__ToolRegistry__get = (...args: readonly unknown[]) => unknown;
+  // iyon-core::tools::registry::ToolRegistry::model_specs [MirrorValue / T4]
+  export type tools__registry__ToolRegistry__model_specs = (...args: readonly unknown[]) => unknown;
+  // iyon-core::tools::registry::ToolRegistry::new [MirrorValue / T4]
+  export type tools__registry__ToolRegistry__new = (...args: readonly unknown[]) => unknown;
+  // iyon-core::tools::registry::ToolRegistry::register [MirrorValue / T4]
+  export type tools__registry__ToolRegistry__register = (...args: readonly unknown[]) => unknown;
+  // iyon-core::tools::registry::ToolRegistry::set_active_tools [MirrorValue / T4]
+  export type tools__registry__ToolRegistry__set_active_tools = (...args: readonly unknown[]) => unknown;
 }
