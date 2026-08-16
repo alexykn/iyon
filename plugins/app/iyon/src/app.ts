@@ -167,7 +167,9 @@ class IyonAppImpl implements IyonApp {
       await this.history.push(View.text("Goodbye.").fillWidth());
       return true;
     }
-    if (action.type !== "backend") return action.type === "submit";
+    if (action.type !== "backend") {
+      return action.type === "submit" || action.type === "cycleReasoningEffort";
+    }
     const event = action.event;
     if (event.type === "assistantDelta") {
       if (this.assistantStream === undefined) {

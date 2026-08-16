@@ -1,4 +1,4 @@
-import { asyncSleep, native } from "../native.ts";
+import { native } from "../native.ts";
 import { materializeView } from "./materialize.ts";
 import { asTuiError, tuiError } from "./errors.ts";
 import { requireNativeClass } from "./handles.ts";
