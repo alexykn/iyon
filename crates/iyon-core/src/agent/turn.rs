@@ -45,6 +45,79 @@ pub(crate) async fn run_model_turn(input: ModelTurnInput) -> anyhow::Result<Mode
         event_tx,
         cancellation,
     } = input;
+    let mut stream = model
+        .stream(request)
+        .await
+        .context("failed to start model stream")?;
+    let mut turn = crate::kernel::ModelTurn::new(turn_id, assistant_message_id);
+
+    if !send_kernel_events(&event_tx, &cancellation, turn.take_events()).await? {
+        let outcome = turn.cancel().map_err(|error| anyhow::anyhow!(error))?;
+        return Ok(ModelTurnOutcome::Interrupted {
+            assistant_message: outcome.assistant_message,
+        });
+    }
+
+    loop {
+        let event = tokio::select! {
+            () = cancellation.cancelled() => {
+                let outcome = turn.cancel().map_err(|error| anyhow::anyhow!(error))?;
+                let _ = send_kernel_events(&event_tx, &cancellation, turn.take_events()).await?;
+                return Ok(ModelTurnOutcome::Interrupted { assistant_message: outcome.assistant_message });
+            }
+            event = stream.next() => event,
+        };
+        let Some(event) = event else {
+            bail!("model stream ended unexpectedly");
+        };
+        let event = event.context("model stream error")?;
+        let done = matches!(event, ModelStreamEvent::Done { .. });
+        turn.push(event).map_err(|error| anyhow::anyhow!(error))?;
+        if !send_kernel_events(&event_tx, &cancellation, turn.take_events()).await? {
+            let outcome = turn.cancel().map_err(|error| anyhow::anyhow!(error))?;
+            return Ok(ModelTurnOutcome::Interrupted {
+                assistant_message: outcome.assistant_message,
+            });
+        }
+        if done {
+            let outcome = turn.finish().map_err(|error| anyhow::anyhow!(error))?;
+            if !send_kernel_events(&event_tx, &cancellation, turn.take_events()).await? {
+                return Ok(ModelTurnOutcome::Interrupted {
+                    assistant_message: outcome.assistant_message,
+                });
+            }
+            return Ok(ModelTurnOutcome::Completed {
+                assistant_message: outcome.assistant_message,
+                tool_calls: outcome.tool_calls,
+                stop_reason: outcome.stop_reason,
+            });
+        }
+    }
+}
+
+async fn send_kernel_events(
+    event_tx: &mpsc::Sender<CoreEvent>,
+    cancellation: &CancellationToken,
+    events: Vec<CoreEvent>,
+) -> anyhow::Result<bool> {
+    for event in events {
+        if !send_event(event_tx, cancellation, event).await? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+#[allow(dead_code)]
+async fn legacy_run_model_turn(input: ModelTurnInput) -> anyhow::Result<ModelTurnOutcome> {
+    let ModelTurnInput {
+        turn_id,
+        assistant_message_id,
+        request,
+        model,
+        event_tx,
+        cancellation,
+    } = input;
 
     let mut stream = model
         .stream(request)
