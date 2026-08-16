@@ -1,3 +1,3 @@
-mod text_input;
+pub(crate) mod text_input;
 
 pub use text_input::{TextChange, TextInput};

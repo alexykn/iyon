@@ -3,7 +3,7 @@ use crate::{EventCx, InteractionResult, Key, KeyStroke, Modifiers};
 use super::TextInput;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum TextInputCommand {
+pub(crate) enum TextInputCommand {
     Insert(char),
     Submit,
     InsertNewline,
@@ -23,7 +23,7 @@ pub(super) enum TextInputCommand {
     MoveDown,
 }
 
-pub(super) fn command_for_key(input: &TextInput, stroke: KeyStroke) -> Option<TextInputCommand> {
+pub(crate) fn command_for_key(input: &TextInput, stroke: KeyStroke) -> Option<TextInputCommand> {
     let key = stroke.key();
     let modifiers = stroke.modifiers();
     let none = Modifiers::NONE;
@@ -79,7 +79,7 @@ pub(super) fn command_for_key(input: &TextInput, stroke: KeyStroke) -> Option<Te
     }
 }
 
-pub(super) fn handle_command(
+pub(crate) fn handle_command(
     input: &mut TextInput,
     command: TextInputCommand,
     cx: &mut EventCx<'_>,

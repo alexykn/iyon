@@ -22,6 +22,7 @@ use crate::{
     physical::PhysicalRow,
     scene::PreparedSceneFrame,
     terminal::{TerminalBackend, TerminalEvent, termwiz::TermwizBackend},
+    StyleSelector, StyleStateKey, StyleStateValue,
 };
 use crate::controls::text_input::command::TextInputCommand;
 
@@ -107,6 +108,7 @@ struct HostInner {
 pub struct HostTextInput {
     state: Arc<Mutex<TextInput>>,
     component_id: Arc<Mutex<Option<u64>>>,
+    host: Arc<Mutex<Option<Weak<Mutex<HostInner>>>>>,
 }
 
 const WORKING_SPINNER_FRAMES: &[&str] = &["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"];
@@ -403,6 +405,7 @@ impl HostTextInput {
         Self {
             state: Arc::new(Mutex::new(TextInput::new().multiline(multiline))),
             component_id: Arc::new(Mutex::new(None)),
+            host: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -416,12 +419,12 @@ impl HostTextInput {
 
     pub fn set_text(&self, value: impl AsRef<str>) -> Result<()> {
         self.lock()?.set_text(value);
-        Ok(())
+        self.render_host()
     }
 
     pub fn clear(&self) -> Result<()> {
         self.lock()?.clear();
-        Ok(())
+        self.render_host()
     }
 
     pub fn submitted(&self) -> Result<Output<String>> {
@@ -430,7 +433,7 @@ impl HostTextInput {
 
     pub fn set_multiline(&self, enabled: bool) -> Result<()> {
         self.lock()?.set_multiline(enabled);
-        Ok(())
+        self.render_host()
     }
 
     pub fn is_multiline(&self) -> Result<bool> {
@@ -461,6 +464,32 @@ impl HostTextInput {
             .lock()
             .map_err(|_| anyhow::anyhow!("text input component lock is poisoned"))? = Some(id);
         Ok(())
+    }
+
+    fn attach_host(&self, host: &Arc<Mutex<HostInner>>) -> Result<()> {
+        *self
+            .host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("text input host lock is poisoned"))? =
+            Some(Arc::downgrade(host));
+        Ok(())
+    }
+
+    fn render_host(&self) -> Result<()> {
+        let host = self
+            .host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("text input host lock is poisoned"))?
+            .clone()
+            .and_then(|host| host.upgrade());
+        let Some(host) = host else {
+            return Ok(());
+        };
+        let mut inner = host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
+        inner.running.invalidate_frame();
+        inner.render()
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, TextInput>> {
@@ -633,6 +662,36 @@ impl TuiHost {
         ).with_color(
             "tool.finished",
             ThemeColor::Rgb { r: 104, g: 211, b: 145 },
+        )
+        .with_color_variant(
+            "input.border",
+            StyleSelector::state(StyleStateKey::from_static("iyon.agent.effort"), StyleStateValue::from_static("low")),
+            ThemeColor::Named(AnsiColor::Green),
+        )
+        .with_color_variant(
+            "input.border",
+            StyleSelector::state(StyleStateKey::from_static("iyon.agent.effort"), StyleStateValue::from_static("medium")),
+            ThemeColor::Named(AnsiColor::Yellow),
+        )
+        .with_color_variant(
+            "input.border",
+            StyleSelector::state(StyleStateKey::from_static("iyon.agent.effort"), StyleStateValue::from_static("high")),
+            ThemeColor::Named(AnsiColor::Magenta),
+        )
+        .with_color_variant(
+            "input.border",
+            StyleSelector::state(StyleStateKey::from_static("iyon.agent.effort"), StyleStateValue::from_static("low")).and_focused(),
+            ThemeColor::Named(AnsiColor::LightGreen),
+        )
+        .with_color_variant(
+            "input.border",
+            StyleSelector::state(StyleStateKey::from_static("iyon.agent.effort"), StyleStateValue::from_static("medium")).and_focused(),
+            ThemeColor::Named(AnsiColor::LightYellow),
+        )
+        .with_color_variant(
+            "input.border",
+            StyleSelector::state(StyleStateKey::from_static("iyon.agent.effort"), StyleStateValue::from_static("high")).and_focused(),
+            ThemeColor::Named(AnsiColor::LightMagenta),
         ))
         .with_history(
             History::new().with_layout(HistoryLayout::from_parts(
@@ -664,6 +723,7 @@ impl TuiHost {
     pub fn create_text_input(&self, multiline: bool) -> Result<HostTextInput> {
         let input = HostTextInput::new(multiline);
         input.set_default_border()?;
+        input.attach_host(&self.inner)?;
         let mut inner = self.lock_mut()?;
         let handle = inner
             .running
@@ -686,6 +746,12 @@ impl TuiHost {
             action_id: action_id.clone(),
             payload: None,
         }));
+        Ok(())
+    }
+
+    pub fn exit(&self) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        inner.running.host_exit();
         Ok(())
     }
 
@@ -802,7 +868,7 @@ impl TuiHost {
                 inner.running.invalidate_frame();
                 inner.advance_and_render()
             }
-            None => Ok(()),
+            None => inner.advance_and_render(),
         }
     }
 
@@ -881,7 +947,10 @@ fn prepare_frame(running: &mut HostRunning, backend: &mut HostBackend, now: Inst
             let frame = running
                 .prepare_frame(now, backend, |backend| backend.viewport())
                 .map_err(|error| anyhow::anyhow!("terminal render failed: {error:?}"))?;
-            let _ = backend.begin_frame(&frame)?;
+            backend
+                .begin_frame(&frame)?
+                .blocking_recv()
+                .map_err(|error| anyhow::anyhow!("terminal presentation reply lost: {error}"))??;
             Ok(frame)
         }
     }

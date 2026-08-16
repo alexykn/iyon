@@ -118,6 +118,27 @@ pub(crate) struct PreparedSceneFrame {
     pub(crate) history_overlay: Option<crate::history::HistoryPhysicalOverlay>,
 }
 
+impl PreparedSceneFrame {
+    pub(crate) fn screen_lines(&self) -> Vec<String> {
+        let mut lines = (0..self.surface.height())
+            .map(|y| {
+                (0..self.surface.width())
+                    .map(|x| self.surface.get(x, y).grapheme.as_deref().unwrap_or(" "))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        if let Some(overlay) = &self.history_overlay {
+            for (index, row) in overlay.rows.iter().enumerate() {
+                let position = usize::from(overlay.row).saturating_add(index);
+                if position < lines.len() {
+                    lines[position] = row.plain_text();
+                }
+            }
+        }
+        lines
+    }
+}
+
 /// Generic runtime host for one semantic Scene.
 struct StableScene {
     root: ResolvedRootScene,

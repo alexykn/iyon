@@ -352,6 +352,14 @@ impl NativeTuiHost {
     }
 
     #[napi]
+    pub fn exit(&self) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.host
+            .exit()
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[napi]
     pub fn history(&self) -> Result<NativeHistory> {
         ensure_alive(&self.alive)?;
         Ok(NativeHistory::from_host(self.host.history()))
@@ -760,6 +768,14 @@ fn apply_decoration(view: View, decoration: Option<&Value>) -> Result<View> {
                     view = view.text_attribute(attribute, enabled.as_bool().unwrap_or(false));
                 }
             }
+        }
+    }
+    if let Some(states) = decoration.get("styleStates").and_then(Value::as_object) {
+        for (key, value) in states {
+            let value = value
+                .as_str()
+                .ok_or_else(|| crate::NativeError::invalid_input("style state values must be strings"))?;
+            view = view.style_state(key.as_str(), value);
         }
     }
     if decoration.get("width").and_then(Value::as_str) == Some("fill") {

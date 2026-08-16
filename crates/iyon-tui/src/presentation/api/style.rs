@@ -176,6 +176,11 @@ impl Insets {
             left,
         }
     }
+
+    pub const fn top(self) -> u16 { self.top }
+    pub const fn right(self) -> u16 { self.right }
+    pub const fn bottom(self) -> u16 { self.bottom }
+    pub const fn left(self) -> u16 { self.left }
 }
 
 impl From<u16> for Insets {

@@ -88,6 +88,7 @@ export interface NativeTuiOutputContract { readonly output?: unknown; }
 
 export interface NativeTuiHostContract {
   dispose(): void;
+  exit(): void;
   history(): object;
   textInput(multiline?: boolean): object;
   working(): object;

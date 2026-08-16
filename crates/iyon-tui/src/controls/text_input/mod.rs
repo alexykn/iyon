@@ -5,7 +5,7 @@
 //! geometry.
 
 mod buffer;
-mod command;
+pub(crate) mod command;
 mod cursor;
 mod edit;
 mod output;
@@ -71,6 +71,10 @@ impl TextInput {
     pub fn border(mut self, border: BorderSpec) -> Self {
         self.border = Some(border);
         self
+    }
+
+    pub(crate) fn set_border(&mut self, border: BorderSpec) {
+        self.border = Some(border);
     }
 
     /// Changes the line policy without emitting a user change event.
@@ -204,11 +208,11 @@ impl TextInput {
         InteractionResult::Consumed
     }
 
-    fn command_for_key(input: &Self, key: crate::KeyStroke) -> Option<TextInputCommand> {
+    pub(crate) fn command_for_key(input: &Self, key: crate::KeyStroke) -> Option<TextInputCommand> {
         command_for_key(input, key)
     }
 
-    fn handle_command(
+    pub(crate) fn handle_command(
         input: &mut Self,
         command: TextInputCommand,
         cx: &mut EventCx<'_>,
@@ -218,7 +222,7 @@ impl TextInput {
         result
     }
 
-    fn layout_changed(input: &mut Self, size: Size) {
+    pub(crate) fn layout_changed(input: &mut Self, size: Size) {
         input.layout_size = Some(size);
         input.repair_scroll();
     }
@@ -259,11 +263,11 @@ impl TextInput {
         self.scroll_row = scroll.min(max_scroll);
     }
 
-    fn focus_changed_callback(input: &mut Self, focused: bool) {
+    pub(crate) fn focus_changed_callback(input: &mut Self, focused: bool) {
         input.focus_changed(focused);
     }
 
-    fn paste_callback(input: &mut Self, text: &str, cx: &mut EventCx<'_>) -> InteractionResult {
+    pub(crate) fn paste_callback(input: &mut Self, text: &str, cx: &mut EventCx<'_>) -> InteractionResult {
         input.handle_paste(text, cx)
     }
 

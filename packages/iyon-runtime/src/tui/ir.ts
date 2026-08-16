@@ -37,6 +37,7 @@ export interface DecorationNode {
   readonly foreground?: ColorNode;
   readonly border?: BorderNode;
   readonly style: StyleNode;
+  readonly styleStates?: Readonly<Record<string, string>>;
   readonly width?: "fit" | "fill";
   readonly height?: "fit" | "fill";
   readonly minWidth?: number;

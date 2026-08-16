@@ -39,6 +39,7 @@ describe("bundled Iyon agent", () => {
 
   test("steering_does_not_abort_inflight_response", async () => {
     const driver = await SessionDriver.create(503);
+    driver.session.appendMessage({ role: "user", content: [{ type: "text", text: "initial" }] });
     const steering = new TestSteeringQueue();
     let calls = 0;
     const model: ModelApi = {
@@ -61,6 +62,7 @@ describe("bundled Iyon agent", () => {
 
   test("stop_with_pending_steering_continues", async () => {
     const driver = await SessionDriver.create(504);
+    driver.session.appendMessage({ role: "user", content: [{ type: "text", text: "initial" }] });
     const steering = new TestSteeringQueue();
     let calls = 0;
     const model = modelThatAddsSteer(steering, () => { calls += 1; });
@@ -72,6 +74,7 @@ describe("bundled Iyon agent", () => {
 
   test("cancel_preserves_partial_history", async () => {
     const driver = await SessionDriver.create(505);
+    driver.session.appendMessage({ role: "user", content: [{ type: "text", text: "cancel" }] });
     const controller = new AbortController();
     const model: ModelApi = {
       stream: async function* (_request, options) {

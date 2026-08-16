@@ -24,6 +24,11 @@ const bundledRoots = [
 export function createProductionStages(options: { readonly authOnly?: boolean } = {}): BootstrapStages {
   let loader: PackageLoader | undefined;
   let session: AgentSession | undefined;
+  let core: {
+    submitTurn(text: string): Promise<void>;
+    cancelActiveTurn(): void;
+    cycleReasoningEffort(): void;
+  } | undefined;
   const roots = options.authOnly ? bundledRoots.slice(2, 5) : bundledRoots;
   return {
     async loadConfig() { return { env: { ...process.env } }; },
@@ -44,11 +49,20 @@ export function createProductionStages(options: { readonly authOnly?: boolean } 
     },
     async selectAgent(activated, provider) {
       const value = activated as { loader: PackageLoader }; session = new AgentSession();
-      return selectIyonAgent(value.loader.registries.agents, { model: (provider as { model: unknown }).model, session, signal: new AbortController().signal, tools: value.loader.registries.tools }, "iyon");
+      const abort = new AbortController();
+      core = {
+        submitTurn: async (text: string) => {
+          session?.appendMessage({ kind: "message", role: "user", content: [{ type: "text", text }] });
+        },
+        cancelActiveTurn: () => { abort.abort(); },
+        cycleReasoningEffort: () => undefined,
+      };
+      return selectIyonAgent(value.loader.registries.agents, { model: (provider as { model: unknown }).model, session, signal: abort.signal, tools: value.loader.registries.tools, core }, "iyon");
     },
     async selectApp(activated, agent, provider) {
       const value = activated as { loader: PackageLoader }; const selection = (provider as { selection: { provider: string; model_id: string } }).selection;
-      return selectApp(value.loader.registries.apps, { id: "iyon", context: { agent: (agent as { agent: unknown }).agent, core: session, model: { provider: selection.provider, modelId: selection.model_id } } });
+      if (!core || !session) throw new Error("agent core was not initialized");
+      return selectApp(value.loader.registries.apps, { id: "iyon", context: { agent: (agent as { agent: unknown }).agent, core, model: { provider: selection.provider, modelId: selection.model_id } } });
     },
     async runApp(app, context) {
       const selectedAgent = context.agent as { agent: RunnableAgent }; const selectedApp = context.app as { app: RunnableApp }; if (!session) throw new Error("agent session was not initialized");
