@@ -121,3 +121,34 @@ pub struct RustTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct RustSignature(pub String);
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ReachabilityTrace {
+    pub steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct SurfacePath {
+    pub path: ApiPath,
+    pub alias: bool,
+    pub trace: ReachabilityTrace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct SurfaceItem {
+    pub id: ApiItemId,
+    pub canonical_path: ApiPath,
+    pub kind: ApiKind,
+    pub signature: RustSignature,
+    pub visibility: Visibility,
+    pub source: SourceSpan,
+    pub availability: Availability,
+    pub paths: Vec<SurfacePath>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReachableSurface {
+    pub crate_id: CrateId,
+    pub items: Vec<SurfaceItem>,
+    pub paths: Vec<SurfacePath>,
+}
