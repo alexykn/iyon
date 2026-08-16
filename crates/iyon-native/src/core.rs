@@ -1,6 +1,6 @@
 use std::sync::{
     Arc, Mutex as StdMutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 use iyon_core::{
@@ -29,6 +29,7 @@ pub(crate) struct SessionState {
     pub(crate) closed: AtomicBool,
     pub(crate) close_notify: Notify,
     pub(crate) cancellation: CancellationToken,
+    pub(crate) next_turn: AtomicU64,
 }
 
 impl SessionState {
@@ -43,6 +44,7 @@ impl SessionState {
             closed: AtomicBool::new(false),
             close_notify: Notify::new(),
             cancellation,
+            next_turn: AtomicU64::new(1),
         })
     }
 
@@ -77,7 +79,7 @@ impl SessionState {
             .map_err(|_| NativeError::closed())
     }
 
-    fn try_emit(&self, event: CoreEvent) -> Result<()> {
+    pub(crate) fn try_emit(&self, event: CoreEvent) -> Result<()> {
         self.ensure_open()?;
         let sender = self
             .sender
@@ -137,6 +139,16 @@ impl KernelSession {
             .lock()
             .map_err(|_| NativeError::internal("session lock is poisoned"))?;
         Ok(snapshot_value(&session.snapshot()))
+    }
+
+    #[napi(js_name = "beginModelTurn")]
+    pub fn begin_model_turn(&self, options: Value) -> Result<crate::model_turn::ModelTurn> {
+        let object = crate::value::object(options, "model turn options")?;
+        let request = object
+            .get("request")
+            .cloned()
+            .ok_or_else(|| NativeError::invalid_input("model turn request is required"))?;
+        crate::model_turn::begin_session_turn(self, request)
     }
 
     #[napi(js_name = "appendMessage")]

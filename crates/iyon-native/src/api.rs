@@ -73,7 +73,11 @@ fn model_message(value: Value) -> Result<ModelMessage, napi::Error> {
         .into_iter()
         .map(content_block)
         .collect::<Result<_, _>>()?;
-    match value::discriminant(&object)? {
+    let role = object
+        .get("role")
+        .and_then(Value::as_str)
+        .ok_or_else(|| NativeError::invalid_input("model message role must be a string"))?;
+    match role {
         "user" => Ok(ModelMessage::User { content }),
         "assistant" => Ok(ModelMessage::Assistant { content }),
         "toolResult" => Ok(ModelMessage::ToolResult {
