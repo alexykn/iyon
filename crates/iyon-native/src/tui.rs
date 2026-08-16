@@ -1352,9 +1352,10 @@ mod tests {
     fn lowers_nested_composition_through_canonical_views() {
         let value = json!({
             "type": "column",
+            "gap": 0,
             "children": [
-                {"type": "text", "spans": [{"text": "one"}]},
-                {"type": "row", "children": [{"type": "text", "spans": [{"text": "two"}]}]}
+                {"kind": "normal", "child": {"type": "text", "spans": [{"text": "one"}]}},
+                {"kind": "normal", "child": {"type": "row", "gap": 0, "children": [{"kind": "normal", "child": {"type": "text", "spans": [{"text": "two"}]}}]}}
             ]
         });
         assert!(lower_view(&value).is_ok());
@@ -1378,7 +1379,7 @@ mod tests {
 
     #[test]
     fn native_stream_rejects_updates_after_seal() {
-        let stream = NativeTextStream::new();
+        let stream = NativeTextStream::new(None);
         stream.update("first".into()).unwrap();
         stream.seal().unwrap();
         assert!(stream.update("late".into()).is_err());
