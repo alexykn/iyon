@@ -1,2 +1,4 @@
 /target
 /TUI_DOGFOOD.md
+node_modules/
+/iyon-smoke
