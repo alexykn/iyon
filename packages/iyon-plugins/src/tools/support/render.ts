@@ -1,13 +1,67 @@
 import { parseUnifiedDiff } from "./diff.ts";
 import type { DiffHunk } from "./diff.ts";
-import { View } from "@iyon/runtime/tui";
+import { Style, View } from "@iyon/runtime/tui";
+import type { ToolCall, ToolLifecycleState, ToolResult } from "@iyon/sdk";
+
+export function toolStyle(state: ToolLifecycleState) {
+  const key = state === "preparing" || state === "running" ? "tool.running" : state === "pendingApproval" ? "text.warning" : state === "failed" || state === "cancelled" ? "tool.error" : "tool.finished";
+  return Style.new().theme(key);
+}
+
+export function resultStyle(isError: boolean) {
+  return Style.new().theme(isError ? "tool.error" : "text.muted");
+}
+
+export function toolText(value: string, style: ReturnType<typeof Style.new>): View {
+  return View.text(value).style(style);
+}
+
+export function toolCallLine(value: string, state: ToolLifecycleState, pulse = false): View {
+  const style = toolStyle(state);
+  const bullet = pulse ? style.dim() : style;
+  return View.hanging(toolText("● ", bullet).noWrap(), View.text("  ").noWrap(), toolText(value, style).fillWidth()).fillWidth();
+}
+
+export function toolResultLine(value: string, style: ReturnType<typeof Style.new>): View {
+  return View.hanging(View.text("  ").noWrap(), View.text("  ").noWrap(), toolText(value, style).fillWidth()).fillWidth();
+}
+
+export function resultLines(value: string, style: ReturnType<typeof Style.new>): View[] {
+  return value.split("\n").map((line) => toolResultLine(line, style));
+}
+
+export function resultBlock(body: View): View {
+  return View.hanging(View.text("  ").noWrap(), View.text("  ").noWrap(), body).fillWidth();
+}
+
+export function resultText(result: ToolResult): string {
+  return result.text ?? result.content.filter((block) => block.type === "text").map((block) => block.text).join("");
+}
+
+export function statusLabel(state: ToolLifecycleState): string {
+  if (state === "prepared") return "ready";
+  if (state === "pendingApproval") return "waiting for approval";
+  return state;
+}
+
+export function toolCallPreview<T>(call: ToolCall<T>): View | undefined {
+  if (!call.showArgPreview || call.state === "failed" || call.state === "cancelled") return undefined;
+  return View.vertical(JSON.stringify(call.arguments, null, 2).split("\n").map((line) => toolResultLine(line, toolStyle(call.state)))).fillWidth();
+}
 
 export function renderDiff(details: unknown): View | undefined {
   const diff = typeof details === "object" && details !== null && typeof (details as { diff?: unknown }).diff === "string" ? (details as { diff: string }).diff : undefined;
   if (!diff) return undefined;
-  try { return renderHunks(parseUnifiedDiff(diff)); } catch { return View.vertical(diff.split("\n").map((line) => View.text(line).fillWidth())).fillWidth() as unknown as View; }
+  try { return renderHunks(parseUnifiedDiff(diff)); } catch { return View.vertical(diff.split("\n").map((line) => toolText(line, Style.new().theme("diff.meta")).fillWidth())).fillWidth(); }
 }
 
 export function renderHunks(hunks: readonly DiffHunk[]): View {
-  return View.vertical(hunks.flatMap((hunk) => hunk.lines.map((line) => View.text(`${line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}${line.text}`).fillWidth()))).fillWidth() as unknown as View;
+  return View.vertical(hunks.flatMap((hunk) => [
+    toolText(`@@ -${diffRange(hunk.oldStart, hunk.oldCount)} +${diffRange(hunk.newStart, hunk.newCount)} @@`, Style.new().theme("diff.header")).fillWidth(),
+    ...hunk.lines.map((line) => toolText(`${line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}${line.text}`, Style.new().theme(line.kind === "addition" ? "diff.addition" : line.kind === "deletion" ? "diff.deletion" : "diff.context")).fillWidth()),
+  ])).fillWidth();
+}
+
+function diffRange(start: number, count: number): string {
+  return count === 1 ? `${start}` : `${start},${count}`;
 }

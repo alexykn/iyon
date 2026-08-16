@@ -1,6 +1,14 @@
 import { View } from "iyon:tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
-import { renderDiff } from "@iyon/plugins";
-export function renderWriteCall(call: ToolCall<{ path: string }>): View { return View.text(`write ${call.arguments.path} — ${call.state}`).fillWidth() as unknown as View; }
-export function renderWriteResult(result: ToolResult): View { const diff = renderDiff(result.details); const summary = View.text(result.isError ? "write failed" : text(result)).fillWidth(); return (diff ? View.vertical([summary, diff]) : summary) as unknown as View; }
-function text(result: ToolResult): string { return result.text ?? result.content.filter((block) => block.type === "text").map((block) => block.text).join(""); }
+import { renderDiff, resultBlock, resultStyle, resultText, statusLabel, toolCallLine, toolText } from "@iyon/plugins";
+
+export function renderWriteCall(call: ToolCall<{ path: string }>): View {
+  return toolCallLine(`write ${call.arguments.path} — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
+}
+
+export function renderWriteResult(result: ToolResult): View {
+  if (result.isError) return View.spacer(0) as unknown as View;
+  const summary = toolText(resultText(result), resultStyle(false)).fillWidth();
+  const diff = renderDiff(result.details);
+  return resultBlock(diff ? View.vertical([summary, diff]) : summary) as unknown as View;
+}

@@ -1,5 +1,15 @@
 import { View } from "iyon:tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
-export function renderBashCall(call: ToolCall<{ command: string }>): View { return View.text(`bash ${call.arguments.command} — ${call.state}`).fillWidth() as unknown as View; }
-export function renderBashResult(result: ToolResult): View { return View.vertical([View.text(result.isError ? "bash failed" : "bash").fillWidth(), ...text(result).split("\n").map((line) => View.text(line).fillWidth())]).fillWidth() as unknown as View; }
-function text(result: ToolResult): string { return result.text ?? result.content.filter((block) => block.type === "text").map((block) => block.text).join(""); }
+import { resultLines, resultStyle, resultText, statusLabel, toolCallLine, toolResultLine } from "@iyon/plugins";
+
+export function renderBashCall(call: ToolCall<{ command: string }>): View {
+  return toolCallLine(`$ ${call.arguments.command} — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
+}
+
+export function renderBashResult(result: ToolResult): View {
+  const style = resultStyle(result.isError);
+  const children = [toolResultLine(result.isError ? "bash failed" : "bash result", style), ...resultLines(resultText(result), style)];
+  const fullOutputPath = typeof result.details === "object" && result.details !== null && typeof (result.details as { fullOutputPath?: unknown }).fullOutputPath === "string" ? (result.details as { fullOutputPath: string }).fullOutputPath : undefined;
+  if (fullOutputPath) children.push(toolResultLine(`[Full output: ${fullOutputPath}]`, style.theme("text.warning")));
+  return View.vertical(children).fillWidth() as unknown as View;
+}

@@ -3,11 +3,21 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installIyonVirtualModules } from "../../../../packages/iyon-runtime/src/virtual-modules.ts";
+import { materializeView } from "../../../../packages/iyon-runtime/src/tui/index.ts";
 installIyonVirtualModules();
 const { editTool } = await import("../src/execute.ts");
 const context = (root: string) => ({ workspace: { root }, signal: new AbortController().signal } as never);
 
 describe("edit tool", () => {
+  test("compiles lifecycle, preview, multiline, and diff fixtures through native views", () => {
+    for (const state of ["preparing", "prepared", "running"] as const) {
+      expect(materializeView(editTool.renderCall({ id: "call" as never, name: "edit", arguments: { path: "file.txt", edits: [{ oldText: "one", newText: "ONE" }] }, state, showArgPreview: true }) as never)).toBeDefined();
+    }
+    const details = { diff: "@@ -1 +1 @@\n-one\n+ONE\n" };
+    expect(materializeView(editTool.renderResult({ content: [{ type: "text", text: "edited\nfile" }], details, isError: false }) as never)).toBeDefined();
+    expect(materializeView(editTool.renderResult({ content: [{ type: "text", text: "failed\nedit" }], details, isError: true }) as never)).toBeDefined();
+  });
+
   test("applies disjoint edits against the original and preserves CRLF/BOM", async () => {
     const root = await mkdtemp(join(tmpdir(), "iyon-edit-"));
     await writeFile(join(root, "file.txt"), "\uFEFFone\r\ntwo\r\nthree\r\n");
