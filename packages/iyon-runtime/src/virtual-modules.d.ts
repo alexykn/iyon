@@ -55,6 +55,8 @@ declare module "iyon:tui" {
   export const TextInput: typeof import("./tui/text-input.ts").TextInput;
   export const TextStream: typeof import("./tui/stream.ts").TextStream;
   export const Component: typeof import("./tui/component.ts").Component;
+  export const Scene: typeof import("./tui/scene.ts").Scene;
+  export const Tui: typeof import("./tui/runtime.ts").Tui;
   export class TuiError extends Error {
     readonly category: import("./tui/errors.ts").TuiErrorCategory;
     readonly nativeCode?: string;

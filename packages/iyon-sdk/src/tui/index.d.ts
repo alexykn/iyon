@@ -199,7 +199,14 @@ export interface StreamingSource {
   compact?(): void | Promise<void>;
 }
 
-export interface Scene {
+export declare class Scene {
+  readonly body: View;
+  readonly history?: History;
+  constructor(body: View, history?: History);
+  static from(value: { readonly body: View; readonly history?: History }): Scene;
+}
+
+export interface SceneValue {
   readonly history?: History;
   readonly body: View;
 }
@@ -220,6 +227,15 @@ export interface TuiRuntime {
   readonly size: Promise<TerminalMetadata>;
   nextEvent(signal?: AbortSignal): Promise<TuiEvent>;
   render(scene: Scene, signal?: AbortSignal): Promise<void>;
+  resize(width: number, height: number): Promise<void>;
+  close(): Promise<void>;
+}
+
+export declare class Tui implements TuiRuntime {
+  readonly size: Promise<TerminalMetadata>;
+  static open(options?: TuiOpenOptions): Promise<Tui>;
+  nextEvent(signal?: AbortSignal): Promise<TuiEvent>;
+  render(scene: SceneValue, signal?: AbortSignal): Promise<void>;
   resize(width: number, height: number): Promise<void>;
   close(): Promise<void>;
 }
