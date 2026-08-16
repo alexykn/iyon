@@ -2,12 +2,15 @@ pub mod cfg;
 mod error;
 pub mod metadata;
 pub mod model;
+pub mod normalize;
 pub mod parse;
+pub mod reachability;
 
 pub use error::ApiSurfaceError;
 pub use metadata::CargoMetadataLoader;
-pub use model::{CrateId, RustTarget, ScanProfile, TargetId};
+pub use model::{CrateId, ReachableSurface, RustTarget, ScanProfile, TargetId};
 pub use parse::{ModuleNode, ModuleTree, ParseDiagnostic, SourceLoader};
+pub use reachability::resolve;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
