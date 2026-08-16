@@ -86,7 +86,7 @@ impl ToolRegistry {
             .collect()
     }
 
-    pub fn register_builtin_defaults(
+    pub(crate) fn register_builtin_defaults(
         &mut self,
         mutation_queue: FileMutationQueue,
     ) -> anyhow::Result<()> {
@@ -97,11 +97,19 @@ impl ToolRegistry {
         Ok(())
     }
 
-    pub fn register_read_only_defaults(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn register_read_only_defaults(&mut self) -> anyhow::Result<()> {
         self.register(Arc::new(ReadTool))?;
         self.register(Arc::new(LsTool))?;
         self.register(Arc::new(FindTool))?;
         self.register(Arc::new(GrepTool))?;
         Ok(())
+    }
+
+    pub(crate) fn compatibility_with_builtin_defaults(
+        mutation_queue: FileMutationQueue,
+    ) -> anyhow::Result<Self> {
+        let mut registry = Self::new();
+        registry.register_builtin_defaults(mutation_queue)?;
+        Ok(registry)
     }
 }
