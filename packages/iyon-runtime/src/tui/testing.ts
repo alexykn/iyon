@@ -58,6 +58,10 @@ export class AppHarness implements AppHarnessContract {
     await this.tui.close();
   }
 
+  async exit(): Promise<void> {
+    await this.tui.exit();
+  }
+
   pressKey(key: string, modifiers?: readonly string[]): void { this.tui.enqueue({ type: "key", key, modifiers }); }
   paste(text: string): void { this.tui.enqueue({ type: "paste", text }); }
   advance(ms: number): void {
