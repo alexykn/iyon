@@ -13,16 +13,15 @@ use std::{
 use anyhow::Result;
 
 use crate::{
-    AnsiColor, AppCx, App as TuiApp, BorderEdges, BorderSpec, ColorSpec, Component, ComponentCx,
+    AppCx, App as TuiApp, BorderEdges, BorderSpec, Component, ComponentCx,
     ComponentHandle, History, HistoryLayout, InteractionResult, KeyStroke, Output, TextInput,
     HistoryStreamHandle, IntoView, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
-    StreamSnapshotBuilder, StreamingSource, TextSpan, Theme, ThemeColor, View,
+    StreamSnapshotBuilder, StreamingSource, StyleRef, TextSpan, Theme, View,
     backend::NativeHistorySink,
     geometry::Size,
     physical::PhysicalRow,
     scene::PreparedSceneFrame,
     terminal::{TerminalBackend, TerminalEvent, termwiz::TermwizBackend},
-    StyleSelector, StyleStateKey, StyleStateValue,
 };
 use crate::controls::text_input::command::TextInputCommand;
 
@@ -31,6 +30,18 @@ use crate::controls::text_input::command::TextInputCommand;
 pub struct RoutedAction {
     pub action_id: String,
     pub payload: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostCellStyle {
+    pub foreground: Option<String>,
+    pub background: Option<String>,
+    pub bold: bool,
+    pub dim: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub reversed: bool,
+    pub strikethrough: bool,
 }
 
 #[derive(Debug)]
@@ -111,7 +122,30 @@ pub struct HostTextInput {
     host: Arc<Mutex<Option<Weak<Mutex<HostInner>>>>>,
 }
 
-const WORKING_SPINNER_FRAMES: &[&str] = &["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"];
+#[derive(Clone)]
+pub struct HostActivityConfig {
+    pub frames: Vec<String>,
+    pub active_label: String,
+    pub pending_label: String,
+    pub queue_prefix: String,
+    pub tick_ms: u64,
+    pub muted_style: StyleRef,
+    pub padding: u16,
+}
+
+impl Default for HostActivityConfig {
+    fn default() -> Self {
+        Self {
+            frames: vec!["•".to_owned()],
+            active_label: "active".to_owned(),
+            pending_label: "pending".to_owned(),
+            queue_prefix: "queue: ".to_owned(),
+            tick_ms: 80,
+            muted_style: StyleRef::default(),
+            padding: 0,
+        }
+    }
+}
 
 #[derive(Default)]
 struct WorkingState {
@@ -125,6 +159,7 @@ struct WorkingState {
 pub struct HostWorking {
     state: Arc<Mutex<WorkingState>>,
     component_id: Arc<Mutex<Option<u64>>>,
+    config: HostActivityConfig,
 }
 
 #[derive(Clone)]
@@ -216,10 +251,11 @@ impl Component for MountedViewSlot {
 }
 
 impl HostWorking {
-    pub fn new() -> Self {
+    pub fn new(config: HostActivityConfig) -> Self {
         Self {
             state: Arc::new(Mutex::new(WorkingState::default())),
             component_id: Arc::new(Mutex::new(None)),
+            config,
         }
     }
 
@@ -262,9 +298,9 @@ impl Component for MountedWorking {
         if !state.active {
             return View::spacer(0);
         }
-        let spinner = WORKING_SPINNER_FRAMES[state.frame % WORKING_SPINNER_FRAMES.len()];
-        let label = if state.pending.is_empty() { "Working" } else { "waiting" };
-        let status = View::text(format!("{spinner} {label}")).no_wrap();
+        let frame = self.0.config.frames.get(state.frame % self.0.config.frames.len()).map(String::as_str).unwrap_or("");
+        let label = if state.pending.is_empty() { &self.0.config.active_label } else { &self.0.config.pending_label };
+        let status = View::text(format!("{frame} {label}")).no_wrap();
         let row = if let Some(first) = state.pending.first() {
             let preview = first.split_whitespace().collect::<Vec<_>>().join(" ");
             let extra = state.pending.len().saturating_sub(1);
@@ -272,28 +308,26 @@ impl Component for MountedWorking {
                 row.gap(4);
                 row.child(status);
                 row.flex(
-                    View::text(format!("Queue: {preview}"))
+                        View::text(format!("{}{preview}", self.0.config.queue_prefix))
                         .no_wrap()
-                        .italic()
-                        .foreground(ColorSpec::theme("text.muted")),
+                        .style(self.0.config.muted_style.clone()),
                 );
                 if extra > 0 {
                     row.child(
                         View::text(format!(" + {extra} more"))
                             .no_wrap()
-                            .italic()
-                            .foreground(ColorSpec::theme("text.muted")),
+                            .style(self.0.config.muted_style.clone()),
                     );
                 }
             })
         } else {
             status.into_view()
         };
-        row.fill_width().padding(crate::Insets::horizontal(2))
+        row.fill_width().padding(crate::Insets::horizontal(self.0.config.padding))
     }
 
     fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
-        cx.tick(Duration::from_millis(80), Self::tick);
+        cx.tick(Duration::from_millis(self.0.config.tick_ms), Self::tick);
     }
 }
 
@@ -532,16 +566,6 @@ impl HostTextInput {
         Ok(self.lock()?.view())
     }
 
-    pub fn set_default_border(&self) -> Result<()> {
-        let mut input = self.lock()?;
-        input.set_border(
-            BorderSpec::plain()
-                .edges(BorderEdges::TOP_BOTTOM)
-                .color(ColorSpec::theme("input.border")),
-        );
-        Ok(())
-    }
-
     pub fn component_id(&self) -> Option<u64> {
         self.component_id.lock().ok().and_then(|id| *id)
     }
@@ -741,52 +765,11 @@ impl TuiHost {
                 as fn(&mut HostState, HostAction, &mut AppCx<'_, HostAction>) -> Result<()>,
             host_view as fn(&HostState) -> View,
         )
-        .with_theme(Theme::new().with_color(
-            "input.border",
-            ThemeColor::Named(AnsiColor::Yellow),
-        ).with_color(
-            "text.muted",
-            ThemeColor::Rgb { r: 113, g: 128, b: 150 },
-        ).with_color(
-            "tool.finished",
-            ThemeColor::Rgb { r: 104, g: 211, b: 145 },
-        )
-        .with_color_variant(
-            "input.border",
-            StyleSelector::state(StyleStateKey::from_static("iyon.agent.effort"), StyleStateValue::from_static("low")),
-            ThemeColor::Named(AnsiColor::Green),
-        )
-        .with_color_variant(
-            "input.border",
-            StyleSelector::state(StyleStateKey::from_static("iyon.agent.effort"), StyleStateValue::from_static("medium")),
-            ThemeColor::Named(AnsiColor::Yellow),
-        )
-        .with_color_variant(
-            "input.border",
-            StyleSelector::state(StyleStateKey::from_static("iyon.agent.effort"), StyleStateValue::from_static("high")),
-            ThemeColor::Named(AnsiColor::Magenta),
-        )
-        .with_color_variant(
-            "input.border",
-            StyleSelector::state(StyleStateKey::from_static("iyon.agent.effort"), StyleStateValue::from_static("low")).and_focused(),
-            ThemeColor::Named(AnsiColor::LightGreen),
-        )
-        .with_color_variant(
-            "input.border",
-            StyleSelector::state(StyleStateKey::from_static("iyon.agent.effort"), StyleStateValue::from_static("medium")).and_focused(),
-            ThemeColor::Named(AnsiColor::LightYellow),
-        )
-        .with_color_variant(
-            "input.border",
-            StyleSelector::state(StyleStateKey::from_static("iyon.agent.effort"), StyleStateValue::from_static("high")).and_focused(),
-            ThemeColor::Named(AnsiColor::LightMagenta),
-        ))
-        .with_history(
-            History::new().with_layout(HistoryLayout::from_parts(
-                crate::Insets::new(0, 0, 1, 0),
-                1,
-            )),
-        );
+        .with_theme(Theme::new())
+        .with_history(History::new().with_layout(HistoryLayout::from_parts(
+            crate::Insets::new(0, 0, 1, 0),
+            1,
+        )));
         let now = Instant::now();
         let mut running = app.start(now).map_err(|error| anyhow::anyhow!("host init failed: {error:?}"))?;
         let mut backend = backend;
@@ -810,7 +793,7 @@ impl TuiHost {
 
     pub fn create_text_input(&self, multiline: bool) -> Result<HostTextInput> {
         let input = HostTextInput::new(multiline);
-        input.set_default_border()?;
+        input.lock()?.set_border(BorderSpec::plain().edges(BorderEdges::TOP_BOTTOM));
         input.attach_host(&self.inner)?;
         let mut inner = self.lock_mut()?;
         let handle = inner
@@ -820,8 +803,8 @@ impl TuiHost {
         Ok(input)
     }
 
-    pub fn create_working(&self) -> Result<HostWorking> {
-        let working = HostWorking::new();
+    pub fn create_working(&self, config: HostActivityConfig) -> Result<HostWorking> {
+        let working = HostWorking::new(config);
         let mut inner = self.lock_mut()?;
         let handle = inner.running.host_register(MountedWorking(working.clone()));
         working.set_component_id(handle.raw_id())?;
@@ -910,6 +893,18 @@ impl TuiHost {
         inner.render()
     }
 
+    pub fn set_theme(&self, theme: Theme) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        inner.running.host_set_theme(theme);
+        inner.render()
+    }
+
+    pub fn set_history(&self, history: History) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        inner.running.host_set_history(history);
+        inner.render()
+    }
+
     pub fn dispatch_key(&self, key: KeyStroke) -> Result<()> {
         let mut inner = self.lock_mut()?;
         inner.running.dispatch_key(key).map_err(|error| anyhow::anyhow!("key dispatch failed: {error:?}"))?;
@@ -944,6 +939,58 @@ impl TuiHost {
 
     pub fn next_action(&self) -> Option<RoutedAction> {
         self.lock_mut().ok()?.running.state.actions.pop_front()
+    }
+
+    pub fn style_at(&self, row: u16, column: u16) -> Option<HostCellStyle> {
+        let inner = self.lock().ok()?;
+        if row >= inner.frame.surface.height() || column >= inner.frame.surface.width() {
+            return None;
+        }
+        let style = inner.frame.surface.get(column, row).style;
+        Some(HostCellStyle {
+            foreground: style.foreground.map(physical_color),
+            background: style.background.map(physical_color),
+            bold: style.bold,
+            dim: style.dim,
+            italic: style.italic,
+            underline: style.underline,
+            reversed: style.reversed,
+            strikethrough: style.strikethrough,
+        })
+    }
+
+    pub fn cell_x_of_text(&self, row: u16, needle: &str) -> Option<u16> {
+        let inner = self.lock().ok()?;
+        if row >= inner.frame.surface.height() {
+            return None;
+        }
+        if needle.is_empty() {
+            return Some(0);
+        }
+        for start in 0..inner.frame.surface.width() {
+            if inner.frame.surface.get(start, row).continuation {
+                continue;
+            }
+            let mut candidate = String::new();
+            for column in start..inner.frame.surface.width() {
+                let cell = inner.frame.surface.get(column, row);
+                if cell.continuation {
+                    continue;
+                }
+                candidate.push_str(cell.grapheme.as_deref().unwrap_or(" "));
+                if candidate == needle {
+                    return Some(start);
+                }
+                if !needle.starts_with(&candidate) {
+                    break;
+                }
+            }
+        }
+        None
+    }
+
+    pub fn exited(&self) -> bool {
+        self.lock().map(|inner| inner.closed || inner.running.host_exited()).unwrap_or(true)
     }
 
     pub fn poll_terminal(&self) -> Result<()> {
@@ -1007,6 +1054,15 @@ impl TuiHost {
 
     fn lock_mut(&self) -> Result<std::sync::MutexGuard<'_, HostInner>> {
         self.lock()
+    }
+}
+
+fn physical_color(color: crate::physical::PhysicalColor) -> String {
+    match color {
+        crate::physical::PhysicalColor::Default => "default".to_owned(),
+        crate::physical::PhysicalColor::Named(color) => format!("{color:?}"),
+        crate::physical::PhysicalColor::Indexed(value) => format!("ansi:{value}"),
+        crate::physical::PhysicalColor::Rgb { r, g, b } => format!("#{r:02x}{g:02x}{b:02x}"),
     }
 }
 

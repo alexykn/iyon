@@ -103,6 +103,20 @@ where
         self.dirty = true;
     }
 
+    pub(crate) fn host_set_theme(&mut self, theme: crate::Theme) {
+        self.theme = theme;
+        self.invalidate_frame();
+    }
+
+    pub(crate) fn host_set_history(&mut self, history: crate::History) {
+        self.scene.set_history(history);
+        self.invalidate_frame();
+    }
+
+    pub(crate) fn host_exited(&self) -> bool {
+        self.exit_requested
+    }
+
     pub(crate) fn host_exit(&mut self) {
         self.exit_requested = true;
         self.close_ingress();

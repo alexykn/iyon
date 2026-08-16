@@ -16,7 +16,6 @@ export class AppHarness implements AppHarnessContract {
   private readonly tui: Tui;
   private readonly options: { width: number; height: number };
   private clock = 0;
-  private didExit = false;
 
   private constructor(tui: Tui, options: { width: number; height: number }) {
     this.tui = tui;
@@ -52,7 +51,6 @@ export class AppHarness implements AppHarnessContract {
   }
 
   async close(): Promise<void> {
-    this.didExit = true;
     await this.tui.close();
   }
 
@@ -65,14 +63,11 @@ export class AppHarness implements AppHarnessContract {
   }
   screenRows(): readonly string[] { return this.tui.screenRows(); }
   nativeHistoryRows(): readonly string[] { return this.tui.nativeHistoryRows(); }
-  styleAt(_row: number, _column: number): Readonly<Record<string, unknown>> { return {}; }
+  styleAt(row: number, column: number): Readonly<Record<string, unknown>> { return this.tui.styleAt(row, column); }
   cellXOfText(row: number, text: string): number | null {
-    const value = this.screenRows()[row];
-    if (value === undefined) return null;
-    const index = value.indexOf(text);
-    return index < 0 ? null : index;
+    return this.tui.cellXOfText(row, text);
   }
-  exited(): boolean { return this.didExit; }
+  exited(): boolean { return this.tui.exited(); }
   now(): number { return this.clock; }
 }
 

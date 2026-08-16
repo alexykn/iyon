@@ -14,7 +14,10 @@ type NativeViewSlotHandle = {
 export class ViewSlot extends HandleBase<NativeViewSlotHandle, "component"> implements ViewSlotContract {
   constructor(nativeHandle: NativeViewSlotHandle | object) { super("component", nativeHandle as NativeViewSlotHandle); }
 
-  async view(): Promise<View> { this.ensureOpen(); return View.component(this); }
+  async view(): Promise<View> {
+    this.ensureOpen();
+    return this.nativeComponentId() === undefined ? View.spacer(0) : View.component(this);
+  }
   capabilities(): Promise<ComponentCapabilities> { return this.call(() => ({})); }
   revision(): Promise<number> { return this.call(() => this.nativeHandle.revision()); }
   setView(view: View): Promise<void> {
@@ -37,7 +40,10 @@ export class Component extends HandleBase<NativeViewSlotHandle, "component"> imp
     const NativeViewSlot = requireNativeClass(native.NativeViewSlot, "NativeViewSlot");
     super("component", new NativeViewSlot(lowered as object));
   }
-  async view(): Promise<View> { this.ensureOpen(); return View.component(this); }
+  async view(): Promise<View> {
+    this.ensureOpen();
+    return this.nativeComponentId() === undefined ? View.spacer(0) : View.component(this);
+  }
   capabilities(): Promise<ComponentCapabilities> { return this.call(() => ({})); }
   revision(): Promise<number> { return this.call(() => this.nativeHandle.revision()); }
   nativeComponentId(): number | undefined {

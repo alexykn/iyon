@@ -14,6 +14,7 @@ import type {
   TuiEvent,
   TuiOpenOptions,
   TuiRuntime,
+  WorkingActivityOptions,
 } from "./types.ts";
 import type { NativeTuiHostContract } from "../native.ts";
 
@@ -37,7 +38,9 @@ export class Tui implements TuiRuntime {
     validateSize(width, height);
     const Host = requireNativeClass(native.NativeTuiHost, "NativeTuiHost");
     try {
-      return new Tui(new Host(width, height, options.headless ?? false), width, height);
+      const tui = new Tui(new Host(width, height, options.headless ?? false), width, height);
+      if (options.theme !== undefined) await tui.setTheme(options.theme);
+      return tui;
     } catch (error) {
       throw asTuiError(error);
     }
@@ -66,6 +69,10 @@ export class Tui implements TuiRuntime {
     ensureSignal(signal);
     if (this.closed) throw tuiError("terminal", "TUI runtime is closed");
     const normalized = Scene.from(scene);
+    if (normalized.history !== undefined) {
+      const history = (normalized.history as unknown as { nativeObject(): object }).nativeObject() as { isDetached?: () => boolean };
+      if (history.isDetached?.() === true) this.host.setHistory(history as object);
+    }
     const lowered = materializeView(normalized.body);
     if (lowered === undefined) throw tuiError("runtime", "native View materialization is unavailable");
     this.host.render(lowered as object);
@@ -78,8 +85,17 @@ export class Tui implements TuiRuntime {
     return new TextInput(options, this.host.textInput(options.multiline) as never);
   }
 
-  createWorking(): WorkingActivity {
-    return new WorkingActivity(this.host.working() as never);
+  createWorking(options: WorkingActivityOptions = {}): WorkingActivity {
+    const config = {
+      frames: [...(options.frames ?? ["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"])],
+      activeLabel: options.activeLabel ?? "Working",
+      pendingLabel: options.pendingLabel ?? "waiting",
+      queuePrefix: options.queuePrefix ?? "Queue: ",
+      tickMs: options.tickMs ?? 80,
+      mutedStyle: options.mutedStyle?.value ?? { attributes: { italic: true }, foreground: "#718096" },
+      padding: options.padding ?? 2,
+    };
+    return new WorkingActivity(this.host.working(config) as never);
   }
 
   createViewSlot(initialView: import("./values/view.ts").View): ViewSlot {
@@ -120,6 +136,11 @@ export class Tui implements TuiRuntime {
     this.closed = true;
   }
 
+  async setTheme(theme: import("./values/theme.ts").Theme): Promise<void> {
+    if (this.closed) throw tuiError("terminal", "TUI runtime is closed");
+    this.host.setTheme(theme.materialize());
+  }
+
   enqueue(event: TuiEvent): void {
     if (event.type === "key") this.host.dispatchKey(event.key, event.modifiers);
     if (event.type === "paste") this.host.dispatchPaste(event.text);
@@ -128,6 +149,9 @@ export class Tui implements TuiRuntime {
 
   screenRows(): readonly string[] { return this.host.screenRows(); }
   nativeHistoryRows(): readonly string[] { return this.host.nativeHistoryRows(); }
+  styleAt(row: number, column: number): Readonly<Record<string, unknown>> { return (this.host.styleAt(row, column) as Readonly<Record<string, unknown>> | null) ?? {}; }
+  cellXOfText(row: number, text: string): number | null { return this.host.cellXOfText(row, text); }
+  exited(): boolean { return this.host.exited(); }
   advance(ms: number): void { this.host.advanceTime(ms); }
   current(): Scene | undefined { return this.currentScene; }
 }

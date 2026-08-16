@@ -1,5 +1,6 @@
 import type { TuiError } from "./errors.ts";
 import type { View as SemanticView } from "./values/view.ts";
+import type { Theme as SemanticTheme } from "./values/theme.ts";
 
 declare const handleBrand: unique symbol;
 export type NativeHandleId = number & { readonly [handleBrand]: "NativeHandleId" };
@@ -173,6 +174,17 @@ export interface TuiOpenOptions {
   readonly height?: number;
   readonly headless?: boolean;
   readonly signal?: AbortSignal;
+  readonly theme?: SemanticTheme;
+}
+
+export interface WorkingActivityOptions {
+  readonly frames?: readonly string[];
+  readonly activeLabel?: string;
+  readonly pendingLabel?: string;
+  readonly queuePrefix?: string;
+  readonly tickMs?: number;
+  readonly mutedStyle?: import("./values/style.ts").StyleSpec;
+  readonly padding?: number;
 }
 
 export interface TerminalMetadata {
