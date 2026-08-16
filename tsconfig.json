@@ -21,6 +21,7 @@
   },
   "include": [
     "packages/**/*.ts",
-    "packages/**/*.d.ts"
+    "packages/**/*.d.ts",
+    "plugins/tools/**/*.ts"
   ]
 }

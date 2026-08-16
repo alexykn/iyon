@@ -5,9 +5,10 @@ import { renderEditCall, renderEditResult } from "./render.ts";
 
 interface TextEdit { oldText: string; newText: string }
 interface EditInput { path: string; edits: TextEdit[] }
+export interface EditArgs { path: string; edits?: TextEdit[] | string; oldText?: string; newText?: string }
 type LineEnding = "lf" | "crlf" | "cr";
 
-export const editTool = defineTool({
+export const editTool = defineTool<EditArgs>({
   name: "edit",
   description: "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
   inputSchema: {
@@ -17,8 +18,8 @@ export const editTool = defineTool({
     additionalProperties: false,
   },
   execution: { executionMode: "sequential", approval: "neverAsk", promptSnippet: "Make precise file edits with exact text replacement, including multiple disjoint edits in one call" },
-  execute: async (context: ToolContext, raw: Record<string, unknown>) => {
-    const input = parseInput(raw);
+  execute: async (context: ToolContext, raw: EditArgs) => {
+    const input = parseInput(raw as unknown as Record<string, unknown>);
     validateInput(input);
     checkCancelled(context);
     const resolved = await resolveWorkspacePath(context.workspace, input.path, "write");
@@ -35,7 +36,8 @@ export const editTool = defineTool({
       const updated = applyReplacements(base, edits, ranges);
       await writeWorkspaceText(context.workspace, input.path, `${bom}${restoreLineEndings(updated, lineEnding)}`);
       checkCancelled(context);
-      return { content: [{ type: "text", text: `Successfully replaced ${input.edits.length} block(s) in ${input.path}.` }], details: { diff: unifiedDiff(input.path, base, updated), firstChangedLine: firstChangedLine(base, ranges) }, isError: false };
+      const firstLine = firstChangedLine(base, ranges);
+      return { content: [{ type: "text", text: `Successfully replaced ${input.edits.length} block(s) in ${input.path}.` }], details: { diff: unifiedDiff(input.path, base, updated), ...(firstLine === undefined ? {} : { firstChangedLine: firstLine }) }, isError: false };
     });
   },
   renderCall: renderEditCall,

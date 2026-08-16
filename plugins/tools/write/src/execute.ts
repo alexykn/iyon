@@ -23,7 +23,7 @@ export const writeTool = defineTool({
       const previous = await existingText(context, args.path, resolved);
       await writeWorkspaceText(context.workspace, args.path, args.content);
       checkCancelled(context);
-      const details = previous === undefined ? {} : { diff: unifiedDiff(args.path, normalizeToLf(previous), normalizeToLf(args.content)) };
+      const details: import("@iyon/sdk").JsonValue = previous === undefined ? {} : { diff: unifiedDiff(args.path, normalizeToLf(previous), normalizeToLf(args.content)) };
       return { content: [{ type: "text", text: `Successfully wrote ${new TextEncoder().encode(args.content).byteLength} bytes to ${args.path}` }], details, isError: false };
     });
   },

@@ -23,11 +23,11 @@ export const grepTool = defineTool({
     const found = await search(context, searchPath, args, limit);
     if (found.lines.length === 0) return { content: [{ type: "text", text: "No matches found" }], details: {}, isError: false };
     const truncated = truncateHead(found.lines.join("\n"), { maxLines: Number.MAX_SAFE_INTEGER, maxBytes: DEFAULT_MODEL_MAX_BYTES });
-    const details: Record<string, unknown> = {};
+    const details: Record<string, import("@iyon/sdk").JsonValue> = {};
     const notices: string[] = [];
     if (found.limitReached) { details.matchLimitReached = limit; notices.push(`${limit} matches limit reached`); }
     if (found.linesTruncated) { details.linesTruncated = true; notices.push("some lines truncated"); }
-    if (truncated.report.truncated) { details.truncation = truncated.report; notices.push(`${DEFAULT_MODEL_MAX_BYTES / 1024}KB limit reached`); }
+    if (truncated.report.truncated) { details.truncation = truncated.report as unknown as import("@iyon/sdk").JsonValue; notices.push(`${DEFAULT_MODEL_MAX_BYTES / 1024}KB limit reached`); }
     const text = notices.length ? `${truncated.text}\n\n[Truncated: ${notices.join(", ")}]` : truncated.text;
     return { content: [{ type: "text", text }], details, isError: false };
   },
