@@ -38,8 +38,8 @@ function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState 
     case "toolCallPrepared": return updateDraft(state, event.key, (tool) => ({ ...tool, toolCallId: event.toolCallId, toolName: event.toolName, arguments: event.arguments, status: "prepared" }));
     case "toolCallStarted": return updateTool(state, event.toolCallId, (tool) => ({ ...tool, toolCallId: event.toolCallId, toolName: event.toolName, arguments: event.arguments, status: "running" }));
     case "toolCallUpdated": return updateTool(state, event.toolCallId, (tool) => applyToolUpdate(tool, event.update));
-    case "toolApprovalRequested": return updateTool(state, event.toolCallId, (tool) => ({ ...tool, status: "pendingApproval" }));
-    case "toolApprovalResolved": return updateTool(state, event.toolCallId, (tool) => ({ ...tool, status: event.approved ? "running" : "cancelled", frozen: !event.approved }));
+    case "toolApprovalRequested": return { ...updateTool(state, event.toolCallId, (tool) => ({ ...tool, status: "pendingApproval" })), pendingApproval: { approvalId: event.approvalId, toolCallId: event.toolCallId, toolName: event.toolName, arguments: event.arguments } };
+    case "toolApprovalResolved": return { ...updateTool(state, event.toolCallId, (tool) => ({ ...tool, status: event.approved ? "running" : "cancelled", frozen: !event.approved })), pendingApproval: undefined };
     case "toolResult": return updateTool(state, event.toolCallId, (tool) => ({ ...tool, toolName: event.toolName, text: event.text, details: event.details, status: event.isError ? "failed" : "finished", isError: event.isError, frozen: true }));
     case "toolCallFinished": return updateTool(state, event.toolCallId, (tool) => ({ ...tool, status: event.isError ? "failed" : "finished", isError: event.isError, frozen: true }));
     case "turnFinished": return { ...state, activeTurn: false, working: false, steering: [] };

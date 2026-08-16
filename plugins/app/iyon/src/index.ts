@@ -22,6 +22,8 @@ export { createIyonView, footerText } from "./view.ts";
 export { CoreEventMapper, coalesceFrontendEvents, startCoreEventBridge } from "./backend.ts";
 export { AssistantStreamBuffer, NativeAssistantStream } from "./streaming.ts";
 export { ToolCardStore } from "./tool-cards.ts";
+export { ApprovalStore, pendingApproval } from "./approvals.ts";
+export { handleIyonAction } from "./actions.ts";
 export type {
   FrontendEvent,
   InfoState,

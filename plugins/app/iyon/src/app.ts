@@ -11,6 +11,7 @@ import { ComposerPasteStore } from "./composer.ts";
 import { createInitialState, reduceIyonState } from "./state.ts";
 import { createIyonTheme, type IyonTheme } from "./theme.ts";
 import { createIyonView } from "./view.ts";
+import { handleIyonAction } from "./actions.ts";
 
 export interface IyonAppDependencies {
   readonly agent: IyonAgent;
@@ -30,6 +31,7 @@ export interface IyonApp extends App {
   readonly state: IyonState;
   start(tui?: TuiRuntime): Promise<void>;
   stop(): Promise<void>;
+  handleAction(action: import("./contracts.ts").IyonAction): Promise<void>;
 }
 
 export function createIyonApp(dependencies: IyonAppDependencies): IyonApp {
@@ -81,4 +83,17 @@ class IyonAppImpl implements IyonApp {
   }
 
   dispatch(action: import("./contracts.ts").IyonAction): void { this.currentState = reduceIyonState(this.currentState, action); }
+
+  async handleAction(action: import("./contracts.ts").IyonAction): Promise<void> {
+    const result = await handleIyonAction(this.currentState, action, {
+      core: this.core,
+      agent: this.agent,
+      pasteStore: this.pasteStore,
+      clearComposer: () => this.composer.clear(),
+    });
+    this.currentState = result.state;
+    if (this.tui !== undefined && this.started) {
+      await this.tui.render(new Scene(createIyonView({ composer: this.composer, history: this.history, state: this.currentState, theme: this.theme }), this.history));
+    }
+  }
 }
