@@ -80,12 +80,20 @@ declare module "iyon:tui" {
   export type Horizontal = Record<string, unknown>;
   // iyon-tui::HorizontalAlign [MirrorValue / T5]
   export type HorizontalAlign = Record<string, unknown>;
+  // iyon-tui::HostActivityConfig [MirrorValue / T5]
+  export type HostActivityConfig = Record<string, unknown>;
+  // iyon-tui::HostCellStyle [MirrorValue / T5]
+  export type HostCellStyle = Record<string, unknown>;
   // iyon-tui::HostHistory [NativeHandle / T5]
   export interface HostHistory { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::HostStreamSegmentKind [MirrorValue / T5]
+  export type HostStreamSegmentKind = Record<string, unknown>;
   // iyon-tui::HostTextInput [NativeHandle / T5]
   export interface HostTextInput { readonly __nativeHandle: unique symbol; }
   // iyon-tui::HostTextStream [NativeHandle / T5]
   export interface HostTextStream { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::HostViewSlot [NativeHandle / T5]
+  export interface HostViewSlot { readonly __nativeHandle: unique symbol; }
   // iyon-tui::HostWorking [NativeHandle / T5]
   export interface HostWorking { readonly __nativeHandle: unique symbol; }
   // iyon-tui::Inline [MirrorValue / T5]
@@ -322,14 +330,54 @@ declare module "iyon:tui" {
   export function application__handle__AppSendError__into_inner(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::handle::AppSendError::is_full [NativeAsync / T5]
   export function application__handle__AppSendError__is_full(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::application::host::HostActivityConfig [MirrorValue / T5]
+  export type application__host__HostActivityConfig = Record<string, unknown>;
+  // iyon-tui::application::host::HostActivityConfig::active_label [NativeHandle / T5]
+  export interface application__host__HostActivityConfig__active_label { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostActivityConfig::default [NativeSync / T5]
+  export function application__host__HostActivityConfig__default(...args: readonly unknown[]): unknown;
+  // iyon-tui::application::host::HostActivityConfig::frames [NativeHandle / T5]
+  export interface application__host__HostActivityConfig__frames { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostActivityConfig::muted_style [NativeHandle / T5]
+  export interface application__host__HostActivityConfig__muted_style { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostActivityConfig::padding [NativeHandle / T5]
+  export interface application__host__HostActivityConfig__padding { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostActivityConfig::pending_label [NativeHandle / T5]
+  export interface application__host__HostActivityConfig__pending_label { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostActivityConfig::queue_prefix [NativeHandle / T5]
+  export interface application__host__HostActivityConfig__queue_prefix { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostActivityConfig::tick_ms [NativeHandle / T5]
+  export interface application__host__HostActivityConfig__tick_ms { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostCellStyle::background [NativeHandle / T5]
+  export interface application__host__HostCellStyle__background { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostCellStyle::bold [NativeHandle / T5]
+  export interface application__host__HostCellStyle__bold { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostCellStyle::dim [NativeHandle / T5]
+  export interface application__host__HostCellStyle__dim { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostCellStyle::foreground [NativeHandle / T5]
+  export interface application__host__HostCellStyle__foreground { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostCellStyle::italic [NativeHandle / T5]
+  export interface application__host__HostCellStyle__italic { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostCellStyle::reversed [NativeHandle / T5]
+  export interface application__host__HostCellStyle__reversed { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostCellStyle::strikethrough [NativeHandle / T5]
+  export interface application__host__HostCellStyle__strikethrough { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostCellStyle::underline [NativeHandle / T5]
+  export interface application__host__HostCellStyle__underline { readonly __nativeHandle: unique symbol; }
   // iyon-tui::application::host::HostHistory::layout [NativeAsync / T5]
   export function application__host__HostHistory__layout(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostHistory::push [NativeAsync / T5]
   export function application__host__HostHistory__push(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostHistory::push_stream [NativeAsync / T5]
   export function application__host__HostHistory__push_stream(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::application::host::HostHistory::seal_stream [NativeAsync / T5]
+  export function application__host__HostHistory__seal_stream(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostHistory::set_layout [NativeAsync / T5]
   export function application__host__HostHistory__set_layout(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::application::host::HostStreamSegmentKind::Text [MirrorValue / T5]
+  export type application__host__HostStreamSegmentKind__Text = Record<string, unknown>;
+  // iyon-tui::application::host::HostStreamSegmentKind::Thinking [MirrorValue / T5]
+  export type application__host__HostStreamSegmentKind__Thinking = Record<string, unknown>;
   // iyon-tui::application::host::HostTextInput::clear [NativeAsync / T5]
   export function application__host__HostTextInput__clear(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostTextInput::component_id [NativeAsync / T5]
@@ -340,8 +388,6 @@ declare module "iyon:tui" {
   export function application__host__HostTextInput__is_multiline(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostTextInput::new [NativeAsync / T5]
   export function application__host__HostTextInput__new(...args: readonly unknown[]): Promise<unknown>;
-  // iyon-tui::application::host::HostTextInput::set_default_border [NativeAsync / T5]
-  export function application__host__HostTextInput__set_default_border(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostTextInput::set_multiline [NativeAsync / T5]
   export function application__host__HostTextInput__set_multiline(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostTextInput::set_text [NativeAsync / T5]
@@ -352,16 +398,30 @@ declare module "iyon:tui" {
   export function application__host__HostTextInput__text(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostTextInput::view [NativeAsync / T5]
   export function application__host__HostTextInput__view(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::application::host::HostTextStream::append_segment [NativeAsync / T5]
+  export function application__host__HostTextStream__append_segment(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostTextStream::attach [NativeAsync / T5]
   export function application__host__HostTextStream__attach(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostTextStream::new [NativeAsync / T5]
   export function application__host__HostTextStream__new(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostTextStream::seal [NativeAsync / T5]
   export function application__host__HostTextStream__seal(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::application::host::HostTextStream::seal_history [NativeAsync / T5]
+  export function application__host__HostTextStream__seal_history(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostTextStream::snapshot_json [NativeAsync / T5]
   export function application__host__HostTextStream__snapshot_json(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostTextStream::update [NativeAsync / T5]
   export function application__host__HostTextStream__update(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::application::host::HostTextStream::with_markdown [NativeHandle / T5]
+  export interface application__host__HostTextStream__with_markdown { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostViewSlot::component_id [NativeSync / T5]
+  export function application__host__HostViewSlot__component_id(...args: readonly unknown[]): unknown;
+  // iyon-tui::application::host::HostViewSlot::new [NativeHandle / T5]
+  export interface application__host__HostViewSlot__new { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::application::host::HostViewSlot::revision [NativeSync / T5]
+  export function application__host__HostViewSlot__revision(...args: readonly unknown[]): unknown;
+  // iyon-tui::application::host::HostViewSlot::set_view [NativeAsync / T5]
+  export function application__host__HostViewSlot__set_view(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostWorking::component_id [NativeAsync / T5]
   export function application__host__HostWorking__component_id(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::HostWorking::new [NativeAsync / T5]
@@ -380,10 +440,14 @@ declare module "iyon:tui" {
   export function application__host__TuiHost__advance_time(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::TuiHost::bind_key [NativeAsync / T5]
   export function application__host__TuiHost__bind_key(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::application::host::TuiHost::cell_x_of_text [NativeSync / T5]
+  export function application__host__TuiHost__cell_x_of_text(...args: readonly unknown[]): unknown;
   // iyon-tui::application::host::TuiHost::close [NativeAsync / T5]
   export function application__host__TuiHost__close(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::TuiHost::create_text_input [NativeAsync / T5]
   export function application__host__TuiHost__create_text_input(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::application::host::TuiHost::create_view_slot [NativeHandle / T5]
+  export interface application__host__TuiHost__create_view_slot { readonly __nativeHandle: unique symbol; }
   // iyon-tui::application::host::TuiHost::create_working [NativeAsync / T5]
   export function application__host__TuiHost__create_working(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::TuiHost::dispatch_key [NativeAsync / T5]
@@ -394,6 +458,8 @@ declare module "iyon:tui" {
   export function application__host__TuiHost__drop(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::TuiHost::exit [NativeAsync / T5]
   export function application__host__TuiHost__exit(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::application::host::TuiHost::exited [NativeSync / T5]
+  export function application__host__TuiHost__exited(...args: readonly unknown[]): unknown;
   // iyon-tui::application::host::TuiHost::history [NativeAsync / T5]
   export function application__host__TuiHost__history(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::TuiHost::intercept_paste [NativeAsync / T5]
@@ -418,6 +484,12 @@ declare module "iyon:tui" {
   export function application__host__TuiHost__route_text_input_output(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::application::host::TuiHost::screen_rows [NativeAsync / T5]
   export function application__host__TuiHost__screen_rows(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::application::host::TuiHost::set_history [NativeAsync / T5]
+  export function application__host__TuiHost__set_history(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::application::host::TuiHost::set_theme [NativeAsync / T5]
+  export function application__host__TuiHost__set_theme(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::application::host::TuiHost::style_at [NativeSync / T5]
+  export function application__host__TuiHost__style_at(...args: readonly unknown[]): unknown;
   // iyon-tui::component::Component::capabilities [NativeAsync / T5]
   export function component__Component__capabilities(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::component::Component::view [NativeAsync / T5]
