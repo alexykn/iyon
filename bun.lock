@@ -44,6 +44,15 @@
       "name": "@iyon/sdk",
       "version": "0.1.0",
     },
+    "plugins/agents/iyon": {
+      "name": "@iyon/agent-iyon",
+      "version": "0.1.0",
+      "dependencies": {
+        "@iyon/plugins": "workspace:*",
+        "@iyon/runtime": "workspace:*",
+        "@iyon/sdk": "workspace:*",
+      },
+    },
     "plugins/providers/mock": {
       "name": "@iyon/provider-mock",
       "version": "0.1.0",
@@ -129,6 +138,8 @@
     },
   },
   "packages": {
+    "@iyon/agent-iyon": ["@iyon/agent-iyon@workspace:plugins/agents/iyon"],
+
     "@iyon/cli": ["@iyon/cli@workspace:packages/iyon-cli"],
 
     "@iyon/plugins": ["@iyon/plugins@workspace:packages/iyon-plugins"],
