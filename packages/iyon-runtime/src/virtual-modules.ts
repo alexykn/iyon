@@ -46,7 +46,7 @@ const virtualModules = {
     } from "@iyon/runtime/native";
   `,
   "iyon:tui": `
-    export { tuiSmoke } from "@iyon/runtime/smoke";
+    export * from "@iyon/runtime/tui";
   `,
 } as const;
 
@@ -106,7 +106,13 @@ function registerRuntimeModules(build: Bun.PluginBuilder): void {
     loader: "object",
   }));
   build.module("iyon:tui", () => ({
-    exports: { tuiSmoke },
+    exports: {
+      tuiSmoke,
+      TuiError: require("./tui/errors.ts").TuiError,
+      asTuiError: require("./tui/errors.ts").asTuiError,
+      isTuiCancelledError: require("./tui/errors.ts").isTuiCancelledError,
+      isTuiError: require("./tui/errors.ts").isTuiError,
+    },
     loader: "object",
   }));
 }

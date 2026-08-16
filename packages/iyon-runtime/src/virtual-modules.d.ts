@@ -1,5 +1,4 @@
 declare module "iyon:api" {
-  export type * from "./modules/api.ts";
   export const apiSmoke: "iyon:api/t1";
   export const nativeVersion: () => string;
   export const echoJson: (value: import("./native.ts").JsonValue) => import("./native.ts").JsonValue;
@@ -8,43 +7,23 @@ declare module "iyon:api" {
 }
 
 declare module "iyon:core" {
-  export {
-    AgentSession,
-    IyonNativeError,
-    KernelSession,
-    ModelTurn,
-    ToolExecution,
-    asIyonError,
-    isCancelledError,
-  } from "./modules/core.ts";
-  export type {
-    AgentSession as AgentSessionContract,
-    ApprovalId,
-    ApprovalRequirement,
-    ApprovalState,
-    ApprovalStatus,
-    AssembledToolCall,
-    CoreEvent,
-    KernelSession as KernelSessionContract,
-    MessageDelta,
-    MessageId,
-    MessageRole,
-    ModelTurn as ModelTurnContract,
-    ModelTurnOptions,
-    ModelTurnResult,
-    SessionEntry,
-    SessionId,
-    SessionSnapshot,
-    ToolCallDelta,
-    ToolCallId,
-    ToolExecution as ToolExecutionContract,
-    ToolExecutionRequest,
-    ToolLifecycleEvent,
-    ToolLifecycleState,
-    ToolResult,
-    ToolUpdateEvent,
-    TurnId,
-  } from "../../iyon-sdk/src/core.ts";
+  export const AgentSession: any;
+  export const IyonNativeError: any;
+  export const KernelSession: new (...args: any[]) => {
+    snapshot(): SessionSnapshot;
+    appendMessage(...args: any[]): number;
+    [key: string]: any;
+  };
+  export const ModelTurn: any;
+  export const ToolExecution: any;
+  export const asIyonError: any;
+  export const isCancelledError: any;
+  export type SessionEntry = { readonly role?: string };
+  export type SessionSnapshot = {
+    readonly sessionId?: number;
+    readonly entries: readonly SessionEntry[];
+  };
+  export type ToolResult = any;
   export const coreSmoke: "iyon:core/t1";
   export function runWithAbortSignal<T>(
     signal: AbortSignal,
@@ -67,6 +46,14 @@ declare module "iyon:core" {
 
 declare module "iyon:tui" {
   export const tuiSmoke: "iyon:tui/t1";
+  export class TuiError extends Error {
+    readonly category: import("./tui/errors.ts").TuiErrorCategory;
+    readonly nativeCode?: string;
+    readonly context?: Readonly<Record<string, unknown>>;
+  }
+  export function asTuiError(error: unknown): TuiError;
+  export function isTuiError(error: unknown): error is TuiError;
+  export function isTuiCancelledError(error: unknown): boolean;
 }
 
 declare module "*.node" {

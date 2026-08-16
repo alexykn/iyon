@@ -1,4 +1,5 @@
 export { native } from "./native.ts";
+export * from "./tui/index.ts";
 export {
   AgentSession,
   IyonNativeError,
