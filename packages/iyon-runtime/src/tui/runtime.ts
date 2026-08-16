@@ -5,6 +5,7 @@ import { requireNativeClass } from "./handles.ts";
 import { Scene } from "./scene.ts";
 import { History } from "./history.ts";
 import { TextInput } from "./text-input.ts";
+import { ViewSlot } from "./component.ts";
 import { WorkingActivity } from "./working.ts";
 import type {
   OutputHandle,
@@ -79,6 +80,12 @@ export class Tui implements TuiRuntime {
 
   createWorking(): WorkingActivity {
     return new WorkingActivity(this.host.working() as never);
+  }
+
+  createViewSlot(initialView: import("./values/view.ts").View): ViewSlot {
+    const lowered = materializeView(initialView);
+    if (lowered === undefined) throw tuiError("runtime", "native View materialization is unavailable");
+    return new ViewSlot(this.host.createViewSlot(lowered as object));
   }
 
   bindKey(key: string, actionId: string, modifiers?: readonly string[]): void {

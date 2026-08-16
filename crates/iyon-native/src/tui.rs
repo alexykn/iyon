@@ -1,9 +1,9 @@
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use iyon_tui::{BorderEdges, BorderSpec, Component, History, HostHistory, HostTextInput, HostTextStream, HostWorking, IntoView, Key, KeyStroke, Modifiers, Output, TextInput, TuiHost, View};
+use iyon_tui::{BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History, HostHistory, HostTextInput, HostTextStream, HostViewSlot, HostWorking, HorizontalAlign, IntoView, Key, KeyStroke, Modifiers, Output, StyleRef, StyleSpec, TextInput, TextSpan, TuiHost, VerticalAlign, View, WrapMode};
 use serde_json::Map;
 use serde_json::Value;
 
@@ -78,6 +78,27 @@ impl NativeHistory {
             .map_err(|_| crate::NativeError::internal("history lock is poisoned"))?
             .layout();
         Ok(serde_json::json!({"padding": _layout.padding().bottom(), "gap": _layout.gap()}))
+    }
+
+    #[napi(js_name = "setLayout")]
+    pub fn set_layout(&self, value: Value) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| crate::NativeError::invalid_input("history layout must be an object"))?;
+        let padding = u16_value(object, "padding")?;
+        let gap = u16_value(object, "gap")?;
+        let layout = iyon_tui::HistoryLayout::from_parts(iyon_tui::Insets::new(0, 0, padding, 0), gap);
+        if let Some(host) = &self.host {
+            return host
+                .set_layout(layout)
+                .map_err(|error| crate::NativeError::internal(error.to_string()));
+        }
+        self.state
+            .lock()
+            .map_err(|_| crate::NativeError::internal("history lock is poisoned"))?
+            .set_layout(layout);
+        Ok(())
     }
 
     #[napi]
@@ -381,6 +402,16 @@ impl NativeTuiHost {
         Ok(NativeWorking { working, alive: AtomicBool::new(true) })
     }
 
+    #[napi(js_name = "createViewSlot")]
+    pub fn create_view_slot(&self, initial: &NativeTuiView) -> Result<NativeViewSlot> {
+        ensure_alive(&self.alive)?;
+        let slot = self
+            .host
+            .create_view_slot(initial.view.clone())
+            .map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        Ok(NativeViewSlot::from_host(slot))
+    }
+
     #[napi(js_name = "bindKey")]
     pub fn bind_key(&self, key: String, modifiers: Option<Vec<String>>, action_id: String) -> Result<()> {
         ensure_alive(&self.alive)?;
@@ -548,20 +579,17 @@ impl NativeTextStream {
 }
 
 #[napi]
-pub struct NativeComponent {
-    id: u64,
-    revision: AtomicU64,
+pub struct NativeViewSlot {
+    slot: HostViewSlot,
     alive: AtomicBool,
 }
 
 #[napi]
-impl NativeComponent {
+impl NativeViewSlot {
     #[napi(constructor)]
-    pub fn new() -> Self {
-        static NEXT_COMPONENT_ID: AtomicU64 = AtomicU64::new(1);
+    pub fn new(initial: &NativeTuiView) -> Self {
         Self {
-            id: NEXT_COMPONENT_ID.fetch_add(1, Ordering::AcqRel),
-            revision: AtomicU64::new(0),
+            slot: HostViewSlot::new(initial.view.clone()),
             alive: AtomicBool::new(true),
         }
     }
@@ -574,13 +602,25 @@ impl NativeComponent {
     #[napi]
     pub fn revision(&self) -> Result<i64> {
         ensure_alive(&self.alive)?;
-        Ok(self.revision.load(Ordering::Acquire) as i64)
+        Ok(self.slot.revision() as i64)
     }
 
-    #[napi]
-    pub fn id(&self) -> Result<i64> {
+    #[napi(js_name = "componentId")]
+    pub fn component_id(&self) -> Result<Option<i64>> {
         ensure_alive(&self.alive)?;
-        Ok(self.id as i64)
+        Ok(self.slot.component_id().map(|id| id as i64))
+    }
+
+    #[napi(js_name = "setView")]
+    pub fn set_view(&self, view: &NativeTuiView) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.slot
+            .set_view(view.view.clone())
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    fn from_host(slot: HostViewSlot) -> Self {
+        Self { slot, alive: AtomicBool::new(true) }
     }
 }
 
@@ -604,59 +644,31 @@ fn lower_view(value: &Value) -> Result<View> {
                 .get("spans")
                 .and_then(Value::as_array)
                 .ok_or_else(|| crate::NativeError::invalid_input("text spans must be an array"))?;
-            let text = spans
-                .iter()
-                .map(|span| {
-                    span.as_object()
-                        .and_then(|span| span.get("text"))
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| {
-                            crate::NativeError::invalid_input("text span text must be a string")
-                        })
-                })
-                .collect::<Result<Vec<_>>>()?
-                .join("");
-            View::text(text).into_view()
+            let spans = spans.iter().map(lower_text_span).collect::<Result<Vec<_>>>()?;
+            let text = View::styled_text(spans);
+            let text = match object.get("wrap").and_then(Value::as_str).unwrap_or("wordThenGrapheme") {
+                "wordThenGrapheme" => text.wrap(WrapMode::WordThenGrapheme),
+                "grapheme" => text.wrap(WrapMode::Grapheme),
+                "noWrap" => text.wrap(WrapMode::NoWrap),
+                other => return Err(crate::NativeError::invalid_input(format!("unknown wrap mode `{other}`"))),
+            };
+            let text = match object.get("align").and_then(Value::as_str).unwrap_or("start") {
+                "start" => text.text_align(HorizontalAlign::Start),
+                "center" => text.text_align(HorizontalAlign::Center),
+                "end" => text.text_align(HorizontalAlign::End),
+                other => return Err(crate::NativeError::invalid_input(format!("unknown text alignment `{other}`"))),
+            };
+            text.into_view()
         }
         "spacer" => {
             let rows = u16_value(object, "rows")?;
             View::spacer(rows)
         }
         "row" => {
-            let children = child_views(object)?;
-            View::horizontal(|row| {
-                row.children(children);
-            })
+            lower_axis(object, true)?
         }
         "column" => {
-            let children = object
-                .get("children")
-                .and_then(Value::as_array)
-                .ok_or_else(|| crate::NativeError::invalid_input("view children must be an array"))?;
-            let mut lowered = Vec::with_capacity(children.len());
-            for child in children {
-                if child.get("type").and_then(Value::as_str) == Some("contentMax") {
-                    let max = child
-                        .get("maxRows")
-                        .and_then(Value::as_u64)
-                        .and_then(|value| u16::try_from(value).ok())
-                        .ok_or_else(|| crate::NativeError::invalid_input("contentMax maxRows must fit in u16"))?;
-                    let nested = lower_view(child.get("child").ok_or_else(|| crate::NativeError::invalid_input("contentMax child is required"))?)?;
-                    lowered.push((max, nested));
-                } else {
-                    let view = lower_view(child)?;
-                    lowered.push((0, view));
-                }
-            }
-            View::vertical(|column| {
-                for (max, view) in lowered {
-                    if max == 0 {
-                        column.child(view);
-                    } else {
-                        column.content_max(max, view);
-                    }
-                }
-            })
+            lower_axis(object, false)?
         }
         "hanging" => View::hanging(
             lower_required(object, "prefix")?,
@@ -664,13 +676,7 @@ fn lower_view(value: &Value) -> Result<View> {
             lower_required(object, "body")?,
         ),
         "grid" => {
-            // Grid track metadata is intentionally retained for the native
-            // lowering seam; an empty-track grid is still a valid semantic
-            // view and children are lowered through the canonical API.
-            let children = child_views(object)?;
-            View::vertical(|column| {
-                column.children(children);
-            })
+            lower_grid(object)?
         }
         "container" => lower_required(object, "child")?.container(),
         "clamp" => lower_required(object, "child")?.clamp_rows(
@@ -699,14 +705,192 @@ fn lower_view(value: &Value) -> Result<View> {
     Ok(view)
 }
 
-fn child_views(object: &Map<String, Value>) -> Result<Vec<View>> {
-    object
+fn lower_axis(object: &Map<String, Value>, horizontal: bool) -> Result<View> {
+    let gap = u16_value(object, "gap")?;
+    let children = object
         .get("children")
         .and_then(Value::as_array)
-        .ok_or_else(|| crate::NativeError::invalid_input("view children must be an array"))?
+        .ok_or_else(|| crate::NativeError::invalid_input("view children must be an array"))?;
+    let mut lowered = Vec::with_capacity(children.len());
+    for child in children {
+        let child = child
+            .as_object()
+            .ok_or_else(|| crate::NativeError::invalid_input("layout child must be an object"))?;
+        let kind = child
+            .get("kind")
+            .and_then(Value::as_str)
+            .ok_or_else(|| crate::NativeError::invalid_input("layout child kind must be a string"))?;
+        let view = lower_view(child.get("child").ok_or_else(|| crate::NativeError::invalid_input("layout child view is required"))?)?;
+        let size = child.get("size").map(|_| u16_value(child, "size")).transpose()?;
+        let max_rows = child.get("maxRows").map(|_| u16_value(child, "maxRows")).transpose()?;
+        match kind {
+            "normal" | "flex" => {}
+            "fixed" if size.is_some() => {}
+            "fixed" => return Err(crate::NativeError::invalid_input("fixed layout child size is required")),
+            "contentMax" if !horizontal && max_rows.is_some() => {}
+            "contentMax" if !horizontal => return Err(crate::NativeError::invalid_input("contentMax maxRows is required")),
+            "contentMax" => return Err(crate::NativeError::invalid_input("contentMax is only valid for vertical children")),
+            other => return Err(crate::NativeError::invalid_input(format!("unknown layout child kind `{other}`"))),
+        }
+        lowered.push((kind.to_owned(), size, max_rows, view));
+    }
+    if horizontal {
+        Ok(View::horizontal(|row| {
+            row.gap(gap);
+            for (kind, size, _max_rows, view) in lowered {
+                match kind.as_str() {
+                    "normal" => { row.child(view); }
+                    "fixed" => { row.fixed(size.expect("fixed size was validated"), view); }
+                    "flex" => { row.flex(view); }
+                    "contentMax" => unreachable!("contentMax was rejected for horizontal layout"),
+                    _ => unreachable!("layout child kind was validated"),
+                }
+            }
+        }))
+    } else {
+        Ok(View::vertical(|column| {
+            column.gap(gap);
+            for (kind, size, max_rows, view) in lowered {
+                match kind.as_str() {
+                    "normal" => { column.child(view); }
+                    "fixed" => { column.fixed(size.expect("fixed size was validated"), view); }
+                    "flex" => { column.flex(view); }
+                    "contentMax" => { column.content_max(max_rows.expect("validated content max"), view); }
+                    _ => unreachable!("layout child kind was validated"),
+                }
+            }
+        }))
+    }
+}
+
+fn lower_grid(object: &Map<String, Value>) -> Result<View> {
+    let columns = object
+        .get("columns")
+        .and_then(Value::as_array)
+        .ok_or_else(|| crate::NativeError::invalid_input("grid columns must be an array"))?
         .iter()
-        .map(lower_view)
-        .collect()
+        .map(lower_grid_track)
+        .collect::<Result<Vec<_>>>()?;
+    let rows = object
+        .get("rows")
+        .and_then(Value::as_array)
+        .ok_or_else(|| crate::NativeError::invalid_input("grid rows must be an array"))?;
+    let column_gap = u16_value(object, "columnGap")?;
+    let row_gap = u16_value(object, "rowGap")?;
+    let mut lowered_rows = Vec::with_capacity(rows.len());
+    for row in rows {
+        let row = row
+            .as_object()
+            .ok_or_else(|| crate::NativeError::invalid_input("grid row must be an object"))?;
+        let track = lower_grid_track(row.get("track").ok_or_else(|| crate::NativeError::invalid_input("grid row track is required"))?)?;
+        let cells = row
+            .get("cells")
+            .and_then(Value::as_array)
+            .ok_or_else(|| crate::NativeError::invalid_input("grid cells must be an array"))?;
+        let mut lowered_cells = Vec::with_capacity(cells.len());
+        for cell in cells {
+            let cell = cell
+                .as_object()
+                .ok_or_else(|| crate::NativeError::invalid_input("grid cell must be an object"))?;
+            let spec = GridCellSpec::new()
+                .column_span(u16_value(cell, "columnSpan")?)
+                .row_span(u16_value(cell, "rowSpan")?)
+                .horizontal_align(parse_horizontal_align(cell.get("horizontalAlign").and_then(Value::as_str).unwrap_or("start"))?)
+                .vertical_align(parse_vertical_align(cell.get("verticalAlign").and_then(Value::as_str).unwrap_or("top"))?);
+            lowered_cells.push((spec, lower_required(cell, "view")?));
+        }
+        lowered_rows.push((track, lowered_cells));
+    }
+    Ok(View::grid(|grid| {
+        grid.columns(columns);
+        grid.column_gap(column_gap);
+        grid.row_gap(row_gap);
+        for (track, cells) in lowered_rows {
+            grid.row_with(track, |row| {
+                for (spec, view) in &cells {
+                    row.cell_with(*spec, view.clone());
+                }
+            });
+        }
+    }))
+}
+
+fn lower_grid_track(value: &Value) -> Result<GridTrack> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("grid track must be an object"))?;
+    match object
+        .get("kind")
+        .and_then(Value::as_str)
+        .ok_or_else(|| crate::NativeError::invalid_input("grid track kind must be a string"))?
+    {
+        "content" => Ok(GridTrack::content()),
+        "contentMax" => Ok(GridTrack::content_max(u16_value(object, "max")?)),
+        "fixed" => Ok(GridTrack::fixed(u16_value(object, "size")?)),
+        "flex" => Ok(GridTrack::flex()),
+        "flexMax" => Ok(GridTrack::flex_max(u16_value(object, "max")?)),
+        other => Err(crate::NativeError::invalid_input(format!("unknown grid track kind `{other}`"))),
+    }
+}
+
+fn parse_horizontal_align(value: &str) -> Result<HorizontalAlign> {
+    match value {
+        "start" => Ok(HorizontalAlign::Start),
+        "center" => Ok(HorizontalAlign::Center),
+        "end" => Ok(HorizontalAlign::End),
+        other => Err(crate::NativeError::invalid_input(format!("unknown horizontal alignment `{other}`"))),
+    }
+}
+
+fn parse_vertical_align(value: &str) -> Result<VerticalAlign> {
+    match value {
+        "top" => Ok(VerticalAlign::Top),
+        "center" => Ok(VerticalAlign::Center),
+        "bottom" => Ok(VerticalAlign::Bottom),
+        other => Err(crate::NativeError::invalid_input(format!("unknown vertical alignment `{other}`"))),
+    }
+}
+
+fn lower_text_span(value: &Value) -> Result<TextSpan> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("text span must be an object"))?;
+    let text = object
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| crate::NativeError::invalid_input("text span text must be a string"))?;
+    let style = object
+        .get("style")
+        .map(lower_style_ref)
+        .transpose()?
+        .unwrap_or_else(|| StyleRef::direct(StyleSpec::new()));
+    Ok(TextSpan::styled(text, style))
+}
+
+fn lower_style_ref(value: &Value) -> Result<StyleRef> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("style must be an object"))?;
+    let mut style = StyleSpec::new();
+    if let Some(color) = object.get("foreground") {
+        style = style.foreground(color_spec(color)?);
+    }
+    if let Some(color) = object.get("background") {
+        style = style.background(color_spec(color)?);
+    }
+    if let Some(attributes) = object.get("attributes").and_then(Value::as_object) {
+        for (name, enabled) in attributes {
+            let attribute = text_attribute(name).ok_or_else(|| crate::NativeError::invalid_input(format!("unknown text attribute `{name}`")))?;
+            let enabled = enabled
+                .as_bool()
+                .ok_or_else(|| crate::NativeError::invalid_input("text attributes must be booleans"))?;
+            style = style.attribute(attribute, enabled);
+        }
+    }
+    Ok(match object.get("theme").and_then(Value::as_str) {
+        Some(theme) => StyleRef::themed(theme, style),
+        None => StyleRef::direct(style),
+    })
 }
 
 fn lower_required(object: &Map<String, Value>, field: &str) -> Result<View> {
@@ -740,11 +924,11 @@ fn apply_decoration(view: View, decoration: Option<&Value>) -> Result<View> {
             u16_value(padding, "left")?,
         ));
     }
-    if let Some(color) = decoration.get("background").and_then(color_spec) {
-        view = view.background(color);
+    if let Some(color) = decoration.get("background") {
+        view = view.background(color_spec(color)?);
     }
-    if let Some(color) = decoration.get("foreground").and_then(color_spec) {
-        view = view.foreground(color);
+    if let Some(color) = decoration.get("foreground") {
+        view = view.foreground(color_spec(color)?);
     }
     if let Some(border) = decoration.get("border").and_then(Value::as_object) {
         let mut spec = match border.get("style").and_then(Value::as_str).unwrap_or("plain") {
@@ -756,16 +940,31 @@ fn apply_decoration(view: View, decoration: Option<&Value>) -> Result<View> {
         if border.get("edges").and_then(Value::as_str) == Some("topBottom") {
             spec = spec.edges(BorderEdges::TOP_BOTTOM);
         }
-        if let Some(color) = border.get("color").and_then(color_spec) {
-            spec = spec.color(color);
+        if let Some(color) = border.get("color") {
+            spec = spec.color(color_spec(color)?);
+        }
+        if let Some(glyphs) = border.get("glyphs").and_then(Value::as_object) {
+            let fields = ["top", "right", "bottom", "left", "topLeft", "topRight", "bottomLeft", "bottomRight"];
+            let values = fields
+                .iter()
+                .map(|field| glyphs.get(*field).and_then(Value::as_str).ok_or_else(|| crate::NativeError::invalid_input(format!("border glyph `{field}` must be a string"))))
+                .collect::<Result<Vec<_>>>()?;
+            spec = BorderSpec::custom(BorderGlyphs::new(values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7]).map_err(|error| crate::NativeError::invalid_input(error.to_string()))?);
+            if border.get("edges").and_then(Value::as_str) == Some("topBottom") {
+                spec = spec.edges(BorderEdges::TOP_BOTTOM);
+            }
+            if let Some(color) = border.get("color") {
+                spec = spec.color(color_spec(color)?);
+            }
         }
         view = view.border(spec);
     }
     if let Some(style) = decoration.get("style").and_then(Value::as_object) {
+        view = view.style(lower_style_ref(&Value::Object(style.clone()))?);
         if let Some(attributes) = style.get("attributes").and_then(Value::as_object) {
             for (name, enabled) in attributes {
                 if let Some(attribute) = text_attribute(name) {
-                    view = view.text_attribute(attribute, enabled.as_bool().unwrap_or(false));
+                    view = view.text_attribute(attribute, enabled.as_bool().ok_or_else(|| crate::NativeError::invalid_input("text attributes must be booleans"))?);
                 }
             }
         }
@@ -778,29 +977,47 @@ fn apply_decoration(view: View, decoration: Option<&Value>) -> Result<View> {
             view = view.style_state(key.as_str(), value);
         }
     }
-    if decoration.get("width").and_then(Value::as_str) == Some("fill") {
-        view = view.fill_width();
+    match decoration.get("width").and_then(Value::as_str) {
+        Some("fit") => view = view.fit_width(),
+        Some("fill") => view = view.fill_width(),
+        Some(other) => return Err(crate::NativeError::invalid_input(format!("unknown width rule `{other}`"))),
+        None => {}
     }
-    if decoration.get("height").and_then(Value::as_str) == Some("fill") {
-        view = view.fill_height();
+    match decoration.get("height").and_then(Value::as_str) {
+        Some("fit") => view = view.fit_height(),
+        Some("fill") => view = view.fill_height(),
+        Some(other) => return Err(crate::NativeError::invalid_input(format!("unknown height rule `{other}`"))),
+        None => {}
     }
+    if let Some(value) = decoration.get("minWidth") { view = view.min_width(u16_value(decoration, "minWidth")?); let _ = value; }
+    if decoration.get("maxWidth").is_some() { view = view.max_width(u16_value(decoration, "maxWidth")?); }
+    if decoration.get("minHeight").is_some() { view = view.min_height(u16_value(decoration, "minHeight")?); }
+    if decoration.get("maxHeight").is_some() { view = view.max_height(u16_value(decoration, "maxHeight")?); }
     Ok(view)
 }
 
-fn color_spec(value: &Value) -> Option<iyon_tui::ColorSpec> {
-    let value = value.as_str()?;
+fn color_spec(value: &Value) -> Result<iyon_tui::ColorSpec> {
+    if let Some(object) = value.as_object() {
+        let kind = object.get("type").and_then(Value::as_str).ok_or_else(|| crate::NativeError::invalid_input("color object type must be a string"))?;
+        if kind == "ansi" {
+            let number = object.get("value").and_then(Value::as_u64).ok_or_else(|| crate::NativeError::invalid_input("ANSI color value must be an integer"))?;
+            return Ok(iyon_tui::ColorSpec::ansi(u8::try_from(number).map_err(|_| crate::NativeError::invalid_input("ANSI color value must fit in u8"))?));
+        }
+        return Err(crate::NativeError::invalid_input(format!("unknown color object type `{kind}`")));
+    }
+    let value = value.as_str().ok_or_else(|| crate::NativeError::invalid_input("color must be a string or ANSI color object"))?;
     if let Some(value) = value.strip_prefix("theme:") {
-        return Some(iyon_tui::ColorSpec::theme(value));
+        return Ok(iyon_tui::ColorSpec::theme(value));
     }
     if let Some(value) = value.strip_prefix("ansi:") {
-        return value.parse::<u8>().ok().map(iyon_tui::ColorSpec::ansi);
+        return Ok(iyon_tui::ColorSpec::ansi(value.parse::<u8>().map_err(|_| crate::NativeError::invalid_input("ANSI color must fit in u8"))?));
     }
     if let Some(value) = value.strip_prefix('#') {
         if value.len() == 6 {
-            let r = u8::from_str_radix(&value[0..2], 16).ok()?;
-            let g = u8::from_str_radix(&value[2..4], 16).ok()?;
-            let b = u8::from_str_radix(&value[4..6], 16).ok()?;
-            return Some(iyon_tui::ColorSpec::rgb(r, g, b));
+            let r = u8::from_str_radix(&value[0..2], 16).map_err(|_| crate::NativeError::invalid_input("RGB color must contain hexadecimal bytes"))?;
+            let g = u8::from_str_radix(&value[2..4], 16).map_err(|_| crate::NativeError::invalid_input("RGB color must contain hexadecimal bytes"))?;
+            let b = u8::from_str_radix(&value[4..6], 16).map_err(|_| crate::NativeError::invalid_input("RGB color must contain hexadecimal bytes"))?;
+            return Ok(iyon_tui::ColorSpec::rgb(r, g, b));
         }
     }
     let color = match value.to_ascii_lowercase().as_str() {
@@ -820,9 +1037,9 @@ fn color_spec(value: &Value) -> Option<iyon_tui::ColorSpec> {
         "lightmagenta" => iyon_tui::AnsiColor::LightMagenta,
         "lightcyan" => iyon_tui::AnsiColor::LightCyan,
         "white" => iyon_tui::AnsiColor::White,
-        _ => return None,
+        _ => return Err(crate::NativeError::invalid_input(format!("unknown color `{value}`"))),
     };
-    Some(iyon_tui::ColorSpec::named(color))
+    Ok(iyon_tui::ColorSpec::named(color))
 }
 
 fn text_attribute(value: &str) -> Option<iyon_tui::TextAttribute> {

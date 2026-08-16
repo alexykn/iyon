@@ -31,6 +31,7 @@ export type {
   TuiOperation,
   TuiRuntime,
   TuiFailure,
+  ViewSlot,
 } from "./types.ts";
 export { View, ChildrenBuilder } from "./values/view.ts";
 export { Insets } from "./values/geometry.ts";
@@ -41,7 +42,7 @@ export { History } from "./history.ts";
 export { TextInput, NativeOutputHandle } from "./text-input.ts";
 export { WorkingActivity } from "./working.ts";
 export { TextStream, StreamPane } from "./stream.ts";
-export { Component } from "./component.ts";
+export { Component, ViewSlot as NativeViewSlot } from "./component.ts";
 export { TextContent, RawText } from "./values/text-content.ts";
 export { Annotations } from "./values/annotations.ts";
 export { Projection, ProjectionBuilder, Smooth } from "./values/projection.ts";

@@ -67,6 +67,11 @@ export interface Component extends NativeHandle {
   capabilities(): TuiOperation<ComponentCapabilities>;
 }
 
+export interface ViewSlot extends Component {
+  setView(view: View): TuiOperation<void>;
+  revision(): TuiOperation<number>;
+}
+
 export interface WorkingActivityHandle extends NativeHandle {
   setActive(active: boolean): TuiOperation<void>;
   setPending(pending: readonly string[]): TuiOperation<void>;
@@ -185,6 +190,7 @@ export interface TuiRuntime {
   createHistory?(): History;
   createTextInput?(options?: { multiline?: boolean }): TextInput;
   createWorking?(): WorkingActivityHandle;
+  createViewSlot?(initial: View): ViewSlot;
   bindKey?(key: string, actionId: string, modifiers?: readonly string[]): void;
   route?(output: OutputHandle<string>, actionId: string): void;
   interceptPaste?(input: TextInput, actionId: string): void;

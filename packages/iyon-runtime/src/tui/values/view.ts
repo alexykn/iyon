@@ -7,6 +7,10 @@ import {
   type BorderNode,
   type ColorNode,
   type DecorationNode,
+  type GridCellNode,
+  type GridRowNode,
+  type GridTrackNode,
+  type LayoutChild,
   type ViewNode,
 } from "../ir.ts";
 import { insets, Insets } from "./geometry.ts";
@@ -15,19 +19,81 @@ import { TextSpan, type HorizontalAlign, type WrapMode } from "./text.ts";
 
 type ChildBuilder = readonly View[] | ((builder: ChildrenBuilder) => void);
 
-export class ChildrenBuilder {
-  readonly children: View[] = [];
+export type GridTrack = GridTrackNode;
 
-  child(view: View): this { this.children.push(view); return this; }
-  childrenOf(views: readonly View[]): this { this.children.push(...views); return this; }
-  gap(_value: number): this { return this; }
-  fixed(_size: number, view: View): this { this.children.push(view); return this; }
-  flex(view: View): this { this.children.push(view); return this; }
-  contentMax(maxRows: number, view: View): this {
-    validateU16(maxRows, "maxRows");
-    this.children.push(View.contentMax(maxRows, view));
+export interface GridCell {
+  readonly view: View;
+  readonly columnSpan?: number;
+  readonly rowSpan?: number;
+  readonly horizontalAlign?: "start" | "center" | "end";
+  readonly verticalAlign?: "top" | "center" | "bottom";
+}
+
+export interface GridRow {
+  readonly track?: GridTrack;
+  readonly cells: readonly GridCell[];
+}
+
+export interface GridSpec {
+  readonly columns?: readonly GridTrack[];
+  readonly rows: readonly GridRow[];
+  readonly columnGap?: number;
+  readonly rowGap?: number;
+}
+
+export class GridRowBuilder {
+  readonly cells: GridCell[] = [];
+
+  cell(view: View): this { this.cells.push({ view }); return this; }
+  cellWith(spec: Omit<GridCell, "view">, view: View): this { this.cells.push({ ...spec, view }); return this; }
+}
+
+export class GridBuilder {
+  columnsValue: GridTrack[] = [];
+  rows: GridRow[] = [];
+  columnGapValue = 0;
+  rowGapValue = 0;
+
+  columns(columns: readonly GridTrack[]): this { this.columnsValue = [...columns]; return this; }
+  columnGap(value: number): this { this.columnGapValue = validateU16(value, "columnGap"); return this; }
+  rowGap(value: number): this { this.rowGapValue = validateU16(value, "rowGap"); return this; }
+  row(build: ((row: GridRowBuilder) => void) | GridRow): this {
+    if (typeof build === "function") {
+      const row = new GridRowBuilder();
+      build(row);
+      this.rows.push({ cells: row.cells });
+    } else {
+      this.rows.push(build);
+    }
     return this;
   }
+  rowWith(track: GridTrack, build: (row: GridRowBuilder) => void): this {
+    const row = new GridRowBuilder();
+    build(row);
+    this.rows.push({ track, cells: row.cells });
+    return this;
+  }
+}
+
+export class ChildrenBuilder {
+  readonly children: LayoutChild[] = [];
+  private layoutGap = 0;
+
+  child(view: View): this { this.children.push({ kind: "normal", child: nodeForMaterialization(view) }); return this; }
+  childrenOf(views: readonly View[]): this { for (const view of views) this.child(view); return this; }
+  gap(value: number): this { this.layoutGap = validateU16(value, "gap"); return this; }
+  fixed(size: number, view: View): this {
+    this.children.push({ kind: "fixed", size: validateU16(size, "size"), child: nodeForMaterialization(view) });
+    return this;
+  }
+  flex(view: View): this { this.children.push({ kind: "flex", child: nodeForMaterialization(view) }); return this; }
+  contentMax(maxRows: number, view: View): this {
+    validateU16(maxRows, "maxRows");
+    this.children.push({ kind: "contentMax", maxRows, child: nodeForMaterialization(view) });
+    return this;
+  }
+
+  gapValue(): number { return this.layoutGap; }
 }
 
 export class View {
@@ -58,20 +124,48 @@ export class View {
 
   static horizontal(children: ChildBuilder): View {
     const builder = buildChildren(children);
-    return new View({ type: "row", children: builder.children.map((child) => child.node), gap: 0 });
+    return new View({ type: "row", children: builder.children, gap: builder.gapValue() });
   }
 
   static vertical(children: ChildBuilder): View {
     const builder = buildChildren(children);
-    return new View({ type: "column", children: builder.children.map((child) => child.node), gap: 0 });
+    return new View({ type: "column", children: builder.children, gap: builder.gapValue() });
   }
 
   static hanging(prefix: View, continuation: View, body: View): View {
     return new View({ type: "hanging", prefix: prefix.node, continuation: continuation.node, body: body.node });
   }
 
-  static grid(children: readonly View[]): View {
-    return new View({ type: "grid", children: children.map((child) => child.node) });
+  static grid(specification: readonly View[] | GridSpec | ((builder: GridBuilder) => void)): View {
+    const builder = new GridBuilder();
+    if (Array.isArray(specification)) {
+      builder.columns(specification.map(() => ({ kind: "content" as const })));
+      builder.row((row) => specification.forEach((view) => row.cell(view)));
+    } else if (typeof specification === "function") {
+      specification(builder);
+    } else {
+      const spec = specification as GridSpec;
+      builder.columns(spec.columns ?? []);
+      for (const row of spec.rows) builder.row(row);
+      builder.columnGap(spec.columnGap ?? 0).rowGap(spec.rowGap ?? 0);
+    }
+    const rows: GridRowNode[] = builder.rows.map((row) => ({
+      track: row.track ?? { kind: "content" },
+      cells: row.cells.map((cell): GridCellNode => ({
+        view: nodeForMaterialization(cell.view),
+        columnSpan: validatePositiveU16(cell.columnSpan ?? 1, "columnSpan"),
+        rowSpan: validatePositiveU16(cell.rowSpan ?? 1, "rowSpan"),
+        horizontalAlign: cell.horizontalAlign ?? "start",
+        verticalAlign: cell.verticalAlign ?? "top",
+      })),
+    }));
+    return new View({
+      type: "grid",
+      columns: builder.columnsValue,
+      rows,
+      columnGap: builder.columnGapValue,
+      rowGap: builder.rowGapValue,
+    });
   }
 
   static component(handle: { readonly id: NativeHandleId; nativeComponentId?: () => number | undefined }): View {
@@ -157,8 +251,9 @@ function rows(node: ViewNode): string[] {
   switch (node.type) {
     case "text": return [node.spans.map((span) => span.text).join("")];
     case "spacer": return Array.from({ length: node.rows }, () => "");
-    case "row": return [node.children.flatMap(rows).join("")];
-    case "column": case "grid": return node.children.flatMap(rows);
+    case "row": return [node.children.flatMap((child) => rows(child.child)).join("")];
+    case "column": return node.children.flatMap((child) => rows(child.child));
+    case "grid": return node.rows.flatMap((row) => row.cells.flatMap((cell) => rows(cell.view)));
     case "hanging": return rows(node.prefix).map((prefix, index) => `${prefix}${index === 0 ? rows(node.body)[0] ?? "" : rows(node.body)[index] ?? ""}`);
     case "container": case "clamp": return rows(node.child).slice(0, node.maxRows);
     case "contentMax": return rows(node.child).slice(0, node.maxRows);
@@ -179,5 +274,10 @@ function buildChildren(children: ChildBuilder): ChildrenBuilder {
 
 function validateU16(value: number, name: string): number {
   if (!Number.isInteger(value) || value < 0 || value > 65535) throw new RangeError(`${name} must be an integer from 0 to 65535`);
+  return value;
+}
+
+function validatePositiveU16(value: number, name: string): number {
+  if (!Number.isInteger(value) || value < 1 || value > 65535) throw new RangeError(`${name} must be an integer from 1 to 65535`);
   return value;
 }
