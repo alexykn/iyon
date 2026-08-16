@@ -75,9 +75,7 @@ impl RuntimeState {
     fn new(cwd: PathBuf, config: RuntimeConfig) -> Self {
         let workspace = Workspace::new(cwd.clone(), FsPermissions::default());
         let mutation_queue = FileMutationQueue::default();
-        let mut tools = ToolRegistry::new();
-        tools
-            .register_builtin_defaults(mutation_queue)
+        let tools = ToolRegistry::compatibility_with_builtin_defaults(mutation_queue)
             .expect("builtin tool registration should be valid");
 
         let mut session = SessionState::new(SessionId(1), cwd);
