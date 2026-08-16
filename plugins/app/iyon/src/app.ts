@@ -12,6 +12,7 @@ import { createInitialState, reduceIyonState } from "./state.ts";
 import { createIyonTheme, type IyonTheme } from "./theme.ts";
 import { createIyonView } from "./view.ts";
 import { handleIyonAction } from "./actions.ts";
+import { startCoreEventBridge, type CoreEventBridge, type CoreEventSource } from "./backend.ts";
 
 export interface IyonAppDependencies {
   readonly agent: IyonAgent;
@@ -32,6 +33,7 @@ export interface IyonApp extends App {
   start(tui?: TuiRuntime): Promise<void>;
   stop(): Promise<void>;
   handleAction(action: import("./contracts.ts").IyonAction): Promise<void>;
+  startBackendBridge(source: CoreEventSource): CoreEventBridge;
 }
 
 export function createIyonApp(dependencies: IyonAppDependencies): IyonApp {
@@ -96,4 +98,6 @@ class IyonAppImpl implements IyonApp {
       await this.tui.render(new Scene(createIyonView({ composer: this.composer, history: this.history, state: this.currentState, theme: this.theme }), this.history));
     }
   }
+
+  startBackendBridge(source: CoreEventSource): CoreEventBridge { return startCoreEventBridge(source, this); }
 }
