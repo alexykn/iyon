@@ -27,6 +27,7 @@ export interface History extends NativeHandle {
   layout(): TuiOperation<HistoryLayout>;
   push(view: View): TuiOperation<void>;
   pushStream(stream: TextStream): TuiOperation<void>;
+  sealStream(stream: TextStream): TuiOperation<void>;
   setLayout?(layout: HistoryLayout): TuiOperation<void>;
 }
 
@@ -218,6 +219,7 @@ export interface TuiRuntime {
 }
 
 export interface AppHarness extends TuiRuntime {
+  createViewSlot(initial: View): ViewSlot;
   pressKey(key: string, modifiers?: readonly string[]): void;
   paste(text: string): void;
   advance(ms: number): void;

@@ -39,6 +39,10 @@ export class AppHarness implements AppHarnessContract {
   createHistory(): History { return this.tui.createHistory(); }
   createTextInput(options: { multiline?: boolean } = {}): TextInput { return this.tui.createTextInput(options); }
   createWorking(): WorkingActivityHandle { return this.tui.createWorking?.() ?? (() => { throw tuiError("runtime", "native working component is unavailable"); })(); }
+  createViewSlot(initial: import("./values/view.ts").View) {
+    if (this.tui.createViewSlot === undefined) throw tuiError("runtime", "native view slots are unavailable");
+    return this.tui.createViewSlot(initial);
+  }
   bindKey(key: string, actionId: string, modifiers?: readonly string[]): void { this.tui.bindKey(key, actionId, modifiers); }
   route(output: OutputHandle<string>, actionId: string): void { this.tui.route(output, actionId); }
   interceptPaste(input: TextInput, actionId: string): void { this.tui.interceptPaste(input as RuntimeTextInput, actionId); }

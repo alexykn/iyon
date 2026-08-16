@@ -1,5 +1,5 @@
 import { TextStream } from "@iyon/runtime/tui";
-import type { StreamSnapshot, TextStream as TextStreamHandle } from "@iyon/runtime/tui";
+import type { StreamSnapshot } from "@iyon/runtime/tui";
 
 export type SegmentKind = "text" | "thinking";
 export interface StreamSegment { readonly kind: SegmentKind; readonly text: string; }
@@ -22,7 +22,7 @@ export class AssistantStreamBuffer {
 }
 
 export class NativeAssistantStream {
-  readonly native: TextStreamHandle;
+  readonly native: TextStream;
   readonly buffer = new AssistantStreamBuffer();
 
   constructor() { this.native = new TextStream({ projector: "markdown" }); }

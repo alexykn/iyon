@@ -1,7 +1,7 @@
 import type { ReasoningLevel } from "@iyon/sdk";
 import type { IyonAction, IyonAgent, IyonCoreCommands, IyonState } from "./contracts.ts";
 import { ComposerPasteStore } from "./composer.ts";
-import { reduceIyonState } from "./state.ts";
+import { hasActiveWork, reduceIyonState } from "./state.ts";
 
 export interface ActionContext {
   readonly core: IyonCoreCommands;
@@ -22,9 +22,10 @@ export async function handleIyonAction(state: IyonState, action: IyonAction, con
   if (action.type === "submit") {
     const text = context.pasteStore.expand(action.text);
     if (text.length === 0) return { state, exited: false };
-    const steering = state.activeTurn;
+    const steering = hasActiveWork(state);
     await context.clearComposer?.();
-    await context.core.submitTurn?.(text);
+    if (steering) await submitSteering(context.core, text);
+    else await submitPrompt(context.core, text);
     if (!steering) void context.runAgent?.();
     return {
       state: steering
@@ -39,7 +40,7 @@ export async function handleIyonAction(state: IyonState, action: IyonAction, con
       context.pasteStore.clear(); await context.clearComposer?.();
       return { state: reduceIyonState(state, action), exited: false };
     }
-    if (state.activeTurn) {
+    if (hasActiveWork(state)) {
       await context.core.cancelActiveTurn?.(); await context.agent.cancel?.();
       return { state, exited: false };
     }
@@ -47,13 +48,14 @@ export async function handleIyonAction(state: IyonState, action: IyonAction, con
     return { state: reduceIyonState(state, { type: "requestExit" }), exited: true };
   }
   if (action.type === "escape") {
-    if (state.activeTurn) { await context.core.cancelActiveTurn?.(); await context.agent.cancel?.(); }
+    if (hasActiveWork(state)) { await context.core.cancelActiveTurn?.(); await context.agent.cancel?.(); }
     return { state, exited: false };
   }
   if (action.type === "cycleReasoningEffort") {
     const index = REASONING_LEVELS.indexOf(state.info.reasoningEffort);
     const next = REASONING_LEVELS[(index + 1) % REASONING_LEVELS.length];
-    await context.core.cycleReasoningEffort?.();
+    if (context.core.setReasoningEffort !== undefined) await context.core.setReasoningEffort(next);
+    else await context.core.cycleReasoningEffort?.();
     return { state: reduceIyonState(state, { type: "backend", event: { type: "configChanged", provider: state.info.provider, modelId: state.info.modelId, reasoningEffort: next } }), exited: false };
   }
   if (action.type === "composerPaste") {
@@ -65,4 +67,15 @@ export async function handleIyonAction(state: IyonState, action: IyonAction, con
   if (action.type === "approve") { await context.core.approve?.(action.approvalId); return { state, exited: false }; }
   if (action.type === "reject") { await context.core.reject?.(action.approvalId, action.reason); return { state, exited: false }; }
   return { state: reduceIyonState(state, action), exited: false };
+}
+
+async function submitPrompt(core: IyonCoreCommands, text: string): Promise<void> {
+  if (core.submitPrompt !== undefined) { await core.submitPrompt(text); return; }
+  await core.submitTurn?.(text);
+}
+
+async function submitSteering(core: IyonCoreCommands, text: string): Promise<void> {
+  if (core.steer !== undefined) { await core.steer(text); return; }
+  if (core.followUp !== undefined) { await core.followUp(text); return; }
+  await core.submitTurn?.(text);
 }

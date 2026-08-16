@@ -44,10 +44,15 @@ export class ToolCardStore {
   }
   approval(toolCallId: string): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, status: "pendingApproval" as const })); }
   resolveApproval(toolCallId: string, approved: boolean): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, status: approved ? "running" as const : "cancelled" as const, frozen: !approved })); }
+  cancel(toolCallId: string): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, status: "cancelled" as const, frozen: true, isError: true })); }
   finish(toolCallId: string, isError: boolean): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, status: isError ? "failed" as const : "finished" as const, isError, frozen: true })); }
   result(toolCallId: string, toolName: string, text: string, details: JsonValue, isError: boolean): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, toolName, text, details, status: isError ? "failed" as const : "finished" as const, isError, frozen: true })); }
   get(toolCallId: string): LiveTool | undefined { const id = this.ids.get(toolCallId); return id === undefined ? undefined : this.cards.get(id); }
+  keyFor(toolCallId: string): string | undefined { return this.ids.get(toolCallId); }
+  keyForDraft(key: ToolDraftKey): string { return draftIdFor(key); }
+  getByKey(key: string): LiveTool | undefined { return this.cards.get(key); }
   values(): readonly LiveTool[] { return [...this.cards.values()]; }
+  clear(): void { this.cards.clear(); this.ids.clear(); }
 
   private map(toolCallId: string, update: (card: LiveTool) => LiveTool): LiveTool | undefined {
     const id = this.ids.get(toolCallId); if (id === undefined) return undefined;
@@ -55,4 +60,3 @@ export class ToolCardStore {
     const updated = update(card); this.cards.set(id, updated); return updated;
   }
 }
-
