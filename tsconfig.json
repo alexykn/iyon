@@ -17,5 +17,8 @@
       "*.node": ["./packages/iyon-runtime/src/virtual-modules.d.ts"]
     }
   },
-  "include": ["package.json"]
+  "include": [
+    "packages/**/*.ts",
+    "packages/**/*.d.ts"
+  ]
 }

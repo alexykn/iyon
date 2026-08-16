@@ -1,0 +1,12 @@
+{
+  "name": "@iyon/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./native": "./src/native.ts",
+    "./smoke": "./src/smoke.ts",
+    "./virtual-modules": "./src/virtual-modules.ts"
+  }
+}
