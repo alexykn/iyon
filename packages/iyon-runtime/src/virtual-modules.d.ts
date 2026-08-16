@@ -57,6 +57,7 @@ declare module "iyon:tui" {
   export const Component: typeof import("./tui/component.ts").Component;
   export const Scene: typeof import("./tui/scene.ts").Scene;
   export const Tui: typeof import("./tui/runtime.ts").Tui;
+  export const AppHarness: typeof import("./tui/testing.ts").AppHarness;
   export class TuiError extends Error {
     readonly category: import("./tui/errors.ts").TuiErrorCategory;
     readonly nativeCode?: string;
