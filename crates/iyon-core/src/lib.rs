@@ -4,6 +4,7 @@ mod event;
 pub(crate) mod fs;
 mod handle;
 pub mod ids;
+pub mod kernel;
 mod runtime;
 pub(crate) mod session;
 pub mod tools;
