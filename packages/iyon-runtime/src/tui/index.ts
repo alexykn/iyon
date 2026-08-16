@@ -24,7 +24,6 @@ export type {
   StreamSnapshot,
   StreamingSource,
   TerminateEvent,
-  TextContent,
   TextRewriter,
   TextVisitor,
   TuiEvent,
@@ -42,5 +41,11 @@ export { History } from "./history.ts";
 export { TextInput } from "./text-input.ts";
 export { TextStream, StreamPane } from "./stream.ts";
 export { Component } from "./component.ts";
+export { TextContent, RawText } from "./values/text-content.ts";
+export { Annotations } from "./values/annotations.ts";
+export { Projection, ProjectionBuilder, Smooth } from "./values/projection.ts";
+export { DiffRange, DiffLine, DiffHunk, DiffRenderer } from "./values/diff.ts";
+export { Theme, ThemeKey } from "./values/theme.ts";
+export { PlainTextProjector, MarkdownProjector } from "./projectors.ts";
 
 export const tuiSmoke = "iyon:tui/t5" as const;

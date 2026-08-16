@@ -84,9 +84,19 @@ export declare class TextSpan {
   static styled(text: string, style: StyleSpec): TextSpan;
 }
 
-export interface TextContent {
+export declare class TextContent {
   readonly kind: "text-content";
+  static plain(value: string): TextContent;
+  static markdown(value: string): TextContent;
+  static raw(value: string, origin?: TextOrigin): TextContent;
+  readonly value: string;
+  readonly origin: TextOrigin;
+  text(): string;
+  withOrigin(origin: TextOrigin): TextContent;
+  render(): View;
 }
+
+export interface TextOrigin { readonly format: "plain" | "markdown"; readonly source?: string; }
 
 export interface Style {
   readonly kind: "style";
