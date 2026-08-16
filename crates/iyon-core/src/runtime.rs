@@ -17,7 +17,7 @@ use crate::{
     fs::{FsPermissions, Workspace},
     ids::{ApprovalId, MessageId, SessionId, TurnId},
     session::state::{ModelSelection, SessionState},
-    tools::{FileMutationQueue, ToolHookSet, ToolRegistry},
+    tools::{ToolHookSet, ToolRegistry},
 };
 
 struct RuntimeState {
@@ -74,9 +74,10 @@ pub(crate) struct RuntimeConfig {
 impl RuntimeState {
     fn new(cwd: PathBuf, config: RuntimeConfig) -> Self {
         let workspace = Workspace::new(cwd.clone(), FsPermissions::default());
-        let mutation_queue = FileMutationQueue::default();
-        let tools = ToolRegistry::compatibility_with_builtin_defaults(mutation_queue)
-            .expect("builtin tool registration should be valid");
+        // Bundled tools are registered by the Bun product path. The Rust
+        // compatibility runtime intentionally starts with an empty registry;
+        // builtin executors remain available only to their direct compatibility tests.
+        let tools = ToolRegistry::new();
 
         let mut session = SessionState::new(SessionId(1), cwd);
         session.model = config.selection;
