@@ -19,6 +19,9 @@ export { ComposerPasteStore, isLargePaste, normalizePaste, MAX_COMPOSER_ROWS } f
 export { createInitialState, cycleReasoningEffort, draftIdFor, reduceIyonState, updateInfo } from "./state.ts";
 export { createIyonTheme } from "./theme.ts";
 export { createIyonView, footerText } from "./view.ts";
+export { CoreEventMapper, coalesceFrontendEvents, startCoreEventBridge } from "./backend.ts";
+export { AssistantStreamBuffer, NativeAssistantStream } from "./streaming.ts";
+export { ToolCardStore } from "./tool-cards.ts";
 export type {
   FrontendEvent,
   InfoState,
