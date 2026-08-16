@@ -11,7 +11,11 @@ pub enum NativeError {
 
 impl NativeError {
     pub fn invalid_input(message: impl Into<String>) -> Error {
-        Self::coded(Status::InvalidArg, "ION_INVALID_INPUT", message)
+        Self::coded(
+            Status::InvalidArg,
+            "ION_INVALID_INPUT",
+            format!("invalid input: {}", message.into()),
+        )
     }
 
     pub fn internal(message: impl Into<String>) -> Error {

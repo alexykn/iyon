@@ -1,6 +1,41 @@
 export type JsonPrimitive = null | boolean | number | string;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
+export interface NativeModelTurnContract {
+  push(event: JsonValue): Promise<void>;
+  pushMany(events: JsonValue[]): Promise<void>;
+  finish(): Promise<JsonValue>;
+  fail(error: JsonValue): Promise<void>;
+  cancel(): Promise<JsonValue>;
+}
+
+export interface NativeToolExecutionContract {
+  state(): string;
+  events(): JsonValue[];
+  prepared(argumentsValue: JsonValue): void;
+  start(): void;
+  requestApproval(requirement?: JsonValue): JsonValue | null;
+  approve(approvalId: number): void;
+  reject(approvalId: number, reason?: string): void;
+  finish(result: JsonValue): void;
+  fail(error: string): void;
+  cancel(reason?: string): void;
+}
+
+export interface NativeKernelSessionContract {
+  snapshot(): JsonValue;
+  appendMessage(message: JsonValue): number;
+  appendEntry(entry: JsonValue): void;
+  nextEvent(): Promise<JsonValue | null>;
+  beginModelTurn(options: JsonValue): NativeModelTurnContract;
+  prepareToolExecution(request: JsonValue): NativeToolExecutionContract;
+  enqueue(kind: string, text: string): void;
+  dequeue(kind: string): string | null;
+  queueSnapshot(): JsonValue;
+  abort(): void;
+  close(): void;
+}
+
 export interface NativeCounterStats {
   live: number;
   finalized: number;
@@ -32,6 +67,7 @@ export interface NativeAddon {
   CancellationProbe: new () => CancellationProbeContract;
   NativeCounter: new () => NativeCounterContract;
   EventQueueProbe: new () => EventQueueProbeContract;
+  KernelSession: new (options?: JsonValue) => NativeKernelSessionContract;
   nativeCounterStats(): NativeCounterStats;
   resetNativeCounterStats(): void;
 }
@@ -51,6 +87,7 @@ export const {
   CancellationProbe,
   NativeCounter,
   EventQueueProbe,
+  KernelSession,
   nativeCounterStats,
   resetNativeCounterStats,
 } = native;

@@ -1,4 +1,5 @@
 declare module "iyon:api" {
+  export type * from "./modules/api.ts";
   export const apiSmoke: "iyon:api/t1";
   export const nativeVersion: () => string;
   export const echoJson: (value: import("./native.ts").JsonValue) => import("./native.ts").JsonValue;
@@ -7,6 +8,16 @@ declare module "iyon:api" {
 }
 
 declare module "iyon:core" {
+  export {
+    AgentSession,
+    IyonNativeError,
+    KernelSession,
+    ModelTurn,
+    ToolExecution,
+    asIyonError,
+    isCancelledError,
+  } from "./modules/core.ts";
+  export type * from "../../iyon-sdk/src/core.ts";
   export const coreSmoke: "iyon:core/t1";
   export function runWithAbortSignal<T>(
     signal: AbortSignal,

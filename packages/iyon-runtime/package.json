@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./native": "./src/native.ts",
     "./smoke": "./src/smoke.ts",
-    "./virtual-modules": "./src/virtual-modules.ts"
+    "./virtual-modules": "./src/virtual-modules.ts",
+    "./modules/*": "./src/modules/*.ts"
   }
 }

@@ -226,11 +226,11 @@ export interface ToolLifecycleEvent {
 
 export interface NativeKernelSession {
   snapshot(): SessionSnapshot;
-  appendMessage(message: TranscriptMessage): MessageId;
+  appendMessage(message: unknown): MessageId;
   appendEntry(entry: SessionEntry): void;
   nextEvent(): Promise<CoreEvent | null>;
-  beginModelTurn(options: ModelTurnOptions): NativeModelTurn;
-  prepareToolExecution(request: ToolExecutionRequest): NativeToolExecution;
+  beginModelTurn(options: ModelTurnOptions): ModelTurn;
+  prepareToolExecution(request: ToolExecutionRequest): ToolExecution;
   enqueue(kind: "prompt" | "steer" | "followUp", text: string): Promise<void>;
   dequeue(kind: "prompt" | "steer" | "followUp"): string | null;
   abort(): void;
@@ -248,14 +248,14 @@ export interface NativeModelTurn {
 export interface NativeToolExecution {
   state(): ToolLifecycleState;
   events(): ToolLifecycleEvent[];
-  prepared(argumentsValue: JsonValue): Promise<void>;
-  start(): Promise<void>;
-  requestApproval(requirement: ApprovalRequirement): Promise<ApprovalState | null>;
-  approve(approvalId: ApprovalId): Promise<void>;
-  reject(approvalId: ApprovalId, reason?: string): Promise<void>;
-  finish(result: ToolResult): Promise<void>;
-  fail(error: string): Promise<void>;
-  cancel(reason?: string): Promise<void>;
+  prepared(argumentsValue: JsonValue): void;
+  start(): void;
+  requestApproval(requirement: ApprovalRequirement): ApprovalState | null;
+  approve(approvalId: ApprovalId): void;
+  reject(approvalId: ApprovalId, reason?: string): void;
+  finish(result: ToolResult): void;
+  fail(error: string): void;
+  cancel(reason?: string): void;
 }
 
 export interface ModelTurn extends NativeModelTurn {}

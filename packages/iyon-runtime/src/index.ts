@@ -1,5 +1,14 @@
 export { native } from "./native.ts";
 export {
+  AgentSession,
+  IyonNativeError,
+  KernelSession,
+  ModelTurn,
+  ToolExecution,
+  asIyonError,
+  isCancelledError,
+} from "./modules/core.ts";
+export {
   apiSmoke,
   cancellationOperation,
   coreSmoke,
@@ -18,5 +27,8 @@ export type {
   NativeCounterContract,
   NativeCounterStats,
   CancellationProbeContract,
+  NativeKernelSessionContract,
+  NativeModelTurnContract,
+  NativeToolExecutionContract,
 } from "./native.ts";
-export type { CancellableOperation } from "./smoke.ts";
+export type { CancellableOperation } from "./modules/abort.ts";
