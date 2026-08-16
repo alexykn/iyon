@@ -10,6 +10,9 @@ mod queue;
 mod session;
 mod tool;
 
+#[cfg(test)]
+mod tests;
+
 pub use session::{
     AgentMessage, CustomEntryError, KernelSession, SessionEntry, SessionMessageError,
     SessionSnapshot,
