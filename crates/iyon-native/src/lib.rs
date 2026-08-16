@@ -3,12 +3,14 @@
 //! This crate is deliberately a bridge, not an application layer. Product
 //! behavior stays in TypeScript and the existing Rust libraries.
 
+mod api;
 mod async_ops;
 mod error;
 mod handles;
 mod queue;
 mod sync;
 mod tui;
+mod value;
 
 pub use async_ops::async_sleep;
 pub use error::NativeError;
