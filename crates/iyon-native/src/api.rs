@@ -123,10 +123,37 @@ pub(crate) fn content_block(value: Value) -> Result<ContentBlock, napi::Error> {
 }
 
 fn bytes(object: &serde_json::Map<String, Value>, field: &str) -> Result<Vec<u8>, napi::Error> {
-    object
+    let value = object
         .get(field)
-        .and_then(Value::as_array)
-        .ok_or_else(|| NativeError::invalid_input(format!("{field} must be a byte array")))?
+        .ok_or_else(|| NativeError::invalid_input(format!("{field} must be a byte array")))?;
+    let values = if let Some(values) = value.as_array() {
+        values.clone()
+    } else if let Some(buffer) = value.as_object() {
+        if buffer.get("type").and_then(Value::as_str) == Some("Buffer") {
+            buffer
+                .get("data")
+                .and_then(Value::as_array)
+                .cloned()
+                .ok_or_else(|| {
+                    NativeError::invalid_input(format!("{field} must be a byte array"))
+                })?
+        } else {
+            let mut entries = buffer
+                .iter()
+                .filter_map(|(key, value)| key.parse::<usize>().ok().map(|index| (index, value)))
+                .collect::<Vec<_>>();
+            entries.sort_by_key(|(index, _)| *index);
+            entries
+                .into_iter()
+                .map(|(_, value)| value.clone())
+                .collect()
+        }
+    } else {
+        return Err(NativeError::invalid_input(format!(
+            "{field} must be a byte array"
+        )));
+    };
+    values
         .iter()
         .map(|value| {
             value
@@ -359,5 +386,18 @@ mod tests {
     fn malformed_values_are_rejected() {
         let error = stream_event(json!({ "type": "notAnEvent" })).unwrap_err();
         assert!(error.reason.contains("ION_INVALID_INPUT"));
+    }
+
+    #[test]
+    fn image_bytes_accept_buffer_json_shape() {
+        let block = super::content_block(json!({
+            "type": "image",
+            "data": {"type": "Buffer", "data": [0, 127, 255]},
+            "mimeType": "image/png",
+        }))
+        .unwrap();
+        assert!(
+            matches!(block, iyon_api::ContentBlock::Image { data, .. } if data == vec![0, 127, 255])
+        );
     }
 }
