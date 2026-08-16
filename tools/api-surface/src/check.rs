@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::binding::{MappingSummary, load_mapping_dir, validate_manifest_mappings};
 use crate::error::ApiSurfaceError;
 use crate::model::ApiManifest;
 
@@ -47,6 +48,14 @@ pub fn compare_manifests(
         ));
     }
     Ok(())
+}
+
+pub fn check_mappings(
+    manifest: &ApiManifest,
+    mapping_dir: &Path,
+) -> Result<MappingSummary, ApiSurfaceError> {
+    let mappings = load_mapping_dir(mapping_dir)?;
+    validate_manifest_mappings(manifest, &mappings)
 }
 
 fn drift(field: &str, expected: String, actual: String) -> ApiSurfaceError {
