@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "declaration": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "types": ["bun-types"],
+    "paths": {
+      "iyon:api": ["./packages/iyon-runtime/src/virtual-modules.d.ts"],
+      "iyon:core": ["./packages/iyon-runtime/src/virtual-modules.d.ts"],
+      "iyon:tui": ["./packages/iyon-runtime/src/virtual-modules.d.ts"],
+      "*.node": ["./packages/iyon-runtime/src/virtual-modules.d.ts"]
+    }
+  },
+  "include": ["package.json"]
+}

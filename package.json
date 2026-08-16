@@ -1,0 +1,20 @@
+{
+  "name": "iyon-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "workspace:install": "bun install",
+    "typecheck": "bunx tsc --noEmit",
+    "native:stage": "bun run packages/iyon-runtime/scripts/stage-native.ts",
+    "native:verify": "bun run packages/iyon-runtime/scripts/verify-native.ts",
+    "smoke": "bun run packages/iyon-cli/src/index.ts",
+    "test": "bun test",
+    "build:standalone": "bun build --compile packages/iyon-cli/src/index.ts --outfile iyon-smoke"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  }
+}
