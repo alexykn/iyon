@@ -1,5 +1,5 @@
 import type { ModelMetadata, ModelParams, ModelRequest, ModelToolSpec, ReasoningLevel } from "iyon:api";
-import type { KernelSession, SessionSnapshot, ToolDefinition } from "@iyon/sdk";
+import type { KernelSession, SessionSnapshot, ToolDefinition, ToolUpdateSink } from "@iyon/sdk";
 import { buildSystemPrompt } from "./prompt.ts";
 
 export interface PublicToolRegistry {
@@ -8,6 +8,7 @@ export interface PublicToolRegistry {
 
 export interface AgentPolicyContext {
   readonly session: KernelSession;
+  readonly updates?: ToolUpdateSink;
   readonly systemPrompt?: string;
   readonly metadata?: Omit<ModelMetadata, "sessionId">;
   readonly reasoningEffort?: ReasoningLevel;
