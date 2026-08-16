@@ -4,7 +4,7 @@ import type { History as HistoryContract, HistoryLayout, TextStream } from "./ty
 import type { View } from "./values/view.ts";
 
 export class History extends HandleBase<ReturnType<typeof nativeTui.history>, "history"> implements HistoryContract {
-  constructor() { super("history", nativeTui.history()); }
+  constructor(nativeHandle = nativeTui.history()) { super("history", nativeHandle); }
 
   layout(): Promise<HistoryLayout> {
     return this.call(() => this.nativeHandle.layout() as HistoryLayout);
@@ -20,6 +20,13 @@ export class History extends HandleBase<ReturnType<typeof nativeTui.history>, "h
 
   pushStream(stream: TextStream): Promise<void> {
     return this.call(() => this.nativeHandle.pushStream((stream as unknown as { nativeObject(): object }).nativeObject()));
+  }
+
+  setLayout(layout: HistoryLayout): Promise<void> {
+    return this.call(() => {
+      const setLayout = (this.nativeHandle as unknown as { setLayout?: (value: HistoryLayout) => void }).setLayout;
+      setLayout?.(layout);
+    });
   }
 
   /** Internal bridge access; not exported from the public module. */

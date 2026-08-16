@@ -54,12 +54,14 @@ class IyonAppImpl implements IyonApp {
   private tui?: TuiRuntime;
   private ownsTui = false;
   private started = false;
+  private exitAfterRender = false;
   private workingHandle?: WorkingActivityHandle;
   private assistantStream?: TextStream;
   private assistantText = "";
   private readonly toolStreams = new Map<string, TextStream>();
   private readonly toolNames = new Map<string, string>();
   private readonly renderedUserMessages = new Map<string, number>();
+  private readonly pendingSteeringMessages = new Map<string, number>();
 
   constructor(
     readonly dependencies: IyonAppDependencies,
@@ -108,6 +110,7 @@ class IyonAppImpl implements IyonApp {
       this.toolStreams.clear();
       this.toolNames.clear();
       this.renderedUserMessages.clear();
+      this.pendingSteeringMessages.clear();
       this.workingHandle = undefined;
       this.assistantStream = undefined;
       this.tui = undefined;
@@ -120,7 +123,9 @@ class IyonAppImpl implements IyonApp {
     const previous = this.currentState;
     this.currentState = reduceIyonState(this.currentState, action);
     if (this.started) {
-      void this.appendHistory(action, previous, this.currentState).then(() => this.renderCurrentScene());
+      void this.appendHistory(action, previous, this.currentState).then(async (viewChanged) => {
+        if (viewChanged) await this.renderCurrentScene();
+      });
     }
   }
 
@@ -133,24 +138,36 @@ class IyonAppImpl implements IyonApp {
       composerText: () => this.composer.text(),
       forwardPaste: (text) => this.tui?.forwardPaste?.(text),
       runAgent: () => this.agent.run?.(),
+      onExit: () => { this.exitAfterRender = true; },
     });
     const previous = this.currentState;
     this.currentState = result.state;
-    await this.appendHistory(action, previous, this.currentState);
-    await this.renderCurrentScene();
+    if (action.type === "submit" && previous.activeTurn) {
+      this.incrementPendingSteering(action.text);
+    }
+    const viewChanged = await this.appendHistory(action, previous, this.currentState);
+    if (viewChanged) await this.renderCurrentScene();
+    if (result.exited && this.exitAfterRender) {
+      this.exitAfterRender = false;
+      await this.tui?.exit?.();
+    }
   }
 
   private async appendHistory(
     action: import("./contracts.ts").IyonAction,
     previous: IyonState,
     _next: IyonState,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (action.type === "submit" && action.text.length > 0 && !previous.activeTurn) {
       this.renderedUserMessages.set(action.text, (this.renderedUserMessages.get(action.text) ?? 0) + 1);
       await this.history.push(userBatchView([action.text], this.theme));
-      return;
+      return true;
     }
-    if (action.type !== "backend") return;
+    if (action.type === "ctrlC" && _next.goodbye) {
+      await this.history.push(View.text("Goodbye.").fillWidth());
+      return true;
+    }
+    if (action.type !== "backend") return action.type === "submit";
     const event = action.event;
     if (event.type === "assistantDelta") {
       if (this.assistantStream === undefined) {
@@ -160,9 +177,10 @@ class IyonAppImpl implements IyonApp {
       }
       this.assistantText += event.text;
       await this.assistantStream.update(this.assistantText);
-      return;
+      return false;
     }
     if (event.type === "userMessage") {
+      if (this.consumePendingSteering(event.text)) return false;
       const rendered = this.renderedUserMessages.get(event.text) ?? 0;
       if (rendered > 0) {
         if (rendered === 1) this.renderedUserMessages.delete(event.text);
@@ -170,14 +188,14 @@ class IyonAppImpl implements IyonApp {
       } else {
         await this.history.push(userBatchView([event.text], this.theme));
       }
-      return;
+      return false;
     }
     if (event.type === "turnFinished" || event.type === "turnFailed" || event.type === "turnCancelled") {
       if (this.assistantStream !== undefined) {
         await this.assistantStream.seal();
         this.assistantStream = undefined;
       }
-      return;
+      return true;
     }
     if (event.type === "toolCallStarted") {
       const stream = new TextStream();
@@ -185,7 +203,7 @@ class IyonAppImpl implements IyonApp {
       this.toolNames.set(event.toolCallId, event.toolName);
       await this.history.pushStream(stream);
       await stream.update(`• ${event.toolName} - running`);
-      return;
+      return false;
     }
     if (event.type === "toolResult") {
       const stream = this.toolStreams.get(event.toolCallId) ?? new TextStream();
@@ -199,7 +217,7 @@ class IyonAppImpl implements IyonApp {
       await stream.seal();
       this.toolStreams.delete(event.toolCallId);
       this.toolNames.delete(event.toolCallId);
-      return;
+      return false;
     }
     if (event.type === "toolCallFinished") {
       const stream = this.toolStreams.get(event.toolCallId);
@@ -209,7 +227,22 @@ class IyonAppImpl implements IyonApp {
         this.toolStreams.delete(event.toolCallId);
         this.toolNames.delete(event.toolCallId);
       }
+      return false;
     }
+    return event.type === "turnStarted" || event.type === "steerQueued" || event.type === "configChanged"
+      || event.type === "toolApprovalRequested" || event.type === "toolApprovalResolved";
+  }
+
+  private incrementPendingSteering(text: string): void {
+    this.pendingSteeringMessages.set(text, (this.pendingSteeringMessages.get(text) ?? 0) + 1);
+  }
+
+  private consumePendingSteering(text: string): boolean {
+    const count = this.pendingSteeringMessages.get(text) ?? 0;
+    if (count === 0) return false;
+    if (count === 1) this.pendingSteeringMessages.delete(text);
+    else this.pendingSteeringMessages.set(text, count - 1);
+    return true;
   }
 
   private async renderCurrentScene(): Promise<void> {

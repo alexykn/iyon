@@ -19,6 +19,13 @@ impl ComponentId {
     pub(crate) const fn value(self) -> u64 {
         self.0.get()
     }
+
+    pub(crate) const fn from_raw(value: u64) -> Self {
+        let Some(value) = NonZeroU64::new(value) else {
+            panic!("component id must be non-zero");
+        };
+        Self(value)
+    }
 }
 
 impl fmt::Debug for ComponentId {
@@ -76,7 +83,17 @@ impl<C> ComponentHandle<C> {
         }
     }
 
+    pub(crate) const fn from_raw_id(id: u64) -> Self {
+        Self::from_id(ComponentId::from_raw(id))
+    }
+
     pub(crate) const fn new(id: ComponentId) -> Self {
         Self::from_id(id)
+    }
+
+    /// Returns the opaque identity used by a native host to refer to this
+    /// mounted component from a semantic View.
+    pub fn raw_id(self) -> u64 {
+        self.id.value()
     }
 }

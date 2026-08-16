@@ -23,6 +23,11 @@ export class ChildrenBuilder {
   gap(_value: number): this { return this; }
   fixed(_size: number, view: View): this { this.children.push(view); return this; }
   flex(view: View): this { this.children.push(view); return this; }
+  contentMax(maxRows: number, view: View): this {
+    validateU16(maxRows, "maxRows");
+    this.children.push(View.contentMax(maxRows, view));
+    return this;
+  }
 }
 
 export class View {
@@ -30,6 +35,11 @@ export class View {
 
   private constructor(private readonly node: ViewNode) {
     nodes.set(this, node);
+  }
+
+  static contentMax(maxRows: number, child: View): View {
+    validateU16(maxRows, "maxRows");
+    return new View({ type: "contentMax", child: child.node, maxRows });
   }
 
   static text(value: string): View {
@@ -64,8 +74,9 @@ export class View {
     return new View({ type: "grid", children: children.map((child) => child.node) });
   }
 
-  static component(handle: { readonly id: NativeHandleId }): View {
-    return new View({ type: "component", handle: handle.id });
+  static component(handle: { readonly id: NativeHandleId; nativeComponentId?: () => number | undefined }): View {
+    const nativeId = handle.nativeComponentId?.();
+    return new View({ type: "component", handle: (nativeId ?? handle.id) as NativeHandleId });
   }
 
   bold(): View { return this.textAttribute("bold"); }
@@ -84,6 +95,16 @@ export class View {
   foreground(color: ColorNode): View { return this.decorate({ foreground: color }); }
   border(border: BorderNode): View { return this.decorate({ border }); }
   style(style: StyleSpec): View { return this.decorate({ style: mergeStyles(emptyStyle(), style.value) }); }
+  styleState(key: string, value: string): View {
+    if (key.length === 0 || value.length === 0) throw new RangeError("style state key and value cannot be empty");
+    const current = this.node.type === "decorated" ? cloneDecoration(this.node.decoration) : emptyDecoration();
+    const child = this.node.type === "decorated" ? this.node.child : this.node;
+    return new View({
+      type: "decorated",
+      child,
+      decoration: { ...current, styleStates: { ...current.styleStates, [key]: value } },
+    });
+  }
   container(): View { return new View({ type: "container", child: this.node }); }
   clampRows(maxRows: number): View { validateU16(maxRows, "maxRows"); return new View({ type: "clamp", child: this.node, maxRows }); }
   fitWidth(): View { return this.decorate({ width: "fit" }); }
@@ -140,6 +161,7 @@ function rows(node: ViewNode): string[] {
     case "column": case "grid": return node.children.flatMap(rows);
     case "hanging": return rows(node.prefix).map((prefix, index) => `${prefix}${index === 0 ? rows(node.body)[0] ?? "" : rows(node.body)[index] ?? ""}`);
     case "container": case "clamp": return rows(node.child).slice(0, node.maxRows);
+    case "contentMax": return rows(node.child).slice(0, node.maxRows);
     case "component": return [""];
     case "decorated": return rows(node.child);
   }

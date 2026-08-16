@@ -71,7 +71,6 @@ impl PhysicalRow {
         validate_cells(&self.cells)
     }
 
-    #[cfg(any(test, feature = "test-util"))]
     pub(crate) fn plain_text(&self) -> String {
         let last_painted = self
             .cells

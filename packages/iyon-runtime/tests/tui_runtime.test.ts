@@ -1,24 +1,26 @@
 import { describe, expect, test } from "bun:test";
 
-import { Scene, Tui, View, keyEvent, pasteEvent } from "../src/tui/index.ts";
+import { Scene, Tui, View } from "../src/tui/index.ts";
 
-describe("T5 TS-owned TUI runtime", () => {
-  test("renders a generic Scene and routes owned events", async () => {
+describe("native interaction host", () => {
+  test("local editing stays native and submit crosses as an action", async () => {
     const tui = await Tui.open({ width: 20, height: 4, headless: true });
-    expect(await tui.size).toEqual({ width: 20, height: 4 });
-    await tui.render(new Scene(View.text("hello")));
-    tui.enqueue(keyEvent("a"));
-    tui.enqueue(pasteEvent("paste"));
-    expect(await tui.nextEvent()).toEqual({ type: "key", key: "a", modifiers: undefined });
-    expect(await tui.nextEvent()).toEqual({ type: "paste", text: "paste" });
+    const input = tui.createTextInput({ multiline: true });
+    await tui.render(new Scene(View.component(input)));
+
+    tui.enqueue({ type: "key", key: "a" });
+    expect(await input.text()).toBe("a");
+
+    tui.route(await input.submitted(), "submit");
+    tui.enqueue({ type: "key", key: "Enter" });
+    await expect(tui.nextAction()).resolves.toEqual({ actionId: "submit", payload: "a" });
     await tui.close();
-    expect((await tui.nextEvent()).type).toBe("terminate");
   });
 
-  test("cancellation rejects pending input and close is idempotent", async () => {
+  test("cancellation rejects pending native action wait and close is idempotent", async () => {
     const tui = await Tui.open({ headless: true });
     const controller = new AbortController();
-    const waiting = tui.nextEvent(controller.signal);
+    const waiting = tui.nextAction(controller.signal);
     controller.abort();
     await expect(waiting).rejects.toMatchObject({ category: "cancelled" });
     await tui.close();

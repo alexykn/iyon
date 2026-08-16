@@ -50,7 +50,7 @@ export class Tui implements TuiRuntime {
       const action = this.host.nextAction();
       if (action !== null) return { actionId: action.action_id, ...(action.payload === null || action.payload === undefined ? {} : { payload: action.payload }) };
       this.host.pollTerminal();
-      await asyncSleep(4);
+      await new Promise<void>((resolve) => setTimeout(resolve, 4));
     }
     return null;
   }
@@ -105,6 +105,12 @@ export class Tui implements TuiRuntime {
     if (this.closed) return;
     this.closed = true;
     this.host.dispose();
+  }
+
+  async exit(): Promise<void> {
+    if (this.closed) return;
+    this.host.exit();
+    this.closed = true;
   }
 
   enqueue(event: TuiEvent): void {

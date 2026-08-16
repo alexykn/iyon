@@ -5,7 +5,7 @@ use tokio::sync::mpsc::{Receiver, error::TryRecvError};
 use anyhow::Result;
 
 use crate::{
-    InteractionResult, OutputRouter, Scene, View,
+    ComponentHandle, InteractionResult, OutputRouter, Scene, View,
     backend::NativeHistorySink,
     component::ComponentRegistry,
     geometry::Size,
@@ -64,6 +64,59 @@ where
     Update: FnMut(&mut State, Action, &mut AppCx<'_, Action>) -> Result<(), Error>,
     ViewFn: Fn(&State) -> View,
 {
+    pub(crate) fn host_register<C>(&mut self, component: C) -> ComponentHandle<C>
+    where
+        C: crate::Component,
+    {
+        self.components.register(component)
+    }
+
+    pub(crate) fn host_bind_key(
+        &mut self,
+        key: crate::KeyStroke,
+        action: impl Fn() -> Action + 'static,
+    ) {
+        self.global_bindings.bind(key, action);
+    }
+
+    pub(crate) fn host_route<T: 'static>(
+        &mut self,
+        output: crate::Output<T>,
+        map: impl Fn(T) -> Action + 'static,
+    ) -> Result<(), crate::RouteConflict> {
+        self.outputs.route(output, map)
+    }
+
+    pub(crate) fn host_intercept_paste<C>(
+        &mut self,
+        component: ComponentHandle<C>,
+        map: impl Fn(String) -> Action + 'static,
+    ) where
+        C: crate::Component,
+    {
+        self.paste_interceptors.intercept(component, map);
+    }
+
+    pub(crate) fn host_set_body(&mut self, body: View) {
+        self.scene.set_body(body);
+        self.body_dirty = false;
+        self.dirty = true;
+    }
+
+    pub(crate) fn host_exit(&mut self) {
+        self.exit_requested = true;
+        self.close_ingress();
+        self.dirty = true;
+    }
+
+    pub(crate) fn scene_history(&self) -> Option<&crate::History> {
+        self.scene.history()
+    }
+
+    pub(crate) fn scene_history_mut(&mut self) -> Option<&mut crate::History> {
+        self.scene.history_mut()
+    }
+
     pub(crate) fn new<Init>(
         app: App<State, Action, Error, Init, Update, ViewFn>,
         now: Instant,

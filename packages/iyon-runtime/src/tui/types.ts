@@ -181,6 +181,7 @@ export interface TuiRuntime {
   render(scene: Scene, signal?: AbortSignal): TuiOperation<void>;
   resize(width: number, height: number): TuiOperation<void>;
   close(): TuiOperation<void>;
+  exit?(): TuiOperation<void>;
   createHistory?(): History;
   createTextInput?(options?: { multiline?: boolean }): TextInput;
   createWorking?(): WorkingActivityHandle;

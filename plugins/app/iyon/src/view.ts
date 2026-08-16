@@ -1,4 +1,4 @@
-import { View } from "iyon:tui";
+import { Insets, View } from "iyon:tui";
 import type { History, TextInput, View as ViewValue, WorkingActivityHandle } from "@iyon/runtime/tui";
 import type { IyonState } from "./contracts.ts";
 import { MAX_COMPOSER_ROWS } from "./composer.ts";
@@ -12,9 +12,15 @@ export function footerText(state: IyonState): string {
 }
 
 export function createIyonView(options: IyonViewOptions): ViewValue {
-  const composer = View.component(options.composer).style(options.theme.composer).fillWidth();
+  if (options.state.goodbye) return View.spacer(0);
+  const composer = View.component(options.composer)
+    .style(options.theme.composer)
+    .styleState("iyon.agent.effort", options.state.info.reasoningEffort)
+    .fillWidth();
   const footer = View.text(footerText(options.state)).style(options.theme.footer).fillWidth();
-  const working = options.state.working && options.working !== undefined ? View.component(options.working).fillWidth() : View.spacer(0);
+  const working = options.state.working && options.working !== undefined
+    ? View.component(options.working).fillWidth().padding(Insets.of(0, 0, 1, 0))
+    : View.spacer(0);
   const approval = options.state.pendingApproval === undefined ? View.spacer(0) : View.text(`Approve ${options.state.pendingApproval.toolName}?`).fillWidth();
   return View.vertical((column) => {
     column.child(working);

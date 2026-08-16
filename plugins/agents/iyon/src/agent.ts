@@ -30,6 +30,7 @@ export class IyonAgent implements Agent {
     while (!context.signal.aborted) {
       const steers = drainSteering(context.session, context.steering);
       injectSteeredMessages(context.session, steers);
+      if (context.session.snapshot().entries.every((entry) => entry.kind !== "message")) return;
       const request = buildModelRequest(context);
       const result = await runProviderTurn(context, request);
       if (result.cancelled || context.signal.aborted) return;

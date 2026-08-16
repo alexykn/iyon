@@ -34,6 +34,7 @@ export declare class View {
   foreground(color: string): View;
   border(border: Readonly<Record<string, unknown>>): View;
   style(style: StyleSpec): View;
+  styleState(key: string, value: string): View;
   container(): View;
   clampRows(maxRows: number): View;
   fitWidth(): View;

@@ -6,6 +6,7 @@ export interface CoreEventBridge { readonly done: Promise<void>; close(): void; 
 
 export interface RunnableAgent { run(): Promise<void>; cancel?(): Promise<void> | void; }
 export interface RunnableApp { start(): Promise<void>; stop(): Promise<void>; startBackendBridge?(source: CoreEventSource): CoreEventBridge; }
+export interface RunnableApp { run?(signal?: AbortSignal): Promise<void>; }
 
 export interface RunnerOptions { readonly app: RunnableApp; readonly agent: RunnableAgent; readonly session: AgentSession; readonly signal?: AbortSignal; }
 
@@ -15,8 +16,8 @@ export async function runSelectedApp(options: RunnerOptions): Promise<void> {
   options.signal?.addEventListener("abort", onAbort, { once: true });
   const bridge = options.app.startBackendBridge?.(options.session);
   try {
-    await options.app.start();
-    await options.agent.run();
+    if (options.app.run) await options.app.run(controller.signal);
+    else await options.app.start();
   } finally {
     bridge?.close();
     if (bridge) await bridge.done;
