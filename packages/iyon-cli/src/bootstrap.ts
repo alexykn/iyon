@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import type { CliCommand } from "./args.ts";
 import type { ReasoningLevel } from "@iyon/sdk";
 import { CleanupStack } from "./cleanup.ts";
-import { installIyonVirtualModules, AgentSession, selectProvider } from "@iyon/runtime";
+import { ApprovalBroker, AgentSession, installIyonVirtualModules, native, selectProvider } from "@iyon/runtime";
 import { discoverPackages, PackageLoader, selectApp } from "@iyon/plugins";
 import { selectIyonAgent } from "./selection.ts";
 import { runSelectedApp, type RunnableAgent, type RunnableApp } from "./runner.ts";
@@ -26,6 +26,8 @@ export function createProductionStages(options: { readonly authOnly?: boolean } 
   let loader: PackageLoader | undefined;
   let session: AgentSession | undefined;
   let lifetime: AbortController | undefined;
+  let approvals: ApprovalBroker | undefined;
+  let activeApp: RunnableApp | undefined;
   let selectedAgent: { cancel?: () => void; setReasoningEffort?: (level: ReasoningLevel) => void } | undefined;
   let reasoningEffort: ReasoningLevel = "medium";
   let core: {
@@ -36,11 +38,19 @@ export function createProductionStages(options: { readonly authOnly?: boolean } 
     cancelActiveTurn(): void;
     setReasoningEffort(level: ReasoningLevel): void;
     cycleReasoningEffort(): void;
+    approve(approvalId: number): void;
+    reject(approvalId: number, reason?: string): void;
   } | undefined;
   const roots = options.authOnly ? bundledRoots.slice(2, 5) : bundledRoots;
   return {
     async loadConfig() { return { env: { ...process.env } }; },
-    async initializeNative() { return { native: true }; },
+    async initializeNative() {
+      const version = native.nativeVersion();
+      const tui = native.tuiSmoke();
+      if (version !== "iyon-native/t1") throw new Error(`native addon verification failed: ${version}`);
+      if (tui !== "iyon-tui/t1") throw new Error(`native TUI verification failed: ${tui}`);
+      return { version, tui };
+    },
     async initializeVirtualModules() { installIyonVirtualModules(); },
     async discoverPackages() { return discoverPackages({ bundled: roots }); },
     async activateExtensions(packages) {
@@ -58,6 +68,7 @@ export function createProductionStages(options: { readonly authOnly?: boolean } 
     async selectAgent(activated, provider) {
       const value = activated as { loader: PackageLoader }; session = new AgentSession();
       lifetime = new AbortController();
+      approvals = new ApprovalBroker();
       const submitPrompt = (text: string) => session?.enqueue("prompt", text) ?? Promise.resolve();
       core = {
         submitPrompt,
@@ -74,21 +85,54 @@ export function createProductionStages(options: { readonly authOnly?: boolean } 
           const next = levels[(levels.indexOf(reasoningEffort) + 1) % levels.length] ?? "medium";
           core?.setReasoningEffort(next);
         },
+        approve: (approvalId) => approvals?.approve(Number(approvalId)),
+        reject: (approvalId, reason) => approvals?.reject(Number(approvalId), reason),
       };
-      const selection = selectIyonAgent(value.loader.registries.agents, { model: (provider as { model: unknown }).model, session, signal: lifetime.signal, reasoningEffort, tools: value.loader.registries.tools, core }, "iyon");
+      const selection = selectIyonAgent(value.loader.registries.agents, {
+        model: (provider as { model: unknown }).model,
+        session,
+        signal: lifetime.signal,
+        reasoningEffort,
+        tools: value.loader.registries.tools,
+        core,
+        approval: (state: Parameters<NonNullable<import("@iyon/sdk").ToolContext["approval"]>>[0]) => approvals!.request(state, lifetime!.signal).then((decision) => decision.approved),
+      }, "iyon");
       selectedAgent = selection.agent as typeof selectedAgent;
       return selection;
     },
     async selectApp(activated, agent, provider) {
       const value = activated as { loader: PackageLoader }; const selection = (provider as { selection: { provider: string; model_id: string } }).selection;
       if (!core || !session) throw new Error("agent core was not initialized");
-      return selectApp(value.loader.registries.apps, { id: "iyon", context: { agent: (agent as { agent: unknown }).agent, core, model: { provider: selection.provider, modelId: selection.model_id } } });
+      const tools = {
+        get: (toolName: string) => value.loader.registries.tools.get(toolName) as { renderCall?: unknown; renderResult?: unknown } | undefined,
+      };
+      return selectApp(value.loader.registries.apps, { id: "iyon", context: { agent: (agent as { agent: unknown }).agent, core, model: { provider: selection.provider, modelId: selection.model_id }, tools } });
     },
     async runApp(app, context) {
       const selectedAgent = context.agent as { agent: RunnableAgent }; const selectedApp = context.app as { app: RunnableApp }; if (!session) throw new Error("agent session was not initialized");
+      activeApp = selectedApp.app;
       return runSelectedApp({ app: selectedApp.app, agent: selectedAgent.agent, session });
     },
-    async cleanup() { lifetime?.abort(); selectedAgent = undefined; session?.close(); loader = undefined; session = undefined; },
+    async cleanup() {
+      const errors: unknown[] = [];
+      lifetime?.abort();
+      try { await selectedAgent?.cancel?.(); } catch (error) { errors.push(error); }
+      approvals?.cancelAll();
+      try { await activeApp?.stop?.(); } catch (error) { errors.push(error); }
+      try { session?.abort(); } catch (error) { errors.push(error); }
+      try { session?.close(); } catch (error) { errors.push(error); }
+      if (loader) {
+        for (const extension of [...loader.activeExtensions].reverse()) {
+          try { await loader.unload(extension.packageId, extension.extensionId); } catch (error) { errors.push(error); }
+        }
+      }
+      activeApp = undefined;
+      selectedAgent = undefined;
+      approvals = undefined;
+      session = undefined;
+      loader = undefined;
+      if (errors.length > 0) throw new AggregateError(errors, "CLI cleanup failed");
+    },
   };
 }
 

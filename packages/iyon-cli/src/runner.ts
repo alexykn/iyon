@@ -12,16 +12,23 @@ export interface RunnerOptions { readonly app: RunnableApp; readonly agent: Runn
 
 export async function runSelectedApp(options: RunnerOptions): Promise<void> {
   const controller = new AbortController();
-  const onAbort = () => { controller.abort(); void options.agent.cancel?.(); };
+  let cancellation: Promise<void> | undefined;
+  const onAbort = () => {
+    controller.abort();
+    cancellation = Promise.resolve(options.agent.cancel?.());
+  };
   options.signal?.addEventListener("abort", onAbort, { once: true });
-  const bridge = options.app.startBackendBridge?.(options.session);
+  if (options.signal?.aborted) onAbort();
+  let bridge: CoreEventBridge | undefined;
   try {
+    bridge = options.app.startBackendBridge?.(options.session);
     if (options.app.run) await options.app.run(controller.signal);
     else await options.app.start();
   } finally {
     bridge?.close();
     if (bridge) await bridge.done;
     await options.app.stop();
+    if (cancellation) await cancellation;
     options.signal?.removeEventListener("abort", onAbort);
   }
 }
