@@ -26,7 +26,7 @@ export async function handleIyonAction(state: IyonState, action: IyonAction, con
     await context.clearComposer?.();
     if (steering) await submitSteering(context.core, text);
     else await submitPrompt(context.core, text);
-    if (!steering) void context.runAgent?.();
+    if (!steering) await context.runAgent?.();
     return {
       state: steering
         ? reduceIyonState(state, { type: "backend", event: { type: "steerQueued", text } })

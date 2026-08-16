@@ -71,6 +71,7 @@ class IyonAppImpl implements IyonApp {
   private readonly mountedToolCards = new Set<string>();
   private readonly renderedToolResults = new Set<string>();
   private readonly approvals = new ApprovalStore();
+  private activeAgentRun?: Promise<void>;
 
   constructor(
     readonly dependencies: IyonAppDependencies,
@@ -123,6 +124,7 @@ class IyonAppImpl implements IyonApp {
       this.approvals.clear();
       this.workingHandle = undefined;
       this.assistantStream = undefined;
+      this.activeAgentRun = undefined;
       this.tui = undefined;
       this.started = false;
       this.ownsTui = false;
@@ -149,7 +151,7 @@ class IyonAppImpl implements IyonApp {
       clearComposer: () => this.composer.clear(),
       composerText: () => this.composer.text(),
       forwardPaste: (text) => this.tui?.forwardPaste?.(text),
-      runAgent: () => this.agent.run?.(),
+      runAgent: () => this.startAgentRun(),
       onExit: () => { this.exitAfterRender = true; },
     });
     const previous = this.currentState;
@@ -160,6 +162,18 @@ class IyonAppImpl implements IyonApp {
       this.exitAfterRender = false;
       await this.shutdown();
     }
+  }
+
+  private startAgentRun(): Promise<void> {
+    if (this.activeAgentRun !== undefined) return Promise.resolve();
+    const run = this.agent.run?.();
+    if (run === undefined) return Promise.resolve();
+    this.activeAgentRun = Promise.resolve(run).then(() => undefined)
+      .catch((error: unknown) => {
+        this.dispatch({ type: "backend", event: { type: "turnFailed", message: error instanceof Error ? error.message : String(error) } });
+      })
+      .finally(() => { this.activeAgentRun = undefined; });
+    return Promise.resolve();
   }
 
   private async appendHistory(
