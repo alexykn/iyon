@@ -47,5 +47,13 @@ export { Projection, ProjectionBuilder, Smooth } from "./values/projection.ts";
 export { DiffRange, DiffLine, DiffHunk, DiffRenderer } from "./values/diff.ts";
 export { Theme, ThemeKey } from "./values/theme.ts";
 export { PlainTextProjector, MarkdownProjector } from "./projectors.ts";
+export { RendererAdapter } from "./traits/renderer.ts";
+export { ProjectorAdapter } from "./traits/projector.ts";
+export { TextVisitorAdapter } from "./traits/text-visitor.ts";
+export { TextRewriterAdapter } from "./traits/text-rewriter.ts";
+export { StreamingSourceAdapter } from "./traits/streaming-source.ts";
+export { ComponentAdapterBridge } from "./traits/component.ts";
+export { OutputRouter, RouteConflict } from "./output.ts";
+export { FocusController, InteractionRouter } from "./interaction.ts";
 
 export const tuiSmoke = "iyon:tui/t5" as const;
