@@ -3,7 +3,7 @@ import type { FrontendEvent, InfoState, IyonAction, IyonModelMetadata, IyonState
 
 export function createInitialState(model: IyonModelMetadata): IyonState {
   return {
-    info: { status: "", provider: model.provider, modelId: model.modelId, reasoningEffort: model.reasoningEffort ?? "none" },
+    info: { status: "", provider: model.provider, modelId: model.modelId, reasoningEffort: model.reasoningEffort ?? "medium" },
     composerText: "", userBatches: [], working: false, steering: [], assistantText: "", thinkingText: "",
     liveTools: new Map(), draftTools: new Map(), activeTurn: false, goodbye: false,
   };

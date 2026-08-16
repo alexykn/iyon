@@ -8,6 +8,9 @@ export interface ActionContext {
   readonly agent: IyonAgent;
   readonly pasteStore: ComposerPasteStore;
   readonly clearComposer?: () => Promise<void> | void;
+  readonly composerText?: () => Promise<string> | string;
+  readonly forwardPaste?: (text: string) => Promise<void> | void;
+  readonly runAgent?: () => Promise<unknown>;
   readonly onExit?: () => Promise<void> | void;
 }
 
@@ -19,11 +22,20 @@ export async function handleIyonAction(state: IyonState, action: IyonAction, con
   if (action.type === "submit") {
     const text = context.pasteStore.expand(action.text);
     if (text.length === 0) return { state, exited: false };
+    const steering = state.activeTurn;
+    await context.clearComposer?.();
     await context.core.submitTurn?.(text);
-    return { state: reduceIyonState(state, { type: "submit", text }), exited: false };
+    if (!steering) void context.runAgent?.();
+    return {
+      state: steering
+        ? reduceIyonState(state, { type: "backend", event: { type: "steerQueued", text } })
+        : reduceIyonState(state, { type: "submit", text }),
+      exited: false,
+    };
   }
   if (action.type === "ctrlC") {
-    if (state.composerText.length > 0) {
+    const composerText = await context.composerText?.() ?? state.composerText;
+    if (composerText.length > 0) {
       context.pasteStore.clear(); await context.clearComposer?.();
       return { state: reduceIyonState(state, action), exited: false };
     }
@@ -44,8 +56,13 @@ export async function handleIyonAction(state: IyonState, action: IyonAction, con
     await context.core.cycleReasoningEffort?.();
     return { state: reduceIyonState(state, { type: "backend", event: { type: "configChanged", provider: state.info.provider, modelId: state.info.modelId, reasoningEffort: next } }), exited: false };
   }
+  if (action.type === "composerPaste") {
+    const current = await context.composerText?.() ?? state.composerText;
+    const display = context.pasteStore.displayText(current, action.text);
+    await context.forwardPaste?.(display);
+    return { state: reduceIyonState(state, { type: "composerPaste", text: display }), exited: false };
+  }
   if (action.type === "approve") { await context.core.approve?.(action.approvalId); return { state, exited: false }; }
   if (action.type === "reject") { await context.core.reject?.(action.approvalId, action.reason); return { state, exited: false }; }
   return { state: reduceIyonState(state, action), exited: false };
 }
-
