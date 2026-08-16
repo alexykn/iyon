@@ -12,6 +12,7 @@ mod handles;
 mod model_turn;
 mod queue;
 mod sync;
+mod tool_execution;
 mod tui;
 mod value;
 
@@ -24,4 +25,5 @@ pub use handles::{
 pub use model_turn::ModelTurn;
 pub use queue::EventQueueProbe;
 pub use sync::{echo_buffer, echo_json, echo_string, native_version};
+pub use tool_execution::ToolExecution;
 pub use tui::tui_smoke;
