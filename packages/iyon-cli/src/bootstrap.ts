@@ -1,34 +1,46 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { CliCommand } from "./args.ts";
 import { CleanupStack } from "./cleanup.ts";
 import { installIyonVirtualModules, AgentSession, selectProvider } from "@iyon/runtime";
 import { discoverPackages, PackageLoader, selectApp } from "@iyon/plugins";
 import { selectIyonAgent } from "./selection.ts";
 import { runSelectedApp, type RunnableAgent, type RunnableApp } from "./runner.ts";
+import { runAuth as runProviderAuth } from "./auth.ts";
 
+const sourceRoot = new URL("../../../", import.meta.url);
+const workingRoot = pathToFileURL(`${process.cwd()}/`);
+const repositoryRoot = existsSync(join(process.cwd(), "plugins")) ? workingRoot : sourceRoot;
 const bundledRoots = [
-  new URL("../../../plugins/app/iyon/", import.meta.url).pathname,
-  new URL("../../../plugins/agents/iyon/", import.meta.url).pathname,
-  new URL("../../../plugins/providers/mock/", import.meta.url).pathname,
-  new URL("../../../plugins/providers/openrouter/", import.meta.url).pathname,
-  new URL("../../../plugins/providers/openai-codex/", import.meta.url).pathname,
-  ...["bash", "read", "write", "edit", "grep", "find", "ls"].map((name) => new URL(`../../../plugins/tools/${name}/`, import.meta.url).pathname),
+  new URL("plugins/app/iyon/", repositoryRoot).pathname,
+  new URL("plugins/agents/iyon/", repositoryRoot).pathname,
+  new URL("plugins/providers/mock/", repositoryRoot).pathname,
+  new URL("plugins/providers/openrouter/", repositoryRoot).pathname,
+  new URL("plugins/providers/openai-codex/", repositoryRoot).pathname,
+  ...["bash", "read", "write", "edit", "grep", "find", "ls"].map((name) => new URL(`plugins/tools/${name}/`, repositoryRoot).pathname),
 ] as const;
 
-export function createProductionStages(): BootstrapStages {
+export function createProductionStages(options: { readonly authOnly?: boolean } = {}): BootstrapStages {
   let loader: PackageLoader | undefined;
   let session: AgentSession | undefined;
+  const roots = options.authOnly ? bundledRoots.slice(2, 5) : bundledRoots;
   return {
     async loadConfig() { return { env: { ...process.env } }; },
     async initializeNative() { return { native: true }; },
     async initializeVirtualModules() { installIyonVirtualModules(); },
-    async discoverPackages() { return discoverPackages({ bundled: bundledRoots }); },
+    async discoverPackages() { return discoverPackages({ bundled: roots }); },
     async activateExtensions(packages) {
       loader = new PackageLoader(); const result = await loader.loadAll(packages as Awaited<ReturnType<typeof discoverPackages>>);
-      if (result.failures.length > 0) throw new AggregateError(result.failures.map((failure) => failure.error), "extension activation failed");
+      if (result.failures.length > 0) throw new AggregateError(result.failures.map((failure) => failure.error), `extension activation failed: ${result.failures.map((failure) => `${failure.packageId}/${failure.extensionId}: ${errorText(failure.error)}`).join("; ")}`);
       return { loader, packages };
     },
     async selectProvider(activated, config) {
       const value = activated as { loader: PackageLoader }; return selectProvider({ registry: value.loader.registries.providers, env: (config as { env: NodeJS.ProcessEnv }).env, warn: (warning) => console.error(`warning: ${warning.message}`) });
+    },
+    async runAuth(command, activated, config) {
+      const value = activated as { loader: PackageLoader };
+      return runProviderAuth(command, { registry: value.loader.registries.providers, env: (config as { env: NodeJS.ProcessEnv }).env, output: (line) => console.log(line) });
     },
     async selectAgent(activated, provider) {
       const value = activated as { loader: PackageLoader }; session = new AgentSession();
@@ -46,6 +58,11 @@ export function createProductionStages(): BootstrapStages {
   };
 }
 
+function errorText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  return error.cause === undefined ? error.message : `${error.message} (${errorText(error.cause)})`;
+}
+
 export interface BootstrapContext { readonly config: unknown; readonly runtime: unknown; readonly packages: unknown; readonly provider: unknown; readonly agent: unknown; readonly app: unknown; }
 export interface BootstrapStages {
   loadConfig(): Promise<unknown>;
@@ -56,6 +73,7 @@ export interface BootstrapStages {
   selectProvider(activated: unknown, config: unknown): Promise<unknown>;
   selectAgent(activated: unknown, provider: unknown, config: unknown): Promise<unknown>;
   selectApp(activated: unknown, agent: unknown, provider: unknown, config: unknown): Promise<unknown>;
+  runAuth?(command: "login" | "logout" | "status", activated: unknown, config: unknown): Promise<unknown>;
   runApp(app: unknown, context: BootstrapContext): Promise<unknown>;
   cleanup?(context: BootstrapContext): Promise<void>;
 }
@@ -63,7 +81,6 @@ export interface BootstrapStages {
 export interface BootstrapResult { readonly command: CliCommand; readonly result?: unknown; readonly context?: BootstrapContext; }
 
 export async function runBootstrap(command: CliCommand, stages: BootstrapStages): Promise<BootstrapResult> {
-  if (command.type === "auth") return { command };
   const cleanup = new CleanupStack();
   let context: BootstrapContext | undefined;
   try {
@@ -73,6 +90,11 @@ export async function runBootstrap(command: CliCommand, stages: BootstrapStages)
     await stages.initializeVirtualModules();
     const packages = await stages.discoverPackages();
     const activated = await stages.activateExtensions(packages);
+    if (command.type === "auth") {
+      context = { config, runtime, packages: activated, provider: undefined, agent: undefined, app: undefined };
+      const result = stages.runAuth === undefined ? undefined : await stages.runAuth(command.command, activated, config);
+      return { command, result, context };
+    }
     const provider = await stages.selectProvider(activated, config);
     const agent = await stages.selectAgent(activated, provider, config);
     const app = await stages.selectApp(activated, agent, provider, config);

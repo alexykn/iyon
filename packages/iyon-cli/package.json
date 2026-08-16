@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
+    "iyon": "./src/cli-entry.ts",
     "iyon-smoke": "./src/index.ts"
   },
   "dependencies": {

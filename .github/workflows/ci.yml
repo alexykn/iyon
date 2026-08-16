@@ -31,4 +31,10 @@ jobs:
       - run: bun run typecheck
       - run: bun test plugins/providers packages/iyon-runtime/test/providers
       - run: bun test packages/iyon-plugins/tests
+      - run: bun test plugins/app/iyon/test packages/iyon-cli/test/args.test.ts packages/iyon-cli/test/bootstrap.test.ts packages/iyon-cli/test/auth.test.ts packages/iyon-cli/test/runner.test.ts
+      - run: bunx tsc --noEmit
+      - run: cargo test -p iyon --test public_app
+      - run: bun run build:iyon
+      - run: dist/iyon --help
+      - run: IYON_PROVIDER=mock dist/iyon auth status
       - run: test -f tranche_6_bun_refactor.md

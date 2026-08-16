@@ -7,6 +7,7 @@ export interface CliDependencies { readonly stages: BootstrapStages; readonly au
 
 export async function runCli(dependencies: CliDependencies): Promise<unknown> {
   const command = parseArgs(dependencies.argv);
+  if (command.type === "help") { console.log("Usage: iyon [run|auth login|auth logout|auth status]"); return undefined; }
   if (command.type === "auth") {
     if (dependencies.auth) return dependencies.auth(command.command);
     return runBootstrap(command, dependencies.stages);
@@ -19,5 +20,6 @@ export async function main(dependencies: CliDependencies): Promise<number> {
 }
 
 export async function runProduction(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
-  return main({ argv, stages: createProductionStages() });
+  const command = parseArgs(argv);
+  return main({ argv, stages: createProductionStages({ authOnly: command.type === "auth" }) });
 }

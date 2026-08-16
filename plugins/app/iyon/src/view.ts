@@ -15,5 +15,5 @@ export function createIyonView(options: IyonViewOptions): ViewValue {
   const footer = View.text(footerText(options.state)).style(options.theme.footer).fillWidth();
   const working = options.state.working ? View.text("Working…").style(options.theme.muted).fillWidth() : View.spacer(0);
   const approval = options.state.pendingApproval === undefined ? View.spacer(0) : View.text(`Approve ${options.state.pendingApproval.toolName}?`).fillWidth();
-  return View.vertical([working, approval, composer, footer]).fillWidth().fillHeight();
+  return View.vertical([View.text("Iyon"), working, approval, composer, footer]).fillWidth().fillHeight();
 }
