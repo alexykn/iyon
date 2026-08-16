@@ -1,4 +1,5 @@
 import type { ApprovalId, JsonValue } from "@iyon/sdk";
+import { View } from "@iyon/runtime/tui";
 import type { PendingApproval } from "./contracts.ts";
 
 export class ApprovalStore {
@@ -15,4 +16,8 @@ export class ApprovalStore {
 
 export function pendingApproval(approvalId: ApprovalId | number, toolCallId: string, toolName: string, argumentsValue: JsonValue): PendingApproval {
   return { approvalId, toolCallId, toolName, arguments: argumentsValue };
+}
+
+export function approvalView(approval: PendingApproval): View {
+  return View.text(`Approve ${approval.toolName}? Press Enter to approve or Escape to reject.`).fillWidth();
 }

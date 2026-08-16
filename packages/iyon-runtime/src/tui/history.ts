@@ -22,6 +22,10 @@ export class History extends HandleBase<ReturnType<typeof nativeTui.history>, "h
     return this.call(() => this.nativeHandle.pushStream((stream as unknown as { nativeObject(): object }).nativeObject()));
   }
 
+  sealStream(stream: TextStream): Promise<void> {
+    return this.call(() => this.nativeHandle.sealStream((stream as unknown as { nativeObject(): object }).nativeObject()));
+  }
+
   setLayout(layout: HistoryLayout): Promise<void> {
     return this.call(() => this.nativeHandle.setLayout(layout));
   }

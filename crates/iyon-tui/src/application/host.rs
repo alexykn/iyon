@@ -484,6 +484,19 @@ impl HostTextStream {
         Ok(())
     }
 
+    pub fn seal_history(&self, history: &mut History) -> Result<()> {
+        let handle = self
+            .handle
+            .lock()
+            .map_err(|_| anyhow::anyhow!("stream handle lock is poisoned"))?
+            .as_ref()
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("stream is not attached to History"))?;
+        history
+            .seal_stream(handle)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))
+    }
+
     fn attach_host(&self, host: &Arc<Mutex<HostInner>>) -> Result<()> {
         *self
             .host
@@ -910,6 +923,14 @@ impl HostHistory {
             .scene_history_mut()
             .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?,
             )?;
+        inner.render()?;
+        Ok(())
+    }
+
+    pub fn seal_stream(&self, stream: &HostTextStream) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        let history = inner.running.scene_history_mut().ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?;
+        stream.seal_history(history)?;
         inner.render()?;
         Ok(())
     }

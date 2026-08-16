@@ -5,6 +5,8 @@ import type {
   ReasoningLevel,
   ToolCallId,
 } from "@iyon/sdk";
+import type { ToolCall, ToolResult } from "@iyon/sdk";
+import type { View } from "@iyon/runtime/tui";
 
 export interface ToolDraftKey {
   readonly messageId: MessageId | number;
@@ -43,6 +45,15 @@ export interface PendingApproval {
   readonly toolCallId: ToolCallId | string;
   readonly toolName: string;
   readonly arguments: JsonValue;
+}
+
+export interface ToolRendererContribution {
+  readonly renderCall?: (call: ToolCall) => View;
+  readonly renderResult?: (result: ToolResult) => View;
+}
+
+export interface ToolResolver {
+  readonly get: (toolName: string) => ToolRendererContribution | undefined;
 }
 
 export type FrontendEvent =
@@ -84,6 +95,7 @@ export interface IyonState {
   readonly steering: readonly string[];
   readonly assistantText: string;
   readonly thinkingText: string;
+  readonly assistantOpen: boolean;
   readonly liveTools: ReadonlyMap<string, LiveTool>;
   readonly draftTools: ReadonlyMap<string, string>;
   readonly pendingApproval?: PendingApproval;
@@ -97,6 +109,10 @@ export interface IyonAgent {
 }
 
 export interface IyonCoreCommands {
+  readonly submitPrompt?: (text: string) => Promise<void> | void;
+  readonly steer?: (text: string) => Promise<void> | void;
+  readonly followUp?: (text: string) => Promise<void> | void;
+  readonly setReasoningEffort?: (level: ReasoningLevel) => Promise<void> | void;
   readonly submitTurn?: (text: string) => Promise<void> | void;
   readonly cancelActiveTurn?: () => Promise<void> | void;
   readonly cycleReasoningEffort?: () => Promise<void> | void;
@@ -109,4 +125,3 @@ export interface IyonModelMetadata {
   readonly modelId: string;
   readonly reasoningEffort?: ReasoningLevel;
 }
-

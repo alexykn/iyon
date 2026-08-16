@@ -161,6 +161,24 @@ impl NativeHistory {
             .attach(&mut history)
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
+
+    #[napi(js_name = "sealStream")]
+    pub fn seal_stream(&self, stream: &NativeTextStream) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        if let Some(host) = &self.host {
+            return host
+                .seal_stream(&stream.stream)
+                .map_err(|error| crate::NativeError::invalid_input(error.to_string()));
+        }
+        let mut history = self
+            .state
+            .lock()
+            .map_err(|_| crate::NativeError::internal("history lock is poisoned"))?;
+        stream
+            .stream
+            .seal_history(&mut history)
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
+    }
 }
 
 #[napi]

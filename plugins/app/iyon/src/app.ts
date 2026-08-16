@@ -1,24 +1,32 @@
 import type { App } from "iyon:plugins";
-import { History, Scene, TextInput, Tui, View } from "iyon:tui";
-import { History as RuntimeHistory, TextInput as RuntimeTextInput, TextStream } from "@iyon/runtime/tui";
-import type { History as HistoryHandle, TextInput as TextInputHandle, TuiRuntime, WorkingActivityHandle } from "@iyon/runtime/tui";
+import { History, Scene, Style, TextInput, Tui, View } from "iyon:tui";
+import { renderGenericCall, renderGenericResult } from "@iyon/runtime";
+import { History as RuntimeHistory, TextInput as RuntimeTextInput } from "@iyon/runtime/tui";
+import type { History as HistoryHandle, TextInput as TextInputHandle, TuiRuntime, ViewSlot, WorkingActivityHandle } from "@iyon/runtime/tui";
+import type { ToolCall, ToolResult } from "@iyon/sdk";
 import type {
   IyonAgent,
   IyonCoreCommands,
   IyonModelMetadata,
   IyonState,
+  LiveTool,
+  ToolResolver,
 } from "./contracts.ts";
 import { ComposerPasteStore } from "./composer.ts";
-import { createInitialState, reduceIyonState } from "./state.ts";
+import { ApprovalStore } from "./approvals.ts";
+import { createInitialState, hasActiveWork, reduceIyonState } from "./state.ts";
 import { createIyonTheme, type IyonTheme } from "./theme.ts";
 import { createIyonView, userBatchView } from "./view.ts";
 import { handleIyonAction } from "./actions.ts";
 import { startCoreEventBridge, type CoreEventBridge, type CoreEventSource } from "./backend.ts";
+import { NativeAssistantStream } from "./streaming.ts";
+import { ToolCardStore } from "./tool-cards.ts";
 
 export interface IyonAppDependencies {
   readonly agent: IyonAgent;
   readonly core: IyonCoreCommands;
   readonly model: IyonModelMetadata;
+  readonly tools?: ToolResolver;
   readonly tui?: TuiRuntime;
 }
 
@@ -55,13 +63,14 @@ class IyonAppImpl implements IyonApp {
   private ownsTui = false;
   private started = false;
   private exitAfterRender = false;
+  private exiting = false;
   private workingHandle?: WorkingActivityHandle;
-  private assistantStream?: TextStream;
-  private assistantText = "";
-  private readonly toolStreams = new Map<string, TextStream>();
-  private readonly toolNames = new Map<string, string>();
-  private readonly renderedUserMessages = new Map<string, number>();
-  private readonly pendingSteeringMessages = new Map<string, number>();
+  private assistantStream?: NativeAssistantStream;
+  private readonly toolCards = new ToolCardStore();
+  private readonly toolSlots = new Map<string, ViewSlot>();
+  private readonly mountedToolCards = new Set<string>();
+  private readonly renderedToolResults = new Set<string>();
+  private readonly approvals = new ApprovalStore();
 
   constructor(
     readonly dependencies: IyonAppDependencies,
@@ -106,16 +115,18 @@ class IyonAppImpl implements IyonApp {
       await this.historyHandle.dispose();
       await this.workingHandle?.dispose();
       await this.assistantStream?.dispose();
-      for (const stream of this.toolStreams.values()) await stream.dispose();
-      this.toolStreams.clear();
-      this.toolNames.clear();
-      this.renderedUserMessages.clear();
-      this.pendingSteeringMessages.clear();
+      for (const slot of this.toolSlots.values()) await slot.dispose();
+      this.toolSlots.clear();
+      this.mountedToolCards.clear();
+      this.toolCards.clear();
+      this.renderedToolResults.clear();
+      this.approvals.clear();
       this.workingHandle = undefined;
       this.assistantStream = undefined;
       this.tui = undefined;
       this.started = false;
       this.ownsTui = false;
+      this.exiting = false;
     }
   }
 
@@ -130,6 +141,7 @@ class IyonAppImpl implements IyonApp {
   }
 
   async handleAction(action: import("./contracts.ts").IyonAction): Promise<void> {
+    if (this.exiting) return;
     const result = await handleIyonAction(this.currentState, action, {
       core: this.core,
       agent: this.agent,
@@ -142,29 +154,21 @@ class IyonAppImpl implements IyonApp {
     });
     const previous = this.currentState;
     this.currentState = result.state;
-    if (action.type === "submit" && previous.activeTurn) {
-      this.incrementPendingSteering(action.text);
-    }
     const viewChanged = await this.appendHistory(action, previous, this.currentState);
     if (viewChanged) await this.renderCurrentScene();
-    if (result.exited && this.exitAfterRender) {
+    if ((result.exited && this.exitAfterRender) || (action.type === "requestExit" && result.state.goodbye)) {
       this.exitAfterRender = false;
-      await this.tui?.exit?.();
+      await this.shutdown();
     }
   }
 
   private async appendHistory(
     action: import("./contracts.ts").IyonAction,
     previous: IyonState,
-    _next: IyonState,
+    next: IyonState,
   ): Promise<boolean> {
-    if (action.type === "submit" && action.text.length > 0 && !previous.activeTurn) {
-      this.renderedUserMessages.set(action.text, (this.renderedUserMessages.get(action.text) ?? 0) + 1);
+    if (action.type === "submit" && action.text.length > 0 && !hasActiveWork(previous)) {
       await this.history.push(userBatchView([action.text], this.theme));
-      return true;
-    }
-    if (action.type === "ctrlC" && _next.goodbye) {
-      await this.history.push(View.text("Goodbye.").fillWidth());
       return true;
     }
     if (action.type !== "backend") {
@@ -172,84 +176,201 @@ class IyonAppImpl implements IyonApp {
     }
     const event = action.event;
     if (event.type === "assistantDelta") {
-      if (this.assistantStream === undefined) {
-        this.assistantStream = new TextStream();
-        this.assistantText = "";
-        await this.history.pushStream(this.assistantStream);
-      }
-      this.assistantText += event.text;
-      await this.assistantStream.update(this.assistantText);
+      await this.openAssistantStream();
+      await this.assistantStream?.append("text", event.text);
+      return false;
+    }
+    if (event.type === "thinkingDelta") {
+      await this.openAssistantStream();
+      await this.assistantStream?.append("thinking", event.text);
       return false;
     }
     if (event.type === "userMessage") {
-      if (this.consumePendingSteering(event.text)) return false;
-      const rendered = this.renderedUserMessages.get(event.text) ?? 0;
-      if (rendered > 0) {
-        if (rendered === 1) this.renderedUserMessages.delete(event.text);
-        else this.renderedUserMessages.set(event.text, rendered - 1);
-      } else {
-        await this.history.push(userBatchView([event.text], this.theme));
-      }
+      await this.history.push(userBatchView([event.text], this.theme));
       return false;
     }
     if (event.type === "turnFinished" || event.type === "turnFailed" || event.type === "turnCancelled") {
-      if (this.assistantStream !== undefined) {
-        await this.assistantStream.seal();
-        this.assistantStream = undefined;
+      await this.sealAssistantStream();
+      if (event.type === "turnCancelled") {
+        for (const [key, card] of next.liveTools) {
+          if (card.toolCallId !== undefined) this.toolCards.cancel(String(card.toolCallId));
+          await this.updateToolSlot(key, card);
+        }
       }
       return true;
     }
-    if (event.type === "toolCallStarted") {
-      const stream = new TextStream();
-      this.toolStreams.set(event.toolCallId, stream);
-      this.toolNames.set(event.toolCallId, event.toolName);
-      await this.history.pushStream(stream);
-      await stream.update(`• ${event.toolName} - running`);
+    if (event.type === "toolCallPreparing") {
+      await this.sealAssistantStream();
+      this.toolCards.preparing(event.key, event.toolCallId, event.toolName);
+      await this.updateToolSlot(this.toolCards.keyForDraft(event.key), next.liveTools.get(this.toolCards.keyForDraft(event.key)));
       return false;
     }
+    if (event.type === "toolCallArguments") {
+      this.toolCards.arguments(event.key, event.delta, event.toolCallId, event.toolName);
+      const key = this.toolCards.keyForDraft(event.key);
+      await this.updateToolSlot(key, next.liveTools.get(key));
+      return false;
+    }
+    if (event.type === "toolCallPrepared") {
+      this.toolCards.prepared(event.key, event.toolCallId, event.toolName, event.arguments);
+      const key = this.toolCards.keyForDraft(event.key);
+      await this.updateToolSlot(key, next.liveTools.get(key));
+      return false;
+    }
+    if (event.type === "toolCallStarted") {
+      const card = this.toolCards.started(event.toolCallId, event.toolName, event.arguments);
+      const key = this.toolCards.keyFor(event.toolCallId) ?? event.toolCallId;
+      await this.updateToolSlot(key, next.liveTools.get(key) ?? card);
+      return false;
+    }
+    if (event.type === "toolCallUpdated") {
+      this.toolCards.update(event.toolCallId, event.update);
+      const key = this.toolCards.keyFor(event.toolCallId);
+      if (key !== undefined) await this.updateToolSlot(key, next.liveTools.get(key));
+      return false;
+    }
+    if (event.type === "toolApprovalRequested") {
+      this.approvals.request({ approvalId: event.approvalId, toolCallId: event.toolCallId, toolName: event.toolName, arguments: event.arguments });
+      this.toolCards.approval(event.toolCallId);
+      const key = this.toolCards.keyFor(event.toolCallId);
+      if (key !== undefined) await this.updateToolSlot(key, next.liveTools.get(key));
+      return true;
+    }
+    if (event.type === "toolApprovalResolved") {
+      this.approvals.resolve(event.approvalId);
+      this.toolCards.resolveApproval(event.toolCallId, event.approved);
+      const key = this.toolCards.keyFor(event.toolCallId);
+      if (key !== undefined) await this.updateToolSlot(key, next.liveTools.get(key));
+      return true;
+    }
     if (event.type === "toolResult") {
-      const stream = this.toolStreams.get(event.toolCallId) ?? new TextStream();
-      if (!this.toolStreams.has(event.toolCallId)) {
-        this.toolStreams.set(event.toolCallId, stream);
-        await this.history.pushStream(stream);
+      const card = this.toolCards.result(event.toolCallId, event.toolName, event.text, event.details, event.isError);
+      const key = this.toolCards.keyFor(event.toolCallId);
+      if (key !== undefined) {
+        this.renderedToolResults.add(key);
+        await this.updateToolSlotResult(key, {
+          content: [{ type: "text", text: event.text }],
+          details: event.details,
+          isError: event.isError,
+          toolCallId: event.toolCallId as never,
+          toolName: event.toolName,
+          text: event.text,
+        });
+      } else if (card !== undefined) {
+        await this.updateToolSlot(event.toolCallId, card);
       }
-      const lines = event.text.split("\n");
-      const collapsed = lines.length > 1 ? ` … ${lines.length - 1} more lines (full result retained)` : "";
-      await stream.update(`• ${event.toolName} - ${event.isError ? "failed" : "finished"}${collapsed}`);
-      await stream.seal();
-      this.toolStreams.delete(event.toolCallId);
-      this.toolNames.delete(event.toolCallId);
       return false;
     }
     if (event.type === "toolCallFinished") {
-      const stream = this.toolStreams.get(event.toolCallId);
-      if (stream !== undefined) {
-        await stream.update(`• ${this.toolNames.get(event.toolCallId) ?? "tool"} - ${event.isError ? "failed" : "finished"}`);
-        await stream.seal();
-        this.toolStreams.delete(event.toolCallId);
-        this.toolNames.delete(event.toolCallId);
+      const key = this.toolCards.keyFor(event.toolCallId);
+      if (key !== undefined && !this.renderedToolResults.has(key)) {
+        this.toolCards.finish(event.toolCallId, event.isError);
+        await this.updateToolSlot(key, next.liveTools.get(key));
       }
       return false;
     }
-    return event.type === "turnStarted" || event.type === "steerQueued" || event.type === "configChanged"
-      || event.type === "toolApprovalRequested" || event.type === "toolApprovalResolved";
+    return false;
   }
 
-  private incrementPendingSteering(text: string): void {
-    this.pendingSteeringMessages.set(text, (this.pendingSteeringMessages.get(text) ?? 0) + 1);
+  private async openAssistantStream(): Promise<void> {
+    if (this.assistantStream !== undefined) return;
+    this.assistantStream = new NativeAssistantStream();
+    await this.history.pushStream(this.assistantStream.native);
   }
 
-  private consumePendingSteering(text: string): boolean {
-    const count = this.pendingSteeringMessages.get(text) ?? 0;
-    if (count === 0) return false;
-    if (count === 1) this.pendingSteeringMessages.delete(text);
-    else this.pendingSteeringMessages.set(text, count - 1);
-    return true;
+  private async sealAssistantStream(): Promise<void> {
+    if (this.assistantStream === undefined) return;
+    await this.assistantStream.seal();
+    await this.history.sealStream(this.assistantStream.native);
+    this.assistantStream = undefined;
+  }
+
+  private async updateToolSlot(key: string, card: LiveTool | undefined): Promise<void> {
+    if (card === undefined) return;
+    const view = this.renderToolCall(card, key);
+    const slot = this.toolSlots.get(key);
+    if (slot !== undefined) {
+      await slot.setView(view as never);
+      return;
+    }
+    if (this.tui?.createViewSlot === undefined) {
+      if (this.mountedToolCards.has(key)) return;
+      this.mountedToolCards.add(key);
+      await this.history.push(view as never);
+      return;
+    }
+    const created = this.tui.createViewSlot(view as never);
+    this.toolSlots.set(key, created);
+    this.mountedToolCards.add(key);
+    await this.history.push(View.component(created).fillWidth());
+  }
+
+  private async updateToolSlotResult(key: string, result: ToolResult): Promise<void> {
+    const slot = this.toolSlots.get(key);
+    const view = this.renderToolResult(result);
+    if (slot !== undefined) {
+      await slot.setView(view as never);
+      return;
+    }
+    if (!this.mountedToolCards.has(key)) {
+      this.mountedToolCards.add(key);
+      await this.history.push(view as never);
+    }
+  }
+
+  private renderToolCall(card: LiveTool, key: string) {
+    const call: ToolCall = {
+      id: (card.toolCallId ?? key) as never,
+      name: card.toolName ?? "tool",
+      arguments: card.arguments ?? {},
+      state: card.status,
+      showArgPreview: card.arguments !== undefined,
+    };
+    const contribution = card.arguments === undefined ? undefined : this.dependencies.tools?.get(call.name);
+    const callView = contribution?.renderCall?.(call) ?? renderGenericCall(call);
+    const update = toolUpdateText(card);
+    if (update === undefined) return callView;
+    const output = View.hanging(
+      View.text("  ").noWrap(),
+      View.text("  ").noWrap(),
+      View.text(update).style(Style.new().theme("text.muted")).fillWidth(),
+    ).fillWidth();
+    return View.vertical([callView, output]).fillWidth();
+  }
+
+  private renderToolResult(result: ToolResult) {
+    const contribution = result.toolName === undefined ? undefined : this.dependencies.tools?.get(result.toolName);
+    return contribution?.renderResult?.(result) ?? renderGenericResult(result);
+  }
+
+  private async shutdown(): Promise<void> {
+    if (this.exiting) return;
+    this.exiting = true;
+    await this.sealAssistantStream();
+    await this.workingHandle?.setActive(false);
+    await this.workingHandle?.setPending([]);
+    const pendingApproval = this.currentState.pendingApproval;
+    if (pendingApproval !== undefined) {
+      await this.core.reject?.(pendingApproval.approvalId, "application exiting");
+      this.approvals.resolve(pendingApproval.approvalId);
+    }
+    const liveTools = new Map(this.currentState.liveTools);
+    for (const [key, card] of liveTools) {
+      if (card.frozen) continue;
+      const cancelled = { ...card, status: "cancelled" as const, frozen: true, isError: true };
+      liveTools.set(key, cancelled);
+      if (card.toolCallId !== undefined) this.toolCards.finish(String(card.toolCallId), true);
+      await this.updateToolSlot(key, cancelled);
+    }
+    this.currentState = { ...this.currentState, activeTurn: false, assistantOpen: false, goodbye: true, liveTools, pendingApproval: undefined, working: false };
+    await this.history.push(View.text("Goodbye.").fillWidth());
+    await this.renderCurrentScene();
+    await this.tui?.exit?.();
   }
 
   private async renderCurrentScene(): Promise<void> {
     if (this.tui !== undefined && this.started) {
-      await this.workingHandle?.setActive(this.currentState.working);
+      await this.workingHandle?.setActive(hasActiveWork(this.currentState));
       await this.workingHandle?.setPending(this.currentState.steering);
       await this.tui.render(new Scene(createIyonView({ composer: this.composer, history: this.history, state: this.currentState, theme: this.theme, working: this.workingHandle }), this.history));
     }
@@ -268,6 +389,18 @@ class IyonAppImpl implements IyonApp {
   }
 
   startBackendBridge(source: CoreEventSource): CoreEventBridge { return startCoreEventBridge(source, this); }
+}
+
+function toolUpdateText(card: LiveTool): string | undefined {
+  if (card.text.length > 0) return card.text;
+  if (card.progress !== undefined) {
+    const { label, current, total } = card.progress;
+    if (current !== undefined && total !== undefined) return `${label}: ${current}/${total}`;
+    if (current !== undefined) return `${label}: ${current}`;
+    if (total !== undefined) return `${label}: 0/${total}`;
+    return label;
+  }
+  return card.details === undefined ? undefined : JSON.stringify(card.details);
 }
 
 function actionFromNative(action: { readonly actionId: string; readonly payload?: string }): import("./contracts.ts").IyonAction {
