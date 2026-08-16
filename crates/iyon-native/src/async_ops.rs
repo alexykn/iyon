@@ -59,8 +59,15 @@ pub(crate) async fn cancellation_operation(
         return Err(NativeError::cancelled());
     }
 
+    let wake = state.wake.notified();
+    tokio::pin!(wake);
+    wake.as_mut().enable();
+    if state.is_cancelled() {
+        return Err(NativeError::cancelled());
+    }
+
     tokio::select! {
         _ = tokio::time::sleep(Duration::from_millis(ms)) => Ok("completed".to_owned()),
-        _ = state.wake.notified() => Err(NativeError::cancelled()),
+        _ = &mut wake => Err(NativeError::cancelled()),
     }
 }
