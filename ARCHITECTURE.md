@@ -326,3 +326,117 @@ hardening.
 No later-tranche implementation is required to make this document true at
 T0. Rust behavior, manifests, inventories, tests, CI, and source layout remain
 untouched until their owning tranche.
+
+## Frozen migration behavior
+
+The following behavior is a migration acceptance contract. Later TypeScript
+ports may change ownership, but they must not change these semantics.
+
+### Native scrollback
+
+Native scrollback promotes semantic rows by painting the rows being promoted
+at the top, placing the cursor at the bottom, and emitting ordinary full-screen
+CRLFs so the terminal moves those rows into native scrollback. The in-memory
+model mirrors the same scroll-up state. A port must not substitute private fake
+scrollback, model-only row mutation, or a terminal scrolling-region shortcut.
+
+The current oracle is `crates/iyon-tui/src/history/native/mod.rs`, the
+`NativeHistorySink` seam, `crates/iyon-tui/src/scene/host.rs` pressure-drain
+path, and the terminal presenter native transaction. Native transfer is
+backpressured and the host re-resolves after physical progress.
+
+### Semantic View-before-geometry
+
+Semantic `View` is resolved before geometry. Component identity and semantic
+ownership are established during resolution; geometry is a result of the
+layout pass, never the source of application semantics. The relevant oracles
+are `crates/iyon-tui/src/scene/root.rs`, its root tests, and the presentation
+layout modules.
+
+### Theme-not-geometry
+
+`Theme` supplies named colors, styles, and selector variants at semantic paint
+time. Theme resolution is not a geometry, sizing, wrapping, or layout-policy
+input. The paint theme modules and presentation style/layout tests are the
+current oracle.
+
+### Tool lifecycle
+
+Tool calls have distinct draft and execution lifecycles:
+
+```text
+preparing → argument deltas → prepared → approval when required
+          → started → updates → final result → finished
+```
+
+The draft is visible before execution. One logical tool card is updated in
+place. Rejection or cancellation cannot become a false successful completion.
+The event mapping in `crates/iyon-core/src/event.rs`,
+`crates/iyon/src/tui/backend.rs`, and `crates/iyon/src/tui/state.rs` is the
+current oracle.
+
+### Streaming Start/Delta/End
+
+Each content stream has ordered Start/Delta/End semantics. Start establishes
+the stream and content slot, Delta appends to that slot, and End seals it.
+Content indices remain stable. A coalesced transport delta is not a semantic
+boundary change. `crates/iyon-api/src/stream.rs`,
+`crates/iyon-core/src/event.rs`, and the assistant-stream tests define the
+current protocol and consumer oracle.
+
+### Tool draft key
+
+An in-progress tool draft is keyed by `{ message_id, content_index }`, not by a
+possibly late tool-call ID or tool name. Late identity fields update the
+existing draft. The current key is `ToolDraftKey` in
+`crates/iyon/src/tui/backend.rs`; its map and update paths live in
+`crates/iyon/src/tui/state.rs`.
+
+### Composer
+
+The composer is multiline and remains below History. Paste normalizes CRLF and
+CR to LF, and tabs to four spaces. Text at or below 1000 characters and 10
+lines is inserted directly. Larger paste is stored behind a collision-safe
+`[Pasted Content N chars]` marker and expanded on submit. Submit expands all
+stored markers, then clears the composer and marker store.
+
+Ctrl-C clears non-empty composer text. If the composer is empty, Ctrl-C
+cancels an active turn; it exits only if there is no text and no active turn.
+Escape cancels an active turn and otherwise does not exit. The current oracle
+is `crates/iyon/src/tui/state.rs`, `crates/iyon/src/tui/mod.rs`, and the public
+application harness tests.
+
+### Approval gate
+
+Approval is an execution gate, not a rendering event. `NeverAsk` proceeds. An
+approval request carries a stable approval ID plus matching tool-call identity.
+Approval starts execution. Rejection produces a rejected/error result.
+Cancellation terminates the pending or running path and never invents a
+successful finished event. The special escalation for `bash` commands that
+contain a `sudo` token remains part of the baseline. Current oracles are
+`crates/iyon-core/src/agent/tool_execution.rs`,
+`crates/iyon-core/src/event.rs`, and the approval/cancellation public app
+tests.
+
+### Smoothing
+
+Stream smoothing publishes only upstream-stable projection spans. It never
+splits an atomic span. It releases the first available span immediately, then
+advances on configured temporal ticks using value-count weighting. Defaults
+are a 16 ms tick, spring 2, minimum 20, and maximum 800 units per second.
+Sealing flushes pending content to the end. A stream boundary flushes pending
+assistant text before the next tool card. The current oracles are
+`crates/iyon-tui/src/projection/smooth.rs`, its projection tests, and the
+assistant-stream/public application tests.
+
+### Goodbye
+
+Goodbye is observable and ordered. On a clean request exit, or Ctrl-C while
+the composer is empty and inactive, the app freezes the user batch, seals the
+assistant stream, clears working state, terminalizes live tools, appends
+`Goodbye.`, hides the normal body, and then exits. Buffered assistant text
+appears before the Goodbye row. Ctrl-C during an active turn cancels instead
+of performing this sequence. The current oracle is
+`crates/iyon/src/tui/state.rs`, `crates/iyon/src/tui/mod.rs`, and
+`request_exit_flushes_buffered_assistant_text_before_goodbye` in
+`crates/iyon/tests/public_app.rs`.

@@ -138,3 +138,22 @@ model protocol; `iyon:core` exposes provider-agnostic kernel capabilities;
 objects; and `iyon:plugins` exposes lifecycle and registries. The bridge is
 not a product layer, and binding completeness is semantic parity rather than
 one native symbol per Rust method.
+
+## Behavior oracle ledger
+
+T0 freezes behavior but does not add characterization tests or alter runtime
+code. Later implementation tranches may add tests as part of their own work,
+but every port must preserve this ledger.
+
+| invariant | current source/test oracle | future owner | compatibility requirement |
+|---|---|---|---|
+| Native scrollback | `crates/iyon-tui/src/history/native/mod.rs`, `NativeHistorySink`, `crates/iyon-tui/src/scene/host.rs`, native-history and combined-history tests | `crates/iyon-tui` plus `iyon-native` terminal boundary in T5 | Promote painted rows via ordinary full-screen CRLF, mirror model scroll state, and retain pressure/backpressure behavior. |
+| View-before-geometry | `crates/iyon-tui/src/scene/root.rs`, `scene/root_tests.rs`, presentation layout tests | Native `iyon-tui` Scene host in T5 | Resolve semantic identity and ownership before layout; geometry remains a layout result. |
+| Theme-not-geometry | `crates/iyon-tui/src/presentation/paint/theme.rs`, `theme/**`, presentation style/layout tests | Native `iyon-tui` theme and paint in T5 | Theme supplies semantic styles/selectors and never controls size, wrapping, or layout policy. |
+| Tool lifecycle | `ModelStreamEvent`, `CoreEvent`, `FrontendEvent`, `crates/iyon/src/tui/state.rs`; `streamed_tool_draft_is_visible_before_execution_and_reuses_one_card` and tool cancellation tests | `crates/iyon-core` execution plus `plugins/app/iyon` and `plugins/tools/*` in T3/T8/T10 | Preserve draft visibility, one-card updates, approval gate, result status, and non-success cancellation/rejection. |
+| Start/Delta/End streaming | `crates/iyon-api/src/stream.rs`, `crates/iyon-core/src/event.rs`, assistant-stream tests, and public app streaming tests | `iyon:api`, `iyon:core`, and `iyon:tui` in T4/T5 | Keep content slots stable, append Delta to its Start slot, seal on End, and preserve semantic boundaries. |
+| `{ message_id, content_index }` draft key | `ToolDraftKey` in `crates/iyon/src/tui/backend.rs`, draft maps in `crates/iyon/src/tui/state.rs`, streamed draft public app test | `plugins/app/iyon` in T10 | Late tool-call ID/name fields update the keyed draft rather than create a second card. |
+| Composer | `crates/iyon/src/tui/state.rs`, `crates/iyon/src/tui/mod.rs`, `iyon_app_is_drivable_through_public_tui_harness` | Native `TextInput` in T5 plus `plugins/app/iyon` in T10 | Preserve multiline placement, paste normalization, 1000-character/10-line thresholds, marker expansion, and Ctrl-C/Escape matrix. |
+| Approval | `crates/iyon-core/src/agent/tool_execution.rs`, `CoreEvent`, approval/cancellation public app tests | Native kernel gate in T3 plus TS tool/app policy in T8/T10 | Preserve stable approval identity, `NeverAsk`, `sudo` escalation, rejection/error result, and cancellation semantics. |
+| Smoothing | `crates/iyon-tui/src/projection/smooth.rs`, projection tests, `pending_assistant_smoothing_flushes_before_tool_call`, `pending_assistant_smoothing_survives_turn_cancellation` | Native projection in T5 plus assistant stream in `plugins/app/iyon` in T10 | Preserve stable/atomic span rules, first-span release, 16 ms/2/20/800 defaults, value-count pacing, and seal flush. |
+| Goodbye | `crates/iyon/src/tui/state.rs`, `crates/iyon/src/tui/mod.rs`, `request_exit_flushes_buffered_assistant_text_before_goodbye`, and public app shutdown tests | `plugins/app/iyon` in T10 plus native terminal finalization in T5 | Preserve freeze/seal/clear/terminalize/append/hide/exit order, buffered text before Goodbye, and active-turn cancellation. |
