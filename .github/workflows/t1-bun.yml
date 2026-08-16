@@ -1,0 +1,83 @@
+name: T1 Bun and N-API viability
+
+on:
+  push:
+    branches: [bun-refactor]
+  pull_request:
+
+jobs:
+  t1:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-latest
+          - target: macos-arm64
+            runner: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun 1.3.11
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Set up Rust 1.97.1
+        uses: dtolnay/rust-toolchain@1.97.1
+
+      - name: Report toolchains
+        run: |
+          bun --version
+          rustc --version
+          cargo --version
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check Rust workspace
+        run: cargo check --workspace
+
+      - name: Test Rust workspace
+        run: cargo test --workspace
+
+      - name: Install Bun workspace
+        run: bun install --frozen-lockfile
+
+      - name: Stage and load native addon
+        run: bun run native:stage
+
+      - name: Typecheck TypeScript
+        run: bun run typecheck
+
+      - name: Run source smoke command
+        run: bun run smoke
+
+      - name: Run named native probes
+        run: bun test packages/iyon-runtime/test/native-probes.test.ts
+
+      - name: Build standalone executable
+        run: bun run build:standalone
+
+      - name: Execute standalone executable without sibling addon
+        run: |
+          empty_dir=$(mktemp -d)
+          (cd "$empty_dir" && "$GITHUB_WORKSPACE/iyon-smoke")
+
+      - name: Run standalone embedding assertion
+        run: bun test packages/iyon-cli/test/standalone.test.ts
+
+      - name: T1 exit checklist
+        run: |
+          echo "Bun owns the process"
+          echo "compiled executable reaches embedded native addon -> Tokio/native Rust -> TypeScript"
+          echo "iyon:api, iyon:core, and iyon:tui smoke imports load"
+          echo "no real API, kernel, or TUI binding is claimed"
+
+      - name: Check generated files are ignored
+        run: |
+          git diff --check
+          test -z "$(git status --short --untracked-files=all | grep -E '(^|/)(iyon-smoke|iyon-native\.node|dist/)' || true)"
