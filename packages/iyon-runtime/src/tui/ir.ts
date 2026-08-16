@@ -10,6 +10,7 @@ export interface InsetsNode {
 }
 
 export interface StyleNode {
+  readonly theme?: string;
   readonly foreground?: ColorNode;
   readonly background?: ColorNode;
   readonly attributes: Readonly<Record<string, boolean>>;
@@ -18,9 +19,9 @@ export interface StyleNode {
 export type ViewNode =
   | { readonly type: "text"; readonly spans: readonly TextSpanNode[]; readonly wrap: string; readonly align: string }
   | { readonly type: "spacer"; readonly rows: number }
-  | { readonly type: "row" | "column"; readonly children: readonly ViewNode[]; readonly gap: number }
+  | { readonly type: "row" | "column"; readonly children: readonly LayoutChild[]; readonly gap: number }
   | { readonly type: "hanging"; readonly prefix: ViewNode; readonly continuation: ViewNode; readonly body: ViewNode }
-  | { readonly type: "grid"; readonly children: readonly ViewNode[] }
+  | { readonly type: "grid"; readonly columns: readonly GridTrackNode[]; readonly rows: readonly GridRowNode[]; readonly columnGap: number; readonly rowGap: number }
   | { readonly type: "container" | "clamp"; readonly child: ViewNode; readonly maxRows?: number }
   | { readonly type: "contentMax"; readonly child: ViewNode; readonly maxRows: number }
   | { readonly type: "component"; readonly handle: NativeHandleId }
@@ -29,6 +30,32 @@ export type ViewNode =
 export interface TextSpanNode {
   readonly text: string;
   readonly style?: StyleNode;
+}
+
+export type LayoutChild =
+  | { readonly kind: "normal"; readonly child: ViewNode }
+  | { readonly kind: "fixed"; readonly size: number; readonly child: ViewNode }
+  | { readonly kind: "flex"; readonly child: ViewNode }
+  | { readonly kind: "contentMax"; readonly maxRows: number; readonly child: ViewNode };
+
+export type GridTrackNode =
+  | { readonly kind: "content" }
+  | { readonly kind: "contentMax"; readonly max: number }
+  | { readonly kind: "fixed"; readonly size: number }
+  | { readonly kind: "flex" }
+  | { readonly kind: "flexMax"; readonly max: number };
+
+export interface GridCellNode {
+  readonly view: ViewNode;
+  readonly columnSpan: number;
+  readonly rowSpan: number;
+  readonly horizontalAlign: "start" | "center" | "end";
+  readonly verticalAlign: "top" | "center" | "bottom";
+}
+
+export interface GridRowNode {
+  readonly track: GridTrackNode;
+  readonly cells: readonly GridCellNode[];
 }
 
 export interface DecorationNode {

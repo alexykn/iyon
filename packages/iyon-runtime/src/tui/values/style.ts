@@ -7,6 +7,11 @@ export class StyleSpec {
 
   constructor(readonly value: StyleNode = { attributes: {} }) {}
 
+  theme(key: string): StyleSpec {
+    if (key.length === 0) throw new RangeError("style theme key cannot be empty");
+    return new StyleSpec({ ...this.value, theme: key });
+  }
+
   foreground(color: Color): StyleSpec {
     return new StyleSpec({ ...this.value, foreground: color });
   }

@@ -49,5 +49,4 @@ export const nativeTui = {
   history: () => new (requireNativeClass(native.NativeHistory, "NativeHistory"))(),
   textInput: (multiline?: boolean) => new (requireNativeClass(native.NativeTextInput, "NativeTextInput"))(multiline),
   textStream: () => new (requireNativeClass(native.NativeTextStream, "NativeTextStream"))(),
-  component: () => new (requireNativeClass(native.NativeComponent, "NativeComponent"))(),
 };

@@ -23,10 +23,7 @@ export class History extends HandleBase<ReturnType<typeof nativeTui.history>, "h
   }
 
   setLayout(layout: HistoryLayout): Promise<void> {
-    return this.call(() => {
-      const setLayout = (this.nativeHandle as unknown as { setLayout?: (value: HistoryLayout) => void }).setLayout;
-      setLayout?.(layout);
-    });
+    return this.call(() => this.nativeHandle.setLayout(layout));
   }
 
   /** Internal bridge access; not exported from the public module. */

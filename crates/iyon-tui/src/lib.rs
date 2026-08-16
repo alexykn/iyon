@@ -171,7 +171,7 @@ mod theme;
 
 pub use application::{
     App, AppClosed, AppCx, AppHandle, AppSendError, RunError, RuntimeError, TimerHandle,
-    HostHistory, HostTextInput, HostTextStream, HostWorking, RoutedAction, TuiHost,
+    HostHistory, HostTextInput, HostTextStream, HostViewSlot, HostWorking, RoutedAction, TuiHost,
 };
 
 pub use component::{Component, ComponentCx, ComponentHandle};

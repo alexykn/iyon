@@ -127,6 +127,94 @@ pub struct HostWorking {
     component_id: Arc<Mutex<Option<u64>>>,
 }
 
+#[derive(Clone)]
+pub struct HostViewSlot {
+    state: Arc<Mutex<ViewSlotState>>,
+    component_id: Arc<Mutex<Option<u64>>>,
+    host: Arc<Mutex<Option<Weak<Mutex<HostInner>>>>>,
+}
+
+struct ViewSlotState {
+    view: View,
+    revision: u64,
+}
+
+impl HostViewSlot {
+    pub fn new(view: View) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(ViewSlotState { view, revision: 0 })),
+            component_id: Arc::new(Mutex::new(None)),
+            host: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn set_view(&self, view: View) -> Result<()> {
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("view slot lock is poisoned"))?;
+            state.view = view;
+            state.revision = state.revision.saturating_add(1);
+        }
+        self.render_host()
+    }
+
+    pub fn component_id(&self) -> Option<u64> {
+        self.component_id.lock().ok().and_then(|id| *id)
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.state.lock().map(|state| state.revision).unwrap_or(0)
+    }
+
+    fn attach_host(&self, host: &Arc<Mutex<HostInner>>) -> Result<()> {
+        *self
+            .host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("view slot host lock is poisoned"))? =
+            Some(Arc::downgrade(host));
+        Ok(())
+    }
+
+    fn set_component_id(&self, id: u64) -> Result<()> {
+        *self
+            .component_id
+            .lock()
+            .map_err(|_| anyhow::anyhow!("view slot component lock is poisoned"))? = Some(id);
+        Ok(())
+    }
+
+    fn render_host(&self) -> Result<()> {
+        let host = self
+            .host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("view slot host lock is poisoned"))?
+            .clone()
+            .and_then(|host| host.upgrade());
+        if let Some(host) = host {
+            let mut inner = host
+                .lock()
+                .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
+            inner.running.invalidate_frame();
+            inner.render()?;
+        }
+        Ok(())
+    }
+}
+
+struct MountedViewSlot(HostViewSlot);
+
+impl Component for MountedViewSlot {
+    fn view(&self) -> View {
+        self.0
+            .state
+            .lock()
+            .map(|state| state.view.clone())
+            .unwrap_or_else(|_| View::spacer(0))
+    }
+}
+
 impl HostWorking {
     pub fn new() -> Self {
         Self {
@@ -738,6 +826,15 @@ impl TuiHost {
         let handle = inner.running.host_register(MountedWorking(working.clone()));
         working.set_component_id(handle.raw_id())?;
         Ok(working)
+    }
+
+    pub fn create_view_slot(&self, view: View) -> Result<HostViewSlot> {
+        let slot = HostViewSlot::new(view);
+        slot.attach_host(&self.inner)?;
+        let mut inner = self.lock_mut()?;
+        let handle = inner.running.host_register(MountedViewSlot(slot.clone()));
+        slot.set_component_id(handle.raw_id())?;
+        Ok(slot)
     }
 
     pub fn bind_key(&self, key: KeyStroke, action_id: impl Into<String>) -> Result<()> {
