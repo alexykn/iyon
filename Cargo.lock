@@ -1035,6 +1035,7 @@ dependencies = [
 name = "iyon-native"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "iyon-api",
  "iyon-core",
  "iyon-tui",
