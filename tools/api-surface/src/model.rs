@@ -152,3 +152,61 @@ pub struct ReachableSurface {
     pub items: Vec<SurfaceItem>,
     pub paths: Vec<SurfacePath>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SurfacePackage {
+    pub package: String,
+    #[serde(default)]
+    pub target: Option<String>,
+    #[serde(default)]
+    pub features: BTreeSet<String>,
+    #[serde(default = "default_true")]
+    pub use_default_features: bool,
+    #[serde(default)]
+    pub target_triple: Option<String>,
+    #[serde(default)]
+    pub cfg: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SurfaceConfig {
+    pub workspace_manifest: PathBuf,
+    pub packages: Vec<SurfacePackage>,
+    pub mapping_dir: PathBuf,
+    pub sdk_output_dir: PathBuf,
+    pub output_dir: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManifestCrate {
+    pub package: CrateId,
+    pub target: TargetId,
+    pub source_root: PathBuf,
+    pub profile: ScanProfile,
+    pub surface: ReachableSurface,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApiManifest {
+    pub schema_version: u32,
+    pub scanner_version: String,
+    pub workspace_manifest: PathBuf,
+    pub crates: Vec<ManifestCrate>,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoverageReport {
+    pub schema_version: u32,
+    pub reachable: usize,
+    pub mapped: usize,
+    pub missing: Vec<String>,
+    pub stale: Vec<String>,
+    pub aliases: usize,
+    pub packages: Vec<String>,
+    pub profiles: Vec<ScanProfile>,
+}
+
+fn default_true() -> bool {
+    true
+}
