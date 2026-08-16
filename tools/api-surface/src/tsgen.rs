@@ -129,14 +129,17 @@ fn render_module(
         ));
         output.push_str(&format!(
             "  {}\n",
-            declaration(&export, &record.strategy, &kind)
+            declaration(module, &export, &record.strategy, &kind)
         ));
     }
     output.push_str("}\n");
     output
 }
 
-fn declaration(export: &str, strategy: &Strategy, kind: &ApiKind) -> String {
+fn declaration(module: &str, export: &str, strategy: &Strategy, kind: &ApiKind) -> String {
+    if let Some(alias) = contract_alias(module, export) {
+        return format!("export type {export} = import(\"{alias}\").{export};");
+    }
     match strategy {
         Strategy::NativeAsync => {
             format!("export function {export}(...args: readonly unknown[]): Promise<unknown>;")
@@ -155,6 +158,60 @@ fn declaration(export: &str, strategy: &Strategy, kind: &ApiKind) -> String {
         Strategy::TsFacade | Strategy::CompatibilityProjection => {
             format!("export type {export} = unknown;")
         }
+    }
+}
+
+/// The generated manifest remains the inventory of Rust reachability, while
+/// these aliases let the SDK expose the reviewed TypeScript contract shapes.
+/// The implementation-owned source files are intentionally the only place
+/// where the discriminated unions and handle interfaces are defined.
+fn contract_alias(module: &str, export: &str) -> Option<&'static str> {
+    let api = [
+        "CacheRetention",
+        "ContentBlock",
+        "ModelApi",
+        "ModelError",
+        "ModelErrorKind",
+        "ModelMessage",
+        "ModelMetadata",
+        "ModelParams",
+        "ModelRequest",
+        "ModelStreamEvent",
+        "ModelToolSpec",
+        "ReasoningLevel",
+        "StopReason",
+        "Usage",
+    ];
+    let core = [
+        "ApprovalId",
+        "ApprovalState",
+        "ApprovalRequirement",
+        "ApprovalStatus",
+        "AssembledToolCall",
+        "CoreEvent",
+        "MessageDelta",
+        "MessageId",
+        "MessageRole",
+        "ModelTurn",
+        "ModelTurnError",
+        "ModelTurnResult",
+        "ModelTurnState",
+        "SessionEntry",
+        "SessionId",
+        "SessionSnapshot",
+        "ToolCallDelta",
+        "ToolCallId",
+        "ToolExecution",
+        "ToolLifecycleEvent",
+        "ToolLifecycleState",
+        "ToolResult",
+        "ToolUpdateEvent",
+        "TurnId",
+    ];
+    match module {
+        "iyon:api" if api.contains(&export) => Some("../src/api.ts"),
+        "iyon:core" if core.contains(&export) => Some("../src/core.ts"),
+        _ => None,
     }
 }
 
