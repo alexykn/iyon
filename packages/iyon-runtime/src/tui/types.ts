@@ -67,7 +67,7 @@ export interface Component extends NativeHandle {
   capabilities(): TuiOperation<ComponentCapabilities>;
 }
 
-export interface WorkingActivity extends NativeHandle {
+export interface WorkingActivityHandle extends NativeHandle {
   setActive(active: boolean): TuiOperation<void>;
   setPending(pending: readonly string[]): TuiOperation<void>;
   nativeComponentId(): NativeHandleId | undefined;
@@ -183,7 +183,7 @@ export interface TuiRuntime {
   close(): TuiOperation<void>;
   createHistory?(): History;
   createTextInput?(options?: { multiline?: boolean }): TextInput;
-  createWorking?(): WorkingActivity;
+  createWorking?(): WorkingActivityHandle;
   bindKey?(key: string, actionId: string, modifiers?: readonly string[]): void;
   route?(output: OutputHandle<string>, actionId: string): void;
   interceptPaste?(input: TextInput, actionId: string): void;

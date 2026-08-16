@@ -1,10 +1,10 @@
 import { View } from "iyon:tui";
-import type { History, TextInput, View as ViewValue, WorkingActivity } from "@iyon/runtime/tui";
+import type { History, TextInput, View as ViewValue, WorkingActivityHandle } from "@iyon/runtime/tui";
 import type { IyonState } from "./contracts.ts";
 import { MAX_COMPOSER_ROWS } from "./composer.ts";
 import type { IyonTheme } from "./theme.ts";
 
-export interface IyonViewOptions { readonly composer: TextInput; readonly history: History; readonly state: IyonState; readonly theme: IyonTheme; readonly working?: WorkingActivity; }
+export interface IyonViewOptions { readonly composer: TextInput; readonly history: History; readonly state: IyonState; readonly theme: IyonTheme; readonly working?: WorkingActivityHandle; }
 
 export function footerText(state: IyonState): string {
   const effort = { none: "None", minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "XHigh", max: "Max" }[state.info.reasoningEffort];

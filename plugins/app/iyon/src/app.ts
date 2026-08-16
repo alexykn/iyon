@@ -1,7 +1,7 @@
 import type { App } from "iyon:plugins";
 import { History, Scene, TextInput, Tui } from "iyon:tui";
 import { History as RuntimeHistory, TextInput as RuntimeTextInput, TextStream } from "@iyon/runtime/tui";
-import type { History as HistoryHandle, TextInput as TextInputHandle, TuiRuntime, WorkingActivity } from "@iyon/runtime/tui";
+import type { History as HistoryHandle, TextInput as TextInputHandle, TuiRuntime, WorkingActivityHandle } from "@iyon/runtime/tui";
 import type {
   IyonAgent,
   IyonCoreCommands,
@@ -29,7 +29,7 @@ export interface IyonApp extends App {
   readonly model: IyonModelMetadata;
   readonly history: HistoryHandle;
   readonly composer: TextInputHandle;
-  readonly working?: WorkingActivity;
+  readonly working?: WorkingActivityHandle;
   readonly theme: IyonTheme;
   readonly state: IyonState;
   start(tui?: TuiRuntime): Promise<void>;
@@ -54,7 +54,7 @@ class IyonAppImpl implements IyonApp {
   private tui?: TuiRuntime;
   private ownsTui = false;
   private started = false;
-  private workingHandle?: WorkingActivity;
+  private workingHandle?: WorkingActivityHandle;
   private assistantStream?: TextStream;
   private assistantText = "";
   private readonly toolStreams = new Map<string, TextStream>();
@@ -70,7 +70,7 @@ class IyonAppImpl implements IyonApp {
   get state(): IyonState { return this.currentState; }
   get history(): HistoryHandle { return this.historyHandle; }
   get composer(): TextInputHandle { return this.composerHandle; }
-  get working(): WorkingActivity | undefined { return this.workingHandle; }
+  get working(): WorkingActivityHandle | undefined { return this.workingHandle; }
   get agent(): IyonAgent { return this.dependencies.agent; }
   get core(): IyonCoreCommands { return this.dependencies.core; }
   get model(): IyonModelMetadata { return this.dependencies.model; }

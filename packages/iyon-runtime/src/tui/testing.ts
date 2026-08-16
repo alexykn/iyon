@@ -7,7 +7,7 @@ import type {
   OutputHandle,
   Scene,
   TextInput,
-  WorkingActivity,
+  WorkingActivityHandle,
   TuiEvent,
   TuiOpenOptions,
 } from "./types.ts";
@@ -39,7 +39,7 @@ export class AppHarness implements AppHarnessContract {
 
   createHistory(): History { return this.tui.createHistory(); }
   createTextInput(options: { multiline?: boolean } = {}): TextInput { return this.tui.createTextInput(options); }
-  createWorking(): WorkingActivity { return this.tui.createWorking?.() ?? (() => { throw tuiError("runtime", "native working component is unavailable"); })(); }
+  createWorking(): WorkingActivityHandle { return this.tui.createWorking?.() ?? (() => { throw tuiError("runtime", "native working component is unavailable"); })(); }
   bindKey(key: string, actionId: string, modifiers?: readonly string[]): void { this.tui.bindKey(key, actionId, modifiers); }
   route(output: OutputHandle<string>, actionId: string): void { this.tui.route(output, actionId); }
   interceptPaste(input: TextInput, actionId: string): void { this.tui.interceptPaste(input as RuntimeTextInput, actionId); }

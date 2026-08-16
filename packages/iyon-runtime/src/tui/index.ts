@@ -8,7 +8,7 @@ export {
 export type {
   ComponentAdapter,
   ComponentCapabilities,
-  WorkingActivity,
+  WorkingActivityHandle,
   ComponentContext,
   HistoryLayout,
   KeyEvent,
