@@ -24,6 +24,9 @@ export interface TextContent {
 export interface History extends NativeHandle {
   readonly kind: "history";
   layout(): TuiOperation<HistoryLayout>;
+  push(view: View): TuiOperation<void>;
+  pushStream(stream: TextStream): TuiOperation<void>;
+  setLayout?(layout: HistoryLayout): TuiOperation<void>;
 }
 
 export interface HistoryLayout {
@@ -37,7 +40,7 @@ export interface TextInput extends NativeHandle {
   cursorBytes(): TuiOperation<number>;
   setText(value: string): TuiOperation<void>;
   clear(): TuiOperation<void>;
-  submitted(): TuiOperation<string | null>;
+  submitted(): TuiOperation<OutputHandle<string>>;
   setMultiline(enabled: boolean): TuiOperation<void>;
   isMultiline(): TuiOperation<boolean>;
   view(): TuiOperation<View>;
@@ -62,6 +65,12 @@ export interface Component extends NativeHandle {
   readonly kind: "component";
   view(): TuiOperation<View>;
   capabilities(): TuiOperation<ComponentCapabilities>;
+}
+
+export interface WorkingActivity extends NativeHandle {
+  setActive(active: boolean): TuiOperation<void>;
+  setPending(pending: readonly string[]): TuiOperation<void>;
+  nativeComponentId(): NativeHandleId | undefined;
 }
 
 export interface ComponentCapabilities {
@@ -115,6 +124,11 @@ export type InteractionResult =
 
 export type Output = Readonly<Record<string, unknown>>;
 
+export interface OutputHandle<T> {
+  readonly kind: "output";
+  readonly payload: T;
+}
+
 export interface KeyEvent {
   readonly type: "key";
   readonly key: string;
@@ -167,6 +181,14 @@ export interface TuiRuntime {
   render(scene: Scene, signal?: AbortSignal): TuiOperation<void>;
   resize(width: number, height: number): TuiOperation<void>;
   close(): TuiOperation<void>;
+  createHistory?(): History;
+  createTextInput?(options?: { multiline?: boolean }): TextInput;
+  createWorking?(): WorkingActivity;
+  bindKey?(key: string, actionId: string, modifiers?: readonly string[]): void;
+  route?(output: OutputHandle<string>, actionId: string): void;
+  interceptPaste?(input: TextInput, actionId: string): void;
+  forwardPaste?(text: string): void;
+  nextAction?(signal?: AbortSignal): TuiOperation<{ actionId: string; payload?: string } | null>;
 }
 
 export interface AppHarness extends TuiRuntime {

@@ -22,6 +22,7 @@ export type ViewNode =
   | { readonly type: "hanging"; readonly prefix: ViewNode; readonly continuation: ViewNode; readonly body: ViewNode }
   | { readonly type: "grid"; readonly children: readonly ViewNode[] }
   | { readonly type: "container" | "clamp"; readonly child: ViewNode; readonly maxRows?: number }
+  | { readonly type: "contentMax"; readonly child: ViewNode; readonly maxRows: number }
   | { readonly type: "component"; readonly handle: NativeHandleId }
   | { readonly type: "decorated"; readonly child: ViewNode; readonly decoration: DecorationNode };
 
@@ -46,7 +47,9 @@ export interface DecorationNode {
 
 export interface BorderNode {
   readonly glyphs?: Readonly<Record<string, string>>;
-  readonly style?: string;
+  readonly style?: "plain" | "rounded" | "double";
+  readonly edges?: "all" | "topBottom";
+  readonly color?: ColorNode;
 }
 
 export function emptyStyle(): StyleNode {

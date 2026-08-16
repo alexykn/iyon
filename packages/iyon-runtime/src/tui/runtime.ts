@@ -1,85 +1,122 @@
+import { asyncSleep, native } from "../native.ts";
 import { materializeView } from "./materialize.ts";
 import { asTuiError, tuiError } from "./errors.ts";
-import { resizeEvent, terminateEvent } from "./events.ts";
+import { requireNativeClass } from "./handles.ts";
 import { Scene } from "./scene.ts";
-import type { Scene as SceneContract, TerminalMetadata, TuiEvent, TuiOpenOptions, TuiRuntime } from "./types.ts";
-
-interface Waiter { resolve: (event: TuiEvent) => void; reject: (error: unknown) => void; signal?: AbortSignal; onAbort?: () => void; }
+import { History } from "./history.ts";
+import { TextInput } from "./text-input.ts";
+import { WorkingActivity } from "./working.ts";
+import type {
+  OutputHandle,
+  Scene as SceneContract,
+  TerminalMetadata,
+  TuiEvent,
+  TuiOpenOptions,
+  TuiRuntime,
+} from "./types.ts";
+import type { NativeTuiHostContract } from "../native.ts";
 
 export class Tui implements TuiRuntime {
-  private readonly events: TuiEvent[] = [];
-  private readonly waiters: Waiter[] = [];
   private closed = false;
-  private width: number;
-  private height: number;
+  private readonly host: NativeTuiHostContract;
+  private readonly width: number;
+  private readonly height: number;
   private currentScene?: Scene;
 
-  private constructor(options: TuiOpenOptions = {}) {
-    this.width = options.width ?? 80;
-    this.height = options.height ?? 24;
-    validateSize(this.width, this.height);
-    if (options.signal?.aborted) this.closed = true;
+  private constructor(host: NativeTuiHostContract, width: number, height: number) {
+    this.host = host;
+    this.width = width;
+    this.height = height;
   }
 
-  static async open(options: TuiOpenOptions = {}): Promise<Tui> { return new Tui(options); }
+  static async open(options: TuiOpenOptions = {}): Promise<Tui> {
+    if (options.signal?.aborted) throw tuiError("cancelled", "TUI open was cancelled");
+    const width = options.width ?? 80;
+    const height = options.height ?? 24;
+    validateSize(width, height);
+    const Host = requireNativeClass(native.NativeTuiHost, "NativeTuiHost");
+    try {
+      return new Tui(new Host(width, height, options.headless ?? false), width, height);
+    } catch (error) {
+      throw asTuiError(error);
+    }
+  }
 
   get size(): Promise<TerminalMetadata> { return Promise.resolve({ width: this.width, height: this.height }); }
 
-  nextEvent(signal?: AbortSignal): Promise<TuiEvent> {
-    if (signal?.aborted) return Promise.reject(tuiError("cancelled", "TUI event wait was cancelled"));
-    const event = this.events.shift();
-    if (event !== undefined) return Promise.resolve(event);
-    if (this.closed) return Promise.resolve(terminateEvent("closed"));
-    return new Promise<TuiEvent>((resolve, reject) => {
-      const waiter: Waiter = { resolve, reject, signal };
-      if (signal !== undefined) {
-        waiter.onAbort = () => {
-          const index = this.waiters.indexOf(waiter);
-          if (index >= 0) this.waiters.splice(index, 1);
-          reject(tuiError("cancelled", "TUI event wait was cancelled"));
-        };
-        signal.addEventListener("abort", waiter.onAbort, { once: true });
-      }
-      this.waiters.push(waiter);
-    });
+  async nextAction(signal?: AbortSignal): Promise<{ actionId: string; payload?: string } | null> {
+    while (!this.closed) {
+      if (signal?.aborted) throw tuiError("cancelled", "TUI action wait was cancelled");
+      const action = this.host.nextAction();
+      if (action !== null) return { actionId: action.action_id, ...(action.payload === null || action.payload === undefined ? {} : { payload: action.payload }) };
+      this.host.pollTerminal();
+      await asyncSleep(4);
+    }
+    return null;
+  }
+
+  /** Compatibility surface for callers that only need termination. */
+  async nextEvent(signal?: AbortSignal): Promise<TuiEvent> {
+    const action = await this.nextAction(signal);
+    return { type: "terminate", reason: action === null ? "closed" : "action" };
   }
 
   async render(scene: SceneContract, signal?: AbortSignal): Promise<void> {
     ensureSignal(signal);
     if (this.closed) throw tuiError("terminal", "TUI runtime is closed");
     const normalized = Scene.from(scene);
-    materializeView(normalized.body);
+    const lowered = materializeView(normalized.body);
+    if (lowered === undefined) throw tuiError("runtime", "native View materialization is unavailable");
+    this.host.render(lowered as object);
     this.currentScene = normalized;
   }
+
+  createHistory(): History { return new History(this.host.history() as never); }
+
+  createTextInput(options: { multiline?: boolean } = {}): TextInput {
+    return new TextInput(options, this.host.textInput(options.multiline) as never);
+  }
+
+  createWorking(): WorkingActivity {
+    return new WorkingActivity(this.host.working() as never);
+  }
+
+  bindKey(key: string, actionId: string, modifiers?: readonly string[]): void {
+    this.host.bindKey(key, modifiers, actionId);
+  }
+
+  route(output: OutputHandle<string>, actionId: string): void {
+    this.host.route((output as unknown as { nativeObject: object }).nativeObject as never, actionId);
+  }
+
+  interceptPaste(input: TextInput, actionId: string): void {
+    this.host.interceptPaste((input as unknown as { nativeHandle: object }).nativeHandle, actionId);
+  }
+
+  forwardPaste(text: string): void { this.host.dispatchPaste(text); }
 
   async resize(width: number, height: number): Promise<void> {
     if (this.closed) throw tuiError("terminal", "TUI runtime is closed");
     validateSize(width, height);
-    this.width = width;
-    this.height = height;
-    this.enqueue(resizeEvent(width, height));
+    this.host.resize(width, height);
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    const event = terminateEvent("closed");
-    for (const waiter of this.waiters.splice(0)) finishWaiter(waiter, event);
+    this.host.dispose();
   }
 
-  /** Internal input seam used by the headless harness and native event pump. */
   enqueue(event: TuiEvent): void {
-    const waiter = this.waiters.shift();
-    if (waiter === undefined) { this.events.push(event); return; }
-    finishWaiter(waiter, event);
+    if (event.type === "key") this.host.dispatchKey(event.key, event.modifiers);
+    if (event.type === "paste") this.host.dispatchPaste(event.text);
+    if (event.type === "resize") void this.resize(event.width, event.height);
   }
 
+  screenRows(): readonly string[] { return this.host.screenRows(); }
+  nativeHistoryRows(): readonly string[] { return this.host.nativeHistoryRows(); }
+  advance(ms: number): void { this.host.advanceTime(ms); }
   current(): Scene | undefined { return this.currentScene; }
-}
-
-function finishWaiter(waiter: Waiter, event: TuiEvent): void {
-  if (waiter.signal !== undefined && waiter.onAbort !== undefined) waiter.signal.removeEventListener("abort", waiter.onAbort);
-  waiter.resolve(event);
 }
 
 function ensureSignal(signal: AbortSignal | undefined): void {
