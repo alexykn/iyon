@@ -9,7 +9,7 @@ rust_path = "iyon-api::ModelApi"
 typescript_module = "iyon:api"
 typescript_export = "ModelApi"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -53,7 +53,7 @@ rust_path = "iyon-api::ModelError"
 typescript_module = "iyon:api"
 typescript_export = "ModelError"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -130,7 +130,7 @@ rust_path = "iyon-api::ModelErrorKind"
 typescript_module = "iyon:api"
 typescript_export = "ModelErrorKind"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -218,7 +218,7 @@ rust_path = "iyon-api::CacheRetention"
 typescript_module = "iyon:api"
 typescript_export = "CacheRetention"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -262,7 +262,7 @@ rust_path = "iyon-api::ContentBlock"
 typescript_module = "iyon:api"
 typescript_export = "ContentBlock"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -394,7 +394,7 @@ rust_path = "iyon-api::ModelMessage"
 typescript_module = "iyon:api"
 typescript_export = "ModelMessage"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -504,7 +504,7 @@ rust_path = "iyon-api::ModelMetadata"
 typescript_module = "iyon:api"
 typescript_export = "ModelMetadata"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -537,7 +537,7 @@ rust_path = "iyon-api::ModelParams"
 typescript_module = "iyon:api"
 typescript_export = "ModelParams"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -592,7 +592,7 @@ rust_path = "iyon-api::ModelRequest"
 typescript_module = "iyon:api"
 typescript_export = "ModelRequest"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -658,7 +658,7 @@ rust_path = "iyon-api::ModelToolSpec"
 typescript_module = "iyon:api"
 typescript_export = "ModelToolSpec"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -702,7 +702,7 @@ rust_path = "iyon-api::ReasoningLevel"
 typescript_module = "iyon:api"
 typescript_export = "ReasoningLevel"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -966,7 +966,7 @@ rust_path = "iyon-api::ModelStreamEvent"
 typescript_module = "iyon:api"
 typescript_export = "ModelStreamEvent"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -1384,7 +1384,7 @@ rust_path = "iyon-api::StopReason"
 typescript_module = "iyon:api"
 typescript_export = "StopReason"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -1450,7 +1450,7 @@ rust_path = "iyon-api::Usage"
 typescript_module = "iyon:api"
 typescript_export = "Usage"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]

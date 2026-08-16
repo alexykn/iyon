@@ -17,7 +17,34 @@ declare module "iyon:core" {
     asIyonError,
     isCancelledError,
   } from "./modules/core.ts";
-  export type * from "../../iyon-sdk/src/core.ts";
+  export type {
+    AgentSession as AgentSessionContract,
+    ApprovalId,
+    ApprovalRequirement,
+    ApprovalState,
+    ApprovalStatus,
+    AssembledToolCall,
+    CoreEvent,
+    KernelSession as KernelSessionContract,
+    MessageDelta,
+    MessageId,
+    MessageRole,
+    ModelTurn as ModelTurnContract,
+    ModelTurnOptions,
+    ModelTurnResult,
+    SessionEntry,
+    SessionId,
+    SessionSnapshot,
+    ToolCallDelta,
+    ToolCallId,
+    ToolExecution as ToolExecutionContract,
+    ToolExecutionRequest,
+    ToolLifecycleEvent,
+    ToolLifecycleState,
+    ToolResult,
+    ToolUpdateEvent,
+    TurnId,
+  } from "../../iyon-sdk/src/core.ts";
   export const coreSmoke: "iyon:core/t1";
   export function runWithAbortSignal<T>(
     signal: AbortSignal,

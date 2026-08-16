@@ -1,4 +1,4 @@
-import { IyonNativeError } from "./errors.ts";
+import { IyonNativeError, asIyonError } from "./errors.ts";
 
 export interface CancellableOperation<T> {
   run(): Promise<T>;
@@ -22,6 +22,8 @@ export async function runWithAbortSignal<T>(
   signal?.addEventListener("abort", cancel, { once: true });
   try {
     return await operation.run();
+  } catch (error) {
+    throw asIyonError(error);
   } finally {
     signal?.removeEventListener("abort", cancel);
   }
