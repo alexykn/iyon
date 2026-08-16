@@ -1,4 +1,4 @@
-import { View } from "iyon:tui";
+import { View } from "../tui/index.ts";
 import type { ToolCall, ToolResult } from "./contract.ts";
 
 export function renderGenericCall(call: ToolCall): View {
