@@ -1,7 +1,9 @@
 use iyon_native::{
     CancellationProbe, NativeCounter, native_counter_stats, reset_native_counter_stats,
 };
-use tokio::time::{Duration, sleep};
+use tokio::time::{Duration, sleep, timeout};
+
+const HANDLE_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[tokio::test]
 async fn cancellation_probe_stops_owned_operation() {
@@ -10,8 +12,9 @@ async fn cancellation_probe_stops_owned_operation() {
     let running = tokio::spawn(async move { running_probe.run(10_000).await });
     probe.cancel();
 
-    let error = running
+    let error = timeout(HANDLE_TIMEOUT, running)
         .await
+        .expect("operation should stop promptly")
         .expect("operation task should join")
         .expect_err("cancel should reject the operation");
     assert_eq!(error.status, napi::Status::Cancelled);
@@ -33,7 +36,9 @@ async fn counter_finalization_is_observable() {
         let _counter = NativeCounter::new();
         assert_eq!(native_counter_stats().live, 1);
     }
-    sleep(Duration::from_millis(1)).await;
+    timeout(HANDLE_TIMEOUT, sleep(Duration::from_millis(1)))
+        .await
+        .expect("counter finalization wait should resolve");
     let stats = native_counter_stats();
     assert_eq!(stats.live, 0);
     assert_eq!(stats.finalized, 1);
