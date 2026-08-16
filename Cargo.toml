@@ -5,6 +5,7 @@ members = [
     "crates/iyon-api",
     "crates/iyon-tui",
     "crates/iyon-native",
+    "tools/api-surface",
 ]
 resolver = "3"
 
@@ -22,6 +23,8 @@ termwiz = { version = "=0.23.3", default-features = false }
 rayon = "1.12.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
+syn = { version = "2.0.106", features = ["full", "visit", "extra-traits"] }
+cargo_metadata = "0.23.1"
 tokio = { version = "1.52.1", features = ["full", "test-util"] }
 reqwest = { version = "0.12.23", default-features = false, features = ["json", "stream", "rustls-tls"] }
 secrecy = "0.10.3"
