@@ -46,6 +46,11 @@ declare module "iyon:core" {
 
 declare module "iyon:tui" {
   export const tuiSmoke: "iyon:tui/t1";
+  export const View: typeof import("./tui/values/view.ts").View;
+  export const Insets: typeof import("./tui/values/geometry.ts").Insets;
+  export const Style: typeof import("./tui/values/style.ts").Style;
+  export const StyleSpec: typeof import("./tui/values/style.ts").StyleSpec;
+  export const TextSpan: typeof import("./tui/values/text.ts").TextSpan;
   export class TuiError extends Error {
     readonly category: import("./tui/errors.ts").TuiErrorCategory;
     readonly nativeCode?: string;

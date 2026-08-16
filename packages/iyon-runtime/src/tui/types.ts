@@ -1,4 +1,5 @@
 import type { TuiError } from "./errors.ts";
+import type { View as SemanticView } from "./values/view.ts";
 
 declare const handleBrand: unique symbol;
 export type NativeHandleId = number & { readonly [handleBrand]: "NativeHandleId" };
@@ -12,16 +13,10 @@ export interface NativeHandle {
 
 export type TuiOperation<T> = Promise<T>;
 
-export interface View {
-  readonly kind: "view";
-}
+export type View = SemanticView;
 
 export interface TextContent {
   readonly kind: "text-content";
-}
-
-export interface Style {
-  readonly kind: "style";
 }
 
 export interface History extends NativeHandle {
