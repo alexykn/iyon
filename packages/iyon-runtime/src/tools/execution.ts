@@ -1,10 +1,10 @@
 import type {
   ApprovalRequirement,
-  CoreEvent,
   JsonValue,
   NativeKernelSession,
   NativeToolExecution,
   ToolExecutionRequest,
+  ToolLifecycleEvent,
   ToolLifecycleState,
   ToolUpdateEvent,
 } from "@iyon/sdk";
@@ -22,7 +22,17 @@ export interface ToolExecutionRequestWithContext extends ToolExecutionRequest {
 export interface ToolLifecycleResult {
   readonly result: ToolResult;
   readonly execution: NativeToolExecution;
-  readonly events: readonly CoreEvent[];
+  readonly events: readonly ToolLifecycleEvent[];
+  readonly updates: readonly ToolUpdateEvent[];
+}
+
+export class ApprovalUnavailableError extends Error {
+  readonly code = "ION_APPROVAL_UNAVAILABLE" as const;
+
+  constructor(toolName: string) {
+    super(`tool ${toolName} requires approval, but no approval resolver was provided`);
+    this.name = "ApprovalUnavailableError";
+  }
 }
 
 export async function executeTool(
@@ -33,7 +43,12 @@ export async function executeTool(
 ): Promise<ToolLifecycleResult> {
   const execution = session.prepareToolExecution(request);
   const signal = options.signal ?? new AbortController().signal;
-  const updates = options.updates ?? { send: async (_update: ToolUpdateEvent): Promise<void> => undefined };
+  const capturedUpdates: ToolUpdateEvent[] = [];
+  const updates = options.updates ?? {
+    send: async (update: ToolUpdateEvent): Promise<void> => {
+      capturedUpdates.push(update);
+    },
+  };
   const context = createContext(request, signal, options, updates);
   let result: ToolResult | undefined;
   let terminalized = false;
@@ -56,7 +71,7 @@ export async function executeTool(
       const unknown = unknownResult(request.toolName, request.arguments);
       execution.finish(unknown);
       terminalized = true;
-      return { result: unknown, execution, events: await collectEvents(session) };
+      return { result: unknown, execution, events: execution.events(), updates: capturedUpdates };
     }
 
     const before = await options.hooks?.before?.(context, request.arguments);
@@ -65,13 +80,22 @@ export async function executeTool(
     const requirement = approvalRequirement(tool, request.toolName, argumentsValue, options.policy);
     const approval = execution.requestApproval(requirement);
     if (approval) {
-      const approve = await context.approval?.(approval) ?? true;
-      if (approve) execution.approve(approval.id);
-      else execution.reject(approval.id, "tool approval rejected");
+      if (!context.approval) {
+        const error = new ApprovalUnavailableError(tool.name);
+        execution.fail(error.message);
+        terminalized = true;
+        throw error;
+      }
+      const approve = await context.approval(approval);
+      if (approve) {
+        execution.approve(approval.id);
+      } else {
+        execution.reject(approval.id, "tool approval rejected");
+      }
       if (!approve) {
         const rejected = errorResult(tool.name, "tool approval rejected");
         terminalized = true;
-        return { result: rejected, execution, events: await collectEvents(session) };
+        return { result: rejected, execution, events: execution.events(), updates: capturedUpdates };
       }
     }
     if (signal.aborted) return cancelAndThrow(execution, signal.reason);
@@ -81,7 +105,7 @@ export async function executeTool(
     if (after && typeof after === "object" && "content" in after) result = after;
     execution.finish(toNativeResult(result));
     terminalized = true;
-    return { result, execution, events: await collectEvents(session) };
+    return { result, execution, events: execution.events(), updates: capturedUpdates };
   } catch (error) {
     return fail(error);
   }
@@ -141,14 +165,4 @@ function unknownResult(toolName: string, args: JsonValue): ToolResult {
 function cancelAndThrow(execution: NativeToolExecution, reason: unknown): never {
   execution.cancel(reason instanceof Error ? reason.message : "tool cancelled");
   throw abortError();
-}
-
-async function collectEvents(session: NativeKernelSession): Promise<CoreEvent[]> {
-  const events: CoreEvent[] = [];
-  while (true) {
-    const event = await session.nextEvent();
-    if (event === null) return events;
-    events.push(event);
-    if (event.type === "toolResultFinished" || event.type === "toolCallFinished" || event.type === "toolApprovalResolved") return events;
-  }
 }
