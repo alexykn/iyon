@@ -1,23 +1,55 @@
-import type { FrontendEvent, ToolDraftKey } from "../src/contracts.ts";
+import { createAppHarness, installIyonVirtualModules } from "@iyon/runtime";
+import type { AppHarness } from "@iyon/runtime/tui";
+import { registerBundledTools } from "@iyon/plugins";
+import type { IyonApp } from "../src/app.ts";
+import type { FrontendEvent, ToolDraftKey, ToolRendererContribution } from "../src/contracts.ts";
+
+installIyonVirtualModules();
+const { createIyonApp } = await import("../src/app.ts");
+const bundledTools = await registerBundledTools();
+const tools = {
+  get(name: string): ToolRendererContribution | undefined {
+    return bundledTools.registries.tools.get(name) as unknown as ToolRendererContribution | undefined;
+  },
+};
 
 export const draft = (messageId: number, contentIndex: number): ToolDraftKey => ({ messageId, contentIndex });
 
-export const streamedToolTranscript: readonly FrontendEvent[] = [
-  { type: "turnStarted" },
-  { type: "userMessage", text: "run it" },
-  { type: "assistantDelta", text: "Preparing" },
-  { type: "toolCallPreparing", key: draft(1, 0), toolName: "generic" },
-  { type: "toolCallArguments", key: draft(1, 0), delta: "{}" },
-  { type: "toolCallPrepared", key: draft(1, 0), toolCallId: "call-1", toolName: "generic", arguments: {} },
-  { type: "toolCallStarted", toolCallId: "call-1", toolName: "generic", arguments: {} },
-  { type: "toolApprovalRequested", approvalId: 1, toolCallId: "call-1", toolName: "generic", arguments: {} },
-  { type: "toolApprovalResolved", approvalId: 1, toolCallId: "call-1", approved: true },
-  { type: "toolResult", toolCallId: "call-1", toolName: "generic", text: "done", details: {}, isError: false },
-  { type: "turnFinished" },
-];
+export interface PublicAppFixture {
+  readonly app: IyonApp;
+  readonly harness: AppHarness;
+}
 
-export const cancellationTranscript: readonly FrontendEvent[] = [
-  { type: "turnStarted" },
-  { type: "assistantDelta", text: "buffered" },
-  { type: "turnCancelled" },
-];
+export async function openFixture(width: number, height: number): Promise<PublicAppFixture> {
+  const harness = await createAppHarness({ width, height });
+  const app = createIyonApp({
+    agent: { run: async () => undefined, cancel: async () => undefined },
+    core: { submitPrompt: async () => undefined, steer: async () => undefined, cancelActiveTurn: async () => undefined },
+    model: { provider: "mock", modelId: "mock" },
+    tools,
+    tui: harness,
+  });
+  await app.start();
+  return { app, harness };
+}
+
+export async function closeFixture(fixture: PublicAppFixture): Promise<void> {
+  await fixture.app.stop();
+  await fixture.harness.close();
+}
+
+export async function send(fixture: PublicAppFixture, event: FrontendEvent): Promise<void> {
+  await fixture.app.handleAction({ type: "backend", event });
+}
+
+export function transcriptLines(harness: AppHarness): string[] {
+  return [...harness.screenRows(), ...harness.nativeHistoryRows()];
+}
+
+export function advance(fixture: PublicAppFixture, milliseconds = 16, steps = 1): void {
+  for (let index = 0; index < steps; index += 1) fixture.harness.advance(milliseconds);
+}
+
+export function toolStatusCount(lines: readonly string[], tool: string, status: string): number {
+  return lines.filter((line) => line.includes(tool) && line.includes(`— ${status}`)).length;
+}

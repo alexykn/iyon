@@ -191,9 +191,9 @@ class IyonAppImpl implements IyonApp {
     }
     if (event.type === "turnFinished" || event.type === "turnFailed" || event.type === "turnCancelled") {
       await this.sealAssistantStream();
-      if (event.type === "turnCancelled") {
-        for (const [key, card] of next.liveTools) {
-          if (card.toolCallId !== undefined) this.toolCards.cancel(String(card.toolCallId));
+      for (const [key, card] of next.liveTools) {
+        if (card.frozen && !previous.liveTools.get(key)?.frozen) {
+          if (event.type === "turnCancelled" && card.toolCallId !== undefined) this.toolCards.cancel(String(card.toolCallId));
           await this.updateToolSlot(key, card);
         }
       }
@@ -218,6 +218,7 @@ class IyonAppImpl implements IyonApp {
       return false;
     }
     if (event.type === "toolCallStarted") {
+      await this.sealAssistantStream();
       const card = this.toolCards.started(event.toolCallId, event.toolName, event.arguments);
       const key = this.toolCards.keyFor(event.toolCallId) ?? event.toolCallId;
       await this.updateToolSlot(key, next.liveTools.get(key) ?? card);
