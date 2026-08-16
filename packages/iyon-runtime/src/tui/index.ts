@@ -6,7 +6,6 @@ export {
   tuiError,
 } from "./errors.ts";
 export type {
-  AppHarness,
   ComponentAdapter,
   ComponentCapabilities,
   ComponentContext,
@@ -57,5 +56,6 @@ export { FocusController, InteractionRouter } from "./interaction.ts";
 export { Scene } from "./scene.ts";
 export { Tui } from "./runtime.ts";
 export { keyEvent, pasteEvent, resizeEvent, terminateEvent } from "./events.ts";
+export { AppHarness, createAppHarness } from "./testing.ts";
 
 export const tuiSmoke = "iyon:tui/t5" as const;

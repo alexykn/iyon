@@ -240,6 +240,23 @@ export declare class Tui implements TuiRuntime {
   close(): Promise<void>;
 }
 
+export declare class AppHarness implements TuiRuntime {
+  readonly size: Promise<TerminalMetadata>;
+  static open(options?: TuiOpenOptions): Promise<AppHarness>;
+  nextEvent(signal?: AbortSignal): Promise<TuiEvent>;
+  render(scene: SceneValue, signal?: AbortSignal): Promise<void>;
+  resize(width: number, height: number): Promise<void>;
+  close(): Promise<void>;
+  pressKey(key: string, modifiers?: readonly string[]): void;
+  paste(text: string): void;
+  advance(ms: number): void;
+  screenRows(): readonly string[];
+  nativeHistoryRows(): readonly string[];
+  styleAt(row: number, column: number): Readonly<Record<string, unknown>>;
+  cellXOfText(row: number, text: string): number | null;
+  exited(): boolean;
+}
+
 export interface AppHarness extends TuiRuntime {
   pressKey(key: string, modifiers?: readonly string[]): void;
   paste(text: string): void;

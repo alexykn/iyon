@@ -128,6 +128,23 @@ export function nodeForMaterialization(view: View): ViewNode {
   return node;
 }
 
+export function textRowsForHarness(view: View): string[] {
+  return rows(nodeForMaterialization(view));
+}
+
+function rows(node: ViewNode): string[] {
+  switch (node.type) {
+    case "text": return [node.spans.map((span) => span.text).join("")];
+    case "spacer": return Array.from({ length: node.rows }, () => "");
+    case "row": return [node.children.flatMap(rows).join("")];
+    case "column": case "grid": return node.children.flatMap(rows);
+    case "hanging": return rows(node.prefix).map((prefix, index) => `${prefix}${index === 0 ? rows(node.body)[0] ?? "" : rows(node.body)[index] ?? ""}`);
+    case "container": case "clamp": return rows(node.child).slice(0, node.maxRows);
+    case "component": return [""];
+    case "decorated": return rows(node.child);
+  }
+}
+
 function buildChildren(children: ChildBuilder): ChildrenBuilder {
   const builder = new ChildrenBuilder();
   if (typeof children === "function") {
