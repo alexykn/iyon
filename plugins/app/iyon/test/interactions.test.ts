@@ -16,6 +16,21 @@ describe("app interactions", () => {
   });
   test("cycles reasoning through the typed levels", async () => {
     const calls: string[] = []; const state = createInitialState({ provider: "mock", modelId: "mock" }); const result = await handleIyonAction(state, { type: "cycleReasoningEffort" }, context(calls));
-    expect(result.state.info.reasoningEffort).toBe("minimal"); expect(calls).toContain("reasoning");
+    expect(result.state.info.reasoningEffort).toBe("high"); expect(calls).toContain("reasoning");
+  });
+
+  test("queues active-turn submits without starting another agent run", async () => {
+    const calls: string[] = [];
+    const contextWithRun = {
+      ...context(calls),
+      core: { submitTurn: (text: string) => { calls.push(`submit:${text}`); } },
+      runAgent: () => { calls.push("run"); },
+      clearComposer: () => { calls.push("clear"); },
+    };
+    const state = { ...createInitialState({ provider: "mock", modelId: "mock" }), activeTurn: true };
+    const result = await handleIyonAction(state, { type: "submit", text: "steer" }, contextWithRun);
+    expect(result.state.userBatches).toEqual([]);
+    expect(result.state.steering).toEqual(["steer"]);
+    expect(calls).toEqual(["clear", "submit:steer"]);
   });
 });
