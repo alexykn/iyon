@@ -12,7 +12,11 @@
     "native:verify": "bun run packages/iyon-runtime/scripts/verify-native.ts",
     "smoke": "bun run packages/iyon-cli/src/index.ts",
     "test": "bun test",
-    "build:standalone": "bun build --compile packages/iyon-cli/src/index.ts --outfile iyon-smoke"
+    "build:standalone": "bun run packages/iyon-runtime/scripts/stage-native.ts --standalone"
+  },
+  "dependencies": {
+    "@iyon/cli": "workspace:*",
+    "@iyon/runtime": "workspace:*"
   },
   "devDependencies": {
     "bun-types": "latest"

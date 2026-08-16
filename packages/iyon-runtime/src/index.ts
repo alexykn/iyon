@@ -6,7 +6,10 @@ export {
   runWithAbortSignal,
   tuiSmoke,
 } from "./smoke.ts";
-export { installIyonVirtualModules } from "./virtual-modules.ts";
+export {
+  installIyonVirtualModules,
+  iyonVirtualModulePlugin,
+} from "./virtual-modules.ts";
 export type {
   EventQueueProbeContract,
   JsonPrimitive,

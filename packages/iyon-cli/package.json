@@ -1,0 +1,12 @@
+{
+  "name": "@iyon/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "iyon-smoke": "./src/index.ts"
+  },
+  "dependencies": {
+    "@iyon/runtime": "workspace:*"
+  }
+}

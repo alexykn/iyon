@@ -8,6 +8,14 @@ declare module "iyon:api" {
 
 declare module "iyon:core" {
   export const coreSmoke: "iyon:core/t1";
+  export function runWithAbortSignal<T>(
+    signal: AbortSignal,
+    operation: { run(): Promise<T>; cancel(): void },
+  ): Promise<T>;
+  export function cancellationOperation(ms: number): {
+    run(): Promise<string>;
+    cancel(): void;
+  };
   export const asyncSleep: (ms: number) => Promise<string>;
   export const CancellationProbe: new () => {
     run(ms: number): Promise<string>;
