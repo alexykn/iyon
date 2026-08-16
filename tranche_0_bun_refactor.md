@@ -13,7 +13,7 @@ product code moves.
 
 ## Prerequisites
 
-- Start from the current `plan/t0-bun` worktree and the current Rust workspace:
+- Start from branch `bun-refactor` at the current Rust workspace:
   `crates/iyon-api`, `crates/iyon-core`, `crates/iyon-tui`, and the temporary
   `crates/iyon` application crate.
 - Treat `/tmp/iyon-handoffs/architecture-handoff.md` as decisive. The current

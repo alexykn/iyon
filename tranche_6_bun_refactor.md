@@ -7,7 +7,7 @@ Make arbitrary TypeScript packages loadable through the final Bun extension API.
 ## Prerequisites
 
 - T0 has replaced the old architecture contract and frozen the Bun + TypeScript + N-API direction.
-- T1 has created the Bun workspace/runtime, installed the virtual-module resolver for `iyon:api`, `iyon:core`, `iyon:tui`, and `iyon:plugins`, and provided the resolver initialization hook that must run before an extension module is imported. T6 consumes that hook; it does not create a second resolver.
+- T1 has created the Bun workspace/runtime and installed the virtual-module resolver for `iyon:api`, `iyon:core`, and `iyon:tui`, plus the resolver initialization hook that must run before an extension module is imported. T1 does **not** register `iyon:plugins`. T6 extends that existing installer to add `iyon:plugins`; it does not create a second resolver.
 - T2 has created `packages/iyon-sdk/` and the API-surface inventory. T6 uses the SDK as the development/type package; extension authors must not need to install the native addon.
 - T3 has made `iyon-core` provider-agnostic and injectable rather than a source of hidden default product registrations. T4 has supplied the TypeScript `iyon:api` and `iyon:core` surfaces.
 - T5 has supplied the `iyon:tui` bindings, including the native-backed `Scene` value and the Scene construction/composition operations used here. T6 must not duplicate terminal layout or scrollback logic in TypeScript.
@@ -33,7 +33,7 @@ Make arbitrary TypeScript packages loadable through the final Bun extension API.
 
 ### Consumes from earlier tranches
 
-- T1’s installed virtual-module resolver and its initialization function, plus the Bun runtime/package workspace.
+- T1’s installed virtual-module resolver for `iyon:api`, `iyon:core`, and `iyon:tui`, plus its initialization function and the Bun runtime/package workspace. T6 extends that installer to serve `iyon:plugins`.
 - T2’s `@iyon/sdk` contracts and API-surface decisions.
 - T3/T4’s provider-agnostic kernel and public `iyon:api`/`iyon:core` values.
 - T5’s `iyon:tui` bindings, especially the native-backed `Scene` value and the app runtime context required to create and return one.

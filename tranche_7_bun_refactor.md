@@ -292,7 +292,7 @@ T7 must not assume the T8 TypeScript tools, T9 TypeScript agent, or T10 TypeScri
 **Tests / verification:**
 
 - `bun test packages/iyon-runtime/test/providers` with controlled environment and fake credential statuses.
-- Run the T1 standalone Bun smoke executable using the runtime bootstrap and assert its initial config event names the selected TS provider/model.
+- Run a Bun runtime/bootstrap test (not the T1 `iyon-smoke` probe binary, and not the T10 product `iyon` CLI) and assert its initial config event names the selected TS provider/model. The T1 smoke executable remains smoke-only until T10.
 - `cargo check --workspace` plus the existing Rust tests; workspace type-check and package build must pass.
 
 **Must not:** Modify app/CLI UX, port tools or agent startup, add a native provider fallback, or create a separate bundled extension loader.

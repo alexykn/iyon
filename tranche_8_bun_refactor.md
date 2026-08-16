@@ -294,6 +294,7 @@ This tranche consumes the earlier tranches’ public native lifecycle, workspace
 
 - Delete the compatibility executors prematurely, reimplement TUI layout in TypeScript, or change the Rust public API inventory.
 - Add a Rust-side name-based fallback that T10 would have to remove later.
+- Delete or skip `crates/iyon/tests/public_app.rs`. Keep `cargo test -p iyon --test public_app` green. If per-tool presentation assertions fail after the generic-only renderer, update those assertions to the generic renderer; do not weaken composer/paste/spinner/streaming/history/shutdown coverage.
 
 ### Commit 8 — Prove the Bun product path and tranche exit invariants
 
