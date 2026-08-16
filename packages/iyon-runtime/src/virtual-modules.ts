@@ -49,6 +49,9 @@ const virtualModules = {
   "iyon:tui": `
     export * from "@iyon/runtime/tui";
   `,
+  "iyon:plugins": `
+    export * from "@iyon/plugins";
+  `,
 } as const;
 
 type IyonVirtualModule = keyof typeof virtualModules;
@@ -57,14 +60,14 @@ export const iyonVirtualModulePlugin: Bun.BunPlugin = {
   name: "iyon-virtual-modules",
   setup(build) {
     build.onResolve(
-      { filter: /^(iyon:)?(api|core|tui)$/ },
+      { filter: /^(iyon:)?(api|core|tui|plugins)$/ },
       ({ path }) => ({
         path: path.startsWith("iyon:") ? path : `iyon:${path}`,
         namespace: "iyon-t1-virtual",
       }),
     );
     build.onLoad(
-      { filter: /^(iyon:)?(api|core|tui)$/, namespace: "iyon-t1-virtual" },
+      { filter: /^(iyon:)?(api|core|tui|plugins)$/, namespace: "iyon-t1-virtual" },
       ({ path }) => {
         const moduleName = path.startsWith("iyon:") ? path : `iyon:${path}`;
         const source = virtualModules[moduleName as IyonVirtualModule];
@@ -128,6 +131,10 @@ function registerRuntimeModules(build: Bun.PluginBuilder): void {
     },
     loader: "object",
   }));
+  build.module("iyon:plugins", () => ({
+    exports: require("@iyon/plugins"),
+    loader: "object",
+  }));
 }
 
 let installed = false;
@@ -145,4 +152,8 @@ export function installIyonVirtualModules(): void {
     },
   });
   installed = true;
+}
+
+export function isIyonVirtualModulesInstalled(): boolean {
+  return installed;
 }

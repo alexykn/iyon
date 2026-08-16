@@ -8,6 +8,11 @@
   "scripts": {
     "workspace:install": "bun install",
     "typecheck": "bunx tsc --noEmit",
+    "typecheck:plugins": "bunx tsc --noEmit -p packages/iyon-plugins/tsconfig.json",
+    "test:plugins": "bun test packages/iyon-plugins/tests",
+    "rust:fmt": "cargo fmt --all -- --check",
+    "rust:clippy": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+    "rust:test": "cargo test --workspace",
     "native:stage": "bun run packages/iyon-runtime/scripts/stage-native.ts",
     "native:verify": "bun run packages/iyon-runtime/scripts/verify-native.ts",
     "smoke": "bun run packages/iyon-cli/src/index.ts",
@@ -18,7 +23,8 @@
   },
   "dependencies": {
     "@iyon/cli": "workspace:*",
-    "@iyon/runtime": "workspace:*"
+    "@iyon/runtime": "workspace:*",
+    "@iyon/plugins": "workspace:*"
   },
   "devDependencies": {
     "bun-types": "latest"
