@@ -9,6 +9,7 @@ mod core;
 mod error;
 mod events;
 mod handles;
+mod model_turn;
 mod queue;
 mod sync;
 mod tui;
@@ -20,6 +21,7 @@ pub use error::NativeError;
 pub use handles::{
     CancellationProbe, NativeCounter, native_counter_stats, reset_native_counter_stats,
 };
+pub use model_turn::ModelTurn;
 pub use queue::EventQueueProbe;
 pub use sync::{echo_buffer, echo_json, echo_string, native_version};
 pub use tui::tui_smoke;
