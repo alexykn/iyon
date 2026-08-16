@@ -1,6 +1,7 @@
 import type { Disposable } from "./disposable.ts";
 import type { LoadScope } from "./manifest.ts";
 import type { PackageSource } from "./package-source.ts";
+import type { ProviderDefinition } from "@iyon/sdk";
 
 export interface SourceMetadata {
   readonly packageId: string;
@@ -35,7 +36,10 @@ export interface InternalRegistration<T extends ContributionValue> {
 }
 
 export type ToolContribution = ContributionValue;
-export type ProviderContribution = ContributionValue;
+// Existing third-party contributions may still register metadata-only
+// providers; the runtime selection seam validates the executable fields when
+// it resolves a provider.
+export type ProviderContribution = ContributionValue & Partial<ProviderDefinition>;
 export type AgentContribution = ContributionValue;
 export type AppContribution = ContributionValue & { readonly create: (context: unknown) => unknown };
 export type CommandContribution = ContributionValue & { readonly run?: (...args: readonly unknown[]) => unknown };

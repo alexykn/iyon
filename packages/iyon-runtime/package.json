@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@iyon/plugins": "workspace:*"
+    "@iyon/plugins": "workspace:*",
+    "@iyon/sdk": "workspace:*"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -12,6 +13,8 @@
     "./smoke": "./src/smoke.ts",
     "./tui": "./src/tui/index.ts",
     "./virtual-modules": "./src/virtual-modules.ts",
-    "./modules/*": "./src/modules/*.ts"
+    "./modules/*": "./src/modules/*.ts",
+    "./providers/*": "./src/providers/*.ts",
+    "./bootstrap": "./src/bootstrap/index.ts"
   }
 }

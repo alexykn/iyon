@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 mod auth;
 
 use std::sync::Arc;

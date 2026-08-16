@@ -1,4 +1,8 @@
 export { native } from "./native.ts";
+export * from "./credentials.ts";
+export * from "./providers/types.ts";
+export * from "./providers/selection.ts";
+export * from "./bootstrap/index.ts";
 export * from "./tui/index.ts";
 export {
   AgentSession,

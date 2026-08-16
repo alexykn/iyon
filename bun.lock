@@ -8,6 +8,7 @@
         "@iyon/cli": "workspace:*",
         "@iyon/plugins": "workspace:*",
         "@iyon/runtime": "workspace:*",
+        "@iyon/sdk": "workspace:*",
       },
       "devDependencies": {
         "bun-types": "latest",
@@ -28,6 +29,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@iyon/runtime": "workspace:*",
+        "@iyon/sdk": "workspace:*",
       },
     },
     "packages/iyon-runtime": {
@@ -35,17 +37,50 @@
       "version": "0.1.0",
       "dependencies": {
         "@iyon/plugins": "workspace:*",
+        "@iyon/sdk": "workspace:*",
       },
     },
     "packages/iyon-sdk": {
       "name": "@iyon/sdk",
       "version": "0.1.0",
     },
+    "plugins/providers/mock": {
+      "name": "@iyon/provider-mock",
+      "version": "0.1.0",
+      "dependencies": {
+        "@iyon/plugins": "workspace:*",
+        "@iyon/sdk": "workspace:*",
+      },
+    },
+    "plugins/providers/openai-codex": {
+      "name": "@iyon/provider-openai-codex",
+      "version": "0.1.0",
+      "dependencies": {
+        "@iyon/plugins": "workspace:*",
+        "@iyon/runtime": "workspace:*",
+        "@iyon/sdk": "workspace:*",
+      },
+    },
+    "plugins/providers/openrouter": {
+      "name": "@iyon/provider-openrouter",
+      "version": "0.1.0",
+      "dependencies": {
+        "@iyon/plugins": "workspace:*",
+        "@iyon/runtime": "workspace:*",
+        "@iyon/sdk": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@iyon/cli": ["@iyon/cli@workspace:packages/iyon-cli"],
 
     "@iyon/plugins": ["@iyon/plugins@workspace:packages/iyon-plugins"],
+
+    "@iyon/provider-mock": ["@iyon/provider-mock@workspace:plugins/providers/mock"],
+
+    "@iyon/provider-openai-codex": ["@iyon/provider-openai-codex@workspace:plugins/providers/openai-codex"],
+
+    "@iyon/provider-openrouter": ["@iyon/provider-openrouter@workspace:plugins/providers/openrouter"],
 
     "@iyon/runtime": ["@iyon/runtime@workspace:packages/iyon-runtime"],
 

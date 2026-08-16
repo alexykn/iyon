@@ -8,6 +8,9 @@ use crate::{
     ModelStreamFuture, StopReason,
 };
 
+/// Deprecated compatibility provider. The product runtime uses
+/// `plugins/providers/mock` instead.
+#[deprecated(note = "use the Bun @iyon/provider-mock package in the product runtime")]
 #[derive(Debug, Clone, Default)]
 pub struct MockModelApi;
 
