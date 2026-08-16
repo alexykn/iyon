@@ -4,7 +4,7 @@ import { buildModelRequest } from "./request.ts";
 import { runProviderTurn, type AgentModelTurnResult } from "./turn.ts";
 import { classifyStopReason } from "./stop.ts";
 import { executeRequestedTools, type AgentToolContext } from "./tools.ts";
-import { drainSteering, injectSteeredMessages, type SteeringQueue } from "./steering.ts";
+import { drainPrompts, drainSteering, injectSteeredMessages, type SteeringQueue } from "./steering.ts";
 import { hasRequestedCalls, shouldContinue } from "./continuation.ts";
 import type { PublicToolRegistry } from "./context.ts";
 
@@ -21,37 +21,87 @@ export interface AgentContext extends AgentToolContext {
 
 export interface Agent {
   run(context?: AgentContext): Promise<void>;
+  cancel(): void;
+  setReasoningEffort(level: ReasoningLevel): void;
 }
 
 export class IyonAgent implements Agent {
-  constructor(private readonly context: AgentContext) {}
+  private readonly lifetimeContext: AgentContext;
+  private activeController: AbortController | undefined;
+  private reasoningEffort: ReasoningLevel | undefined;
 
-  async run(context = this.context): Promise<void> {
-    while (!context.signal.aborted) {
-      const steers = drainSteering(context.session, context.steering);
-      injectSteeredMessages(context.session, steers);
-      if (context.session.snapshot().entries.every((entry) => entry.kind !== "message")) return;
-      const request = buildModelRequest(context);
-      const result = await runProviderTurn(context, request);
-      if (result.cancelled || context.signal.aborted) return;
+  constructor(context: AgentContext) {
+    this.lifetimeContext = context;
+    this.reasoningEffort = context.reasoningEffort;
+  }
 
-      const action = classifyStopReason(result.stopReason, hasRequestedCalls(result));
-      if (action === "executeTools") {
-        const toolExecution = await executeRequestedTools({ ...context, messageId: assistantMessageId(result) }, result);
-        if (!toolExecution.completed) return;
-        continue;
+  cancel(): void {
+    this.activeController?.abort();
+  }
+
+  setReasoningEffort(level: ReasoningLevel): void {
+    this.reasoningEffort = level;
+  }
+
+  async run(context = this.lifetimeContext): Promise<void> {
+    if (this.activeController !== undefined) throw new Error("agent run is already active");
+    const activeController = new AbortController();
+    this.activeController = activeController;
+    const linked = linkSignals(context.signal, activeController.signal);
+    const runContext = { ...context, signal: linked.signal, reasoningEffort: this.reasoningEffort };
+
+    try {
+      while (!runContext.signal.aborted) {
+        const queued = drainPrompts(runContext.session);
+        drainSteering(runContext.session, runContext.steering).forEach((message) => queued.push(message));
+        injectSteeredMessages(runContext.session, queued);
+        if (runContext.session.snapshot().entries.every((entry) => entry.kind !== "message")) return;
+        const request = buildModelRequest(runContext);
+        const result = await runProviderTurn(runContext, request);
+        if (result.cancelled || runContext.signal.aborted) return;
+
+        const action = classifyStopReason(result.stopReason, hasRequestedCalls(result));
+        if (action === "executeTools") {
+          const toolExecution = await executeRequestedTools({ ...runContext, messageId: assistantMessageId(result) }, result);
+          if (!toolExecution.completed) return;
+          continue;
+        }
+
+        const pending = drainPrompts(runContext.session);
+        drainSteering(runContext.session, runContext.steering).forEach((message) => pending.push(message));
+        if (shouldContinue(result.stopReason, result, pending.length > 0)) {
+          injectSteeredMessages(runContext.session, pending);
+          continue;
+        }
+        return;
       }
-
-      const pendingSteering = drainSteering(context.session, context.steering);
-      if (shouldContinue(result.stopReason, result, pendingSteering.length > 0)) {
-        injectSteeredMessages(context.session, pendingSteering);
-        continue;
-      }
-      return;
+    } finally {
+      linked.dispose();
+      if (this.activeController === activeController) this.activeController = undefined;
     }
   }
 }
 
 function assistantMessageId(result: AgentModelTurnResult): MessageId {
   return result.assistantMessage.id;
+}
+
+function linkSignals(lifetime: AbortSignal, active: AbortSignal): { readonly signal: AbortSignal; dispose(): void } {
+  const controller = new AbortController();
+  const abort = (source: AbortSignal) => {
+    if (!controller.signal.aborted) controller.abort(source.reason);
+  };
+  const onLifetimeAbort = () => abort(lifetime);
+  const onActiveAbort = () => abort(active);
+  if (lifetime.aborted) abort(lifetime);
+  if (active.aborted) abort(active);
+  lifetime.addEventListener("abort", onLifetimeAbort, { once: true });
+  active.addEventListener("abort", onActiveAbort, { once: true });
+  return {
+    signal: controller.signal,
+    dispose() {
+      lifetime.removeEventListener("abort", onLifetimeAbort);
+      active.removeEventListener("abort", onActiveAbort);
+    },
+  };
 }

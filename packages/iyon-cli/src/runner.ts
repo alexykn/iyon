@@ -12,7 +12,7 @@ export interface RunnerOptions { readonly app: RunnableApp; readonly agent: Runn
 
 export async function runSelectedApp(options: RunnerOptions): Promise<void> {
   const controller = new AbortController();
-  const onAbort = () => controller.abort();
+  const onAbort = () => { controller.abort(); void options.agent.cancel?.(); };
   options.signal?.addEventListener("abort", onAbort, { once: true });
   const bridge = options.app.startBackendBridge?.(options.session);
   try {

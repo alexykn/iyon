@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { CliCommand } from "./args.ts";
+import type { ReasoningLevel } from "@iyon/sdk";
 import { CleanupStack } from "./cleanup.ts";
 import { installIyonVirtualModules, AgentSession, selectProvider } from "@iyon/runtime";
 import { discoverPackages, PackageLoader, selectApp } from "@iyon/plugins";
@@ -24,9 +25,16 @@ const bundledRoots = [
 export function createProductionStages(options: { readonly authOnly?: boolean } = {}): BootstrapStages {
   let loader: PackageLoader | undefined;
   let session: AgentSession | undefined;
+  let lifetime: AbortController | undefined;
+  let selectedAgent: { cancel?: () => void; setReasoningEffort?: (level: ReasoningLevel) => void } | undefined;
+  let reasoningEffort: ReasoningLevel = "medium";
   let core: {
+    submitPrompt(text: string): Promise<void>;
+    steer(text: string): Promise<void>;
+    followUp(text: string): Promise<void>;
     submitTurn(text: string): Promise<void>;
     cancelActiveTurn(): void;
+    setReasoningEffort(level: ReasoningLevel): void;
     cycleReasoningEffort(): void;
   } | undefined;
   const roots = options.authOnly ? bundledRoots.slice(2, 5) : bundledRoots;
@@ -49,15 +57,27 @@ export function createProductionStages(options: { readonly authOnly?: boolean } 
     },
     async selectAgent(activated, provider) {
       const value = activated as { loader: PackageLoader }; session = new AgentSession();
-      const abort = new AbortController();
+      lifetime = new AbortController();
+      const submitPrompt = (text: string) => session?.enqueue("prompt", text) ?? Promise.resolve();
       core = {
-        submitTurn: async (text: string) => {
-          session?.appendMessage({ kind: "message", role: "user", content: [{ type: "text", text }] });
+        submitPrompt,
+        steer: (text) => session?.enqueue("steer", text) ?? Promise.resolve(),
+        followUp: (text) => session?.enqueue("followUp", text) ?? Promise.resolve(),
+        submitTurn: submitPrompt,
+        cancelActiveTurn: () => { selectedAgent?.cancel?.(); },
+        setReasoningEffort: (level) => {
+          reasoningEffort = level;
+          selectedAgent?.setReasoningEffort?.(level);
         },
-        cancelActiveTurn: () => { abort.abort(); },
-        cycleReasoningEffort: () => undefined,
+        cycleReasoningEffort: () => {
+          const levels: readonly ReasoningLevel[] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+          const next = levels[(levels.indexOf(reasoningEffort) + 1) % levels.length] ?? "medium";
+          core?.setReasoningEffort(next);
+        },
       };
-      return selectIyonAgent(value.loader.registries.agents, { model: (provider as { model: unknown }).model, session, signal: abort.signal, tools: value.loader.registries.tools, core }, "iyon");
+      const selection = selectIyonAgent(value.loader.registries.agents, { model: (provider as { model: unknown }).model, session, signal: lifetime.signal, reasoningEffort, tools: value.loader.registries.tools, core }, "iyon");
+      selectedAgent = selection.agent as typeof selectedAgent;
+      return selection;
     },
     async selectApp(activated, agent, provider) {
       const value = activated as { loader: PackageLoader }; const selection = (provider as { selection: { provider: string; model_id: string } }).selection;
@@ -68,7 +88,7 @@ export function createProductionStages(options: { readonly authOnly?: boolean } 
       const selectedAgent = context.agent as { agent: RunnableAgent }; const selectedApp = context.app as { app: RunnableApp }; if (!session) throw new Error("agent session was not initialized");
       return runSelectedApp({ app: selectedApp.app, agent: selectedAgent.agent, session });
     },
-    async cleanup() { session?.close(); loader = undefined; session = undefined; },
+    async cleanup() { lifetime?.abort(); selectedAgent = undefined; session?.close(); loader = undefined; session = undefined; },
   };
 }
 
