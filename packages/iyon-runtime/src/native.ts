@@ -70,6 +70,7 @@ export interface NativeAddon {
   KernelSession: new (options?: JsonValue) => NativeKernelSessionContract;
   nativeCounterStats(): NativeCounterStats;
   resetNativeCounterStats(): void;
+  materializeView?(value: unknown): object;
 }
 
 // This is the one static addon seam. The stage script materializes this exact

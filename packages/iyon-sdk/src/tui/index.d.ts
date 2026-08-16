@@ -14,8 +14,74 @@ export interface TuiError extends Error {
   readonly context?: Readonly<Record<string, unknown>>;
 }
 
-export interface View {
+export declare class View {
   readonly kind: "view";
+  static text(value: string): View;
+  static styledText(spans: readonly TextSpan[]): View;
+  static spacer(rows: number): View;
+  static horizontal(children: readonly View[] | ((builder: ChildrenBuilder) => void)): View;
+  static vertical(children: readonly View[] | ((builder: ChildrenBuilder) => void)): View;
+  static hanging(prefix: View, continuation: View, body: View): View;
+  static grid(children: readonly View[]): View;
+  bold(): View;
+  dim(): View;
+  italic(): View;
+  underline(): View;
+  reversed(): View;
+  strikethrough(): View;
+  padding(value: number | Insets): View;
+  background(color: string): View;
+  foreground(color: string): View;
+  border(border: Readonly<Record<string, unknown>>): View;
+  style(style: StyleSpec): View;
+  container(): View;
+  clampRows(maxRows: number): View;
+  fitWidth(): View;
+  fillWidth(): View;
+  fitHeight(): View;
+  fillHeight(): View;
+  minWidth(value: number): View;
+  maxWidth(value: number): View;
+  minHeight(value: number): View;
+  maxHeight(value: number): View;
+}
+
+export declare class ChildrenBuilder {
+  child(view: View): this;
+  childrenOf(views: readonly View[]): this;
+  gap(value: number): this;
+  fixed(size: number, view: View): this;
+  flex(view: View): this;
+}
+
+export declare class Insets {
+  static all(value: number): Insets;
+  static vertical(value: number): Insets;
+  static horizontal(value: number): Insets;
+  static of(top: number, right: number, bottom: number, left: number): Insets;
+}
+
+export declare class StyleSpec {
+  foreground(color: string): StyleSpec;
+  background(color: string): StyleSpec;
+  attribute(name: string, enabled?: boolean): StyleSpec;
+  bold(): StyleSpec;
+  dim(): StyleSpec;
+  italic(): StyleSpec;
+  underline(): StyleSpec;
+  reversed(): StyleSpec;
+  strikethrough(): StyleSpec;
+  plain(): StyleSpec;
+}
+
+export declare const Style: {
+  new(): StyleSpec;
+  plain(): StyleSpec;
+};
+
+export declare class TextSpan {
+  static plain(text: string): TextSpan;
+  static styled(text: string, style: StyleSpec): TextSpan;
 }
 
 export interface TextContent {

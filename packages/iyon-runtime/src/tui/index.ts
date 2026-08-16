@@ -26,7 +26,6 @@ export type {
   StreamPane,
   StreamSnapshot,
   StreamingSource,
-  Style,
   TerminateEvent,
   TextContent,
   TextInput,
@@ -38,7 +37,11 @@ export type {
   TuiOperation,
   TuiRuntime,
   TuiFailure,
-  View,
 } from "./types.ts";
+export { View, ChildrenBuilder } from "./values/view.ts";
+export { Insets } from "./values/geometry.ts";
+export { Style, StyleSpec } from "./values/style.ts";
+export { TextSpan } from "./values/text.ts";
+export { materializeView } from "./materialize.ts";
 
 export const tuiSmoke = "iyon:tui/t5" as const;
