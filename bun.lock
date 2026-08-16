@@ -21,7 +21,9 @@
         "iyon-smoke": "./src/index.ts",
       },
       "dependencies": {
+        "@iyon/plugins": "workspace:*",
         "@iyon/runtime": "workspace:*",
+        "@iyon/sdk": "workspace:*",
       },
     },
     "packages/iyon-plugins": {
