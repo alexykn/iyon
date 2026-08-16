@@ -11,24 +11,22 @@ pub enum NativeError {
 
 impl NativeError {
     pub fn invalid_input(message: impl Into<String>) -> Error {
-        Error::new(
-            Status::InvalidArg,
-            format!("invalid input: {}", message.into()),
-        )
+        Self::coded(Status::InvalidArg, "ION_INVALID_INPUT", message)
     }
 
     pub fn internal(message: impl Into<String>) -> Error {
-        Error::new(
-            Status::GenericFailure,
-            format!("internal failure: {}", message.into()),
-        )
+        Self::coded(Status::GenericFailure, "ION_INTERNAL", message)
     }
 
     pub fn cancelled() -> Error {
-        Error::new(Status::Cancelled, "operation cancelled")
+        Self::coded(Status::Cancelled, "ION_CANCELLED", "operation cancelled")
     }
 
     pub fn closed() -> Error {
-        Error::new(Status::Closing, "native operation is closed")
+        Self::coded(Status::Closing, "ION_CLOSED", "native operation is closed")
+    }
+
+    pub fn coded(status: Status, code: &str, message: impl Into<String>) -> Error {
+        Error::new(status, format!("{code}: {}", message.into()))
     }
 }
