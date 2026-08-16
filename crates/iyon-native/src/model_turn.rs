@@ -139,6 +139,22 @@ impl ModelTurn {
         self.emit_events(vec![terminal]).await?;
         Ok(Self::result_value(&result))
     }
+
+    fn settle_cancelled(&self, result: ModelTurnResult, terminal: CoreEvent) -> Result<Value> {
+        self.append_result(&result)?;
+        let events = {
+            let mut turn = self.take_turn()?;
+            turn.as_mut().ok_or_else(NativeError::closed)?.take_events()
+        };
+        // Cancellation must settle even when the consumer has left the event
+        // channel backpressured. Buffered events remain available; a full
+        // queue is allowed to drop only this cancellation notification.
+        for event in events {
+            let _ = self.state.try_emit(event);
+        }
+        let _ = self.state.try_emit(terminal);
+        Ok(Self::result_value(&result))
+    }
 }
 
 #[napi]
@@ -219,8 +235,7 @@ impl ModelTurn {
                 .map_err(Self::turn_error)?
         };
         let turn_id = result.turn_id.0;
-        self.settle(result, CoreEvent::TurnCancelled { turn_id })
-            .await
+        self.settle_cancelled(result, CoreEvent::TurnCancelled { turn_id })
     }
 }
 
