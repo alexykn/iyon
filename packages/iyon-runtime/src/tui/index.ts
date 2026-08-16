@@ -8,12 +8,14 @@ export {
 export type {
   ComponentAdapter,
   ComponentCapabilities,
+  WorkingActivity,
   ComponentContext,
   HistoryLayout,
   KeyEvent,
   NativeHandle,
   NativeHandleId,
   Output,
+  OutputHandle,
   PasteEvent,
   Projector,
   RenderContext,
@@ -36,7 +38,8 @@ export { Style, StyleSpec } from "./values/style.ts";
 export { TextSpan } from "./values/text.ts";
 export { materializeView } from "./materialize.ts";
 export { History } from "./history.ts";
-export { TextInput } from "./text-input.ts";
+export { TextInput, NativeOutputHandle } from "./text-input.ts";
+export { WorkingActivity } from "./working.ts";
 export { TextStream, StreamPane } from "./stream.ts";
 export { Component } from "./component.ts";
 export { TextContent, RawText } from "./values/text-content.ts";

@@ -3,7 +3,7 @@ use napi_derive::napi;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use iyon_tui::{Component, History, IntoView, TextInput, View};
+use iyon_tui::{BorderEdges, BorderSpec, Component, History, HostHistory, HostTextInput, HostTextStream, HostWorking, IntoView, Key, KeyStroke, Modifiers, Output, TextInput, TuiHost, View};
 use serde_json::Map;
 use serde_json::Value;
 
@@ -24,6 +24,11 @@ pub struct NativeTuiView {
     view: View,
 }
 
+#[napi]
+pub struct NativeTuiOutput {
+    output: Output<String>,
+}
+
 fn ensure_alive(alive: &AtomicBool) -> Result<()> {
     if alive.load(Ordering::Acquire) {
         return Ok(());
@@ -38,6 +43,7 @@ fn ensure_alive(alive: &AtomicBool) -> Result<()> {
 #[napi]
 pub struct NativeHistory {
     state: Mutex<History>,
+    host: Option<HostHistory>,
     alive: AtomicBool,
 }
 
@@ -47,6 +53,7 @@ impl NativeHistory {
     pub fn new() -> Self {
         Self {
             state: Mutex::new(History::new()),
+            host: None,
             alive: AtomicBool::new(true),
         }
     }
@@ -59,17 +66,28 @@ impl NativeHistory {
     #[napi]
     pub fn layout(&self) -> Result<Value> {
         ensure_alive(&self.alive)?;
+        if let Some(host) = &self.host {
+            let layout = host
+                .layout()
+                .map_err(|error| crate::NativeError::internal(error.to_string()))?;
+            return Ok(serde_json::json!({"padding": layout.padding().bottom(), "gap": layout.gap()}));
+        }
         let _layout = self
             .state
             .lock()
             .map_err(|_| crate::NativeError::internal("history lock is poisoned"))?
             .layout();
-        Ok(serde_json::json!({"padding": 0, "gap": 0}))
+        Ok(serde_json::json!({"padding": _layout.padding().bottom(), "gap": _layout.gap()}))
     }
 
     #[napi]
     pub fn push(&self, view: &NativeTuiView) -> Result<()> {
         ensure_alive(&self.alive)?;
+        if let Some(host) = &self.host {
+            return host
+                .push(view.view.clone())
+                .map_err(|error| crate::NativeError::invalid_input(error.to_string()));
+        }
         self.state
             .lock()
             .map_err(|_| crate::NativeError::internal("history lock is poisoned"))?
@@ -78,22 +96,74 @@ impl NativeHistory {
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
+    fn from_host(host: HostHistory) -> Self {
+        Self {
+            state: Mutex::new(History::new()),
+            host: Some(host),
+            alive: AtomicBool::new(true),
+        }
+    }
+
     #[napi(js_name = "pushStream")]
     pub fn push_stream(&self, stream: &NativeTextStream) -> Result<()> {
         ensure_alive(&self.alive)?;
-        if stream.is_sealed()? {
-            return Err(crate::NativeError::invalid_input(
-                "a sealed stream cannot be appended",
-            ));
+        if let Some(host) = &self.host {
+            return host
+                .push_stream(&stream.stream)
+                .map_err(|error| crate::NativeError::invalid_input(error.to_string()));
         }
-        Ok(())
+        let mut history = self
+            .state
+            .lock()
+            .map_err(|_| crate::NativeError::internal("history lock is poisoned"))?;
+        stream
+            .stream
+            .attach(&mut history)
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 }
 
 #[napi]
 pub struct NativeTextInput {
     state: Mutex<TextInput>,
+    host: Option<HostTextInput>,
     alive: AtomicBool,
+}
+
+#[napi]
+pub struct NativeWorking {
+    working: HostWorking,
+    alive: AtomicBool,
+}
+
+#[napi]
+impl NativeWorking {
+    #[napi]
+    pub fn dispose(&self) {
+        self.alive.store(false, Ordering::Release);
+    }
+
+    #[napi(js_name = "componentId")]
+    pub fn component_id(&self) -> Result<Option<i64>> {
+        ensure_alive(&self.alive)?;
+        Ok(self.working.component_id().map(|id| id as i64))
+    }
+
+    #[napi(js_name = "setActive")]
+    pub fn set_active(&self, active: bool) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.working
+            .set_active(active)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[napi(js_name = "setPending")]
+    pub fn set_pending(&self, pending: Vec<String>) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.working
+            .set_pending(pending)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
 }
 
 #[napi]
@@ -102,6 +172,7 @@ impl NativeTextInput {
     pub fn new(multiline: Option<bool>) -> Self {
         Self {
             state: Mutex::new(TextInput::new().multiline(multiline.unwrap_or(false))),
+            host: None,
             alive: AtomicBool::new(true),
         }
     }
@@ -114,6 +185,11 @@ impl NativeTextInput {
     #[napi]
     pub fn text(&self) -> Result<String> {
         ensure_alive(&self.alive)?;
+        if let Some(host) = &self.host {
+            return host
+                .text()
+                .map_err(|error| crate::NativeError::internal(error.to_string()));
+        }
         Ok(self
             .state
             .lock()
@@ -125,6 +201,12 @@ impl NativeTextInput {
     #[napi(js_name = "cursorBytes")]
     pub fn cursor_bytes(&self) -> Result<i64> {
         ensure_alive(&self.alive)?;
+        if let Some(host) = &self.host {
+            return host
+                .cursor_bytes()
+                .map(|cursor| cursor as i64)
+                .map_err(|error| crate::NativeError::internal(error.to_string()));
+        }
         Ok(self
             .state
             .lock()
@@ -135,6 +217,11 @@ impl NativeTextInput {
     #[napi(js_name = "setText")]
     pub fn set_text(&self, text: String) -> Result<()> {
         ensure_alive(&self.alive)?;
+        if let Some(host) = &self.host {
+            return host
+                .set_text(text)
+                .map_err(|error| crate::NativeError::internal(error.to_string()));
+        }
         self.state
             .lock()
             .map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?
@@ -145,6 +232,11 @@ impl NativeTextInput {
     #[napi]
     pub fn clear(&self) -> Result<()> {
         ensure_alive(&self.alive)?;
+        if let Some(host) = &self.host {
+            return host
+                .clear()
+                .map_err(|error| crate::NativeError::internal(error.to_string()));
+        }
         self.state
             .lock()
             .map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?
@@ -155,6 +247,11 @@ impl NativeTextInput {
     #[napi(js_name = "setMultiline")]
     pub fn set_multiline(&self, enabled: bool) -> Result<()> {
         ensure_alive(&self.alive)?;
+        if let Some(host) = &self.host {
+            return host
+                .set_multiline(enabled)
+                .map_err(|error| crate::NativeError::internal(error.to_string()));
+        }
         self.state
             .lock()
             .map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?
@@ -165,6 +262,11 @@ impl NativeTextInput {
     #[napi(js_name = "isMultiline")]
     pub fn is_multiline(&self) -> Result<bool> {
         ensure_alive(&self.alive)?;
+        if let Some(host) = &self.host {
+            return host
+                .is_multiline()
+                .map_err(|error| crate::NativeError::internal(error.to_string()));
+        }
         Ok(self
             .state
             .lock()
@@ -173,27 +275,224 @@ impl NativeTextInput {
     }
 
     #[napi]
-    pub fn submitted(&self) -> Result<Option<String>> {
+    pub fn submitted(&self) -> Result<NativeTuiOutput> {
         ensure_alive(&self.alive)?;
-        Ok(None)
+        let output = if let Some(host) = &self.host {
+            host.submitted()
+                .map_err(|error| crate::NativeError::internal(error.to_string()))?
+        } else {
+            self.state
+                .lock()
+                .map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?
+                .submitted()
+        };
+        Ok(NativeTuiOutput { output })
     }
 
     #[napi]
     pub fn view(&self) -> Result<NativeTuiView> {
         ensure_alive(&self.alive)?;
+        if let Some(host) = &self.host {
+            return host
+                .view()
+                .map(|view| NativeTuiView { view })
+                .map_err(|error| crate::NativeError::internal(error.to_string()));
+        }
         let input = self
             .state
             .lock()
             .map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?;
         Ok(NativeTuiView { view: input.view() })
     }
+
+    #[napi(js_name = "componentId")]
+    pub fn component_id(&self) -> Result<Option<i64>> {
+        ensure_alive(&self.alive)?;
+        Ok(self
+            .host
+            .as_ref()
+            .and_then(HostTextInput::component_id)
+            .map(|id| id as i64))
+    }
+
+    fn from_host(host: HostTextInput) -> Self {
+        Self {
+            state: Mutex::new(TextInput::new()),
+            host: Some(host),
+            alive: AtomicBool::new(true),
+        }
+    }
+}
+
+#[napi]
+pub struct NativeTuiHost {
+    host: TuiHost,
+    alive: AtomicBool,
+}
+
+#[napi]
+impl NativeTuiHost {
+    #[napi(constructor)]
+    pub fn new(width: Option<i64>, height: Option<i64>, headless: Option<bool>) -> Result<Self> {
+        let width = width.unwrap_or(80);
+        let height = height.unwrap_or(24);
+        let width = u16::try_from(width).map_err(|_| crate::NativeError::invalid_input("width must fit in u16"))?;
+        let height = u16::try_from(height).map_err(|_| crate::NativeError::invalid_input("height must fit in u16"))?;
+        let host = TuiHost::open(width, height, headless.unwrap_or(false))
+            .map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        Ok(Self { host, alive: AtomicBool::new(true) })
+    }
+
+    #[napi]
+    pub fn dispose(&self) -> Result<()> {
+        if self.alive.swap(false, Ordering::AcqRel) {
+            self.host.close().map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    #[napi]
+    pub fn history(&self) -> Result<NativeHistory> {
+        ensure_alive(&self.alive)?;
+        Ok(NativeHistory::from_host(self.host.history()))
+    }
+
+    #[napi(js_name = "textInput")]
+    pub fn text_input(&self, multiline: Option<bool>) -> Result<NativeTextInput> {
+        ensure_alive(&self.alive)?;
+        let input = self.host.create_text_input(multiline.unwrap_or(false))
+            .map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        Ok(NativeTextInput::from_host(input))
+    }
+
+    #[napi(js_name = "working")]
+    pub fn working(&self) -> Result<NativeWorking> {
+        ensure_alive(&self.alive)?;
+        let working = self.host.create_working()
+            .map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        Ok(NativeWorking { working, alive: AtomicBool::new(true) })
+    }
+
+    #[napi(js_name = "bindKey")]
+    pub fn bind_key(&self, key: String, modifiers: Option<Vec<String>>, action_id: String) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.host.bind_key(parse_key(&key, modifiers.as_deref())?, action_id)
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
+    }
+
+    #[napi]
+    pub fn route(&self, output: &NativeTuiOutput, action_id: String) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.host.route_text_input_output(output.output, action_id)
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
+    }
+
+    #[napi(js_name = "interceptPaste")]
+    pub fn intercept_paste(&self, input: &NativeTextInput, action_id: String) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let host_input = input.host.as_ref().ok_or_else(|| crate::NativeError::invalid_input("text input is not mounted"))?;
+        self.host.intercept_paste(host_input, action_id)
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
+    }
+
+    #[napi]
+    pub fn render(&self, view: &NativeTuiView) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.host.render(view.view.clone()).map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[napi(js_name = "dispatchKey")]
+    pub fn dispatch_key(&self, key: String, modifiers: Option<Vec<String>>) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.host.dispatch_key(parse_key(&key, modifiers.as_deref())?)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[napi(js_name = "dispatchPaste")]
+    pub fn dispatch_paste(&self, text: String) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.host.dispatch_paste(&text).map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[napi(js_name = "pollTerminal")]
+    pub fn poll_terminal(&self) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.host.poll_terminal().map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[napi(js_name = "nextAction")]
+    pub fn next_action(&self) -> Result<Option<Value>> {
+        ensure_alive(&self.alive)?;
+        Ok(self.host.next_action().map(|action| serde_json::json!({"action_id": action.action_id, "payload": action.payload})))
+    }
+
+    #[napi(js_name = "screenRows")]
+    pub fn screen_rows(&self) -> Result<Vec<String>> {
+        ensure_alive(&self.alive)?;
+        Ok(self.host.screen_rows())
+    }
+
+    #[napi(js_name = "nativeHistoryRows")]
+    pub fn native_history_rows(&self) -> Result<Vec<String>> {
+        ensure_alive(&self.alive)?;
+        Ok(self.host.native_history_rows())
+    }
+
+    #[napi]
+    pub fn resize(&self, width: i64, height: i64) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let width = u16::try_from(width).map_err(|_| crate::NativeError::invalid_input("width must fit in u16"))?;
+        let height = u16::try_from(height).map_err(|_| crate::NativeError::invalid_input("height must fit in u16"))?;
+        self.host.resize(width, height).map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[napi(js_name = "advanceTime")]
+    pub fn advance_time(&self, milliseconds: i64) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let milliseconds = u64::try_from(milliseconds).map_err(|_| crate::NativeError::invalid_input("time must be non-negative"))?;
+        self.host.advance_time(std::time::Duration::from_millis(milliseconds)).map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+}
+
+fn parse_key(key: &str, modifiers: Option<&[String]>) -> Result<KeyStroke> {
+    let key = match key {
+        "Enter" => Key::Enter,
+        "Escape" => Key::Escape,
+        "Backspace" => Key::Backspace,
+        "Tab" => Key::Tab,
+        "Delete" => Key::Delete,
+        "Insert" => Key::Insert,
+        "Home" => Key::Home,
+        "End" => Key::End,
+        "PageUp" => Key::PageUp,
+        "PageDown" => Key::PageDown,
+        "Up" => Key::Up,
+        "Down" => Key::Down,
+        "Left" => Key::Left,
+        "Right" => Key::Right,
+        value => {
+            let mut chars = value.chars();
+            let Some(character) = chars.next() else { return Err(crate::NativeError::invalid_input("key must not be empty")); };
+            if chars.next().is_some() { return Err(crate::NativeError::invalid_input("character key must contain one character")); }
+            Key::Char(character)
+        }
+    };
+    let mut flags = Modifiers::NONE;
+    for modifier in modifiers.unwrap_or_default() {
+        flags = flags.union(match modifier.to_ascii_lowercase().as_str() {
+            "shift" => Modifiers::SHIFT,
+            "control" | "ctrl" => Modifiers::CONTROL,
+            "alt" | "option" => Modifiers::ALT,
+            "super" | "meta" => Modifiers::SUPER,
+            other => return Err(crate::NativeError::invalid_input(format!("unknown key modifier `{other}`"))),
+        });
+    }
+    Ok(KeyStroke::with_modifiers(key, flags))
 }
 
 #[napi]
 pub struct NativeTextStream {
-    text: Mutex<String>,
-    revision: AtomicU64,
-    sealed: AtomicBool,
+    stream: HostTextStream,
     alive: AtomicBool,
 }
 
@@ -202,9 +501,7 @@ impl NativeTextStream {
     #[napi(constructor)]
     pub fn new() -> Self {
         Self {
-            text: Mutex::new(String::new()),
-            revision: AtomicU64::new(0),
-            sealed: AtomicBool::new(false),
+            stream: HostTextStream::new(),
             alive: AtomicBool::new(true),
         }
     }
@@ -217,42 +514,29 @@ impl NativeTextStream {
     #[napi]
     pub fn update(&self, text: String) -> Result<()> {
         ensure_alive(&self.alive)?;
-        if self.sealed.load(Ordering::Acquire) {
-            return Err(crate::NativeError::invalid_input(
-                "stream is already sealed",
-            ));
-        }
-        *self
-            .text
-            .lock()
-            .map_err(|_| crate::NativeError::internal("stream lock is poisoned"))? = text;
-        self.revision.fetch_add(1, Ordering::AcqRel);
-        Ok(())
+        self.stream
+            .update(text)
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
     #[napi]
     pub fn seal(&self) -> Result<()> {
         ensure_alive(&self.alive)?;
-        if self.sealed.swap(true, Ordering::AcqRel) {
-            return Err(crate::NativeError::invalid_input(
-                "stream is already sealed",
-            ));
-        }
-        Ok(())
+        self.stream
+            .seal()
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
     #[napi]
     pub fn snapshot(&self) -> Result<Value> {
         ensure_alive(&self.alive)?;
-        Ok(
-            serde_json::json!({"text": self.text.lock().map_err(|_| crate::NativeError::internal("stream lock is poisoned"))?.clone(), "revision": self.revision.load(Ordering::Acquire), "sealed": self.sealed.load(Ordering::Acquire)}),
-        )
+        let (text, revision, sealed) = self
+            .stream
+            .snapshot_json()
+            .map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        Ok(serde_json::json!({"text": text, "revision": revision, "sealed": sealed}))
     }
 
-    fn is_sealed(&self) -> Result<bool> {
-        ensure_alive(&self.alive)?;
-        Ok(self.sealed.load(Ordering::Acquire))
-    }
 }
 
 #[napi]
@@ -330,17 +614,41 @@ fn lower_view(value: &Value) -> Result<View> {
             let rows = u16_value(object, "rows")?;
             View::spacer(rows)
         }
-        "row" | "column" => {
+        "row" => {
             let children = child_views(object)?;
-            if kind == "row" {
-                View::horizontal(|row| {
-                    row.children(children);
-                })
-            } else {
-                View::vertical(|column| {
-                    column.children(children);
-                })
+            View::horizontal(|row| {
+                row.children(children);
+            })
+        }
+        "column" => {
+            let children = object
+                .get("children")
+                .and_then(Value::as_array)
+                .ok_or_else(|| crate::NativeError::invalid_input("view children must be an array"))?;
+            let mut lowered = Vec::with_capacity(children.len());
+            for child in children {
+                if child.get("type").and_then(Value::as_str) == Some("contentMax") {
+                    let max = child
+                        .get("maxRows")
+                        .and_then(Value::as_u64)
+                        .and_then(|value| u16::try_from(value).ok())
+                        .ok_or_else(|| crate::NativeError::invalid_input("contentMax maxRows must fit in u16"))?;
+                    let nested = lower_view(child.get("child").ok_or_else(|| crate::NativeError::invalid_input("contentMax child is required"))?)?;
+                    lowered.push((max, nested));
+                } else {
+                    let view = lower_view(child)?;
+                    lowered.push((0, view));
+                }
             }
+            View::vertical(|column| {
+                for (max, view) in lowered {
+                    if max == 0 {
+                        column.child(view);
+                    } else {
+                        column.content_max(max, view);
+                    }
+                }
+            })
         }
         "hanging" => View::hanging(
             lower_required(object, "prefix")?,
@@ -364,7 +672,16 @@ fn lower_view(value: &Value) -> Result<View> {
         "decorated" => {
             apply_decoration(lower_required(object, "child")?, object.get("decoration"))?
         }
-        "component" => View::spacer(0),
+        "component" => View::native_component(
+            object
+                .get("handle")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| crate::NativeError::invalid_input("component handle must be an integer"))?,
+        ),
+        "contentMax" => lower_required(object, "child")?.clamp_rows(
+            u16_value(object, "maxRows")?,
+            iyon_tui::OverflowIndicator::None,
+        ),
         other => {
             return Err(crate::NativeError::invalid_input(format!(
                 "unknown view node type `{other}`"
@@ -421,6 +738,21 @@ fn apply_decoration(view: View, decoration: Option<&Value>) -> Result<View> {
     if let Some(color) = decoration.get("foreground").and_then(color_spec) {
         view = view.foreground(color);
     }
+    if let Some(border) = decoration.get("border").and_then(Value::as_object) {
+        let mut spec = match border.get("style").and_then(Value::as_str).unwrap_or("plain") {
+            "plain" => BorderSpec::plain(),
+            "rounded" => BorderSpec::rounded(),
+            "double" => BorderSpec::double(),
+            other => return Err(crate::NativeError::invalid_input(format!("unknown border style `{other}`"))),
+        };
+        if border.get("edges").and_then(Value::as_str) == Some("topBottom") {
+            spec = spec.edges(BorderEdges::TOP_BOTTOM);
+        }
+        if let Some(color) = border.get("color").and_then(color_spec) {
+            spec = spec.color(color);
+        }
+        view = view.border(spec);
+    }
     if let Some(style) = decoration.get("style").and_then(Value::as_object) {
         if let Some(attributes) = style.get("attributes").and_then(Value::as_object) {
             for (name, enabled) in attributes {
@@ -441,6 +773,9 @@ fn apply_decoration(view: View, decoration: Option<&Value>) -> Result<View> {
 
 fn color_spec(value: &Value) -> Option<iyon_tui::ColorSpec> {
     let value = value.as_str()?;
+    if let Some(value) = value.strip_prefix("theme:") {
+        return Some(iyon_tui::ColorSpec::theme(value));
+    }
     if let Some(value) = value.strip_prefix("ansi:") {
         return value.parse::<u8>().ok().map(iyon_tui::ColorSpec::ansi);
     }

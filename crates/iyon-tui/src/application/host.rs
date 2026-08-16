@@ -1,0 +1,888 @@
+//! A language-binding host for the retained native application runtime.
+//!
+//! `TuiHost` deliberately exposes semantic actions and native snapshots, not
+//! terminal events. Components remain mounted in the same `SceneHost` used by
+//! the Rust application driver.
+
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex, Weak},
+    time::{Duration, Instant},
+};
+
+use anyhow::Result;
+
+use crate::{
+    AnsiColor, AppCx, App as TuiApp, BorderEdges, BorderSpec, ColorSpec, Component, ComponentCx,
+    ComponentHandle, History, HistoryLayout, InteractionResult, KeyStroke, Output, TextInput,
+    HistoryStreamHandle, IntoView, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
+    StreamSnapshotBuilder, StreamingSource, TextSpan, Theme, ThemeColor, View,
+    backend::NativeHistorySink,
+    geometry::Size,
+    physical::PhysicalRow,
+    scene::PreparedSceneFrame,
+    terminal::{TerminalBackend, TerminalEvent, termwiz::TermwizBackend},
+};
+use crate::controls::text_input::command::TextInputCommand;
+
+/// One application-level action produced by native interaction routing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RoutedAction {
+    pub action_id: String,
+    pub payload: Option<String>,
+}
+
+#[derive(Debug)]
+enum HostAction {
+    Routed(RoutedAction),
+}
+
+struct HostState {
+    body: View,
+    actions: VecDeque<RoutedAction>,
+}
+
+fn host_init(_cx: &mut AppCx<'_, HostAction>) -> Result<HostState> {
+    Ok(HostState {
+        body: View::spacer(0),
+        actions: VecDeque::new(),
+    })
+}
+
+fn host_update(
+    state: &mut HostState,
+    action: HostAction,
+    _cx: &mut AppCx<'_, HostAction>,
+) -> Result<()> {
+    match action {
+        HostAction::Routed(action) => state.actions.push_back(action),
+    }
+    Ok(())
+}
+
+fn host_view(state: &HostState) -> View {
+    state.body.clone()
+}
+
+type HostRunning = crate::application::kernel::RunningApp<
+    HostState,
+    HostAction,
+    anyhow::Error,
+    fn(&mut HostState, HostAction, &mut AppCx<'_, HostAction>) -> Result<()>,
+    fn(&HostState) -> View,
+>;
+
+#[derive(Default)]
+struct HeadlessSink {
+    width: u16,
+    height: u16,
+    history: Vec<PhysicalRow>,
+}
+
+impl NativeHistorySink for HeadlessSink {
+    type Error = anyhow::Error;
+
+    fn insert_history_rows(&mut self, rows: &[PhysicalRow]) -> Result<usize, Self::Error> {
+        self.history.extend(rows.iter().cloned());
+        Ok(rows.len())
+    }
+}
+
+enum HostBackend {
+    Headless(HeadlessSink),
+    Real(TermwizBackend),
+}
+
+struct HostInner {
+    running: HostRunning,
+    backend: HostBackend,
+    frame: PreparedSceneFrame,
+    now: Instant,
+    headless: bool,
+    closed: bool,
+}
+
+/// A shared native TextInput value that can be mounted into one TuiHost.
+#[derive(Clone)]
+pub struct HostTextInput {
+    state: Arc<Mutex<TextInput>>,
+    component_id: Arc<Mutex<Option<u64>>>,
+}
+
+const WORKING_SPINNER_FRAMES: &[&str] = &["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"];
+
+#[derive(Default)]
+struct WorkingState {
+    active: bool,
+    frame: usize,
+    pending: Vec<String>,
+}
+
+/// A native ticking working/status component configured by the application.
+#[derive(Clone)]
+pub struct HostWorking {
+    state: Arc<Mutex<WorkingState>>,
+    component_id: Arc<Mutex<Option<u64>>>,
+}
+
+impl HostWorking {
+    pub fn new() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(WorkingState::default())),
+            component_id: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn set_active(&self, active: bool) -> Result<()> {
+        self.state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("working component lock is poisoned"))?
+            .active = active;
+        Ok(())
+    }
+
+    pub fn set_pending(&self, pending: Vec<String>) -> Result<()> {
+        self.state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("working component lock is poisoned"))?
+            .pending = pending;
+        Ok(())
+    }
+
+    pub fn component_id(&self) -> Option<u64> {
+        self.component_id.lock().ok().and_then(|id| *id)
+    }
+
+    fn set_component_id(&self, id: u64) -> Result<()> {
+        *self
+            .component_id
+            .lock()
+            .map_err(|_| anyhow::anyhow!("working component id lock is poisoned"))? = Some(id);
+        Ok(())
+    }
+}
+
+struct MountedWorking(HostWorking);
+
+impl Component for MountedWorking {
+    fn view(&self) -> View {
+        let Ok(state) = self.0.state.lock() else {
+            return View::spacer(0);
+        };
+        if !state.active {
+            return View::spacer(0);
+        }
+        let spinner = WORKING_SPINNER_FRAMES[state.frame % WORKING_SPINNER_FRAMES.len()];
+        let label = if state.pending.is_empty() { "Working" } else { "waiting" };
+        let status = View::text(format!("{spinner} {label}")).no_wrap();
+        let row = if let Some(first) = state.pending.first() {
+            let preview = first.split_whitespace().collect::<Vec<_>>().join(" ");
+            let extra = state.pending.len().saturating_sub(1);
+            View::horizontal(|row| {
+                row.gap(4);
+                row.child(status);
+                row.flex(
+                    View::text(format!("Queue: {preview}"))
+                        .no_wrap()
+                        .italic()
+                        .foreground(ColorSpec::theme("text.muted")),
+                );
+                if extra > 0 {
+                    row.child(
+                        View::text(format!(" + {extra} more"))
+                            .no_wrap()
+                            .italic()
+                            .foreground(ColorSpec::theme("text.muted")),
+                    );
+                }
+            })
+        } else {
+            status.into_view()
+        };
+        row.fill_width().padding(crate::Insets::horizontal(2))
+    }
+
+    fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+        cx.tick(Duration::from_millis(80), Self::tick);
+    }
+}
+
+impl MountedWorking {
+    fn tick(component: &mut Self, _now: Instant, _cx: &mut crate::EventCx<'_>) -> bool {
+        let Ok(mut state) = component.0.state.lock() else {
+            return false;
+        };
+        if !state.active {
+            return false;
+        }
+        state.frame = state.frame.wrapping_add(1);
+        true
+    }
+}
+
+#[derive(Default)]
+struct HostStreamState {
+    text: String,
+    source_base: StreamOffset,
+    revision: StreamRevision,
+    sealed: bool,
+}
+
+/// A mutable native stream shared by a History unit and its language binding.
+#[derive(Clone)]
+pub struct HostTextStream {
+    state: Arc<Mutex<HostStreamState>>,
+    host: Arc<Mutex<Option<Weak<Mutex<HostInner>>>>>,
+    handle: Arc<Mutex<Option<HistoryStreamHandle<HostStreamSource>>>>,
+}
+
+impl HostTextStream {
+    pub fn new() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(HostStreamState::default())),
+            host: Arc::new(Mutex::new(None)),
+            handle: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn update(&self, text: impl Into<String>) -> Result<()> {
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("stream lock is poisoned"))?;
+            if state.sealed {
+                return Err(anyhow::anyhow!("stream is already sealed"));
+            }
+            state.text = text.into();
+            state.revision = state.revision.next();
+        }
+        self.render_host()
+    }
+
+    pub fn seal(&self) -> Result<()> {
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("stream lock is poisoned"))?;
+            if state.sealed {
+                return Err(anyhow::anyhow!("stream is already sealed"));
+            }
+            state.sealed = true;
+            state.revision = state.revision.next();
+        }
+        self.render_host()
+    }
+
+    pub fn snapshot_json(&self) -> Result<(String, u64, bool)> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("stream lock is poisoned"))?;
+        Ok((state.text.clone(), state.revision.as_u64(), state.sealed))
+    }
+
+    pub fn attach(&self, history: &mut History) -> Result<()> {
+        let handle = history
+            .push_stream(HostStreamSource { state: self.state.clone() })
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        *self
+            .handle
+            .lock()
+            .map_err(|_| anyhow::anyhow!("stream handle lock is poisoned"))? = Some(handle);
+        Ok(())
+    }
+
+    fn attach_host(&self, host: &Arc<Mutex<HostInner>>) -> Result<()> {
+        *self
+            .host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("stream host lock is poisoned"))? =
+            Some(Arc::downgrade(host));
+        Ok(())
+    }
+
+    fn render_host(&self) -> Result<()> {
+        let host = self
+            .host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("stream host lock is poisoned"))?
+            .clone()
+            .and_then(|host| host.upgrade());
+        if let Some(host) = host {
+            let mut inner = host
+                .lock()
+                .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
+            if let Some(handle) = self
+                .handle
+                .lock()
+                .map_err(|_| anyhow::anyhow!("stream handle lock is poisoned"))?
+                .as_ref()
+                .copied()
+            {
+                inner
+                    .running
+                    .scene_history_mut()
+                    .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?
+                    .refresh_stream(handle)
+                    .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            }
+            inner.running.invalidate_frame();
+            inner.render()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+struct HostStreamSource {
+    state: Arc<Mutex<HostStreamState>>,
+}
+
+impl StreamingSource for HostStreamSource {
+    fn snapshot(&self) -> StreamSnapshot {
+        let state = self.state.lock().expect("host stream lock is poisoned");
+        let source_end = state
+            .source_base
+            .saturating_add(state.text.len() as u64);
+        let range = StreamRange::new(state.source_base, source_end);
+        let builder = StreamSnapshotBuilder::new(
+            state.revision,
+            state.source_base,
+            if state.sealed { source_end } else { state.source_base },
+            source_end,
+        );
+        let builder = if state.text.is_empty() {
+            builder.exact_text(range, [])
+        } else {
+            builder.exact_text(range, [TextSpan::plain(state.text.clone())])
+        };
+        builder.finish().expect("host stream snapshot must be valid")
+    }
+
+    fn compact_before(&mut self, offset: StreamOffset) {
+        let mut state = self.state.lock().expect("host stream lock is poisoned");
+        let target = offset.min(
+            state
+                .source_base
+                .saturating_add(state.text.len() as u64),
+        );
+        if target <= state.source_base {
+            return;
+        }
+        let local = usize::try_from(target.as_u64() - state.source_base.as_u64())
+            .expect("host stream coordinate fits usize");
+        if !state.text.is_char_boundary(local) {
+            return;
+        }
+        state.text.drain(..local);
+        state.source_base = target;
+        state.revision = state.revision.next();
+    }
+
+    fn seal(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            if !state.sealed {
+                state.sealed = true;
+                state.revision = state.revision.next();
+            }
+        }
+    }
+
+    fn is_sealed(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| state.sealed)
+            .unwrap_or(true)
+    }
+}
+
+impl HostTextInput {
+    pub fn new(multiline: bool) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(TextInput::new().multiline(multiline))),
+            component_id: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn text(&self) -> Result<String> {
+        Ok(self.lock()?.text().to_owned())
+    }
+
+    pub fn cursor_bytes(&self) -> Result<usize> {
+        Ok(self.lock()?.cursor_bytes())
+    }
+
+    pub fn set_text(&self, value: impl AsRef<str>) -> Result<()> {
+        self.lock()?.set_text(value);
+        Ok(())
+    }
+
+    pub fn clear(&self) -> Result<()> {
+        self.lock()?.clear();
+        Ok(())
+    }
+
+    pub fn submitted(&self) -> Result<Output<String>> {
+        Ok(self.lock()?.submitted())
+    }
+
+    pub fn set_multiline(&self, enabled: bool) -> Result<()> {
+        self.lock()?.set_multiline(enabled);
+        Ok(())
+    }
+
+    pub fn is_multiline(&self) -> Result<bool> {
+        Ok(self.lock()?.is_multiline())
+    }
+
+    pub fn view(&self) -> Result<View> {
+        Ok(self.lock()?.view())
+    }
+
+    pub fn set_default_border(&self) -> Result<()> {
+        let mut input = self.lock()?;
+        input.set_border(
+            BorderSpec::plain()
+                .edges(BorderEdges::TOP_BOTTOM)
+                .color(ColorSpec::theme("input.border")),
+        );
+        Ok(())
+    }
+
+    pub fn component_id(&self) -> Option<u64> {
+        self.component_id.lock().ok().and_then(|id| *id)
+    }
+
+    fn set_component_id(&self, id: u64) -> Result<()> {
+        *self
+            .component_id
+            .lock()
+            .map_err(|_| anyhow::anyhow!("text input component lock is poisoned"))? = Some(id);
+        Ok(())
+    }
+
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, TextInput>> {
+        self.state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("text input lock is poisoned"))
+    }
+}
+
+struct MountedTextInput(HostTextInput);
+
+impl Component for MountedTextInput {
+    fn view(&self) -> View {
+        self.0
+            .lock()
+            .map(|input| input.view())
+            .unwrap_or_else(|_| View::spacer(0))
+    }
+
+    fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+        cx.focusable();
+        cx.on_focus_changed(mounted_focus_changed);
+        cx.key_commands(mounted_command_for_key, mounted_handle_command);
+        cx.on_paste(mounted_paste);
+        cx.on_layout_changed(mounted_layout_changed);
+    }
+}
+
+fn mounted_command_for_key(
+    component: &MountedTextInput,
+    key: KeyStroke,
+) -> Option<TextInputCommand> {
+    component
+        .0
+        .lock()
+        .ok()
+        .and_then(|input| TextInput::command_for_key(&input, key))
+}
+
+fn mounted_handle_command(
+    component: &mut MountedTextInput,
+    command: TextInputCommand,
+    cx: &mut crate::EventCx<'_>,
+) -> InteractionResult {
+    component
+        .0
+        .lock()
+        .map(|mut input| TextInput::handle_command(&mut input, command, cx))
+        .unwrap_or(InteractionResult::Ignored)
+}
+
+fn mounted_paste(
+    component: &mut MountedTextInput,
+    text: &str,
+    cx: &mut crate::EventCx<'_>,
+) -> InteractionResult {
+    component
+        .0
+        .lock()
+        .map(|mut input| TextInput::paste_callback(&mut input, text, cx))
+        .unwrap_or(InteractionResult::Ignored)
+}
+
+fn mounted_focus_changed(component: &mut MountedTextInput, focused: bool) {
+    if let Ok(mut input) = component.0.lock() {
+        TextInput::focus_changed_callback(&mut input, focused);
+    }
+}
+
+fn mounted_layout_changed(component: &mut MountedTextInput, size: Size) {
+    if let Ok(mut input) = component.0.lock() {
+        TextInput::layout_changed(&mut input, size);
+    }
+}
+
+/// A handle to the History owned by a TuiHost.
+#[derive(Clone)]
+pub struct HostHistory {
+    host: Arc<Mutex<HostInner>>,
+}
+
+impl HostHistory {
+    pub fn layout(&self) -> Result<HistoryLayout> {
+        let inner = self.lock()?;
+        inner
+            .running
+            .scene_history()
+            .map(History::layout)
+            .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))
+    }
+
+    pub fn set_layout(&self, layout: HistoryLayout) -> Result<()> {
+        self.lock_mut()?
+            .running
+            .scene_history_mut()
+            .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?
+            .set_layout(layout);
+        Ok(())
+    }
+
+    pub fn push(&self, view: View) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        inner
+            .running
+            .scene_history_mut()
+            .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?
+            .push(view)
+            .map(|_| ())
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        inner.render()?;
+        Ok(())
+    }
+
+    pub fn push_stream(&self, stream: &HostTextStream) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        stream.attach_host(&self.host)?;
+        stream
+            .attach(
+                inner
+            .running
+            .scene_history_mut()
+            .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?,
+            )?;
+        inner.render()?;
+        Ok(())
+    }
+
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, HostInner>> {
+        self.host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("host lock is poisoned"))
+    }
+
+    fn lock_mut(&self) -> Result<std::sync::MutexGuard<'_, HostInner>> {
+        self.lock()
+    }
+}
+
+/// Native retained interaction host used by language bindings.
+pub struct TuiHost {
+    inner: Arc<Mutex<HostInner>>,
+}
+
+impl TuiHost {
+    pub fn open(width: u16, height: u16, headless: bool) -> Result<Self> {
+        if width == 0 || height == 0 {
+            return Err(anyhow::anyhow!("terminal size must be positive"));
+        }
+        let backend = if headless {
+            HostBackend::Headless(HeadlessSink {
+                width,
+                height,
+                ..HeadlessSink::default()
+            })
+        } else {
+            HostBackend::Real(TermwizBackend::enter()?)
+        };
+        let app = TuiApp::new(
+            host_init as fn(&mut AppCx<'_, HostAction>) -> Result<HostState>,
+            host_update
+                as fn(&mut HostState, HostAction, &mut AppCx<'_, HostAction>) -> Result<()>,
+            host_view as fn(&HostState) -> View,
+        )
+        .with_theme(Theme::new().with_color(
+            "input.border",
+            ThemeColor::Named(AnsiColor::Yellow),
+        ).with_color(
+            "text.muted",
+            ThemeColor::Rgb { r: 113, g: 128, b: 150 },
+        ).with_color(
+            "tool.finished",
+            ThemeColor::Rgb { r: 104, g: 211, b: 145 },
+        ))
+        .with_history(
+            History::new().with_layout(HistoryLayout::from_parts(
+                crate::Insets::new(0, 0, 1, 0),
+                1,
+            )),
+        );
+        let now = Instant::now();
+        let mut running = app.start(now).map_err(|error| anyhow::anyhow!("host init failed: {error:?}"))?;
+        let mut backend = backend;
+        let frame = prepare_frame(&mut running, &mut backend, now)?;
+        let inner = Arc::new(Mutex::new(HostInner {
+            running,
+            backend,
+            frame,
+            now,
+            headless,
+            closed: false,
+        }));
+        Ok(Self { inner })
+    }
+
+    pub fn history(&self) -> HostHistory {
+        HostHistory {
+            host: Arc::clone(&self.inner),
+        }
+    }
+
+    pub fn create_text_input(&self, multiline: bool) -> Result<HostTextInput> {
+        let input = HostTextInput::new(multiline);
+        input.set_default_border()?;
+        let mut inner = self.lock_mut()?;
+        let handle = inner
+            .running
+            .host_register(MountedTextInput(input.clone()));
+        input.set_component_id(handle.raw_id())?;
+        Ok(input)
+    }
+
+    pub fn create_working(&self) -> Result<HostWorking> {
+        let working = HostWorking::new();
+        let mut inner = self.lock_mut()?;
+        let handle = inner.running.host_register(MountedWorking(working.clone()));
+        working.set_component_id(handle.raw_id())?;
+        Ok(working)
+    }
+
+    pub fn bind_key(&self, key: KeyStroke, action_id: impl Into<String>) -> Result<()> {
+        let action_id = action_id.into();
+        self.lock_mut()?.running.host_bind_key(key, move || HostAction::Routed(RoutedAction {
+            action_id: action_id.clone(),
+            payload: None,
+        }));
+        Ok(())
+    }
+
+    pub fn route_text_input(
+        &self,
+        input: &HostTextInput,
+        action_id: impl Into<String>,
+    ) -> Result<()> {
+        let output = input.submitted()?;
+        let action_id = action_id.into();
+        self.lock_mut()?
+            .running
+            .host_route(output, move |text| HostAction::Routed(RoutedAction {
+                action_id: action_id.clone(),
+                payload: Some(text),
+            }))
+            .map_err(|_| anyhow::anyhow!("output route already exists"))?;
+        Ok(())
+    }
+
+    pub fn route_text_input_output(
+        &self,
+        output: Output<String>,
+        action_id: impl Into<String>,
+    ) -> Result<()> {
+        let action_id = action_id.into();
+        self.lock_mut()?
+            .running
+            .host_route(output, move |text| HostAction::Routed(RoutedAction {
+                action_id: action_id.clone(),
+                payload: Some(text),
+            }))
+            .map_err(|_| anyhow::anyhow!("output route already exists"))?;
+        Ok(())
+    }
+
+    pub fn intercept_paste(
+        &self,
+        input: &HostTextInput,
+        action_id: impl Into<String>,
+    ) -> Result<()> {
+        let id = input
+            .component_id()
+            .ok_or_else(|| anyhow::anyhow!("text input is not mounted"))?;
+        let handle = ComponentHandle::<MountedTextInput>::from_raw_id(id);
+        let action_id = action_id.into();
+        self.lock_mut()?.running.host_intercept_paste(handle, move |text| {
+            HostAction::Routed(RoutedAction {
+                action_id: action_id.clone(),
+                payload: Some(text),
+            })
+        });
+        Ok(())
+    }
+
+    pub fn render(&self, body: View) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        inner.running.host_set_body(body);
+        inner.render()
+    }
+
+    pub fn dispatch_key(&self, key: KeyStroke) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        inner.running.dispatch_key(key).map_err(|error| anyhow::anyhow!("key dispatch failed: {error:?}"))?;
+        inner.advance_and_render()
+    }
+
+    pub fn dispatch_paste(&self, text: &str) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        inner.running.dispatch_paste(text).map_err(|error| anyhow::anyhow!("paste dispatch failed: {error:?}"))?;
+        inner.advance_and_render()
+    }
+
+    pub fn resize(&self, width: u16, height: u16) -> Result<()> {
+        if width == 0 || height == 0 {
+            return Err(anyhow::anyhow!("terminal size must be positive"));
+        }
+        let mut inner = self.lock_mut()?;
+        if let HostBackend::Headless(sink) = &mut inner.backend {
+            sink.width = width;
+            sink.height = height;
+        }
+        inner.running.invalidate_frame();
+        inner.now = Instant::now();
+        inner.advance_and_render()
+    }
+
+    pub fn advance_time(&self, duration: Duration) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        inner.now += duration;
+        inner.advance_and_render()
+    }
+
+    pub fn next_action(&self) -> Option<RoutedAction> {
+        self.lock_mut().ok()?.running.state.actions.pop_front()
+    }
+
+    pub fn poll_terminal(&self) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        let event = match &mut inner.backend {
+            HostBackend::Headless(_) => None,
+            HostBackend::Real(backend) => backend.try_next_event()?,
+        };
+        match event {
+            Some(TerminalEvent::Key(key)) => {
+                inner.running.dispatch_key(key).map_err(|error| anyhow::anyhow!("key dispatch failed: {error:?}"))?;
+                inner.advance_and_render()
+            }
+            Some(TerminalEvent::Paste(text)) => {
+                inner.running.dispatch_paste(&text).map_err(|error| anyhow::anyhow!("paste dispatch failed: {error:?}"))?;
+                inner.advance_and_render()
+            }
+            Some(TerminalEvent::Resize) => {
+                inner.running.invalidate_frame();
+                inner.advance_and_render()
+            }
+            None => Ok(()),
+        }
+    }
+
+    pub fn screen_rows(&self) -> Vec<String> {
+        self.lock().map(|inner| inner.frame.screen_lines()).unwrap_or_default()
+    }
+
+    pub fn native_history_rows(&self) -> Vec<String> {
+        self.lock()
+            .ok()
+            .and_then(|inner| match &inner.backend {
+                HostBackend::Headless(sink) => Some(sink.history.iter().map(PhysicalRow::plain_text).collect()),
+                HostBackend::Real(_) => Some(Vec::new()),
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn close(&self) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        if inner.closed {
+            return Ok(());
+        }
+        inner.closed = true;
+        if let HostBackend::Real(backend) = &mut inner.backend {
+            backend.restore()?;
+        }
+        Ok(())
+    }
+
+    pub fn is_headless(&self) -> bool {
+        self.lock().map(|inner| inner.headless).unwrap_or(true)
+    }
+
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, HostInner>> {
+        self.inner
+            .lock()
+            .map_err(|_| anyhow::anyhow!("host lock is poisoned"))
+    }
+
+    fn lock_mut(&self) -> Result<std::sync::MutexGuard<'_, HostInner>> {
+        self.lock()
+    }
+}
+
+impl Drop for TuiHost {
+    fn drop(&mut self) {
+        let _ = self.close();
+    }
+}
+
+impl HostInner {
+    fn render(&mut self) -> Result<()> {
+        self.frame = prepare_frame(&mut self.running, &mut self.backend, self.now)?;
+        Ok(())
+    }
+
+    fn advance_and_render(&mut self) -> Result<()> {
+        let status = self
+            .running
+            .advance_ready(self.now)
+            .map_err(|error| anyhow::anyhow!("host update failed: {error:?}"))?;
+        if status.dirty {
+            self.render()?;
+        }
+        Ok(())
+    }
+
+}
+
+fn prepare_frame(running: &mut HostRunning, backend: &mut HostBackend, now: Instant) -> Result<PreparedSceneFrame> {
+    match backend {
+        HostBackend::Headless(sink) => running
+            .prepare_frame(now, sink, |sink| Ok(Size::new(sink.width, sink.height)))
+            .map_err(|error| anyhow::anyhow!("headless render failed: {error:?}")),
+        HostBackend::Real(backend) => {
+            let frame = running
+                .prepare_frame(now, backend, |backend| backend.viewport())
+                .map_err(|error| anyhow::anyhow!("terminal render failed: {error:?}"))?;
+            let _ = backend.begin_frame(&frame)?;
+            Ok(frame)
+        }
+    }
+}

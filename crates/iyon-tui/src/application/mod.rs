@@ -13,6 +13,7 @@ mod input;
 mod kernel;
 mod run;
 mod timer;
+mod host;
 
 #[cfg(test)]
 mod tests;
@@ -24,3 +25,4 @@ pub use handle::{AppClosed, AppHandle, AppSendError};
 #[cfg(feature = "test-util")]
 pub(crate) use kernel::{KernelError, RunningApp};
 pub use timer::TimerHandle;
+pub use host::{HostHistory, HostTextInput, HostTextStream, HostWorking, RoutedAction, TuiHost};

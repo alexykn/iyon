@@ -76,9 +76,33 @@ export interface NativeAddon {
   credentialHas(service: string, account: string): boolean;
   materializeView?(value: unknown): object;
   NativeHistory?: new () => { dispose(): void; layout(): object; push(view: object): void; pushStream(stream: object): void };
-  NativeTextInput?: new (multiline?: boolean) => { dispose(): void; text(): string; cursorBytes(): number; setText(value: string): void; clear(): void; submitted(): string | null; setMultiline(enabled: boolean): void; isMultiline(): boolean };
+  NativeTextInput?: new (multiline?: boolean) => { dispose(): void; text(): string; cursorBytes(): number; setText(value: string): void; clear(): void; submitted(): NativeTuiOutputContract; setMultiline(enabled: boolean): void; isMultiline(): boolean; componentId(): number | null };
+  NativeTuiHost?: new (width?: number, height?: number, headless?: boolean) => NativeTuiHostContract;
+  NativeTuiOutput?: new () => NativeTuiOutputContract;
   NativeTextStream?: new () => { dispose(): void; update(text: string): void; seal(): void; snapshot(): object };
+  NativeWorking?: new () => { dispose(): void; componentId(): number | null; setActive(active: boolean): void; setPending(pending: string[]): void };
   NativeComponent?: new () => { dispose(): void; id(): number; revision(): number };
+}
+
+export interface NativeTuiOutputContract { readonly output?: unknown; }
+
+export interface NativeTuiHostContract {
+  dispose(): void;
+  history(): object;
+  textInput(multiline?: boolean): object;
+  working(): object;
+  bindKey(key: string, modifiers: readonly string[] | undefined, actionId: string): void;
+  route(output: NativeTuiOutputContract, actionId: string): void;
+  interceptPaste(input: object, actionId: string): void;
+  render(view: object): void;
+  dispatchKey(key: string, modifiers?: readonly string[]): void;
+  dispatchPaste(text: string): void;
+  pollTerminal(): void;
+  nextAction(): { action_id: string; payload?: string | null } | null;
+  screenRows(): string[];
+  nativeHistoryRows(): string[];
+  resize(width: number, height: number): void;
+  advanceTime(milliseconds: number): void;
 }
 
 // This is the one static addon seam. The stage script materializes this exact
