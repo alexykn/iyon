@@ -16,7 +16,8 @@ use crate::{
     AppCx, App as TuiApp, BorderEdges, BorderSpec, Component, ComponentCx,
     ComponentHandle, History, HistoryLayout, InteractionResult, KeyStroke, Output, TextInput,
     HistoryStreamHandle, IntoView, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
-    StreamSnapshotBuilder, StreamingSource, StyleRef, TextSpan, Theme, View,
+    StreamSnapshotBuilder, StreamingSource, StyleRef, TextContent, Theme, View,
+    MarkdownOptions, MarkdownProjector, ProjectionBuilder, Projector, Smooth,
     backend::NativeHistorySink,
     geometry::Size,
     physical::PhysicalRow,
@@ -24,6 +25,7 @@ use crate::{
     terminal::{TerminalBackend, TerminalEvent, termwiz::TermwizBackend},
 };
 use crate::controls::text_input::command::TextInputCommand;
+use crate::text::{TextRun, TextVisitor};
 
 /// One application-level action produced by native interaction routing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -344,12 +346,27 @@ impl MountedWorking {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostStreamSegmentKind {
+    Text,
+    Thinking,
+}
+
+#[derive(Clone, Debug)]
+struct HostStreamSegment {
+    kind: HostStreamSegmentKind,
+    text: String,
+}
+
 #[derive(Default)]
 struct HostStreamState {
-    text: String,
+    segments: Vec<HostStreamSegment>,
+    display_text: String,
     source_base: StreamOffset,
     revision: StreamRevision,
     sealed: bool,
+    markdown: Option<MarkdownProjector>,
+    smooth: Option<Smooth>,
 }
 
 /// A mutable native stream shared by a History unit and its language binding.
@@ -369,6 +386,35 @@ impl HostTextStream {
         }
     }
 
+    pub fn with_markdown() -> Self {
+        let stream = Self::new();
+        if let Ok(mut state) = stream.state.lock() {
+            state.markdown = Some(MarkdownProjector::new(MarkdownOptions::commonmark()));
+            state.smooth = Some(Smooth::default());
+        }
+        stream
+    }
+
+    pub fn append_segment(&self, kind: HostStreamSegmentKind, text: impl AsRef<str>) -> Result<()> {
+        let text = text.as_ref();
+        if text.is_empty() {
+            return Ok(());
+        }
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("stream lock is poisoned"))?;
+            if state.sealed {
+                return Err(anyhow::anyhow!("stream is already sealed"));
+            }
+            state.segments.push(HostStreamSegment { kind, text: text.to_owned() });
+            state.revision = state.revision.next();
+            state.refresh_display()?;
+        }
+        self.render_host()
+    }
+
     pub fn update(&self, text: impl Into<String>) -> Result<()> {
         {
             let mut state = self
@@ -378,8 +424,12 @@ impl HostTextStream {
             if state.sealed {
                 return Err(anyhow::anyhow!("stream is already sealed"));
             }
-            state.text = text.into();
+            state.segments = vec![HostStreamSegment {
+                kind: HostStreamSegmentKind::Text,
+                text: text.into(),
+            }];
             state.revision = state.revision.next();
+            state.refresh_display()?;
         }
         self.render_host()
     }
@@ -395,16 +445,32 @@ impl HostTextStream {
             }
             state.sealed = true;
             state.revision = state.revision.next();
+            state.refresh_display()?;
         }
         self.render_host()
     }
 
-    pub fn snapshot_json(&self) -> Result<(String, u64, bool)> {
+    pub fn snapshot_json(&self) -> Result<(String, u64, bool, Vec<(String, String)>)> {
         let state = self
             .state
             .lock()
             .map_err(|_| anyhow::anyhow!("stream lock is poisoned"))?;
-        Ok((state.text.clone(), state.revision.as_u64(), state.sealed))
+        let segments = state.markdown.as_ref().map(|_| {
+            state
+                .segments
+                .iter()
+                .map(|segment| {
+                    (
+                        match segment.kind {
+                            HostStreamSegmentKind::Text => "text".to_owned(),
+                            HostStreamSegmentKind::Thinking => "thinking".to_owned(),
+                        },
+                        segment.text.clone(),
+                    )
+                })
+                .collect()
+        }).unwrap_or_default();
+        Ok((state.display_text.clone(), state.revision.as_u64(), state.sealed, segments))
     }
 
     pub fn attach(&self, history: &mut History) -> Result<()> {
@@ -459,6 +525,94 @@ impl HostTextStream {
     }
 }
 
+impl HostStreamState {
+    fn source_text(&self) -> String {
+        self.segments.iter().map(|segment| segment.text.as_str()).collect()
+    }
+
+    fn refresh_display(&mut self) -> Result<()> {
+        let source = self.source_text();
+        let Some(markdown) = &mut self.markdown else {
+            self.display_text = source;
+            return Ok(());
+        };
+        let end = StreamOffset::new(source.len() as u64);
+        let mut input = ProjectionBuilder::new(
+            StreamOffset::ZERO,
+            if self.sealed { end } else { end },
+            end,
+            self.sealed,
+        );
+        let mut cursor = StreamOffset::ZERO;
+        for segment in &self.segments {
+            if self.segments.len() == 1 {
+                let next = cursor.saturating_add(segment.text.len() as u64);
+                input = input.emit(
+                    StreamRange::new(cursor, next),
+                    TextContent::raw(segment.text.clone()),
+                );
+                cursor = next;
+                continue;
+            }
+            for character in segment.text.chars() {
+                let next = cursor.saturating_add(character.len_utf8() as u64);
+                input = input.emit(StreamRange::new(cursor, next), TextContent::raw(character.to_string()));
+                cursor = next;
+            }
+        }
+        let input = input.finish()
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        let input = if let Some(smooth) = &mut self.smooth {
+            smooth
+                .project(&input)
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?
+        } else {
+            input
+        };
+        let projection = markdown
+            .project(&input)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        let mut display = String::new();
+        for span in projection.spans() {
+            for value in span.values() {
+                let mut visitor = HostPlainTextVisitor { output: String::new() };
+                visitor.visit_content(value);
+                display.push_str(&visitor.output);
+            }
+        }
+        self.display_text = display;
+        Ok(())
+    }
+
+    fn advance(&mut self, now: Instant) -> bool {
+        let Some(smooth) = &mut self.smooth else {
+            return false;
+        };
+        if !smooth.advance(now) {
+            return false;
+        }
+        self.refresh_display().is_ok()
+    }
+
+    fn next_wakeup(&self) -> Option<Instant> {
+        self.smooth.as_ref().and_then(Smooth::next_wakeup)
+    }
+}
+
+struct HostPlainTextVisitor {
+    output: String,
+}
+
+impl TextVisitor for HostPlainTextVisitor {
+    fn visit_raw(&mut self, raw: &crate::RawText) {
+        self.output.push_str(raw.text());
+    }
+
+    fn visit_text_run(&mut self, run: &TextRun) {
+        self.output.push_str(run.text());
+    }
+}
+
 #[derive(Clone)]
 struct HostStreamSource {
     state: Arc<Mutex<HostStreamState>>,
@@ -467,9 +621,10 @@ struct HostStreamSource {
 impl StreamingSource for HostStreamSource {
     fn snapshot(&self) -> StreamSnapshot {
         let state = self.state.lock().expect("host stream lock is poisoned");
+        let source_text = state.source_text();
         let source_end = state
             .source_base
-            .saturating_add(state.text.len() as u64);
+            .saturating_add(source_text.len() as u64);
         let range = StreamRange::new(state.source_base, source_end);
         let builder = StreamSnapshotBuilder::new(
             state.revision,
@@ -477,10 +632,12 @@ impl StreamingSource for HostStreamSource {
             if state.sealed { source_end } else { state.source_base },
             source_end,
         );
-        let builder = if state.text.is_empty() {
+        let builder = if source_text.is_empty() {
             builder.exact_text(range, [])
         } else {
-            builder.exact_text(range, [TextSpan::plain(state.text.clone())])
+            builder
+                .atomic(range, View::text(state.display_text.clone()).into_view())
+                .expect("host stream atomic view must be valid")
         };
         builder.finish().expect("host stream snapshot must be valid")
     }
@@ -490,19 +647,34 @@ impl StreamingSource for HostStreamSource {
         let target = offset.min(
             state
                 .source_base
-                .saturating_add(state.text.len() as u64),
+                .saturating_add(state.source_text().len() as u64),
         );
         if target <= state.source_base {
             return;
         }
         let local = usize::try_from(target.as_u64() - state.source_base.as_u64())
             .expect("host stream coordinate fits usize");
-        if !state.text.is_char_boundary(local) {
+        let source_text = state.source_text();
+        if !source_text.is_char_boundary(local) {
             return;
         }
-        state.text.drain(..local);
+        let mut remaining = local;
+        for segment in &mut state.segments {
+            if remaining == 0 {
+                break;
+            }
+            if remaining >= segment.text.len() {
+                remaining -= segment.text.len();
+                segment.text.clear();
+            } else {
+                segment.text.drain(..remaining);
+                remaining = 0;
+            }
+        }
+        state.segments.retain(|segment| !segment.text.is_empty());
         state.source_base = target;
         state.revision = state.revision.next();
+        let _ = state.refresh_display();
     }
 
     fn seal(&mut self) {
@@ -510,6 +682,7 @@ impl StreamingSource for HostStreamSource {
             if !state.sealed {
                 state.sealed = true;
                 state.revision = state.revision.next();
+                let _ = state.refresh_display();
             }
         }
     }
@@ -520,6 +693,18 @@ impl StreamingSource for HostStreamSource {
             .map(|state| state.sealed)
             .unwrap_or(true)
     }
+
+    fn next_wakeup(&self) -> Option<Instant> {
+        self.state.lock().ok().and_then(|state| state.next_wakeup())
+    }
+
+    fn advance(&mut self, now: Instant) -> bool {
+        self.state
+            .lock()
+            .map(|mut state| state.advance(now))
+            .unwrap_or(false)
+    }
+
 }
 
 impl HostTextInput {

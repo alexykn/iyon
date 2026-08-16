@@ -48,5 +48,7 @@ export function requireNativeClass<T>(factory: T | undefined, name: string): T {
 export const nativeTui = {
   history: () => new (requireNativeClass(native.NativeHistory, "NativeHistory"))(),
   textInput: (multiline?: boolean) => new (requireNativeClass(native.NativeTextInput, "NativeTextInput"))(multiline),
-  textStream: () => new (requireNativeClass(native.NativeTextStream, "NativeTextStream"))(),
+  textStream: (projector?: "markdown") => new (requireNativeClass(native.NativeTextStream, "NativeTextStream"))(projector),
+  markdownProjector: () => new (requireNativeClass(native.NativeMarkdownProjector, "NativeMarkdownProjector"))(),
+  plainProjector: () => new (requireNativeClass(native.NativePlainProjector, "NativePlainProjector"))(),
 };
