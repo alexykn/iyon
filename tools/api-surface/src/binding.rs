@@ -50,9 +50,13 @@ pub struct MappingFile {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MappingSummary {
+    pub reachable: usize,
     pub mapped: usize,
+    pub implemented: usize,
     pub missing: Vec<String>,
     pub stale: Vec<String>,
+    pub stubbed: Vec<String>,
+    pub planned: Vec<String>,
     pub records: Vec<BindingRecord>,
 }
 
@@ -143,18 +147,31 @@ pub fn validate_manifest_mappings(
         .filter(|(item_id, path)| expected.get(path) != Some(item_id))
         .map(|(_, path)| path.clone())
         .collect::<Vec<_>>();
-    if !missing.is_empty() || !stale.is_empty() {
-        return Ok(MappingSummary {
-            mapped: expected.len().saturating_sub(missing.len()),
-            missing,
-            stale,
-            records,
-        });
+    let mut mapped = 0;
+    let mut implemented = 0;
+    let mut stubbed = Vec::new();
+    let mut planned = Vec::new();
+    for record in &records {
+        if expected.get(&record.path) != Some(&record.item_id) {
+            continue;
+        }
+        mapped += 1;
+        match &record.status {
+            MappingStatus::Implemented => implemented += 1,
+            MappingStatus::Stub => stubbed.push(record.path.clone()),
+            MappingStatus::Planned => planned.push(record.path.clone()),
+        }
     }
+    stubbed.sort();
+    planned.sort();
     Ok(MappingSummary {
-        mapped: expected.len(),
+        reachable: expected.len(),
+        mapped,
+        implemented,
         missing,
         stale,
+        stubbed,
+        planned,
         records,
     })
 }

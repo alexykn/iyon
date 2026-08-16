@@ -31,7 +31,11 @@ pub fn run(command: Command) -> Result<(), ApiSurfaceError> {
         .ok_or_else(|| ApiSurfaceError::configuration("--config is required", None::<String>))?;
     match command {
         Command::Scan => scan_from_config(&config_path).map(|_| ()),
-        Command::Check => check_from_config(&config_path, argument_value(&args, "--artifacts")),
+        Command::Check => check_from_config(
+            &config_path,
+            argument_value(&args, "--artifacts"),
+            args.iter().any(|argument| argument == "--require-implemented"),
+        ),
     }
 }
 
@@ -101,32 +105,38 @@ pub fn scan_config(
 pub fn check_from_config(
     config_path: impl AsRef<std::path::Path>,
     artifacts: Option<std::path::PathBuf>,
+    require_implemented: bool,
 ) -> Result<(), ApiSurfaceError> {
     let (config, manifest) = scan_config(config_path)?;
     let artifact_path = artifacts.unwrap_or_else(|| config.output_dir.join("api-manifest.json"));
     let expected = check::read_manifest(&artifact_path)?;
     check::compare_manifests(&expected, &manifest)?;
     let mapping = check::check_mappings(&manifest, &config.mapping_dir)?;
-    if !mapping.missing.is_empty() || !mapping.stale.is_empty() {
+    if !mapping.missing.is_empty()
+        || !mapping.stale.is_empty()
+        || (require_implemented
+            && (!mapping.stubbed.is_empty() || !mapping.planned.is_empty()))
+    {
         return Err(ApiSurfaceError::configuration(
             format!(
-                "mapping coverage drift: missing={}, stale={}",
+                "mapping coverage drift: missing={}, stale={}, stubbed={}, planned={}",
                 mapping.missing.len(),
-                mapping.stale.len()
+                mapping.stale.len(),
+                mapping.stubbed.len(),
+                mapping.planned.len(),
             ),
             Some(config.mapping_dir.display().to_string()),
         ));
     }
-    let reachable = manifest
-        .crates
-        .iter()
-        .map(|package| package.surface.paths.len())
-        .sum::<usize>();
     println!(
-        "reachable: {reachable}\nmapped:      {}\nmissing:     {}\nstale:       {}",
+        "reachable: {}\nmapped:      {}\nimplemented: {}\nmissing:     {}\nstale:       {}\nstubbed:     {}\nplanned:     {}",
+        mapping.reachable,
         mapping.mapped,
+        mapping.implemented,
         mapping.missing.len(),
-        mapping.stale.len()
+        mapping.stale.len(),
+        mapping.stubbed.len(),
+        mapping.planned.len(),
     );
     Ok(())
 }

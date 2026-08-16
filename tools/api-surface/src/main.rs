@@ -47,6 +47,8 @@ struct CheckArgs {
     scan: ScanArgs,
     #[arg(long, default_value = "target/api-surface")]
     artifacts: PathBuf,
+    #[arg(long)]
+    require_implemented: bool,
 }
 
 fn main() {

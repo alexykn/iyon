@@ -52860,6 +52860,2595 @@
             ]
           },
           {
+            "id": "iyon-tui::application::host::HostHistory",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostHistory"
+              ]
+            },
+            "kind": "Struct",
+            "signature": "\"struct HostHistory Fields::Named { brace_token: Brace, named: [Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(host)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Mutex), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HostInner), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } } }, Comma] }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "HostHistory"
+                  ]
+                },
+                "alias": true,
+                "trace": {
+                  "steps": [
+                    "pub use from application::host::HostHistory at crates/iyon-tui/src/lib.rs"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostHistory::layout",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostHistory",
+                "layout"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn layout Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(layout), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HistoryLayout), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostHistory",
+                    "layout"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostHistory::push",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostHistory",
+                "push"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn push Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(push), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(view), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostHistory",
+                    "push"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostHistory::push_stream",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostHistory",
+                "push_stream"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn push_stream Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(push_stream), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(stream), subpat: None }, colon_token: Colon, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HostTextStream), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostHistory",
+                    "push_stream"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostHistory::set_layout",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostHistory",
+                "set_layout"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn set_layout Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(set_layout), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(layout), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HistoryLayout), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostHistory",
+                    "set_layout"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextInput",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput"
+              ]
+            },
+            "kind": "Struct",
+            "signature": "\"struct HostTextInput Fields::Named { brace_token: Brace, named: [Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(state)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Mutex), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(TextInput), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } } }, Comma, Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(component_id)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Mutex), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u64), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } } }, Comma, Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(host)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Mutex), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Weak), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Mutex), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HostInner), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } } }, Comma] }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "HostTextInput"
+                  ]
+                },
+                "alias": true,
+                "trace": {
+                  "steps": [
+                    "pub use from application::host::HostTextInput at crates/iyon-tui/src/lib.rs"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextInput::clear",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "clear"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn clear Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(clear), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextInput",
+                    "clear"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextInput::component_id",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "component_id"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn component_id Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(component_id), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u64), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextInput",
+                    "component_id"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextInput::cursor_bytes",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "cursor_bytes"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn cursor_bytes Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(cursor_bytes), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(usize), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextInput",
+                    "cursor_bytes"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextInput::is_multiline",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "is_multiline"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn is_multiline Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(is_multiline), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(bool), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextInput",
+                    "is_multiline"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextInput::new",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "new"
+              ]
+            },
+            "kind": "AssociatedFunction",
+            "signature": "\"impl-fn new Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(new), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(multiline), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(bool), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextInput",
+                    "new"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextInput::set_default_border",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "set_default_border"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn set_default_border Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(set_default_border), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextInput",
+                    "set_default_border"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextInput::set_multiline",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "set_multiline"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn set_multiline Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(set_multiline), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(enabled), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(bool), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextInput",
+                    "set_multiline"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextInput::set_text",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "set_text"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn set_text Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(set_text), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(value), subpat: None }, colon_token: Colon, ty: Type::ImplTrait { impl_token: Impl, bounds: [TypeParamBound::Trait(TraitBound { paren_token: None, modifier: TraitBoundModifier::None, lifetimes: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(AsRef), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(str), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })] } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextInput",
+                    "set_text"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextInput::submitted",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "submitted"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn submitted Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(submitted), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Output), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextInput",
+                    "submitted"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextInput::text",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "text"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn text Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(text), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextInput",
+                    "text"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextInput::view",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "view"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn view Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(view), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextInput",
+                    "view"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextStream",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextStream"
+              ]
+            },
+            "kind": "Struct",
+            "signature": "\"struct HostTextStream Fields::Named { brace_token: Brace, named: [Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(state)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Mutex), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HostStreamState), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } } }, Comma, Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(host)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Mutex), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Weak), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Mutex), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HostInner), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } } }, Comma, Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(handle)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Mutex), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HistoryStreamHandle), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HostStreamSource), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } } }, Comma] }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "HostTextStream"
+                  ]
+                },
+                "alias": true,
+                "trace": {
+                  "steps": [
+                    "pub use from application::host::HostTextStream at crates/iyon-tui/src/lib.rs"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextStream::attach",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextStream",
+                "attach"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn attach Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(attach), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(history), subpat: None }, colon_token: Colon, ty: Type::Reference { and_token: And, lifetime: None, mutability: Some(Mut), elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(History), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextStream",
+                    "attach"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextStream::new",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextStream",
+                "new"
+              ]
+            },
+            "kind": "AssociatedFunction",
+            "signature": "\"impl-fn new Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(new), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextStream",
+                    "new"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextStream::seal",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextStream",
+                "seal"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn seal Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(seal), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextStream",
+                    "seal"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextStream::snapshot_json",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextStream",
+                "snapshot_json"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn snapshot_json Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(snapshot_json), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } }, Comma, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u64), arguments: PathArguments::None }] } }, Comma, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(bool), arguments: PathArguments::None }] } }] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextStream",
+                    "snapshot_json"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostTextStream::update",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextStream",
+                "update"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn update Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(update), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(text), subpat: None }, colon_token: Colon, ty: Type::ImplTrait { impl_token: Impl, bounds: [TypeParamBound::Trait(TraitBound { paren_token: None, modifier: TraitBoundModifier::None, lifetimes: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Into), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })] } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostTextStream",
+                    "update"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostWorking",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostWorking"
+              ]
+            },
+            "kind": "Struct",
+            "signature": "\"struct HostWorking Fields::Named { brace_token: Brace, named: [Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(state)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Mutex), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(WorkingState), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } } }, Comma, Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(component_id)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Mutex), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u64), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } } }, Comma] }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "HostWorking"
+                  ]
+                },
+                "alias": true,
+                "trace": {
+                  "steps": [
+                    "pub use from application::host::HostWorking at crates/iyon-tui/src/lib.rs"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostWorking::component_id",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostWorking",
+                "component_id"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn component_id Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(component_id), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u64), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostWorking",
+                    "component_id"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostWorking::new",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostWorking",
+                "new"
+              ]
+            },
+            "kind": "AssociatedFunction",
+            "signature": "\"impl-fn new Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(new), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostWorking",
+                    "new"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostWorking::set_active",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostWorking",
+                "set_active"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn set_active Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(set_active), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(active), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(bool), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostWorking",
+                    "set_active"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::HostWorking::set_pending",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostWorking",
+                "set_pending"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn set_pending Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(set_pending), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(pending), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Vec), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "HostWorking",
+                    "set_pending"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::RoutedAction",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "RoutedAction"
+              ]
+            },
+            "kind": "Struct",
+            "signature": "\"struct RoutedAction Fields::Named { brace_token: Brace, named: [Field { attrs: [], vis: Visibility::Public(Pub), mutability: FieldMutability::None, ident: Some(Ident(action_id)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } } }, Comma, Field { attrs: [], vis: Visibility::Public(Pub), mutability: FieldMutability::None, ident: Some(Ident(payload)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } } }, Comma] }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "RoutedAction"
+                  ]
+                },
+                "alias": true,
+                "trace": {
+                  "steps": [
+                    "pub use from application::host::RoutedAction at crates/iyon-tui/src/lib.rs"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::RoutedAction::action_id",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "RoutedAction",
+                "action_id"
+              ]
+            },
+            "kind": "StructField",
+            "signature": "\"field action_id Field { attrs: [], vis: Visibility::Public(Pub), mutability: FieldMutability::None, ident: Some(Ident(action_id)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } } }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "RoutedAction",
+                    "action_id"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "public struct field"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::RoutedAction::payload",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "RoutedAction",
+                "payload"
+              ]
+            },
+            "kind": "StructField",
+            "signature": "\"field payload Field { attrs: [], vis: Visibility::Public(Pub), mutability: FieldMutability::None, ident: Some(Ident(payload)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } } }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "RoutedAction",
+                    "payload"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "public struct field"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost"
+              ]
+            },
+            "kind": "Struct",
+            "signature": "\"struct TuiHost Fields::Named { brace_token: Brace, named: [Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(inner)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Mutex), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HostInner), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })], gt_token: Gt } }] } } }, Comma] }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "TuiHost"
+                  ]
+                },
+                "alias": true,
+                "trace": {
+                  "steps": [
+                    "pub use from application::host::TuiHost at crates/iyon-tui/src/lib.rs"
+                  ]
+                }
+              },
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "trait implementation projection"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::advance_time",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "advance_time"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn advance_time Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(advance_time), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(duration), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Duration), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "advance_time"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::bind_key",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "bind_key"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn bind_key Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(bind_key), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(key), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(KeyStroke), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(action_id), subpat: None }, colon_token: Colon, ty: Type::ImplTrait { impl_token: Impl, bounds: [TypeParamBound::Trait(TraitBound { paren_token: None, modifier: TraitBoundModifier::None, lifetimes: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Into), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })] } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "bind_key"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::close",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "close"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn close Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(close), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "close"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::create_text_input",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "create_text_input"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn create_text_input Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(create_text_input), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(multiline), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(bool), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HostTextInput), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "create_text_input"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::create_working",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "create_working"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn create_working Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(create_working), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HostWorking), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "create_working"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::dispatch_key",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "dispatch_key"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn dispatch_key Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(dispatch_key), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(key), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(KeyStroke), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "dispatch_key"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::dispatch_paste",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "dispatch_paste"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn dispatch_paste Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(dispatch_paste), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(text), subpat: None }, colon_token: Colon, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(str), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "dispatch_paste"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::drop",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "drop"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn drop Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(drop), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: Some(Mut), self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: Some(Mut), elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Default }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "drop"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::exit",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "exit"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn exit Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(exit), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "exit"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::history",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "history"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn history Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(history), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HostHistory), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "history"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::intercept_paste",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "intercept_paste"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn intercept_paste Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(intercept_paste), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(input), subpat: None }, colon_token: Colon, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HostTextInput), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(action_id), subpat: None }, colon_token: Colon, ty: Type::ImplTrait { impl_token: Impl, bounds: [TypeParamBound::Trait(TraitBound { paren_token: None, modifier: TraitBoundModifier::None, lifetimes: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Into), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })] } }), Comma], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "intercept_paste"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::is_headless",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "is_headless"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn is_headless Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(is_headless), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(bool), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "is_headless"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::native_history_rows",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "native_history_rows"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn native_history_rows Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(native_history_rows), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Vec), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "native_history_rows"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::next_action",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "next_action"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn next_action Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(next_action), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(RoutedAction), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "next_action"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::open",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "open"
+              ]
+            },
+            "kind": "AssociatedFunction",
+            "signature": "\"impl-fn open Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(open), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(width), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u16), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(height), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u16), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(headless), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(bool), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "open"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::poll_terminal",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "poll_terminal"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn poll_terminal Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(poll_terminal), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "poll_terminal"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::render",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "render"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn render Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(render), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(body), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "render"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::resize",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "resize"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn resize Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(resize), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(width), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u16), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(height), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u16), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "resize"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::route_text_input",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "route_text_input"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn route_text_input Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(route_text_input), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(input), subpat: None }, colon_token: Colon, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HostTextInput), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(action_id), subpat: None }, colon_token: Colon, ty: Type::ImplTrait { impl_token: Impl, bounds: [TypeParamBound::Trait(TraitBound { paren_token: None, modifier: TraitBoundModifier::None, lifetimes: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Into), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })] } }), Comma], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "route_text_input"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::route_text_input_output",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "route_text_input_output"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn route_text_input_output Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(route_text_input_output), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(output), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Output), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(action_id), subpat: None }, colon_token: Colon, ty: Type::ImplTrait { impl_token: Impl, bounds: [TypeParamBound::Trait(TraitBound { paren_token: None, modifier: TraitBoundModifier::None, lifetimes: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Into), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })] } }), Comma], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "route_text_input_output"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::application::host::TuiHost::screen_rows",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "screen_rows"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn screen_rows Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(screen_rows), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Vec), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/application/host.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "application",
+                    "host",
+                    "TuiHost",
+                    "screen_rows"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
             "id": "iyon-tui::application::timer::TimerHandle",
             "canonical_path": {
               "crate_id": "iyon-tui",
@@ -53303,6 +55892,55 @@
                     "id",
                     "ComponentHandle",
                     "hash"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::component::id::ComponentHandle::raw_id",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "component",
+                "id",
+                "ComponentHandle",
+                "raw_id"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn raw_id Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(raw_id), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: None, mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u64), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/component/id.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "component",
+                    "id",
+                    "ComponentHandle",
+                    "raw_id"
                   ]
                 },
                 "alias": false,
@@ -98558,6 +101196,57 @@
             ]
           },
           {
+            "id": "iyon-tui::presentation::api::style::Insets::bottom",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "api",
+                "style",
+                "Insets",
+                "bottom"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn bottom Signature { constness: Some(Const), asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(bottom), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: None, mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u16), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/style.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "api",
+                    "style",
+                    "Insets",
+                    "bottom"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
             "id": "iyon-tui::presentation::api::style::Insets::from",
             "canonical_path": {
               "crate_id": "iyon-tui",
@@ -98660,6 +101349,57 @@
             ]
           },
           {
+            "id": "iyon-tui::presentation::api::style::Insets::left",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "api",
+                "style",
+                "Insets",
+                "left"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn left Signature { constness: Some(Const), asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(left), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: None, mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u16), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/style.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "api",
+                    "style",
+                    "Insets",
+                    "left"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
             "id": "iyon-tui::presentation::api::style::Insets::new",
             "canonical_path": {
               "crate_id": "iyon-tui",
@@ -98699,6 +101439,108 @@
                     "style",
                     "Insets",
                     "new"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::api::style::Insets::right",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "api",
+                "style",
+                "Insets",
+                "right"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn right Signature { constness: Some(Const), asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(right), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: None, mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u16), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/style.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "api",
+                    "style",
+                    "Insets",
+                    "right"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::api::style::Insets::top",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "api",
+                "style",
+                "Insets",
+                "top"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn top Signature { constness: Some(Const), asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(top), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: None, mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u16), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/style.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "api",
+                    "style",
+                    "Insets",
+                    "top"
                   ]
                 },
                 "alias": false,
@@ -106451,6 +109293,55 @@
                     "ir",
                     "View",
                     "min_width"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::native_component",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "native_component"
+              ]
+            },
+            "kind": "AssociatedFunction",
+            "signature": "\"impl-fn native_component Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(native_component), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(raw_id), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u64), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/component/slot.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "native_component"
                   ]
                 },
                 "alias": false,
@@ -121294,6 +124185,62 @@
             "path": {
               "crate_id": "iyon-tui",
               "segments": [
+                "HostHistory"
+              ]
+            },
+            "alias": true,
+            "trace": {
+              "steps": [
+                "pub use from application::host::HostHistory at crates/iyon-tui/src/lib.rs"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "HostTextInput"
+              ]
+            },
+            "alias": true,
+            "trace": {
+              "steps": [
+                "pub use from application::host::HostTextInput at crates/iyon-tui/src/lib.rs"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "HostTextStream"
+              ]
+            },
+            "alias": true,
+            "trace": {
+              "steps": [
+                "pub use from application::host::HostTextStream at crates/iyon-tui/src/lib.rs"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "HostWorking"
+              ]
+            },
+            "alias": true,
+            "trace": {
+              "steps": [
+                "pub use from application::host::HostWorking at crates/iyon-tui/src/lib.rs"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
                 "Inline"
               ]
             },
@@ -121595,6 +124542,20 @@
             "trace": {
               "steps": [
                 "pub use from output::router::RouteConflict at crates/iyon-tui/src/lib.rs"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "RoutedAction"
+              ]
+            },
+            "alias": true,
+            "trace": {
+              "steps": [
+                "pub use from application::host::RoutedAction at crates/iyon-tui/src/lib.rs"
               ]
             }
           },
@@ -122099,6 +125060,20 @@
             "trace": {
               "steps": [
                 "pub use from application::timer::TimerHandle at crates/iyon-tui/src/lib.rs"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "TuiHost"
+              ]
+            },
+            "alias": true,
+            "trace": {
+              "steps": [
+                "pub use from application::host::TuiHost at crates/iyon-tui/src/lib.rs"
               ]
             }
           },
@@ -123062,6 +126037,821 @@
             "path": {
               "crate_id": "iyon-tui",
               "segments": [
+                "application",
+                "host",
+                "HostHistory",
+                "layout"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostHistory",
+                "push"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostHistory",
+                "push_stream"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostHistory",
+                "set_layout"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "clear"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "component_id"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "cursor_bytes"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "is_multiline"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "new"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "set_default_border"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "set_multiline"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "set_text"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "submitted"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "text"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextInput",
+                "view"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextStream",
+                "attach"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextStream",
+                "new"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextStream",
+                "seal"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextStream",
+                "snapshot_json"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostTextStream",
+                "update"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostWorking",
+                "component_id"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostWorking",
+                "new"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostWorking",
+                "set_active"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "HostWorking",
+                "set_pending"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "RoutedAction",
+                "action_id"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "public struct field"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "RoutedAction",
+                "payload"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "public struct field"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "trait implementation projection"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "advance_time"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "bind_key"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "close"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "create_text_input"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "create_working"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "dispatch_key"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "dispatch_paste"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "drop"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "exit"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "history"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "intercept_paste"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "is_headless"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "native_history_rows"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "next_action"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "open"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "poll_terminal"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "render"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "resize"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "route_text_input"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "route_text_input_output"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "application",
+                "host",
+                "TuiHost",
+                "screen_rows"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
                 "component",
                 "Component",
                 "capabilities"
@@ -123165,6 +126955,23 @@
                 "id",
                 "ComponentHandle",
                 "hash"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "component",
+                "id",
+                "ComponentHandle",
+                "raw_id"
               ]
             },
             "alias": false,
@@ -137998,6 +141805,24 @@
                 "api",
                 "style",
                 "Insets",
+                "bottom"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "api",
+                "style",
+                "Insets",
                 "from"
               ]
             },
@@ -138034,7 +141859,61 @@
                 "api",
                 "style",
                 "Insets",
+                "left"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "api",
+                "style",
+                "Insets",
                 "new"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "api",
+                "style",
+                "Insets",
+                "right"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "api",
+                "style",
+                "Insets",
+                "top"
               ]
             },
             "alias": false,
@@ -140568,6 +144447,23 @@
                 "ir",
                 "View",
                 "min_width"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "native_component"
               ]
             },
             "alias": false,
@@ -146563,5 +150459,5 @@
       }
     }
   ],
-  "content_hash": "bbf6e5af8395cb63"
+  "content_hash": "d20c0940b58179c0"
 }
