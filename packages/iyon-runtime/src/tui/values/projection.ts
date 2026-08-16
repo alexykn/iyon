@@ -22,7 +22,7 @@ export class ProjectionBuilder {
 
 export class Smooth {
   readonly kind = "smooth" as const;
-  constructor(readonly through: number) { if (!Number.isInteger(through) || through < 0) throw new RangeError("smooth offset must be non-negative"); }
+  constructor(readonly through = 0) { if (!Number.isInteger(through) || through < 0) throw new RangeError("smooth offset must be non-negative"); }
 }
 
 function validateSpans(spans: readonly ProjectionSpan[]): void {

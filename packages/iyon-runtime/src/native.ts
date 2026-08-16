@@ -79,7 +79,9 @@ export interface NativeAddon {
   NativeTextInput?: new (multiline?: boolean) => { dispose(): void; text(): string; cursorBytes(): number; setText(value: string): void; clear(): void; submitted(): NativeTuiOutputContract; setMultiline(enabled: boolean): void; isMultiline(): boolean; componentId(): number | null };
   NativeTuiHost?: new (width?: number, height?: number, headless?: boolean) => NativeTuiHostContract;
   NativeTuiOutput?: new () => NativeTuiOutputContract;
-  NativeTextStream?: new () => { dispose(): void; update(text: string): void; seal(): void; snapshot(): object };
+  NativeTextStream?: new (projector?: "markdown") => { dispose(): void; update(text: string): void; appendSegment(kind: "text" | "thinking", text: string): void; seal(): void; snapshot(): object };
+  NativeMarkdownProjector?: new () => { dispose(): void; project(text: string, sealed?: boolean): object };
+  NativePlainProjector?: new () => { dispose(): void; project(text: string): object };
   NativeWorking?: new () => { dispose(): void; componentId(): number | null; setActive(active: boolean): void; setPending(pending: string[]): void };
   NativeViewSlot?: new (initial: object) => { dispose(): void; revision(): number; componentId(): number | null; setView(view: object): void };
 }

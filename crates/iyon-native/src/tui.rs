@@ -3,7 +3,10 @@ use napi_derive::napi;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use iyon_tui::{BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History, HostActivityConfig, HostCellStyle, HostHistory, HostTextInput, HostTextStream, HostViewSlot, HostWorking, HorizontalAlign, IntoView, Key, KeyStroke, Modifiers, Output, StyleRef, StyleSpec, TextInput, TextSpan, TuiHost, VerticalAlign, View, WrapMode};
+use iyon_tui::{BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History, HostActivityConfig, HostCellStyle, HostHistory, HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, HorizontalAlign, IntoView, Key, KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output, Projector, StyleRef, StyleSpec, TextContent, TextInput, TextSpan, TuiHost, VerticalAlign, View, WrapMode};
+use iyon_tui::projection::ProjectionBuilder;
+use iyon_tui::stream::{StreamOffset, StreamRange};
+use iyon_tui::text::{TextRun, TextVisitor};
 use serde_json::Map;
 use serde_json::Value;
 
@@ -593,9 +596,13 @@ pub struct NativeTextStream {
 #[napi]
 impl NativeTextStream {
     #[napi(constructor)]
-    pub fn new() -> Self {
+    pub fn new(projector: Option<String>) -> Self {
         Self {
-            stream: HostTextStream::new(),
+            stream: if projector.as_deref() == Some("markdown") {
+                HostTextStream::with_markdown()
+            } else {
+                HostTextStream::new()
+            },
             alive: AtomicBool::new(true),
         }
     }
@@ -613,6 +620,19 @@ impl NativeTextStream {
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
+    #[napi(js_name = "appendSegment")]
+    pub fn append_segment(&self, kind: String, text: String) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let kind = match kind.as_str() {
+            "text" => HostStreamSegmentKind::Text,
+            "thinking" => HostStreamSegmentKind::Thinking,
+            _ => return Err(crate::NativeError::invalid_input("segment kind must be text or thinking")),
+        };
+        self.stream
+            .append_segment(kind, text)
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
+    }
+
     #[napi]
     pub fn seal(&self) -> Result<()> {
         ensure_alive(&self.alive)?;
@@ -624,13 +644,125 @@ impl NativeTextStream {
     #[napi]
     pub fn snapshot(&self) -> Result<Value> {
         ensure_alive(&self.alive)?;
-        let (text, revision, sealed) = self
+        let (text, revision, sealed, segments) = self
             .stream
             .snapshot_json()
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
-        Ok(serde_json::json!({"text": text, "revision": revision, "sealed": sealed}))
+        let mut snapshot = serde_json::json!({"text": text, "revision": revision, "sealed": sealed});
+        if !segments.is_empty() {
+            snapshot["segments"] = serde_json::Value::Array(
+                segments
+                    .into_iter()
+                    .map(|(kind, text)| serde_json::json!({"kind": kind, "text": text}))
+                    .collect(),
+            );
+        }
+        Ok(snapshot)
     }
 
+}
+
+#[napi]
+pub struct NativeMarkdownProjector {
+    projector: Mutex<MarkdownProjector>,
+    alive: AtomicBool,
+}
+
+#[napi]
+pub struct NativePlainProjector {
+    alive: AtomicBool,
+}
+
+#[napi]
+impl NativePlainProjector {
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        Self { alive: AtomicBool::new(true) }
+    }
+
+    #[napi]
+    pub fn dispose(&self) {
+        self.alive.store(false, Ordering::Release);
+    }
+
+    #[napi]
+    pub fn project(&self, text: String) -> Result<Value> {
+        ensure_alive(&self.alive)?;
+        let length = text.len() as u64;
+        Ok(serde_json::json!({
+            "spans": [{"sourceStart": 0, "sourceEnd": length, "text": text}],
+        }))
+    }
+}
+
+#[napi]
+impl NativeMarkdownProjector {
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        Self {
+            projector: Mutex::new(MarkdownProjector::new(MarkdownOptions::commonmark())),
+            alive: AtomicBool::new(true),
+        }
+    }
+
+    #[napi]
+    pub fn dispose(&self) {
+        self.alive.store(false, Ordering::Release);
+    }
+
+    #[napi]
+    pub fn project(&self, text: String, sealed: Option<bool>) -> Result<Value> {
+        ensure_alive(&self.alive)?;
+        let sealed = sealed.unwrap_or(true);
+        let end = StreamOffset::new(text.len() as u64);
+        let input = ProjectionBuilder::new(
+            StreamOffset::ZERO,
+            if sealed { end } else { StreamOffset::ZERO },
+            end,
+            sealed,
+        )
+        .emit(StreamRange::new(StreamOffset::ZERO, end), TextContent::raw(text))
+        .finish()
+        .map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
+        let projection = self
+            .projector
+            .lock()
+            .map_err(|_| crate::NativeError::internal("markdown projector lock is poisoned"))?
+            .project(&input)
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
+        let spans = projection
+            .spans()
+            .iter()
+            .map(|span| {
+                let mut output = String::new();
+                for value in span.values() {
+                    let mut visitor = PlainTextVisitor { output: String::new() };
+                    visitor.visit_content(value);
+                    output.push_str(&visitor.output);
+                }
+                serde_json::json!({
+                    "sourceStart": span.source().start().as_u64(),
+                    "sourceEnd": span.source().end().as_u64(),
+                    "text": output,
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(serde_json::json!({"spans": spans}))
+    }
+}
+
+struct PlainTextVisitor {
+    output: String,
+}
+
+impl TextVisitor for PlainTextVisitor {
+    fn visit_raw(&mut self, raw: &iyon_tui::RawText) {
+        self.output.push_str(raw.text());
+    }
+
+    fn visit_text_run(&mut self, run: &TextRun) {
+        self.output.push_str(run.text());
+    }
 }
 
 #[napi]

@@ -25,4 +25,4 @@ pub use handle::{AppClosed, AppHandle, AppSendError};
 #[cfg(feature = "test-util")]
 pub(crate) use kernel::{KernelError, RunningApp};
 pub use timer::TimerHandle;
-pub use host::{HostActivityConfig, HostCellStyle, HostHistory, HostTextInput, HostTextStream, HostViewSlot, HostWorking, RoutedAction, TuiHost};
+pub use host::{HostActivityConfig, HostCellStyle, HostHistory, HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, RoutedAction, TuiHost};

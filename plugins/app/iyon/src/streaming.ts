@@ -25,8 +25,11 @@ export class NativeAssistantStream {
   readonly native: TextStreamHandle;
   readonly buffer = new AssistantStreamBuffer();
 
-  constructor() { this.native = new TextStream(); }
-  async append(kind: SegmentKind, text: string): Promise<void> { this.buffer.append(kind, text); await this.native.update(this.buffer.text()); }
+  constructor() { this.native = new TextStream({ projector: "markdown" }); }
+  async append(kind: SegmentKind, text: string): Promise<void> {
+    this.buffer.append(kind, text);
+    await this.native.appendSegment(kind, text);
+  }
   async snapshot(): Promise<StreamSnapshot> { return this.native.snapshot(); }
   async seal(): Promise<void> { this.buffer.seal(); await this.native.seal(); }
   async dispose(): Promise<void> { await this.native.dispose(); }

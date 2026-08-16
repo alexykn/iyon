@@ -50,6 +50,7 @@ export interface TextInput extends NativeHandle {
 export interface TextStream extends NativeHandle {
   readonly kind: "text-stream";
   update(text: string): TuiOperation<void>;
+  appendSegment(kind: "text" | "thinking", text: string): TuiOperation<void>;
   seal(): TuiOperation<void>;
   snapshot(): TuiOperation<StreamSnapshot>;
 }
@@ -60,6 +61,12 @@ export interface StreamSnapshot {
   readonly text: string;
   readonly revision: number;
   readonly sealed: boolean;
+  readonly segments?: readonly StreamSegmentSnapshot[];
+}
+
+export interface StreamSegmentSnapshot {
+  readonly kind: "text" | "thinking";
+  readonly text: string;
 }
 
 export interface Component extends NativeHandle {
