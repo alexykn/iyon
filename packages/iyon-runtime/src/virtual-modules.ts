@@ -17,13 +17,24 @@ import {
   runWithAbortSignal,
   tuiSmoke,
 } from "./smoke.ts";
+import {
+  AgentSession,
+  IyonNativeError,
+  KernelSession,
+  ModelTurn,
+  ToolExecution,
+  asIyonError,
+  isCancelledError,
+} from "./modules/core.ts";
 
 const virtualModules = {
   "iyon:api": `
+    export type * from "@iyon/runtime/modules/api";
     export { apiSmoke } from "@iyon/runtime/smoke";
     export { nativeVersion, echoJson, echoString, echoBuffer } from "@iyon/runtime/native";
   `,
   "iyon:core": `
+    export * from "@iyon/runtime/modules/core";
     export { coreSmoke, runWithAbortSignal, cancellationOperation } from "@iyon/runtime/smoke";
     export {
       asyncSleep,
@@ -42,7 +53,7 @@ const virtualModules = {
 type IyonVirtualModule = keyof typeof virtualModules;
 
 export const iyonVirtualModulePlugin: Bun.BunPlugin = {
-  name: "iyon-t1-virtual-modules",
+  name: "iyon-virtual-modules",
   setup(build) {
     build.onResolve(
       { filter: /^(iyon:)?(api|core|tui)$/ },
@@ -84,6 +95,13 @@ function registerRuntimeModules(build: Bun.PluginBuilder): void {
       EventQueueProbe,
       nativeCounterStats,
       resetNativeCounterStats,
+      KernelSession,
+      ModelTurn,
+      ToolExecution,
+      AgentSession,
+      IyonNativeError,
+      asIyonError,
+      isCancelledError,
     },
     loader: "object",
   }));
