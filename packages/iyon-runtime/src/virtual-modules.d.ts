@@ -68,6 +68,10 @@ declare module "iyon:tui" {
   export function isTuiCancelledError(error: unknown): boolean;
 }
 
+declare module "iyon:plugins" {
+  export * from "@iyon/plugins";
+}
+
 declare module "*.node" {
   const nativeAddon: import("./native.ts").NativeAddon;
   export default nativeAddon;

@@ -18,6 +18,7 @@ export {
 } from "./smoke.ts";
 export {
   installIyonVirtualModules,
+  isIyonVirtualModulesInstalled,
   iyonVirtualModulePlugin,
 } from "./virtual-modules.ts";
 export type {
