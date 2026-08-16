@@ -62,6 +62,13 @@ pub fn scan_config(
     })?;
     let config_root = path.parent().unwrap_or_else(|| std::path::Path::new("."));
     resolve_config_paths(&mut config, config_root);
+    config.workspace_manifest =
+        std::fs::canonicalize(&config.workspace_manifest).map_err(|error| {
+            ApiSurfaceError::configuration(
+                format!("cannot resolve workspace manifest: {error}"),
+                Some(config.workspace_manifest.display().to_string()),
+            )
+        })?;
     let workspace_root = config.workspace_manifest.parent().ok_or_else(|| {
         ApiSurfaceError::configuration("workspace manifest has no parent directory", None::<String>)
     })?;
