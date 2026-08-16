@@ -10,7 +10,7 @@ export interface ActionContext {
   readonly clearComposer?: () => Promise<void> | void;
   readonly composerText?: () => Promise<string> | string;
   readonly forwardPaste?: (text: string) => Promise<void> | void;
-  readonly runAgent?: () => Promise<unknown>;
+  readonly runAgent?: () => Promise<unknown> | void;
   readonly onExit?: () => Promise<void> | void;
 }
 
