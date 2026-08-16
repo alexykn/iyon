@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "plugins/providers/*"
+    "plugins/providers/*",
+    "plugins/tools/*"
   ],
   "scripts": {
     "workspace:install": "bun install",

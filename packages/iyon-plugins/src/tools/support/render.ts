@@ -1,6 +1,6 @@
 import { parseUnifiedDiff } from "./diff.ts";
 import type { DiffHunk } from "./diff.ts";
-import { View } from "iyon:tui";
+import { View } from "@iyon/runtime/tui";
 
 export function renderDiff(details: unknown): View | undefined {
   const diff = typeof details === "object" && details !== null && typeof (details as { diff?: unknown }).diff === "string" ? (details as { diff: string }).diff : undefined;

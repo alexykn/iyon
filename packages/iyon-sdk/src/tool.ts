@@ -10,7 +10,7 @@ import type {
   TurnId,
   ToolUpdateEvent,
 } from "./core.ts";
-import type { View } from "./tui/index.d.ts";
+import type { View } from "iyon:tui";
 
 export type ToolExecutionMode = "parallel" | "sequential";
 export type ToolApprovalPolicy = "neverAsk" | "alwaysAsk" | ApprovalRequirement;
@@ -72,6 +72,8 @@ export interface ToolContext {
 }
 
 export interface Tool<TArgs = JsonValue, TValue = unknown> {
+  readonly [key: string]: unknown;
+  readonly id?: string;
   readonly name: string;
   readonly description: string;
   readonly inputSchema: JsonValue;
@@ -88,14 +90,14 @@ export interface Tool<TArgs = JsonValue, TValue = unknown> {
 
 export type ToolDefinition<TArgs = JsonValue, TValue = unknown> = Tool<TArgs, TValue>;
 
-export function defineTool<TArgs = JsonValue, TValue = unknown>(tool: Tool<TArgs, TValue>): Tool<TArgs, TValue> {
+export function defineTool<TArgs = JsonValue, TValue = unknown>(tool: Tool<TArgs, TValue>): Tool<TArgs, TValue> & { readonly id: string } {
   if (!tool || typeof tool !== "object") throw new TypeError("tool definition must be an object");
   if (!tool.name || typeof tool.name !== "string") throw new TypeError("tool name must be a non-empty string");
   if (typeof tool.execute !== "function") throw new TypeError(`tool ${tool.name} must define execute`);
   if (typeof tool.renderCall !== "function" || typeof tool.renderResult !== "function") {
     throw new TypeError(`tool ${tool.name} must define renderCall and renderResult`);
   }
-  return Object.freeze({ ...tool, modelSpec: tool.modelSpec ?? { name: tool.name, description: tool.description, inputSchema: tool.inputSchema } });
+  return Object.freeze({ ...tool, id: tool.id ?? tool.name, modelSpec: tool.modelSpec ?? { name: tool.name, description: tool.description, inputSchema: tool.inputSchema } });
 }
 
 export type NativeToolResult = CoreToolResult;

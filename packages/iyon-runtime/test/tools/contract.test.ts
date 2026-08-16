@@ -12,8 +12,8 @@ describe("tool contribution contract", () => {
       description: "Read the weather",
       inputSchema: { type: "object" },
       execute: async () => ({ content: [{ type: "text", text: "sunny" }], details: {}, isError: false }),
-      renderCall: () => View.text("weather call"),
-      renderResult: () => View.text("weather result"),
+      renderCall: () => View.text("weather call") as never,
+      renderResult: () => View.text("weather result") as never,
     });
 
     expect(tool.modelSpec).toEqual({ name: "weather", description: "Read the weather", inputSchema: { type: "object" } });
