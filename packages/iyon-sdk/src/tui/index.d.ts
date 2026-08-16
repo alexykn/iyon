@@ -99,8 +99,12 @@ export interface NativeHandle {
   dispose(): Promise<void>;
 }
 
-export interface History extends NativeHandle {
+export declare class History implements NativeHandle {
+  readonly id: number;
+  readonly disposed: boolean;
   readonly kind: "history";
+  constructor();
+  dispose(): Promise<void>;
   layout(): Promise<HistoryLayout>;
 }
 
@@ -109,8 +113,12 @@ export interface HistoryLayout {
   readonly gap: number;
 }
 
-export interface TextInput extends NativeHandle {
+export declare class TextInput implements NativeHandle {
+  readonly id: number;
+  readonly disposed: boolean;
   readonly kind: "text-input";
+  constructor(options?: { multiline?: boolean });
+  dispose(): Promise<void>;
   text(): Promise<string>;
   cursorBytes(): Promise<number>;
   setText(value: string): Promise<void>;
@@ -121,8 +129,12 @@ export interface TextInput extends NativeHandle {
   view(): Promise<View>;
 }
 
-export interface TextStream extends NativeHandle {
+export declare class TextStream implements NativeHandle {
+  readonly id: number;
+  readonly disposed: boolean;
   readonly kind: "text-stream";
+  constructor();
+  dispose(): Promise<void>;
   update(text: string): Promise<void>;
   seal(): Promise<void>;
   snapshot(): Promise<StreamSnapshot>;
@@ -136,8 +148,12 @@ export interface StreamSnapshot {
   readonly sealed: boolean;
 }
 
-export interface Component extends NativeHandle {
+export declare class Component implements NativeHandle {
+  readonly id: number;
+  readonly disposed: boolean;
   readonly kind: "component";
+  constructor();
+  dispose(): Promise<void>;
   view(): Promise<View>;
   capabilities(): Promise<ComponentCapabilities>;
 }

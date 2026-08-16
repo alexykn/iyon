@@ -71,6 +71,10 @@ export interface NativeAddon {
   nativeCounterStats(): NativeCounterStats;
   resetNativeCounterStats(): void;
   materializeView?(value: unknown): object;
+  NativeHistory?: new () => { dispose(): void; layout(): object; push(view: object): void; pushStream(stream: object): void };
+  NativeTextInput?: new (multiline?: boolean) => { dispose(): void; text(): string; cursorBytes(): number; setText(value: string): void; clear(): void; submitted(): string | null; setMultiline(enabled: boolean): void; isMultiline(): boolean };
+  NativeTextStream?: new () => { dispose(): void; update(text: string): void; seal(): void; snapshot(): object };
+  NativeComponent?: new () => { dispose(): void; id(): number; revision(): number };
 }
 
 // This is the one static addon seam. The stage script materializes this exact
