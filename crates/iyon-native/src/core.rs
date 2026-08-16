@@ -151,6 +151,31 @@ impl KernelSession {
         crate::model_turn::begin_session_turn(self, request)
     }
 
+    #[napi(js_name = "prepareToolExecution")]
+    pub fn prepare_tool_execution(
+        &self,
+        request: Value,
+    ) -> Result<crate::tool_execution::ToolExecution> {
+        self.state.ensure_open()?;
+        let object = crate::value::object(request, "tool execution request")?;
+        let turn_id = crate::value::required_u64(&object, "turnId")?;
+        let message_id = crate::value::required_u64(&object, "messageId")?;
+        let tool_call_id = crate::value::required_string(&object, "toolCallId")?;
+        let tool_name = crate::value::required_string(&object, "toolName")?;
+        let arguments = object
+            .get("arguments")
+            .cloned()
+            .ok_or_else(|| NativeError::invalid_input("tool arguments are required"))?;
+        Ok(crate::tool_execution::ToolExecution::new(
+            Arc::clone(&self.state),
+            iyon_core::ids::TurnId(turn_id),
+            iyon_core::ids::MessageId(message_id),
+            iyon_core::ids::ToolCallId(tool_call_id),
+            tool_name,
+            arguments,
+        ))
+    }
+
     #[napi(js_name = "appendMessage")]
     pub fn append_message(&self, value: Value) -> Result<f64> {
         self.state.ensure_open()?;
@@ -415,7 +440,7 @@ pub(crate) fn message_value(message: &AgentMessage) -> Value {
     }
 }
 
-fn content_value(content: &ContentBlock) -> Value {
+pub(crate) fn content_value(content: &ContentBlock) -> Value {
     match content {
         ContentBlock::Text { text } => json!({"type": "text", "text": text}),
         ContentBlock::Image { data, mime_type } => {
