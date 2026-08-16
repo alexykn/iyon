@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use crate::ids::ToolCallId;
 
 #[derive(Debug, Clone)]
-pub(crate) struct PendingToolCall {
+pub struct PendingToolCall {
     pub id: Option<ToolCallId>,
     pub name: Option<String>,
     pub arguments_text: String,
@@ -15,27 +15,27 @@ pub(crate) struct PendingToolCall {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum ToolCallRequest {
+pub enum ToolCallRequest {
     Ready(AssembledToolCall),
     Invalid(InvalidToolCall),
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AssembledToolCall {
+pub struct AssembledToolCall {
     pub id: ToolCallId,
     pub name: String,
     pub arguments: Value,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct InvalidToolCall {
+pub struct InvalidToolCall {
     pub id: ToolCallId,
     pub name: String,
     pub error: String,
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct ToolCallAssembler {
+#[derive(Debug, Clone, Default)]
+pub struct ToolCallAssembler {
     calls: BTreeMap<usize, PendingToolCall>,
 }
 
