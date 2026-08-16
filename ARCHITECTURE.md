@@ -304,9 +304,11 @@ sequencing and does not replace the four inventory baselines.
 
 The TypeScript CLI in `packages/iyon-cli` is compiled by Bun into the canonical
 standalone executable. Bun's standalone packaging embeds or packages the
-`iyon-native.node` addon for the supported target. The executable starts Bun,
-loads the runtime and ordinary TypeScript extensions, and reaches Rust only
-through the documented `iyon:*` surfaces and native membrane.
+`iyon-native.node` addon for the supported target. That compiled executable
+*is* the process: it contains the Bun runtime, loads the TypeScript CLI,
+runtime, and ordinary TypeScript extensions, and reaches Rust only through
+the documented `iyon:*` surfaces and native membrane. It does not spawn Bun
+as a child process, and Rust does not launch Bun.
 
 The final product has no hidden native default registration path. The bundled
 Iyon app, agent, providers, and tools are loaded and registered as ordinary
