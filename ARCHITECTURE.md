@@ -440,3 +440,24 @@ of performing this sequence. The current oracle is
 `crates/iyon/src/tui/state.rs`, `crates/iyon/src/tui/mod.rs`, and
 `request_exit_flushes_buffered_assistant_text_before_goodbye` in
 `crates/iyon/tests/public_app.rs`.
+
+## T0 exit gate
+
+T0 is complete when a fresh engineer can use this document and
+[`MIGRATION.md`](MIGRATION.md) as the complete contract:
+
+| Exit question | Answer |
+|---|---|
+| Who owns the process? | Bun owns startup, control flow, product behavior, extension loading, and the final executable. |
+| Where do plugins run? | Arbitrary TypeScript extensions run in normal Bun and use the same loader as bundled packages. |
+| What does core own? | `iyon-core` owns provider-agnostic native kernel state, lifecycle, cancellation, execution contracts, filesystem/process primitives, hooks, output policy, and session invariants. |
+| What does TUI own? | `iyon-tui` owns native terminal I/O, sizing/input, semantic resolution, layout, wrapping, paint, History/scrollback, streams, projections, controls, theme, and the test harness. |
+| How does TypeScript talk to Rust? | `iyon:api`, `iyon:core`, and `iyon:tui` reach `iyon-native.node` through owned values, native handles, typed errors, and cancellable Promise boundaries. |
+| Can an extension replace the Scene? | Yes. A Scene extension can replace the selected app's generic Scene, and a replacement app is selected as the base app rather than instantiating the bundled app first. |
+| How do registrations differ? | Apps, agents, providers, tools, commands, shortcuts, and Scene extensions are contribution metadata for product integration; they are not separate execution runtimes or permission classes. |
+
+The migration matrix, the baseline inventory table, the behavior oracle ledger,
+and the numbered T0–T12 ownership boundaries are the required handoff. No code
+migration occurs before T0 is merged. No T1, T2, T3, T4, T5, or T6 stub is
+required for this tranche. T0 leaves Rust behavior, source, manifests,
+inventories, tests, CI, and build configuration untouched.
