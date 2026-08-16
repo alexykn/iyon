@@ -107,3 +107,34 @@ The important splits are intentional:
 5. Do not claim a target location is complete until its numbered owning tranche
    exit criteria pass.
 6. T0 records this matrix and freezes behavior; it moves no real source file.
+
+## Extension, binding, and Scene ownership notes
+
+The extension runtime must discover a package, parse its manifest, validate
+compatibility, resolve its TypeScript entrypoint, activate it transactionally,
+validate registrations, commit the contributions, and roll back all
+contributions on import or activation failure. Duplicate IDs fail by default;
+an explicit `replace: true` creates a layered replacement carrying source
+metadata. Unload disposes layers in reverse order and restores the previous
+layer. Bundled and external packages use this same loader; there is no
+`is_builtin` path.
+
+`iyon:plugins` owns the registries for tools, providers, agents, apps,
+commands, shortcuts, and Scene extensions. A registration supplies integration
+metadata, not an execution restriction. An extension may register more than
+one contribution type and may use ordinary Bun APIs or lower-level public
+surfaces.
+
+The app registry selects one base app. That app produces a generic Scene, then
+ordered Scene extensions compose or replace it before the terminal host runs
+the final Scene. Scene extension registration does not select an app, and an
+app replacement does not construct the bundled app first. Ordinary `View`
+composition remains separate from both app selection and Scene extension
+composition.
+
+The binding contract is also split by ownership: `iyon:api` exposes the Rust
+model protocol; `iyon:core` exposes provider-agnostic kernel capabilities;
+`iyon:tui` exposes semantic values plus native handles for stateful TUI
+objects; and `iyon:plugins` exposes lifecycle and registries. The bridge is
+not a product layer, and binding completeness is semantic parity rather than
+one native symbol per Rust method.
