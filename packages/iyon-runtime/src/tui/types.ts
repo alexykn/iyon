@@ -17,6 +17,8 @@ export type View = SemanticView;
 
 export interface TextContent {
   readonly kind: "text-content";
+  text(): string;
+  rewrite(rewriter: (text: string) => string): TextContent;
 }
 
 export interface History extends NativeHandle {
