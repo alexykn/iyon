@@ -1,39 +1,38 @@
 use crate::tools::{
     registry::ToolRenderer,
-    renderers::{column, result_lines, result_style, tool_call_line, tool_result_line, tool_style},
+    renderers::{column, result_lines, result_style},
     types::{ToolCallRenderInput, ToolResultRenderInput},
 };
 use iyon_tui::View;
 
 #[derive(Debug)]
-pub(crate) struct GenericRenderer;
+pub(crate) struct LsRenderer;
 
-impl ToolRenderer for GenericRenderer {
+impl ToolRenderer for LsRenderer {
     fn tool_name(&self) -> &'static str {
-        "*"
+        "ls"
     }
 
     fn render_call(&self, input: ToolCallRenderInput<'_>) -> View {
-        let mut children = vec![tool_call_line(
-            format!("tool {} — {}", input.tool_name, status_label(input.status)),
-            input,
-        )];
-        if input.show_arg_preview {
-            let preview = serde_json::to_string_pretty(input.arguments)
-                .unwrap_or_else(|_| input.arguments.to_string());
-            children.extend(result_lines(&preview, tool_style(input.status)));
-        }
-        column(children)
+        let path = input
+            .arguments
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(".");
+        super::tool_call_line(format!("ls {path} — {}", status_label(input.status)), input)
     }
 
     fn render_result(&self, input: ToolResultRenderInput<'_>) -> View {
-        let is_error = input.is_error();
-        let title = if is_error { "failed" } else { "result" };
-        let mut children = vec![tool_result_line(
-            format!("{} {title}", input.tool_name),
-            result_style(is_error),
+        let title = if input.is_error() {
+            "ls failed"
+        } else {
+            "ls result"
+        };
+        let mut children = vec![super::tool_result_line(
+            title,
+            result_style(input.is_error()),
         )];
-        children.extend(result_lines(input.text, result_style(is_error)));
+        children.extend(result_lines(input.text, result_style(input.is_error())));
         column(children)
     }
 }

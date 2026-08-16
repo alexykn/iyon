@@ -203,7 +203,7 @@ async fn iyon_app_is_drivable_through_public_tui_harness() {
         harness
             .screen_lines()
             .iter()
-            .any(|line| line.contains("tool bash"))
+            .any(|line| line.contains("echo hi"))
     );
     handle
         .send(IyonAction::Backend(FrontendEvent::ToolCallUpdated {
@@ -523,13 +523,13 @@ async fn prepared_tools_keep_order_and_only_started_tool_runs() {
     let lines = transcript_lines(&harness);
     assert_eq!(tool_status_count(&lines, "read", "running"), 1);
     assert_eq!(
-        tool_status_count(&lines, "tool bash", "ready"),
+        tool_status_count(&lines, "echo b", "ready"),
         1,
         "bash should remain ready\n{}",
         lines.join("\n")
     );
     let read = tool_line_position(&lines, "read");
-    let bash = tool_line_position(&lines, "tool bash");
+    let bash = tool_line_position(&lines, "echo b");
     assert!(
         read < bash,
         "prepared tool order changed\n{}",
