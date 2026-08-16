@@ -1,5 +1,5 @@
 import type { App } from "iyon:plugins";
-import { History, Scene, Style, TextInput, Tui, View } from "iyon:tui";
+import { History, Scene, TextInput, Tui } from "iyon:tui";
 import type { History as HistoryHandle, StyleSpec, TextInput as TextInputHandle, TuiRuntime, View as ViewValue } from "@iyon/runtime/tui";
 import type {
   IyonAgent,
@@ -7,6 +7,10 @@ import type {
   IyonModelMetadata,
   IyonState,
 } from "./contracts.ts";
+import { ComposerPasteStore } from "./composer.ts";
+import { createInitialState, reduceIyonState } from "./state.ts";
+import { createIyonTheme, type IyonTheme } from "./theme.ts";
+import { createIyonView } from "./view.ts";
 
 export interface IyonAppDependencies {
   readonly agent: IyonAgent;
@@ -28,31 +32,8 @@ export interface IyonApp extends App {
   stop(): Promise<void>;
 }
 
-const initialState = (model: IyonModelMetadata): IyonState => ({
-  info: {
-    status: "",
-    provider: model.provider,
-    modelId: model.modelId,
-    reasoningEffort: model.reasoningEffort ?? "none",
-  },
-  composerText: "",
-  userBatches: [],
-  working: false,
-  steering: [],
-  assistantText: "",
-  thinkingText: "",
-  liveTools: new Map(),
-  draftTools: new Map(),
-  activeTurn: false,
-  goodbye: false,
-});
-
 export function createIyonApp(dependencies: IyonAppDependencies): IyonApp {
   return new IyonAppImpl(dependencies);
-}
-
-export interface IyonTheme {
-  readonly footer: StyleSpec;
 }
 
 class IyonAppImpl implements IyonApp {
@@ -60,8 +41,9 @@ class IyonAppImpl implements IyonApp {
   readonly id = "iyon" as const;
   readonly history = new History();
   readonly composer = new TextInput({ multiline: true });
-  readonly theme: IyonTheme = { footer: Style.new().dim() };
-  readonly state: IyonState;
+  readonly pasteStore = new ComposerPasteStore();
+  readonly theme: IyonTheme = createIyonTheme();
+  private currentState: IyonState;
   private tui?: TuiRuntime;
   private ownsTui = false;
   private started = false;
@@ -69,9 +51,10 @@ class IyonAppImpl implements IyonApp {
   constructor(
     readonly dependencies: IyonAppDependencies,
   ) {
-    this.state = initialState(dependencies.model);
+    this.currentState = createInitialState(dependencies.model);
   }
 
+  get state(): IyonState { return this.currentState; }
   get agent(): IyonAgent { return this.dependencies.agent; }
   get core(): IyonCoreCommands { return this.dependencies.core; }
   get model(): IyonModelMetadata { return this.dependencies.model; }
@@ -80,7 +63,7 @@ class IyonAppImpl implements IyonApp {
     if (this.started) return;
     this.tui = tui ?? await Tui.open({ headless: true });
     this.ownsTui = tui === undefined;
-    await this.tui.render(new Scene(this.initialView(), this.history));
+    await this.tui.render(new Scene(createIyonView({ composer: this.composer, history: this.history, state: this.currentState, theme: this.theme }), this.history));
     this.started = true;
   }
 
@@ -97,11 +80,5 @@ class IyonAppImpl implements IyonApp {
     }
   }
 
-  private initialView(): ViewValue {
-    return View.vertical([
-      View.text("Iyon"),
-      View.component(this.composer).fillWidth(),
-      View.text(`${this.model.provider} · ${this.model.modelId}`).style(this.theme.footer).fillWidth(),
-    ]).fillWidth().fillHeight();
-  }
+  dispatch(action: import("./contracts.ts").IyonAction): void { this.currentState = reduceIyonState(this.currentState, action); }
 }
