@@ -5,8 +5,8 @@ import type { AgentPolicyContext } from "./context.ts";
 export const MAX_TOOL_CALLS_PER_MODEL_TURN = 16;
 
 export interface AgentToolContext extends AgentPolicyContext {
-  readonly turnId: TurnId;
-  readonly messageId: MessageId;
+  readonly turnId?: TurnId;
+  readonly messageId?: MessageId;
   readonly workspace?: WorkspaceHandle;
   readonly cwd?: string;
   readonly signal?: AbortSignal;
@@ -41,7 +41,7 @@ export async function executeRequestedTools(context: AgentToolContext, result: A
   for (const invalid of result.invalidToolCalls) {
     const callId = (invalid.id ?? `invalid-${invalid.contentIndex}`) as ToolCallId;
     const toolName = invalid.name ?? "<invalid>";
-    const execution = prepare(context, callId, toolName, parseArguments(invalid.argumentsText));
+    const execution = prepare(context, result.turnId, callId, toolName, parseArguments(invalid.argumentsText));
     execution.prepared(parseArguments(invalid.argumentsText));
     execution.start();
     const invalidResult = errorResult(toolName, `Invalid tool call: ${invalid.reason}`);
@@ -51,7 +51,7 @@ export async function executeRequestedTools(context: AgentToolContext, result: A
 
   for (const call of result.toolCalls) {
     const tool = findTool(context, call.name);
-    const execution = prepare(context, call.id, call.name, call.arguments);
+    const execution = prepare(context, result.turnId, call.id, call.name, call.arguments);
     execution.prepared(call.arguments);
     execution.start();
     const requirement = approvalRequirement(tool);
@@ -78,7 +78,7 @@ export async function executeRequestedTools(context: AgentToolContext, result: A
     try {
       const before = await context.hooks?.before?.(tool, call.arguments);
       const argumentsValue = before !== undefined && typeof before === "object" ? before as JsonValue : call.arguments;
-      const toolResult = await tool.execute(createToolContext(context, call.id), argumentsValue);
+      const toolResult = await tool.execute(createToolContext(context, call.id, result.turnId), argumentsValue);
       const after = await context.hooks?.after?.(tool, toolResult);
       const finalResult = after && typeof after === "object" && "content" in after ? after : toolResult;
       execution.finish(finalResult);
@@ -92,11 +92,11 @@ export async function executeRequestedTools(context: AgentToolContext, result: A
   return { completed: true, results };
 }
 
-function prepare(context: AgentToolContext, toolCallId: ToolCallId, toolName: string, argumentsValue: JsonValue): PublicToolExecution {
+function prepare(context: AgentToolContext, turnId: TurnId, toolCallId: ToolCallId, toolName: string, argumentsValue: JsonValue): PublicToolExecution {
   return context.session.prepareToolExecution({
     sessionId: String(context.session.snapshot().sessionId) as never,
-    turnId: context.turnId,
-    messageId: context.messageId,
+    turnId,
+    messageId: context.messageId ?? 0 as never,
     toolCallId,
     toolName,
     arguments: argumentsValue,
@@ -111,12 +111,12 @@ function isTool(value: unknown): value is ToolDefinition {
   return !!value && typeof value === "object" && typeof (value as { name?: unknown }).name === "string" && typeof (value as { execute?: unknown }).execute === "function";
 }
 
-function createToolContext(context: AgentToolContext, toolCallId: ToolCallId): import("@iyon/sdk").ToolContext {
+function createToolContext(context: AgentToolContext, toolCallId: ToolCallId, turnId: TurnId): import("@iyon/sdk").ToolContext {
   const updates: ToolUpdateSink = { send: async () => undefined };
   return {
     sessionId: String(context.session.snapshot().sessionId) as never,
-    turnId: context.turnId,
-    messageId: context.messageId as never,
+    turnId,
+    messageId: context.messageId ?? 0 as never,
     toolCallId,
     cwd: context.cwd ?? process.cwd(),
     workspace: context.workspace ?? {},
