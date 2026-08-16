@@ -58,6 +58,8 @@ class IyonAppImpl implements IyonApp {
   private assistantStream?: TextStream;
   private assistantText = "";
   private readonly toolStreams = new Map<string, TextStream>();
+  private readonly toolNames = new Map<string, string>();
+  private readonly renderedUserMessages = new Map<string, number>();
 
   constructor(
     readonly dependencies: IyonAppDependencies,
@@ -104,6 +106,8 @@ class IyonAppImpl implements IyonApp {
       await this.assistantStream?.dispose();
       for (const stream of this.toolStreams.values()) await stream.dispose();
       this.toolStreams.clear();
+      this.toolNames.clear();
+      this.renderedUserMessages.clear();
       this.workingHandle = undefined;
       this.assistantStream = undefined;
       this.tui = undefined;
@@ -142,6 +146,7 @@ class IyonAppImpl implements IyonApp {
     _next: IyonState,
   ): Promise<void> {
     if (action.type === "submit" && action.text.length > 0 && !previous.activeTurn) {
+      this.renderedUserMessages.set(action.text, (this.renderedUserMessages.get(action.text) ?? 0) + 1);
       await this.history.push(userBatchView([action.text], this.theme));
       return;
     }
@@ -157,6 +162,16 @@ class IyonAppImpl implements IyonApp {
       await this.assistantStream.update(this.assistantText);
       return;
     }
+    if (event.type === "userMessage") {
+      const rendered = this.renderedUserMessages.get(event.text) ?? 0;
+      if (rendered > 0) {
+        if (rendered === 1) this.renderedUserMessages.delete(event.text);
+        else this.renderedUserMessages.set(event.text, rendered - 1);
+      } else {
+        await this.history.push(userBatchView([event.text], this.theme));
+      }
+      return;
+    }
     if (event.type === "turnFinished" || event.type === "turnFailed" || event.type === "turnCancelled") {
       if (this.assistantStream !== undefined) {
         await this.assistantStream.seal();
@@ -167,6 +182,7 @@ class IyonAppImpl implements IyonApp {
     if (event.type === "toolCallStarted") {
       const stream = new TextStream();
       this.toolStreams.set(event.toolCallId, stream);
+      this.toolNames.set(event.toolCallId, event.toolName);
       await this.history.pushStream(stream);
       await stream.update(`• ${event.toolName} - running`);
       return;
@@ -182,14 +198,16 @@ class IyonAppImpl implements IyonApp {
       await stream.update(`• ${event.toolName} - ${event.isError ? "failed" : "finished"}${collapsed}`);
       await stream.seal();
       this.toolStreams.delete(event.toolCallId);
+      this.toolNames.delete(event.toolCallId);
       return;
     }
     if (event.type === "toolCallFinished") {
       const stream = this.toolStreams.get(event.toolCallId);
       if (stream !== undefined) {
-        await stream.update(`• tool - ${event.isError ? "failed" : "finished"}`);
+        await stream.update(`• ${this.toolNames.get(event.toolCallId) ?? "tool"} - ${event.isError ? "failed" : "finished"}`);
         await stream.seal();
         this.toolStreams.delete(event.toolCallId);
+        this.toolNames.delete(event.toolCallId);
       }
     }
   }
