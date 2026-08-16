@@ -1,3 +1,4 @@
+pub mod binding;
 pub mod cfg;
 pub mod check;
 mod error;
@@ -95,7 +96,19 @@ pub fn check_from_config(
     let (config, manifest) = scan_config(config_path)?;
     let artifact_path = artifacts.unwrap_or_else(|| config.output_dir.join("api-manifest.json"));
     let expected = check::read_manifest(&artifact_path)?;
-    check::compare_manifests(&expected, &manifest)
+    check::compare_manifests(&expected, &manifest)?;
+    let mapping = check::check_mappings(&manifest, &config.mapping_dir)?;
+    if !mapping.missing.is_empty() || !mapping.stale.is_empty() {
+        return Err(ApiSurfaceError::configuration(
+            format!(
+                "mapping coverage drift: missing={}, stale={}",
+                mapping.missing.len(),
+                mapping.stale.len()
+            ),
+            Some(config.mapping_dir.display().to_string()),
+        ));
+    }
+    Ok(())
 }
 
 fn resolve_config_paths(config: &mut model::SurfaceConfig, root: &std::path::Path) {
