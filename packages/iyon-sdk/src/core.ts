@@ -197,6 +197,7 @@ export interface ApprovalState {
 }
 
 export interface ToolExecutionRequest {
+  sessionId?: SessionId;
   turnId: TurnId;
   messageId: MessageId;
   toolCallId: ToolCallId;
@@ -208,6 +209,7 @@ export interface ToolResult {
   content: ContentBlock[];
   details: JsonValue;
   isError: boolean;
+  terminate?: boolean;
 }
 export type ToolLifecycleState =
   | "preparing"

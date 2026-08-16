@@ -3,6 +3,9 @@ export * from "./credentials.ts";
 export * from "./providers/types.ts";
 export * from "./providers/selection.ts";
 export * from "./bootstrap/index.ts";
+export * from "./tools/contract.ts";
+export * from "./tools/execution.ts";
+export * from "./tools/generic.ts";
 export * from "./tui/index.ts";
 export {
   AgentSession,
