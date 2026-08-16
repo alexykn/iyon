@@ -54,7 +54,8 @@ export class Tui implements TuiRuntime {
       const action = this.host.nextAction();
       if (action !== null) return { actionId: action.action_id, ...(action.payload === null || action.payload === undefined ? {} : { payload: action.payload }) };
       this.host.pollTerminal();
-      await new Promise<void>((resolve) => setTimeout(resolve, 4));
+      const waitMs = this.host.nextWakeMs();
+      await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
     }
     return null;
   }
@@ -149,7 +150,11 @@ export class Tui implements TuiRuntime {
 
   screenRows(): readonly string[] { return this.host.screenRows(); }
   nativeHistoryRows(): readonly string[] { return this.host.nativeHistoryRows(); }
-  styleAt(row: number, column: number): Readonly<Record<string, unknown>> { return (this.host.styleAt(row, column) as Readonly<Record<string, unknown>> | null) ?? {}; }
+  styleAt(row: number, column: number): Readonly<Record<string, unknown>> {
+    const style = this.host.styleAt(row, column) as Readonly<Record<string, unknown>> | null;
+    if (style === null) throw tuiError("runtime", "native cell style is unavailable");
+    return style;
+  }
   cellXOfText(row: number, text: string): number | null { return this.host.cellXOfText(row, text); }
   exited(): boolean { return this.host.exited(); }
   advance(ms: number): void { this.host.advanceTime(ms); }

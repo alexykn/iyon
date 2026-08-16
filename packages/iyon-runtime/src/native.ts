@@ -104,6 +104,7 @@ export interface NativeTuiHostContract {
   dispatchKey(key: string, modifiers?: readonly string[]): void;
   dispatchPaste(text: string): void;
   pollTerminal(): void;
+  nextWakeMs(): number;
   nextAction(): { action_id: string; payload?: string | null } | null;
   screenRows(): string[];
   nativeHistoryRows(): string[];

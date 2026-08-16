@@ -1038,7 +1038,29 @@ impl TuiHost {
     pub fn exit(&self) -> Result<()> {
         let mut inner = self.lock_mut()?;
         inner.running.host_exit();
+        if inner.closed {
+            return Ok(());
+        }
+        inner.closed = true;
+        if let HostBackend::Real(backend) = &mut inner.backend {
+            backend.restore()?;
+        }
         Ok(())
+    }
+
+    pub fn next_wake_ms(&self) -> u64 {
+        let Ok(inner) = self.lock() else {
+            return 80;
+        };
+        match inner.running.next_deadline() {
+            Some(deadline) => deadline
+                .saturating_duration_since(inner.now)
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX)
+                .max(1),
+            None => 16,
+        }
     }
 
     pub fn route_text_input(

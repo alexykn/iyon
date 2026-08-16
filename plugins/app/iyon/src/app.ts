@@ -96,7 +96,8 @@ class IyonAppImpl implements IyonApp {
       await this.composerHandle.dispose();
       this.historyHandle = this.tui.createHistory() as unknown as RuntimeHistory;
       this.composerHandle = this.tui.createTextInput({ multiline: true }) as unknown as RuntimeTextInput;
-      this.workingHandle = this.tui.createWorking?.();
+      if (this.tui.createWorking === undefined) throw new Error("native working activity is unavailable");
+      this.workingHandle = this.tui.createWorking();
       this.tui.bindKey?.("c", "ctrlC", ["control"]);
       this.tui.bindKey?.("Escape", "escape");
       this.tui.bindKey?.("Tab", "cycleReasoningEffort", ["shift"]);

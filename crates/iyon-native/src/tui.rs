@@ -417,6 +417,12 @@ impl NativeTuiHost {
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
+    #[napi(js_name = "nextWakeMs")]
+    pub fn next_wake_ms(&self) -> Result<i64> {
+        ensure_alive(&self.alive)?;
+        Ok(i64::try_from(self.host.next_wake_ms()).unwrap_or(i64::MAX))
+    }
+
     #[napi]
     pub fn set_theme(&self, value: Value) -> Result<()> {
         ensure_alive(&self.alive)?;
