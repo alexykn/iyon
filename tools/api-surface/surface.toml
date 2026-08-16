@@ -1,0 +1,17 @@
+# Stable baseline scan configuration. Paths are relative to this file.
+workspace_manifest = "../../Cargo.toml"
+mapping_dir = "mappings"
+sdk_output_dir = "../../packages/iyon-sdk/generated"
+output_dir = "../../packages/iyon-sdk/generated"
+
+[[packages]]
+package = "iyon-api"
+
+[[packages]]
+package = "iyon-core"
+
+[[packages]]
+package = "iyon-tui"
+
+[[packages]]
+package = "iyon"
