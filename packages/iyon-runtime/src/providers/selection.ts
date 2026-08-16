@@ -48,7 +48,7 @@ function normalizeProvider(value: string): string {
     case "openai":
     case "openai-codex": return "openai-codex";
     case "mock": return "mock";
-    default: return "openrouter";
+    default: return value.trim().toLowerCase();
   }
 }
 
