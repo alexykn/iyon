@@ -2,3 +2,16 @@
 /TUI_DOGFOOD.md
 node_modules/
 /iyon-smoke
+
+# Bun / JavaScript build artifacts
+*.node
+*.tsbuildinfo
+bun.lock
+
+# macOS
+.DS_Store
+
+# Editor temp files
+*.swp
+*.swo
+*~
