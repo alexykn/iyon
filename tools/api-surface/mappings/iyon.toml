@@ -9,7 +9,7 @@ rust_path = "iyon::tui"
 typescript_module = "iyon:tui"
 typescript_export = "tui"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -20,7 +20,7 @@ rust_path = "iyon::tui::FrontendEvent"
 typescript_module = "iyon:tui"
 typescript_export = "tui__FrontendEvent"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -31,7 +31,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::AssistantDelta"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__AssistantDelta"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -42,7 +42,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::AssistantDelta::text"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__AssistantDelta__text"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -53,7 +53,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ConfigChanged"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ConfigChanged"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -64,7 +64,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ConfigChanged::model_id"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ConfigChanged__model_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -75,7 +75,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ConfigChanged::provider"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ConfigChanged__provider"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -86,7 +86,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ConfigChanged::reasoning_effort"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ConfigChanged__reasoning_effort"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -97,7 +97,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::SteerQueued"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__SteerQueued"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -108,7 +108,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::SteerQueued::text"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__SteerQueued__text"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -119,7 +119,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ThinkingDelta"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ThinkingDelta"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -130,7 +130,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ThinkingDelta::text"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ThinkingDelta__text"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -141,7 +141,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolApprovalRequested"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -152,7 +152,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested::approval_
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolApprovalRequested__approval_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -163,7 +163,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested::arguments
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolApprovalRequested__arguments"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -174,7 +174,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested::tool_call
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolApprovalRequested__tool_call_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -185,7 +185,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested::tool_name
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolApprovalRequested__tool_name"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -196,7 +196,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolApprovalResolved"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -207,7 +207,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved::approval_i
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolApprovalResolved__approval_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -218,7 +218,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved::approved"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolApprovalResolved__approved"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -229,7 +229,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved::reason"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolApprovalResolved__reason"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -240,7 +240,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved::tool_call_
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolApprovalResolved__tool_call_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -251,7 +251,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallArguments"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallArguments"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -262,7 +262,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallArguments::delta"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallArguments__delta"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -273,7 +273,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallArguments::key"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallArguments__key"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -284,7 +284,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallArguments::tool_call_id"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallArguments__tool_call_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -295,7 +295,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallArguments::tool_name"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallArguments__tool_name"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -306,7 +306,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallFinished"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallFinished"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -317,7 +317,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallFinished::is_error"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallFinished__is_error"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -328,7 +328,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallFinished::tool_call_id"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallFinished__tool_call_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -339,7 +339,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallPrepared"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallPrepared"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -350,7 +350,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallPrepared::arguments"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallPrepared__arguments"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -361,7 +361,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallPrepared::key"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallPrepared__key"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -372,7 +372,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallPrepared::tool_call_id"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallPrepared__tool_call_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -383,7 +383,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallPrepared::tool_name"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallPrepared__tool_name"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -394,7 +394,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallPreparing"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallPreparing"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -405,7 +405,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallPreparing::key"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallPreparing__key"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -416,7 +416,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallPreparing::tool_call_id"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallPreparing__tool_call_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -427,7 +427,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallPreparing::tool_name"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallPreparing__tool_name"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -438,7 +438,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallStarted"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallStarted"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -449,7 +449,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallStarted::arguments"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallStarted__arguments"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -460,7 +460,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallStarted::tool_call_id"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallStarted__tool_call_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -471,7 +471,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallStarted::tool_name"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallStarted__tool_name"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -482,7 +482,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallUpdated"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallUpdated"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -493,7 +493,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallUpdated::tool_call_id"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallUpdated__tool_call_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -504,7 +504,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolCallUpdated::update"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolCallUpdated__update"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -515,7 +515,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolResult"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolResult"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -526,7 +526,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolResult::details"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolResult__details"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -537,7 +537,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolResult::is_error"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolResult__is_error"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -548,7 +548,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolResult::text"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolResult__text"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -559,7 +559,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolResult::tool_call_id"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolResult__tool_call_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -570,7 +570,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::ToolResult::tool_name"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__ToolResult__tool_name"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -581,7 +581,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::TurnCancelled"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__TurnCancelled"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -592,7 +592,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::TurnFailed"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__TurnFailed"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -603,7 +603,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::TurnFailed::message"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__TurnFailed__message"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -614,7 +614,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::TurnFinished"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__TurnFinished"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -625,7 +625,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::TurnStarted"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__TurnStarted"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -636,7 +636,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::UserMessage"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__UserMessage"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -647,7 +647,7 @@ rust_path = "iyon::tui::backend::FrontendEvent::UserMessage::text"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__FrontendEvent__UserMessage__text"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -658,7 +658,7 @@ rust_path = "iyon::tui::ToolDraftKey"
 typescript_module = "iyon:tui"
 typescript_export = "tui__ToolDraftKey"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -669,7 +669,7 @@ rust_path = "iyon::tui::backend::ToolDraftKey::content_index"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__ToolDraftKey__content_index"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -680,7 +680,7 @@ rust_path = "iyon::tui::backend::ToolDraftKey::message_id"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__ToolDraftKey__message_id"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -691,7 +691,7 @@ rust_path = "iyon::tui::ToolUpdatePresentation"
 typescript_module = "iyon:tui"
 typescript_export = "tui__ToolUpdatePresentation"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -702,7 +702,7 @@ rust_path = "iyon::tui::backend::ToolUpdatePresentation::Details"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__ToolUpdatePresentation__Details"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -713,7 +713,7 @@ rust_path = "iyon::tui::backend::ToolUpdatePresentation::Details::0"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__ToolUpdatePresentation__Details__0"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -724,7 +724,7 @@ rust_path = "iyon::tui::backend::ToolUpdatePresentation::Progress"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__ToolUpdatePresentation__Progress"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -735,7 +735,7 @@ rust_path = "iyon::tui::backend::ToolUpdatePresentation::Progress::current"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__ToolUpdatePresentation__Progress__current"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -746,7 +746,7 @@ rust_path = "iyon::tui::backend::ToolUpdatePresentation::Progress::label"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__ToolUpdatePresentation__Progress__label"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -757,7 +757,7 @@ rust_path = "iyon::tui::backend::ToolUpdatePresentation::Progress::total"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__ToolUpdatePresentation__Progress__total"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -768,7 +768,7 @@ rust_path = "iyon::tui::backend::ToolUpdatePresentation::Text"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__ToolUpdatePresentation__Text"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -779,7 +779,7 @@ rust_path = "iyon::tui::backend::ToolUpdatePresentation::Text::0"
 typescript_module = "iyon:tui"
 typescript_export = "tui__backend__ToolUpdatePresentation__Text__0"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -790,7 +790,7 @@ rust_path = "iyon::tui::build_app"
 typescript_module = "iyon:tui"
 typescript_export = "tui__build_app"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -801,7 +801,7 @@ rust_path = "iyon::tui::ApprovalDecision"
 typescript_module = "iyon:tui"
 typescript_export = "tui__ApprovalDecision"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -812,7 +812,7 @@ rust_path = "iyon::tui::IyonAction"
 typescript_module = "iyon:tui"
 typescript_export = "tui__IyonAction"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -823,7 +823,7 @@ rust_path = "iyon::tui::controller::IyonAction::Backend"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__Backend"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -834,7 +834,7 @@ rust_path = "iyon::tui::controller::IyonAction::Backend::0"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__Backend__0"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -845,7 +845,7 @@ rust_path = "iyon::tui::controller::IyonAction::ComposerPaste"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__ComposerPaste"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -856,7 +856,7 @@ rust_path = "iyon::tui::controller::IyonAction::ComposerPaste::0"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__ComposerPaste__0"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -867,7 +867,7 @@ rust_path = "iyon::tui::controller::IyonAction::CtrlC"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__CtrlC"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -878,7 +878,7 @@ rust_path = "iyon::tui::controller::IyonAction::CycleReasoningEffort"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__CycleReasoningEffort"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -889,7 +889,7 @@ rust_path = "iyon::tui::controller::IyonAction::Escape"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__Escape"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -900,7 +900,7 @@ rust_path = "iyon::tui::controller::IyonAction::InterruptActiveTurn"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__InterruptActiveTurn"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -911,7 +911,7 @@ rust_path = "iyon::tui::controller::IyonAction::RequestExit"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__RequestExit"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -922,7 +922,7 @@ rust_path = "iyon::tui::controller::IyonAction::SubmitTurn"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__SubmitTurn"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -933,7 +933,7 @@ rust_path = "iyon::tui::controller::IyonAction::SubmitTurn::0"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__SubmitTurn__0"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -944,7 +944,7 @@ rust_path = "iyon::tui::controller::IyonAction::ToolApproval"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__ToolApproval"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -955,7 +955,7 @@ rust_path = "iyon::tui::controller::IyonAction::ToolApproval::0"
 typescript_module = "iyon:tui"
 typescript_export = "tui__controller__IyonAction__ToolApproval__0"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -966,7 +966,7 @@ rust_path = "iyon::tui::run_with_core"
 typescript_module = "iyon:tui"
 typescript_export = "tui__run_with_core"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -977,5 +977,5 @@ rust_path = "iyon::tui::IyonState"
 typescript_module = "iyon:tui"
 typescript_export = "tui__IyonState"
 implementation_owner = "T10"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"

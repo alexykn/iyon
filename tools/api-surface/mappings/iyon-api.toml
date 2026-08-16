@@ -20,7 +20,7 @@ rust_path = "iyon-api::client::ModelApi::stream"
 typescript_module = "iyon:api"
 typescript_export = "client__ModelApi__stream"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -31,7 +31,7 @@ rust_path = "iyon-api::ModelStream"
 typescript_module = "iyon:api"
 typescript_export = "ModelStream"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -42,7 +42,7 @@ rust_path = "iyon-api::ModelStreamFuture"
 typescript_module = "iyon:api"
 typescript_export = "ModelStreamFuture"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -64,7 +64,7 @@ rust_path = "iyon-api::error::ModelError"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelError"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -75,7 +75,7 @@ rust_path = "iyon-api::error::ModelError::fmt"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelError__fmt"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -86,7 +86,7 @@ rust_path = "iyon-api::error::ModelError::kind"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelError__kind"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -97,7 +97,7 @@ rust_path = "iyon-api::error::ModelError::message"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelError__message"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -108,7 +108,7 @@ rust_path = "iyon-api::error::ModelError::new"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelError__new"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -119,7 +119,7 @@ rust_path = "iyon-api::error::ModelError::unknown"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelError__unknown"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -141,7 +141,7 @@ rust_path = "iyon-api::error::ModelErrorKind::Authentication"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelErrorKind__Authentication"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -152,7 +152,7 @@ rust_path = "iyon-api::error::ModelErrorKind::Cancelled"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelErrorKind__Cancelled"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -163,7 +163,7 @@ rust_path = "iyon-api::error::ModelErrorKind::InvalidRequest"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelErrorKind__InvalidRequest"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -174,7 +174,7 @@ rust_path = "iyon-api::error::ModelErrorKind::Provider"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelErrorKind__Provider"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -185,7 +185,7 @@ rust_path = "iyon-api::error::ModelErrorKind::RateLimited"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelErrorKind__RateLimited"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -196,7 +196,7 @@ rust_path = "iyon-api::error::ModelErrorKind::Transport"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelErrorKind__Transport"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -207,7 +207,7 @@ rust_path = "iyon-api::error::ModelErrorKind::Unknown"
 typescript_module = "iyon:api"
 typescript_export = "error__ModelErrorKind__Unknown"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -229,7 +229,7 @@ rust_path = "iyon-api::model::CacheRetention::Long"
 typescript_module = "iyon:api"
 typescript_export = "model__CacheRetention__Long"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -240,7 +240,7 @@ rust_path = "iyon-api::model::CacheRetention::None"
 typescript_module = "iyon:api"
 typescript_export = "model__CacheRetention__None"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -251,7 +251,7 @@ rust_path = "iyon-api::model::CacheRetention::Short"
 typescript_module = "iyon:api"
 typescript_export = "model__CacheRetention__Short"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -273,7 +273,7 @@ rust_path = "iyon-api::model::ContentBlock::Image"
 typescript_module = "iyon:api"
 typescript_export = "model__ContentBlock__Image"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -284,7 +284,7 @@ rust_path = "iyon-api::model::ContentBlock::Image::data"
 typescript_module = "iyon:api"
 typescript_export = "model__ContentBlock__Image__data"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -295,7 +295,7 @@ rust_path = "iyon-api::model::ContentBlock::Image::mime_type"
 typescript_module = "iyon:api"
 typescript_export = "model__ContentBlock__Image__mime_type"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -306,7 +306,7 @@ rust_path = "iyon-api::model::ContentBlock::Text"
 typescript_module = "iyon:api"
 typescript_export = "model__ContentBlock__Text"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -317,7 +317,7 @@ rust_path = "iyon-api::model::ContentBlock::Text::text"
 typescript_module = "iyon:api"
 typescript_export = "model__ContentBlock__Text__text"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -328,7 +328,7 @@ rust_path = "iyon-api::model::ContentBlock::Thinking"
 typescript_module = "iyon:api"
 typescript_export = "model__ContentBlock__Thinking"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -339,7 +339,7 @@ rust_path = "iyon-api::model::ContentBlock::Thinking::text"
 typescript_module = "iyon:api"
 typescript_export = "model__ContentBlock__Thinking__text"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -350,7 +350,7 @@ rust_path = "iyon-api::model::ContentBlock::ToolCall"
 typescript_module = "iyon:api"
 typescript_export = "model__ContentBlock__ToolCall"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -361,7 +361,7 @@ rust_path = "iyon-api::model::ContentBlock::ToolCall::arguments"
 typescript_module = "iyon:api"
 typescript_export = "model__ContentBlock__ToolCall__arguments"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -372,7 +372,7 @@ rust_path = "iyon-api::model::ContentBlock::ToolCall::id"
 typescript_module = "iyon:api"
 typescript_export = "model__ContentBlock__ToolCall__id"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -383,7 +383,7 @@ rust_path = "iyon-api::model::ContentBlock::ToolCall::name"
 typescript_module = "iyon:api"
 typescript_export = "model__ContentBlock__ToolCall__name"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -405,7 +405,7 @@ rust_path = "iyon-api::model::ModelMessage::Assistant"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelMessage__Assistant"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -416,7 +416,7 @@ rust_path = "iyon-api::model::ModelMessage::Assistant::content"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelMessage__Assistant__content"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -427,7 +427,7 @@ rust_path = "iyon-api::model::ModelMessage::ToolResult"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelMessage__ToolResult"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -438,7 +438,7 @@ rust_path = "iyon-api::model::ModelMessage::ToolResult::content"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelMessage__ToolResult__content"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -449,7 +449,7 @@ rust_path = "iyon-api::model::ModelMessage::ToolResult::is_error"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelMessage__ToolResult__is_error"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -460,7 +460,7 @@ rust_path = "iyon-api::model::ModelMessage::ToolResult::tool_call_id"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelMessage__ToolResult__tool_call_id"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -471,7 +471,7 @@ rust_path = "iyon-api::model::ModelMessage::ToolResult::tool_name"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelMessage__ToolResult__tool_name"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -482,7 +482,7 @@ rust_path = "iyon-api::model::ModelMessage::User"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelMessage__User"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -493,7 +493,7 @@ rust_path = "iyon-api::model::ModelMessage::User::content"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelMessage__User__content"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -515,7 +515,7 @@ rust_path = "iyon-api::model::ModelMetadata::session_id"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelMetadata__session_id"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -526,7 +526,7 @@ rust_path = "iyon-api::model::ModelMetadata::user_id"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelMetadata__user_id"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -548,7 +548,7 @@ rust_path = "iyon-api::model::ModelParams::cache_retention"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelParams__cache_retention"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -559,7 +559,7 @@ rust_path = "iyon-api::model::ModelParams::max_tokens"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelParams__max_tokens"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -570,7 +570,7 @@ rust_path = "iyon-api::model::ModelParams::reasoning"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelParams__reasoning"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -581,7 +581,7 @@ rust_path = "iyon-api::model::ModelParams::temperature"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelParams__temperature"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -603,7 +603,7 @@ rust_path = "iyon-api::model::ModelRequest::messages"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelRequest__messages"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -614,7 +614,7 @@ rust_path = "iyon-api::model::ModelRequest::metadata"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelRequest__metadata"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -625,7 +625,7 @@ rust_path = "iyon-api::model::ModelRequest::params"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelRequest__params"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -636,7 +636,7 @@ rust_path = "iyon-api::model::ModelRequest::system_prompt"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelRequest__system_prompt"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -647,7 +647,7 @@ rust_path = "iyon-api::model::ModelRequest::tools"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelRequest__tools"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -669,7 +669,7 @@ rust_path = "iyon-api::model::ModelToolSpec::description"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelToolSpec__description"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -680,7 +680,7 @@ rust_path = "iyon-api::model::ModelToolSpec::input_schema"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelToolSpec__input_schema"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -691,7 +691,7 @@ rust_path = "iyon-api::model::ModelToolSpec::name"
 typescript_module = "iyon:api"
 typescript_export = "model__ModelToolSpec__name"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -713,7 +713,7 @@ rust_path = "iyon-api::model::ReasoningLevel::ALL"
 typescript_module = "iyon:api"
 typescript_export = "model__ReasoningLevel__ALL"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -724,7 +724,7 @@ rust_path = "iyon-api::model::ReasoningLevel::High"
 typescript_module = "iyon:api"
 typescript_export = "model__ReasoningLevel__High"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -735,7 +735,7 @@ rust_path = "iyon-api::model::ReasoningLevel::Low"
 typescript_module = "iyon:api"
 typescript_export = "model__ReasoningLevel__Low"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -746,7 +746,7 @@ rust_path = "iyon-api::model::ReasoningLevel::Max"
 typescript_module = "iyon:api"
 typescript_export = "model__ReasoningLevel__Max"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -757,7 +757,7 @@ rust_path = "iyon-api::model::ReasoningLevel::Medium"
 typescript_module = "iyon:api"
 typescript_export = "model__ReasoningLevel__Medium"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -768,7 +768,7 @@ rust_path = "iyon-api::model::ReasoningLevel::Minimal"
 typescript_module = "iyon:api"
 typescript_export = "model__ReasoningLevel__Minimal"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -779,7 +779,7 @@ rust_path = "iyon-api::model::ReasoningLevel::None"
 typescript_module = "iyon:api"
 typescript_export = "model__ReasoningLevel__None"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -790,7 +790,7 @@ rust_path = "iyon-api::model::ReasoningLevel::XHigh"
 typescript_module = "iyon:api"
 typescript_export = "model__ReasoningLevel__XHigh"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -801,7 +801,7 @@ rust_path = "iyon-api::model::ReasoningLevel::candidates"
 typescript_module = "iyon:api"
 typescript_export = "model__ReasoningLevel__candidates"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -812,7 +812,7 @@ rust_path = "iyon-api::model::ReasoningLevel::code"
 typescript_module = "iyon:api"
 typescript_export = "model__ReasoningLevel__code"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -823,7 +823,7 @@ rust_path = "iyon-api::model::ReasoningLevel::next_for"
 typescript_module = "iyon:api"
 typescript_export = "model__ReasoningLevel__next_for"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -834,7 +834,7 @@ rust_path = "iyon-api::MockModelApi"
 typescript_module = "iyon:api"
 typescript_export = "MockModelApi"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -845,7 +845,7 @@ rust_path = "iyon-api::providers::mock::MockModelApi"
 typescript_module = "iyon:api"
 typescript_export = "providers__mock__MockModelApi"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -856,7 +856,7 @@ rust_path = "iyon-api::providers::mock::MockModelApi::stream"
 typescript_module = "iyon:api"
 typescript_export = "providers__mock__MockModelApi__stream"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -867,7 +867,7 @@ rust_path = "iyon-api::OpenAICodexModelApi"
 typescript_module = "iyon:api"
 typescript_export = "OpenAICodexModelApi"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -878,7 +878,7 @@ rust_path = "iyon-api::providers::openai_codex::OpenAICodexModelApi"
 typescript_module = "iyon:api"
 typescript_export = "providers__openai_codex__OpenAICodexModelApi"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -889,7 +889,7 @@ rust_path = "iyon-api::providers::openai_codex::OpenAICodexModelApi::new"
 typescript_module = "iyon:api"
 typescript_export = "providers__openai_codex__OpenAICodexModelApi__new"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -900,7 +900,7 @@ rust_path = "iyon-api::providers::openai_codex::OpenAICodexModelApi::stream"
 typescript_module = "iyon:api"
 typescript_export = "providers__openai_codex__OpenAICodexModelApi__stream"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -911,7 +911,7 @@ rust_path = "iyon-api::OpenRouterModelApi"
 typescript_module = "iyon:api"
 typescript_export = "OpenRouterModelApi"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "explicit public alias projection"
 
 [[records]]
@@ -922,7 +922,7 @@ rust_path = "iyon-api::providers::openrouter::OpenRouterModelApi"
 typescript_module = "iyon:api"
 typescript_export = "providers__openrouter__OpenRouterModelApi"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -933,7 +933,7 @@ rust_path = "iyon-api::providers::openrouter::OpenRouterModelApi::new"
 typescript_module = "iyon:api"
 typescript_export = "providers__openrouter__OpenRouterModelApi__new"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -944,7 +944,7 @@ rust_path = "iyon-api::providers::openrouter::OpenRouterModelApi::stream"
 typescript_module = "iyon:api"
 typescript_export = "providers__openrouter__OpenRouterModelApi__stream"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -955,7 +955,7 @@ rust_path = "iyon-api::providers::openrouter::OpenRouterModelApi::with_base_url"
 typescript_module = "iyon:api"
 typescript_export = "providers__openrouter__OpenRouterModelApi__with_base_url"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -977,7 +977,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::Done"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__Done"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -988,7 +988,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::Done::stop_reason"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__Done__stop_reason"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -999,7 +999,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::Error"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__Error"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1010,7 +1010,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::Error::message"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__Error__message"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1021,7 +1021,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::Started"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__Started"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1032,7 +1032,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::TextDelta"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__TextDelta"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1043,7 +1043,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::TextDelta::content_index"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__TextDelta__content_index"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1054,7 +1054,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::TextDelta::delta"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__TextDelta__delta"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1065,7 +1065,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::TextEnd"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__TextEnd"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1076,7 +1076,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::TextEnd::content_index"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__TextEnd__content_index"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1087,7 +1087,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::TextEnd::text"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__TextEnd__text"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1098,7 +1098,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::TextStart"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__TextStart"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1109,7 +1109,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::TextStart::content_index"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__TextStart__content_index"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1120,7 +1120,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ThinkingDelta"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ThinkingDelta"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1131,7 +1131,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ThinkingDelta::content_index"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ThinkingDelta__content_index"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1142,7 +1142,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ThinkingDelta::delta"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ThinkingDelta__delta"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1153,7 +1153,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ThinkingEnd"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ThinkingEnd"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1164,7 +1164,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ThinkingEnd::content_index"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ThinkingEnd__content_index"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1175,7 +1175,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ThinkingEnd::text"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ThinkingEnd__text"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1186,7 +1186,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ThinkingStart"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ThinkingStart"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1197,7 +1197,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ThinkingStart::content_index"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ThinkingStart__content_index"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1208,7 +1208,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallDelta"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallDelta"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1219,7 +1219,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallDelta::arguments_delta"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallDelta__arguments_delta"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1230,7 +1230,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallDelta::content_index"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallDelta__content_index"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1241,7 +1241,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallDelta::id"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallDelta__id"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1252,7 +1252,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallDelta::name"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallDelta__name"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1263,7 +1263,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallEnd"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallEnd"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1274,7 +1274,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallEnd::arguments"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallEnd__arguments"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1285,7 +1285,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallEnd::content_index"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallEnd__content_index"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1296,7 +1296,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallEnd::id"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallEnd__id"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1307,7 +1307,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallEnd::name"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallEnd__name"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1318,7 +1318,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallStart"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallStart"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1329,7 +1329,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallStart::content_index"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallStart__content_index"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1340,7 +1340,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallStart::id"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallStart__id"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1351,7 +1351,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::ToolCallStart::name"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__ToolCallStart__name"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1362,7 +1362,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::Usage"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__Usage"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1373,7 +1373,7 @@ rust_path = "iyon-api::stream::ModelStreamEvent::Usage::usage"
 typescript_module = "iyon:api"
 typescript_export = "stream__ModelStreamEvent__Usage__usage"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1395,7 +1395,7 @@ rust_path = "iyon-api::stream::StopReason::Aborted"
 typescript_module = "iyon:api"
 typescript_export = "stream__StopReason__Aborted"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1406,7 +1406,7 @@ rust_path = "iyon-api::stream::StopReason::Error"
 typescript_module = "iyon:api"
 typescript_export = "stream__StopReason__Error"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1417,7 +1417,7 @@ rust_path = "iyon-api::stream::StopReason::Length"
 typescript_module = "iyon:api"
 typescript_export = "stream__StopReason__Length"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1428,7 +1428,7 @@ rust_path = "iyon-api::stream::StopReason::Stop"
 typescript_module = "iyon:api"
 typescript_export = "stream__StopReason__Stop"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1439,7 +1439,7 @@ rust_path = "iyon-api::stream::StopReason::ToolUse"
 typescript_module = "iyon:api"
 typescript_export = "stream__StopReason__ToolUse"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1461,7 +1461,7 @@ rust_path = "iyon-api::stream::Usage::cache_read_tokens"
 typescript_module = "iyon:api"
 typescript_export = "stream__Usage__cache_read_tokens"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1472,7 +1472,7 @@ rust_path = "iyon-api::stream::Usage::cache_write_tokens"
 typescript_module = "iyon:api"
 typescript_export = "stream__Usage__cache_write_tokens"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1483,7 +1483,7 @@ rust_path = "iyon-api::stream::Usage::input_tokens"
 typescript_module = "iyon:api"
 typescript_export = "stream__Usage__input_tokens"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
 
 [[records]]
@@ -1494,5 +1494,5 @@ rust_path = "iyon-api::stream::Usage::output_tokens"
 typescript_module = "iyon:api"
 typescript_export = "stream__Usage__output_tokens"
 implementation_owner = "T4"
-status = "stub"
+status = "implemented"
 note = "baseline externally reachable API"
