@@ -5,7 +5,9 @@
 
 mod api;
 mod async_ops;
+mod core;
 mod error;
+mod events;
 mod handles;
 mod queue;
 mod sync;
@@ -13,6 +15,7 @@ mod tui;
 mod value;
 
 pub use async_ops::async_sleep;
+pub use core::KernelSession;
 pub use error::NativeError;
 pub use handles::{
     CancellationProbe, NativeCounter, native_counter_stats, reset_native_counter_stats,
