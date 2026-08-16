@@ -61,6 +61,10 @@ impl Scene {
         self.body = body.into_view();
     }
 
+    pub(crate) fn set_history(&mut self, history: History) {
+        self.history = Some(history);
+    }
+
     pub(crate) fn next_stream_wakeup(&self) -> Option<std::time::Instant> {
         self.history.as_ref().and_then(History::next_stream_wakeup)
     }

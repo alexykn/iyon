@@ -3,7 +3,7 @@ use napi_derive::napi;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use iyon_tui::{BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History, HostHistory, HostTextInput, HostTextStream, HostViewSlot, HostWorking, HorizontalAlign, IntoView, Key, KeyStroke, Modifiers, Output, StyleRef, StyleSpec, TextInput, TextSpan, TuiHost, VerticalAlign, View, WrapMode};
+use iyon_tui::{BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History, HostActivityConfig, HostCellStyle, HostHistory, HostTextInput, HostTextStream, HostViewSlot, HostWorking, HorizontalAlign, IntoView, Key, KeyStroke, Modifiers, Output, StyleRef, StyleSpec, TextInput, TextSpan, TuiHost, VerticalAlign, View, WrapMode};
 use serde_json::Map;
 use serde_json::Value;
 
@@ -61,6 +61,22 @@ impl NativeHistory {
     #[napi]
     pub fn dispose(&self) {
         self.alive.store(false, Ordering::Release);
+    }
+
+    #[napi(js_name = "isDetached")]
+    pub fn is_detached(&self) -> bool {
+        self.host.is_none()
+    }
+
+    fn take_for_host(&mut self) -> Result<History> {
+        if self.host.is_some() {
+            return Err(crate::NativeError::invalid_input("history is already attached to a native host"));
+        }
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| crate::NativeError::internal("history lock is poisoned"))?;
+        Ok(std::mem::replace(&mut *state, History::new()))
     }
 
     #[napi]
@@ -381,6 +397,45 @@ impl NativeTuiHost {
     }
 
     #[napi]
+    pub fn set_theme(&self, value: Value) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.host
+            .set_theme(lower_theme(&value)?)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[napi(js_name = "setHistory")]
+    pub fn set_history(&self, history: &mut NativeHistory) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let detached = history.take_for_host()?;
+        self.host
+            .set_history(detached)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        history.host = Some(self.host.history());
+        Ok(())
+    }
+
+    #[napi]
+    pub fn exited(&self) -> Result<bool> {
+        Ok(self.host.exited())
+    }
+
+    #[napi(js_name = "styleAt")]
+    pub fn style_at(&self, row: i64, column: i64) -> Result<Option<Value>> {
+        ensure_alive(&self.alive)?;
+        let row = u16::try_from(row).map_err(|_| crate::NativeError::invalid_input("row must fit in u16"))?;
+        let column = u16::try_from(column).map_err(|_| crate::NativeError::invalid_input("column must fit in u16"))?;
+        Ok(self.host.style_at(row, column).map(cell_style_value))
+    }
+
+    #[napi(js_name = "cellXOfText")]
+    pub fn cell_x_of_text(&self, row: i64, text: String) -> Result<Option<i64>> {
+        ensure_alive(&self.alive)?;
+        let row = u16::try_from(row).map_err(|_| crate::NativeError::invalid_input("row must fit in u16"))?;
+        Ok(self.host.cell_x_of_text(row, &text).map(i64::from))
+    }
+
+    #[napi]
     pub fn history(&self) -> Result<NativeHistory> {
         ensure_alive(&self.alive)?;
         Ok(NativeHistory::from_host(self.host.history()))
@@ -395,9 +450,9 @@ impl NativeTuiHost {
     }
 
     #[napi(js_name = "working")]
-    pub fn working(&self) -> Result<NativeWorking> {
+    pub fn working(&self, config: Option<Value>) -> Result<NativeWorking> {
         ensure_alive(&self.alive)?;
-        let working = self.host.create_working()
+        let working = self.host.create_working(activity_config(config.as_ref())?)
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
         Ok(NativeWorking { working, alive: AtomicBool::new(true) })
     }
@@ -871,6 +926,17 @@ fn lower_style_ref(value: &Value) -> Result<StyleRef> {
     let object = value
         .as_object()
         .ok_or_else(|| crate::NativeError::invalid_input("style must be an object"))?;
+    let style = lower_style_spec(value)?;
+    Ok(match object.get("theme").and_then(Value::as_str) {
+        Some(theme) => StyleRef::themed(theme, style),
+        None => StyleRef::direct(style),
+    })
+}
+
+fn lower_style_spec(value: &Value) -> Result<StyleSpec> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("style must be an object"))?;
     let mut style = StyleSpec::new();
     if let Some(color) = object.get("foreground") {
         style = style.foreground(color_spec(color)?);
@@ -887,10 +953,7 @@ fn lower_style_ref(value: &Value) -> Result<StyleRef> {
             style = style.attribute(attribute, enabled);
         }
     }
-    Ok(match object.get("theme").and_then(Value::as_str) {
-        Some(theme) => StyleRef::themed(theme, style),
-        None => StyleRef::direct(style),
-    })
+    Ok(style)
 }
 
 fn lower_required(object: &Map<String, Value>, field: &str) -> Result<View> {
@@ -906,6 +969,82 @@ fn u16_value(object: &Map<String, Value>, field: &str) -> Result<u16> {
         .ok_or_else(|| crate::NativeError::invalid_input(format!("{field} must be an integer")))?;
     u16::try_from(value)
         .map_err(|_| crate::NativeError::invalid_input(format!("{field} must fit in u16")))
+}
+
+fn activity_config(value: Option<&Value>) -> Result<HostActivityConfig> {
+    let Some(value) = value else { return Ok(HostActivityConfig::default()); };
+    let object = value.as_object().ok_or_else(|| crate::NativeError::invalid_input("activity config must be an object"))?;
+    let mut config = HostActivityConfig::default();
+    if let Some(frames) = object.get("frames") {
+        config.frames = frames.as_array().ok_or_else(|| crate::NativeError::invalid_input("activity frames must be an array"))?.iter().map(|frame| frame.as_str().map(str::to_owned).ok_or_else(|| crate::NativeError::invalid_input("activity frames must be strings"))).collect::<Result<Vec<_>>>()?;
+        if config.frames.is_empty() { return Err(crate::NativeError::invalid_input("activity frames must not be empty")); }
+    }
+    if let Some(label) = object.get("activeLabel") { config.active_label = label.as_str().ok_or_else(|| crate::NativeError::invalid_input("activeLabel must be a string"))?.to_owned(); }
+    if let Some(label) = object.get("pendingLabel") { config.pending_label = label.as_str().ok_or_else(|| crate::NativeError::invalid_input("pendingLabel must be a string"))?.to_owned(); }
+    if let Some(prefix) = object.get("queuePrefix") { config.queue_prefix = prefix.as_str().ok_or_else(|| crate::NativeError::invalid_input("queuePrefix must be a string"))?.to_owned(); }
+    if let Some(tick) = object.get("tickMs") { config.tick_ms = tick.as_u64().ok_or_else(|| crate::NativeError::invalid_input("tickMs must be an integer"))?; if config.tick_ms == 0 { return Err(crate::NativeError::invalid_input("tickMs must be positive")); } }
+    if let Some(padding) = object.get("padding") { config.padding = u16::try_from(padding.as_u64().ok_or_else(|| crate::NativeError::invalid_input("activity padding must be an integer"))?).map_err(|_| crate::NativeError::invalid_input("activity padding must fit in u16"))?; }
+    if let Some(style) = object.get("mutedStyle") { config.muted_style = lower_style_ref(style)?; }
+    Ok(config)
+}
+
+fn cell_style_value(style: HostCellStyle) -> Value {
+    serde_json::json!({
+        "foreground": style.foreground,
+        "background": style.background,
+        "bold": style.bold,
+        "dim": style.dim,
+        "italic": style.italic,
+        "underline": style.underline,
+        "reversed": style.reversed,
+        "strikethrough": style.strikethrough,
+    })
+}
+
+fn lower_theme(value: &Value) -> Result<iyon_tui::Theme> {
+    let object = value.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme must be an object"))?;
+    let mut theme = iyon_tui::Theme::new();
+    if let Some(colors) = object.get("colors").and_then(Value::as_object) {
+        for (key, entry) in colors {
+            let entry = entry.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme color entry must be an object"))?;
+            if let Some(base) = entry.get("base") { theme.set_color(key.as_str(), lower_theme_color(base)?); }
+            for variant in entry.get("variants").and_then(Value::as_array).into_iter().flatten() {
+                let variant = variant.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme color variant must be an object"))?;
+                theme.set_color_variant(key.as_str(), lower_selector(variant.get("selector").ok_or_else(|| crate::NativeError::invalid_input("theme color selector is required"))?)?, lower_theme_color(variant.get("value").ok_or_else(|| crate::NativeError::invalid_input("theme color value is required"))?)?);
+            }
+        }
+    }
+    if let Some(styles) = object.get("styles").and_then(Value::as_object) {
+        for (key, entry) in styles {
+            let entry = entry.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme style entry must be an object"))?;
+            if let Some(base) = entry.get("base") { theme.set_style(key.as_str(), lower_style_spec(base)?); }
+            for variant in entry.get("variants").and_then(Value::as_array).into_iter().flatten() {
+                let variant = variant.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme style variant must be an object"))?;
+                theme.set_style_variant(key.as_str(), lower_selector(variant.get("selector").ok_or_else(|| crate::NativeError::invalid_input("theme style selector is required"))?)?, lower_style_spec(variant.get("value").ok_or_else(|| crate::NativeError::invalid_input("theme style value is required"))?)?);
+            }
+        }
+    }
+    Ok(theme)
+}
+
+fn lower_selector(value: &Value) -> Result<iyon_tui::StyleSelector> {
+    let object = value.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme selector must be an object"))?;
+    let mut selector = iyon_tui::StyleSelector::default();
+    if object.get("focused").and_then(Value::as_bool).unwrap_or(false) { selector = selector.and_focused(); }
+    if object.get("focusWithin").and_then(Value::as_bool).unwrap_or(false) { selector = selector.and_focus_within(); }
+    if let Some(states) = object.get("states").and_then(Value::as_object) {
+        for (key, value) in states { selector = selector.and_state(key.clone(), value.as_str().ok_or_else(|| crate::NativeError::invalid_input("theme selector states must be strings"))?); }
+    }
+    Ok(selector)
+}
+
+fn lower_theme_color(value: &Value) -> Result<iyon_tui::ThemeColor> {
+    match color_spec(value)? {
+        iyon_tui::ColorSpec::Theme(_) => Err(crate::NativeError::invalid_input("theme colors cannot reference another theme color")),
+        iyon_tui::ColorSpec::Named(color) => Ok(iyon_tui::ThemeColor::Named(color)),
+        iyon_tui::ColorSpec::Ansi(value) => Ok(iyon_tui::ThemeColor::Indexed(value)),
+        iyon_tui::ColorSpec::Rgb { r, g, b } => Ok(iyon_tui::ThemeColor::Rgb { r, g, b }),
+    }
 }
 
 fn apply_decoration(view: View, decoration: Option<&Value>) -> Result<View> {

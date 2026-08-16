@@ -32,6 +32,7 @@ export type {
   TuiRuntime,
   TuiFailure,
   ViewSlot,
+  WorkingActivityOptions,
 } from "./types.ts";
 export { View, ChildrenBuilder } from "./values/view.ts";
 export { Insets } from "./values/geometry.ts";
@@ -48,6 +49,7 @@ export { Annotations } from "./values/annotations.ts";
 export { Projection, ProjectionBuilder, Smooth } from "./values/projection.ts";
 export { DiffRange, DiffLine, DiffHunk, DiffRenderer } from "./values/diff.ts";
 export { Theme, ThemeKey } from "./values/theme.ts";
+export type { ThemeSelector } from "./values/theme.ts";
 export { PlainTextProjector, MarkdownProjector } from "./projectors.ts";
 export { RendererAdapter } from "./traits/renderer.ts";
 export { ProjectorAdapter } from "./traits/projector.ts";

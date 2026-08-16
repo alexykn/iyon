@@ -15,7 +15,9 @@ export class TextInput extends HandleBase<ReturnType<typeof nativeTui.textInput>
   }
   setMultiline(enabled: boolean): Promise<void> { return this.call(() => this.nativeHandle.setMultiline(enabled)); }
   isMultiline(): Promise<boolean> { return this.call(() => this.nativeHandle.isMultiline()); }
-  async view(): Promise<View> { return View.component(this); }
+  async view(): Promise<View> {
+    return this.nativeComponentId() === undefined ? View.spacer(0) : View.component(this);
+  }
 
   nativeComponentId(): number | undefined {
     const id = this.nativeHandle.componentId?.();

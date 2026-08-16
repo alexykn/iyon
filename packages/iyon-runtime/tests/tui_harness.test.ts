@@ -52,4 +52,14 @@ describe("native headless harness", () => {
     await working.dispose();
     await harness.close();
   });
+
+  test("observes native styles and terminal-cell Unicode positions", async () => {
+    const harness = await AppHarness.open({ width: 12, height: 2 });
+    await harness.render({ body: View.text("a🌍b").bold().noWrap() });
+    expect(harness.cellXOfText(1, "🌍")).toBe(1);
+    expect(harness.cellXOfText(1, "b")).toBe(3);
+    expect(harness.styleAt(1, 0).bold).toBe(true);
+    await harness.close();
+    expect(harness.exited()).toBe(true);
+  });
 });

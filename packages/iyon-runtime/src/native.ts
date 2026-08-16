@@ -75,7 +75,7 @@ export interface NativeAddon {
   credentialDelete(service: string, account: string): void;
   credentialHas(service: string, account: string): boolean;
   materializeView?(value: unknown): object;
-  NativeHistory?: new () => { dispose(): void; layout(): object; setLayout(layout: object): void; push(view: object): void; pushStream(stream: object): void };
+  NativeHistory?: new () => { dispose(): void; layout(): object; setLayout(layout: object): void; isDetached(): boolean; push(view: object): void; pushStream(stream: object): void };
   NativeTextInput?: new (multiline?: boolean) => { dispose(): void; text(): string; cursorBytes(): number; setText(value: string): void; clear(): void; submitted(): NativeTuiOutputContract; setMultiline(enabled: boolean): void; isMultiline(): boolean; componentId(): number | null };
   NativeTuiHost?: new (width?: number, height?: number, headless?: boolean) => NativeTuiHostContract;
   NativeTuiOutput?: new () => NativeTuiOutputContract;
@@ -91,7 +91,10 @@ export interface NativeTuiHostContract {
   exit(): void;
   history(): object;
   textInput(multiline?: boolean): object;
-  working(): object;
+  working(config?: object): object;
+  setTheme(theme: object): void;
+  setHistory(history: object): void;
+  exited(): boolean;
   bindKey(key: string, modifiers: readonly string[] | undefined, actionId: string): void;
   route(output: NativeTuiOutputContract, actionId: string): void;
   interceptPaste(input: object, actionId: string): void;
@@ -105,6 +108,8 @@ export interface NativeTuiHostContract {
   resize(width: number, height: number): void;
   advanceTime(milliseconds: number): void;
   createViewSlot(initial: object): object;
+  styleAt(row: number, column: number): object | null;
+  cellXOfText(row: number, text: string): number | null;
 }
 
 // This is the one static addon seam. The stage script materializes this exact
