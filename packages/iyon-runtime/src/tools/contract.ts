@@ -1,9 +1,9 @@
-import type { ApprovalRequirement, JsonValue, Tool, ToolCall, ToolContext, ToolUpdateSink, ToolResult as SdkToolResult } from "@iyon/sdk";
+import type { ApprovalRequirement, JsonValue, Tool, ToolCall, ToolCallId, ToolContext, ToolUpdateSink, ToolResult as SdkToolResult } from "@iyon/sdk";
 
 export type { Tool, ToolCall, ToolContext, ToolUpdateSink } from "@iyon/sdk";
 export type ToolResult<TValue = unknown> = SdkToolResult & {
   readonly value?: TValue;
-  readonly toolCallId?: string;
+  readonly toolCallId?: ToolCallId;
   readonly toolName?: string;
   readonly text?: string;
   readonly state?: ToolLifecycleState;

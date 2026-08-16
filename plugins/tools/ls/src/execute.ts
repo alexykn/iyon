@@ -22,10 +22,10 @@ export const lsTool = defineTool({
     const selected = entries.slice(0, limit).map((entry) => `${entry.name}${entry.isDirectory() ? "/" : ""}`);
     if (selected.length === 0) return { content: [{ type: "text", text: "(empty directory)" }], details: {}, isError: false };
     const truncated = truncateHead(selected.join("\n"), { maxLines: Number.MAX_SAFE_INTEGER, maxBytes: DEFAULT_MODEL_MAX_BYTES });
-    const details: Record<string, unknown> = {};
+    const details: Record<string, import("@iyon/sdk").JsonValue> = {};
     const notices: string[] = [];
     if (entries.length > selected.length) { details.entryLimitReached = limit; notices.push(`${limit} entries limit reached. Use limit=${limit * 2} for more`); }
-    if (truncated.report.truncated) { details.truncation = truncated.report; notices.push(`${DEFAULT_MODEL_MAX_BYTES / 1024}KB limit reached`); }
+    if (truncated.report.truncated) { details.truncation = truncated.report as unknown as import("@iyon/sdk").JsonValue; notices.push(`${DEFAULT_MODEL_MAX_BYTES / 1024}KB limit reached`); }
     const text = notices.length ? `${truncated.text}\n\n[${notices.join(". ")}]` : truncated.text;
     return { content: [{ type: "text", text }], details, isError: false };
   },

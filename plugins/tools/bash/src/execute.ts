@@ -25,8 +25,8 @@ export const bashTool = defineTool({
     if (context.signal.aborted) throw new Error("bash tool cancelled");
     const output = await runBash(context, args.command, args.timeout);
     const truncated = truncateTail(output.text, { maxLines: DEFAULT_MODEL_MAX_LINES, maxBytes: DEFAULT_MODEL_MAX_BYTES });
-    const details: Record<string, unknown> = { exitCode: output.exitCode };
-    if (truncated.report.truncated) details.truncation = truncated.report;
+    const details: Record<string, import("@iyon/sdk").JsonValue> = { exitCode: output.exitCode };
+    if (truncated.report.truncated) details.truncation = truncated.report as unknown as import("@iyon/sdk").JsonValue;
     if (output.fullOutputPath) details.fullOutputPath = output.fullOutputPath;
     let text = truncated.text;
     if (output.exitCode !== null && output.exitCode !== 0) text += `${text ? "\n" : ""}[Command exited with code ${output.exitCode}]`;

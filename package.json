@@ -11,7 +11,7 @@
     "workspace:install": "bun install",
     "typecheck": "bunx tsc --noEmit",
     "typecheck:plugins": "bunx tsc --noEmit -p packages/iyon-plugins/tsconfig.json",
-    "test:plugins": "bun test packages/iyon-plugins/tests",
+    "test:plugins": "bun test packages/iyon-plugins/tests packages/iyon-plugins/test",
     "rust:fmt": "cargo fmt --all -- --check",
     "rust:clippy": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
     "rust:test": "cargo test --workspace",
