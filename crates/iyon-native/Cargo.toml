@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 iyon-api.workspace = true
 iyon-core.workspace = true
 iyon-tui.workspace = true
+futures-util.workspace = true
 napi.workspace = true
 napi-derive.workspace = true
 serde.workspace = true

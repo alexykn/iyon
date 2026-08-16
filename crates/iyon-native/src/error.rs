@@ -5,6 +5,8 @@ use napi::{Error, Status};
 pub enum NativeError {
     InvalidInput,
     Internal,
+    Cancelled,
+    Closed,
 }
 
 impl NativeError {
@@ -20,5 +22,13 @@ impl NativeError {
             Status::GenericFailure,
             format!("internal failure: {}", message.into()),
         )
+    }
+
+    pub fn cancelled() -> Error {
+        Error::new(Status::Cancelled, "operation cancelled")
+    }
+
+    pub fn closed() -> Error {
+        Error::new(Status::Closing, "native operation is closed")
     }
 }
