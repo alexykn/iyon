@@ -3,11 +3,21 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installIyonVirtualModules } from "../../../../packages/iyon-runtime/src/virtual-modules.ts";
+import { materializeView } from "../../../../packages/iyon-runtime/src/tui/index.ts";
 installIyonVirtualModules();
 const { writeTool } = await import("../src/execute.ts");
 const context = (root: string) => ({ workspace: { root }, signal: new AbortController().signal } as never);
 
 describe("write tool", () => {
+  test("compiles lifecycle, multiline, and diff fixtures through native views", () => {
+    for (const state of ["preparing", "prepared", "running"] as const) {
+      expect(materializeView(writeTool.renderCall({ id: "call" as never, name: "write", arguments: { path: "file.txt", content: "one\ntwo\n" }, state }) as never)).toBeDefined();
+    }
+    const details = { diff: "@@ -0,0 +1,2 @@\n+one\n+two\n" };
+    expect(materializeView(writeTool.renderResult({ content: [{ type: "text", text: "wrote\nfile" }], details, isError: false }) as never)).toBeDefined();
+    expect(materializeView(writeTool.renderResult({ content: [{ type: "text", text: "write failed\nagain" }], details, isError: true }) as never)).toBeDefined();
+  });
+
   test("creates parent directories and reports a new-file diff", async () => {
     const root = await mkdtemp(join(tmpdir(), "iyon-write-"));
     const result = await writeTool.execute(context(root), { path: "nested/file.txt", content: "new\n" });

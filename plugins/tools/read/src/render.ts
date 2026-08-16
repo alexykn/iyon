@@ -1,6 +1,14 @@
 import { View } from "iyon:tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
+import { resultLines, resultStyle, resultText, statusLabel, toolCallLine, toolResultLine } from "@iyon/plugins";
 
-export function renderReadCall(call: ToolCall<{ path: string }>): View { return View.text(`read ${call.arguments.path} — ${call.state}`).fillWidth() as unknown as View; }
-export function renderReadResult(result: ToolResult): View { return View.text(result.isError ? `read failed: ${result.text ?? text(result)}` : text(result)).fillWidth() as unknown as View; }
-function text(result: ToolResult): string { return result.text ?? result.content.filter((block) => block.type === "text").map((block) => block.text).join(""); }
+export function renderReadCall(call: ToolCall<{ path: string; offset?: number; limit?: number }>): View {
+  const { offset, limit } = call.arguments;
+  const suffix = offset === undefined ? "" : limit === undefined ? `:${offset}` : `:${offset}-${offset + Math.max(0, limit - 1)}`;
+  return toolCallLine(`read ${call.arguments.path}${suffix} — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
+}
+
+export function renderReadResult(result: ToolResult): View {
+  const style = resultStyle(result.isError);
+  return View.vertical([toolResultLine(result.isError ? "read failed" : "read result", style), ...resultLines(resultText(result), style)]).fillWidth() as unknown as View;
+}
