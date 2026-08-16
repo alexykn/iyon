@@ -229,13 +229,66 @@ These registrations do not make the extension execution model narrower. A
 single extension may make multiple contribution registrations and may also
 use lower-level APIs absent a contribution registration.
 
+## Extension lifecycle
+
+`iyon-runtime` uses one transactional lifecycle for bundled and external
+packages:
+
+```text
+discover package
+    → parse manifest
+    → validate compatibility
+    → resolve TypeScript entrypoint
+    → activate transactionally
+    → validate registrations
+    → commit contributions
+```
+
+Import or activation failure rolls back every contribution made during that
+activation. Duplicate IDs fail by default. A replacement must explicitly set
+`replace: true`; replacement layers are ordered and retain source metadata.
+Unloading disposes contributions in reverse order and restores the previous
+layer when a replacement is removed. Disposal and rollback must release all
+handles and owned async work from the activation.
+
+There is no separate bundled-package activation path and no `is_builtin`
+shortcut. The same discovery, validation, activation, registry, and disposal
+rules apply to the bundled Iyon packages and third-party packages.
+
+## Binding contract by virtual module
+
+The canonical modules expose semantic contracts:
+
+| Module | Public responsibility | Native boundary rule |
+|---|---|---|
+| `iyon:api` | Model protocol values, stream events, errors, and compatibility paths. | Keep protocol semantics in `iyon-api`; use owned values across async work. |
+| `iyon:core` | Kernel IDs, session state, commands/events, cancellation, tools, hooks, and native execution primitives. | Use native handles for stateful kernel objects and explicit cancellation for long-lived operations. |
+| `iyon:tui` | Semantic View values, native handles, streams, History, TextInput, Scene host, and terminal runtime. | Keep terminal/layout/paint/history native; use lazy value façades where a handle is unnecessary. |
+| `iyon:plugins` | Registries, contribution metadata, lifecycle, and Scene extension composition. | Registry changes are transactional and carry source/layer ownership. |
+
+Bindings are semantic boundaries. A Rust method is complete when a documented,
+tested TypeScript path exists; it need not become a distinct N-API export.
+`View` and related immutable builders may remain lazy TypeScript values. A
+`History`, `TextInput`, stream, component, or terminal runtime remains a
+native handle when it owns mutable state or performance-critical resources.
+Long-lived operations return owned Promises, have explicit cancellation, and
+surface typed errors. Borrowed native values never cross a suspended Rust
+future.
+
 ## API parity and compatibility
 
-The four root inventory documents are read-only migration baselines:
-`iyon-api.md`, `iyon-core.md`, `iyon-tui.md`, and `iyon.md`. Their reachable
-public paths, aliases, fields, variants, associated items, feature/cfg paths,
-and re-exports form the initial parity universe. They are human-readable
-source inventories, not generated output and not disposable documentation.
+The four root inventory documents are read-only migration baselines. Their
+reachable public paths, aliases, fields, variants, associated items,
+feature/cfg paths, and re-exports form the initial parity universe. They are
+human-readable source inventories, not generated output and not disposable
+documentation.
+
+| Baseline file | Role in parity work |
+|---|---|
+| `iyon-api.md` | Read-only model protocol inventory consumed by `tools/api-surface/` in T2. |
+| `iyon-core.md` | Read-only kernel and tool-contract inventory consumed by `tools/api-surface/` in T2. |
+| `iyon-tui.md` | Read-only terminal/UI inventory consumed by `tools/api-surface/` in T2. |
+| `iyon.md` | Read-only application and CLI inventory consumed by `tools/api-surface/` in T2 and the T10 app migration. |
 
 Later `tools/api-surface/` work must give every reachable Rust capability a
 documented and tested TypeScript path. Lazy façades count as coverage where
