@@ -56,6 +56,10 @@ pub struct ModelTurn {
 }
 
 impl ModelTurn {
+    pub fn begin(turn_id: TurnId, assistant_message_id: MessageId) -> Self {
+        Self::new(turn_id, assistant_message_id)
+    }
+
     pub fn new(turn_id: TurnId, assistant_message_id: MessageId) -> Self {
         Self {
             turn_id,

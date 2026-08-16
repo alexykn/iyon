@@ -446,3 +446,41 @@ constructors. `IyonCore::spawn_with_owned_runtime` and
 `ModelSelection`. The convenience `spawn` constructors construct and use
 `iyon_api::MockModelApi`. Provider discovery or environment-based selection is
 outside `iyon-core`.
+
+## Provider-independent kernel surface
+
+`iyon_core::kernel` is the native execution kernel surface for later hosts. It
+does not select or call a provider, execute tools, apply `sudo` policy, or
+enforce the compatibility agent's 16-tool product policy.
+
+`KernelSession` owns canonical ordered `SessionEntry` values and monotonic
+native message IDs. Entries are either `Message(AgentMessage)` or validated
+package-style `Custom { namespace, data }` JSON. `SessionSnapshot` is an owned
+copy. `messages()` excludes status/custom entries, while `to_model_messages()`
+mechanically lowers user, assistant, and tool-result messages without mutating
+canonical history. `KernelConfig` and `Kernel` require an injected
+`ToolRegistry`, approval requirement, cancellation token, bounded capacities,
+and optional host safety ceiling; construction never registers legacy built-in
+tools.
+
+`ModelTurn` consumes `iyon_api::ModelStreamEvent` values through `push` or
+`push_many` and exposes `finish`, `fail`, and `cancel`. It preserves assistant
+identity, partial text/thinking, usage, Start/Delta/End ordering, and tool draft
+identity by `{message_id, content_index}` while reconciling late provider IDs.
+It emits compatibility-shaped events for the existing driver, but never calls
+`ModelApi` itself. The compatibility `run_model_turn` adapter owns provider
+stream acquisition and bounded cancellation-aware event delivery.
+
+`ToolLifecycleHandle` validates `Preparing → Prepared → Running →
+PendingApproval → Running → Finished / Failed / Cancelled`. Approval is an
+input (`ApprovalRequirement`), and native `ApprovalId` state, resolution,
+cancellation, and typed stale/duplicate-transition errors remain in the
+kernel. The lifecycle never executes a tool or infers policy from a command.
+
+`KernelQueues` maintains distinct bounded prompt, steer, and follow-up queues;
+steers drain only at safe boundaries, follow-ups wait for an active run to
+settle, and abort cancels the owned token. `SubmitTurn` remains a compatibility
+operation in the legacy runtime. The direct integration proof
+`manual_kernel_session_model_turn_tool_lifecycle_transcript_flow` drives
+session → model turn → assembled call → lifecycle → transcript without
+constructing `IyonCore`, invoking a provider, or registering built-ins.
