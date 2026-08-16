@@ -62,7 +62,7 @@ export async function executeTool(
     const before = await options.hooks?.before?.(context, request.arguments);
     const argumentsValue = before && typeof before === "object" ? before as JsonValue : request.arguments;
     execution.start();
-    const requirement = approvalRequirement(tool);
+    const requirement = approvalRequirement(tool, request.toolName, argumentsValue, options.policy);
     const approval = execution.requestApproval(requirement);
     if (approval) {
       const approve = await context.approval?.(approval) ?? true;
@@ -119,11 +119,11 @@ function createContext(request: ToolExecutionRequestWithContext, signal: AbortSi
   };
 }
 
-function approvalRequirement(tool: AnyTool): ApprovalRequirement {
+function approvalRequirement(tool: AnyTool, toolName: string, args: JsonValue, policy: ToolLifecycleOptions["policy"]): ApprovalRequirement {
   const approval = tool.approval ?? tool.execution?.approval ?? tool.metadata?.approval;
-  if (approval === "alwaysAsk") return { type: "required" };
-  if (approval && typeof approval === "object") return approval;
-  return { type: "notRequired" };
+  const base = approval === "alwaysAsk" ? { type: "required" as const } : approval && typeof approval === "object" ? approval : { type: "notRequired" as const };
+  const contribution = policy ?? (typeof tool.policy === "object" && tool.policy !== null && "approval" in tool.policy ? tool.policy as ToolLifecycleOptions["policy"] : undefined);
+  return contribution?.approval(toolName, args, base) ?? base;
 }
 
 function toNativeResult(result: ToolResult): ToolResult {

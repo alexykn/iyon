@@ -1,4 +1,4 @@
-import type { JsonValue, Tool, ToolCall, ToolContext, ToolUpdateSink, ToolResult as SdkToolResult } from "@iyon/sdk";
+import type { ApprovalRequirement, JsonValue, Tool, ToolCall, ToolContext, ToolUpdateSink, ToolResult as SdkToolResult } from "@iyon/sdk";
 
 export type { Tool, ToolCall, ToolContext, ToolUpdateSink } from "@iyon/sdk";
 export type ToolResult<TValue = unknown> = SdkToolResult & {
@@ -23,6 +23,7 @@ export interface ToolLifecycleOptions {
   readonly signal?: AbortSignal;
   readonly approval?: ToolContext["approval"];
   readonly updates?: ToolUpdateSink;
+  readonly policy?: { approval(toolName: string, args: JsonValue, base: ApprovalRequirement): ApprovalRequirement };
 }
 
 export type AnyTool = Tool<JsonValue, unknown>;
