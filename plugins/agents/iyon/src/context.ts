@@ -1,6 +1,7 @@
 import type { ModelMetadata, ModelParams, ModelRequest, ModelToolSpec, ReasoningLevel } from "iyon:api";
 import type { KernelSession, SessionSnapshot, ToolDefinition, ToolUpdateSink } from "@iyon/sdk";
 import { buildSystemPrompt } from "./prompt.ts";
+import { selectReasoningEffort } from "./reasoning.ts";
 
 export interface PublicToolRegistry {
   list(): readonly { readonly value: unknown }[];
@@ -36,7 +37,7 @@ export function activeModelTools(context: AgentPolicyContext): ModelToolSpec[] {
 }
 
 export function contextParams(context: AgentPolicyContext): ModelParams {
-  return context.reasoningEffort === undefined ? {} : { reasoning: context.reasoningEffort };
+  return selectReasoningEffort(context.reasoningEffort);
 }
 
 export function contextMetadata(context: AgentPolicyContext): ModelMetadata {

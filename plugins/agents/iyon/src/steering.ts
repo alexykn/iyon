@@ -6,9 +6,19 @@ export interface SteeringQueue {
 
 export function drainSteering(session: KernelSession, queue?: SteeringQueue): string[] {
   const messages = [...(queue?.drain() ?? [])];
-  const steer = session.dequeue("steer");
-  if (steer !== null) messages.push(steer);
+  drainQueue(session, "steer", messages);
+  drainQueue(session, "followUp", messages);
   return messages;
+}
+
+export function drainPrompts(session: KernelSession, messages: string[] = []): string[] {
+  drainQueue(session, "prompt", messages);
+  return messages;
+}
+
+function drainQueue(session: KernelSession, kind: "prompt" | "steer" | "followUp", messages: string[]): void {
+  const value = session.dequeue(kind);
+  if (value !== null) messages.push(value);
 }
 
 export function injectSteeredMessages(session: KernelSession, messages: readonly string[]): readonly MessageId[] {
