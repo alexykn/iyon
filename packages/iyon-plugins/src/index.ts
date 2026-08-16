@@ -17,3 +17,8 @@ export * from "./activation.ts";
 export * from "./load-errors.ts";
 export * from "./loader.ts";
 export * from "./load-scopes.ts";
+export * from "./tools/support/output.ts";
+export * from "./tools/support/process.ts";
+export * from "./tools/support/mutations.ts";
+export * from "./tools/support/diff.ts";
+export * from "./tools/support/render.ts";
