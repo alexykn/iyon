@@ -8,6 +8,7 @@ pub mod normalize;
 pub mod parse;
 pub mod reachability;
 pub mod render;
+pub mod tsgen;
 
 pub use error::ApiSurfaceError;
 pub use metadata::CargoMetadataLoader;
@@ -39,6 +40,7 @@ pub fn scan_from_config(
 ) -> Result<model::ApiManifest, ApiSurfaceError> {
     let (config, manifest) = scan_config(path)?;
     render::write_manifest(&manifest, &config)?;
+    tsgen::write_sdk(&manifest, &config.mapping_dir, &config.sdk_output_dir)?;
     Ok(manifest)
 }
 
@@ -108,6 +110,17 @@ pub fn check_from_config(
             Some(config.mapping_dir.display().to_string()),
         ));
     }
+    let reachable = manifest
+        .crates
+        .iter()
+        .map(|package| package.surface.paths.len())
+        .sum::<usize>();
+    println!(
+        "reachable: {reachable}\nmapped:      {}\nmissing:     {}\nstale:       {}",
+        mapping.mapped,
+        mapping.missing.len(),
+        mapping.stale.len()
+    );
     Ok(())
 }
 

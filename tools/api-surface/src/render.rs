@@ -1,5 +1,8 @@
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+
+use crate::binding::{load_mapping_dir, validate_manifest_mappings};
 use crate::error::ApiSurfaceError;
 use crate::model::{ApiManifest, CoverageReport, ManifestCrate, ReachableSurface, SurfaceConfig};
 
@@ -35,37 +38,34 @@ pub fn write_manifest(
 ) -> Result<(), ApiSurfaceError> {
     let output = config.output_dir.join("api-manifest.json");
     write_json(&output, manifest)?;
-    for package in &manifest.crates {
-        let output = config
-            .output_dir
-            .join(format!("{}-declarations.json", package.package.0));
-        write_json(&output, &package.surface)?;
-    }
-    let coverage = coverage_report(manifest);
-    write_json(&config.output_dir.join("coverage.json"), &coverage)?;
-    let summary = format!(
-        "reachable: {}\nmapped:      {}\nmissing:     {}\nstale:       {}\n",
-        coverage.reachable,
-        coverage.mapped,
-        coverage.missing.len(),
-        coverage.stale.len()
+    let mappings = load_mapping_dir(&config.mapping_dir)?;
+    let mapping = validate_manifest_mappings(manifest, &mappings)?;
+    let coverage = coverage_report(
+        manifest,
+        mapping.mapped,
+        mapping.missing.clone(),
+        mapping.stale.clone(),
     );
-    std::fs::create_dir_all(&config.output_dir).map_err(|error| {
-        ApiSurfaceError::configuration(
-            format!("cannot create output directory: {error}"),
-            Some(config.output_dir.display().to_string()),
-        )
-    })?;
-    std::fs::write(config.output_dir.join("summary.txt"), summary).map_err(|error| {
-        ApiSurfaceError::configuration(
-            format!("cannot write summary: {error}"),
-            Some(config.output_dir.display().to_string()),
-        )
-    })?;
+    write_json(&config.output_dir.join("coverage.json"), &coverage)?;
+    write_json(
+        &config.output_dir.join("mapping-report.json"),
+        &MappingReport {
+            schema_version: SCHEMA_VERSION,
+            mapped: mapping.mapped,
+            missing: mapping.missing,
+            stale: mapping.stale,
+            records: mapping.records,
+        },
+    )?;
     Ok(())
 }
 
-pub fn coverage_report(manifest: &ApiManifest) -> CoverageReport {
+pub fn coverage_report(
+    manifest: &ApiManifest,
+    mapped: usize,
+    missing: Vec<String>,
+    stale: Vec<String>,
+) -> CoverageReport {
     let paths = manifest
         .crates
         .iter()
@@ -80,9 +80,9 @@ pub fn coverage_report(manifest: &ApiManifest) -> CoverageReport {
     CoverageReport {
         schema_version: SCHEMA_VERSION,
         reachable: paths.len(),
-        mapped: 0,
-        missing: paths,
-        stale: Vec::new(),
+        mapped,
+        missing,
+        stale,
         aliases,
         packages: manifest
             .crates
@@ -95,6 +95,15 @@ pub fn coverage_report(manifest: &ApiManifest) -> CoverageReport {
             .map(|package| package.profile.clone())
             .collect(),
     }
+}
+
+#[derive(Debug, Serialize)]
+struct MappingReport {
+    schema_version: u32,
+    mapped: usize,
+    missing: Vec<String>,
+    stale: Vec<String>,
+    records: Vec<crate::binding::BindingRecord>,
 }
 
 pub fn content_hash<T: serde::Serialize>(value: &T) -> Result<String, ApiSurfaceError> {
