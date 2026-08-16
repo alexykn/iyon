@@ -1,6 +1,6 @@
 use tokio_util::sync::CancellationToken;
 
-use super::{ApprovalRequirement, KernelSession};
+use super::{ApprovalRequirement, KernelQueues, KernelSession};
 use crate::{ids::SessionId, tools::ToolRegistry};
 
 /// Inputs owned by the host when constructing a native kernel.
@@ -71,10 +71,12 @@ pub struct Kernel {
     event_capacity: usize,
     cancellation: CancellationToken,
     host_tool_call_ceiling: Option<usize>,
+    queues: KernelQueues,
 }
 
 impl Kernel {
     pub fn new(config: KernelConfig) -> Self {
+        let cancellation = config.cancellation.clone();
         Self {
             session: config.session,
             tools: config.tools,
@@ -83,6 +85,7 @@ impl Kernel {
             event_capacity: config.event_capacity.max(1),
             cancellation: config.cancellation,
             host_tool_call_ceiling: config.host_tool_call_ceiling,
+            queues: KernelQueues::new(config.command_capacity, cancellation),
         }
     }
 
@@ -109,6 +112,12 @@ impl Kernel {
     }
     pub fn host_tool_call_ceiling(&self) -> Option<usize> {
         self.host_tool_call_ceiling
+    }
+    pub fn queues(&self) -> &KernelQueues {
+        &self.queues
+    }
+    pub fn queues_mut(&mut self) -> &mut KernelQueues {
+        &mut self.queues
     }
 }
 
