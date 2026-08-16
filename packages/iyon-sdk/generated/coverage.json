@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "reachable": 1996,
+  "mapped": 1996,
+  "missing": [],
+  "stale": [],
+  "aliases": 290,
+  "packages": [
+    "iyon",
+    "iyon-api",
+    "iyon-core",
+    "iyon-tui"
+  ],
+  "profiles": [
+    {
+      "package": "iyon",
+      "target": "iyon",
+      "selected_features": [],
+      "use_default_features": true,
+      "target_triple": "aarch64-apple-darwin",
+      "cfg": []
+    },
+    {
+      "package": "iyon-api",
+      "target": "iyon_api",
+      "selected_features": [],
+      "use_default_features": true,
+      "target_triple": "aarch64-apple-darwin",
+      "cfg": []
+    },
+    {
+      "package": "iyon-core",
+      "target": "iyon_core",
+      "selected_features": [],
+      "use_default_features": true,
+      "target_triple": "aarch64-apple-darwin",
+      "cfg": []
+    },
+    {
+      "package": "iyon-tui",
+      "target": "iyon_tui",
+      "selected_features": [],
+      "use_default_features": true,
+      "target_triple": "aarch64-apple-darwin",
+      "cfg": []
+    }
+  ]
+}
