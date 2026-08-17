@@ -37,15 +37,8 @@ function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState 
   switch (event.type) {
     case "turnStarted": return { ...state, activeTurn: true, working: true, activityVisible: true };
     case "userMessage": {
-      const queueId = event.queueId === undefined ? undefined : String(event.queueId);
-      const index = queueId === undefined ? -1 : state.steeringQueueIds.indexOf(queueId);
-      if (index < 0) return { ...state, userBatches: [...state.userBatches, event.text] };
-      return {
-        ...state,
-        userBatches: [...state.userBatches, event.text],
-        steering: state.steering.filter((_, itemIndex) => itemIndex !== index),
-        steeringQueueIds: state.steeringQueueIds.filter((_, itemIndex) => itemIndex !== index),
-      };
+      const delivered = deliverQueuedSteer(state, event.text, event.queueId);
+      return { ...state, userBatches: [...state.userBatches, event.text], ...delivered };
     }
     case "assistantDelta": return { ...state, assistantText: state.assistantText + event.text, assistantOpen: true, activityVisible: state.steering.length > 0 };
     case "thinkingDelta": return { ...state, thinkingText: state.thinkingText + event.text, assistantOpen: true, activityVisible: state.steering.length > 0 };
@@ -96,6 +89,17 @@ function applyToolUpdate(tool: LiveTool, update: ToolUpdatePresentation): LiveTo
   return { ...tool, update };
 }
 export function draftIdFor(key: { readonly messageId: number; readonly contentIndex: number }): string { return `${key.messageId}:${key.contentIndex}`; }
+
+function deliverQueuedSteer(state: IyonState, text: string, queueId?: string | number): Pick<IyonState, "steering" | "steeringQueueIds"> {
+  const id = queueId === undefined ? undefined : String(queueId);
+  let index = id === undefined ? -1 : state.steeringQueueIds.indexOf(id);
+  if (index < 0) index = state.steering.indexOf(text);
+  if (index < 0) return { steering: state.steering, steeringQueueIds: state.steeringQueueIds };
+  return {
+    steering: state.steering.filter((_, itemIndex) => itemIndex !== index),
+    steeringQueueIds: state.steeringQueueIds.filter((_, itemIndex) => itemIndex !== index),
+  };
+}
 
 function cancelLiveTools(tools: ReadonlyMap<string, LiveTool>): ReadonlyMap<string, LiveTool> {
   return new Map([...tools].map(([key, tool]) => [key, tool.frozen ? tool : { ...tool, status: "cancelled" as const, frozen: true, isError: true }]));
