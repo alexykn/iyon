@@ -62,4 +62,59 @@ describe("generic tool lifecycle", () => {
     await expect(executeTool(session, tool, request(), { signal: controller.signal })).rejects.toMatchObject({ code: "ION_CANCELLED" });
     session.close();
   });
+
+  test("approval_happens_before_running", async () => {
+    const session = new KernelSession({ id: 11 });
+    const lifecycle: string[] = [];
+    let executed = false;
+    const approvalTool = defineTool({
+      name: "approval-fixture",
+      description: "approval-fixture",
+      inputSchema: { type: "object" },
+      approval: "alwaysAsk",
+      execute: async () => {
+        executed = true;
+        return { content: [{ type: "text", text: "should not run" }], details: {}, isError: false };
+      },
+      renderCall: () => ({}) as never,
+      renderResult: () => ({}) as never,
+    });
+    const result = await executeTool(session, approvalTool, request("approval-fixture"), {
+      approval: async () => {
+        lifecycle.push("approval");
+        return false;
+      },
+    });
+
+    lifecycle.unshift(...result.execution.events().map((event) => event.state));
+    expect(lifecycle).toEqual(["preparing", "prepared", "pendingApproval", "rejected", "approval"]);
+    expect(executed).toBe(false);
+    session.close();
+  });
+
+  test("unresolved_approval_never_executes_tool", async () => {
+    const session = new KernelSession({ id: 12 });
+    let executed = false;
+    const approvalTool = defineTool({
+      name: "approval-unresolved",
+      description: "approval-unresolved",
+      inputSchema: { type: "object" },
+      approval: "alwaysAsk",
+      execute: async () => {
+        executed = true;
+        return { content: [{ type: "text", text: "should not run" }], details: {}, isError: false };
+      },
+      renderCall: () => ({}) as never,
+      renderResult: () => ({}) as never,
+    });
+    let resolveApproval: (approved: boolean) => void = () => undefined;
+    const approval = new Promise<boolean>((resolve) => { resolveApproval = resolve; });
+    const operation = executeTool(session, approvalTool, request("approval-unresolved"), { approval: async () => approval });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(executed).toBe(false);
+    expect(session.snapshot().entries.some((entry) => entry.kind === "message" && entry.role === "toolResult")).toBe(false);
+    resolveApproval(false);
+    await operation;
+    session.close();
+  });
 });

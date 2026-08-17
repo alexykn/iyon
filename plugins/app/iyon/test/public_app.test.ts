@@ -30,6 +30,14 @@ function position(lines: readonly string[], text: string): number {
   return index;
 }
 
+function styleForText(fixture: PublicAppFixture, text: string): Readonly<Record<string, unknown>> {
+  const row = fixture.harness.screenRows().findIndex((line) => line.includes(text));
+  if (row < 0) throw new Error(`missing ${text} in ${fixture.harness.screenRows().join("\n")}`);
+  const column = fixture.harness.cellXOfText(row, text);
+  if (column === null) throw new Error(`missing cell position for ${text}`);
+  return fixture.harness.styleAt(row, column);
+}
+
 describe("Iyon public native TUI", () => {
   test("is drivable through the public TUI harness", async () => {
     await withFixture(40, 12, async ({ app, harness }) => {
@@ -299,4 +307,275 @@ describe("Iyon public native TUI", () => {
       expect(rows.some((line) => line.includes("waiting"))).toBe(true);
     });
   });
+
+  test("reasoning_effort_changes_focused_composer_border_color", async () => {
+    await withFixture(40, 12, async (fixture) => {
+      const medium = fixture.harness.styleAt(9, 0);
+      await fixture.app.handleAction({ type: "cycleReasoningEffort" });
+      const high = fixture.harness.styleAt(9, 0);
+      expect(medium.foreground).toBe("Yellow");
+      expect(high.foreground).toBe("LightMagenta");
+    });
+  });
+
+  test("normal_working_spinner_runs_reverse", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await send(fixture, { type: "turnStarted" });
+      expect(fixture.harness.screenRows().some((line) => line.includes("⠞⢁ Working"))).toBe(true);
+    });
+  });
+
+  test("queued_working_spinner_runs_forward", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await sendAll(fixture, [
+        { type: "turnStarted" },
+        { type: "steerQueued", text: "next" },
+      ]);
+      expect(fixture.harness.screenRows().some((line) => line.includes("⠋⣠ waiting"))).toBe(true);
+    });
+  });
+
+  test("assistant_stream_replaces_unqueued_working_activity", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await sendAll(fixture, [
+        { type: "turnStarted" },
+        { type: "userMessage", text: "prompt" },
+        { type: "assistantDelta", text: "assistant tail" },
+      ]);
+      advance(fixture, 16, 20);
+      const lines = transcriptLines(fixture.harness);
+      expect(position(lines, "assistant tail")).toBeGreaterThanOrEqual(0);
+      expect(lines.some((line) => line.includes("Working"))).toBe(false);
+    });
+  });
+
+  test("queued_steering_keeps_working_below_assistant_tail", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await sendAll(fixture, [
+        { type: "turnStarted" },
+        { type: "userMessage", text: "prompt" },
+        { type: "assistantDelta", text: "assistant tail" },
+        { type: "steerQueued", text: "second" },
+      ]);
+      advance(fixture, 16, 20);
+      const lines = transcriptLines(fixture.harness);
+      expect(position(lines, "assistant tail")).toBeLessThan(position(lines, "Queue: second"));
+      expect(position(lines, "waiting")).toBeGreaterThan(position(lines, "assistant tail"));
+    });
+  });
+
+  test("thinking_is_muted_and_italic", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await sendAll(fixture, [
+        { type: "thinkingDelta", text: "considering this" },
+        { type: "assistantDelta", text: "Final answer" },
+      ]);
+      advance(fixture, 16, 100);
+      const thinking = styleForText(fixture, "considering this");
+      expect(thinking.foreground).toBe("#718096");
+      expect(thinking.italic).toBe(true);
+    });
+  });
+
+  test("thinking_and_text_preserve_markdown_semantics", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await send(fixture, { type: "thinkingDelta", text: "considering **this**" });
+      await send(fixture, { type: "assistantDelta", text: "Final **answer**" });
+      expect(() => advance(fixture, 16, 100)).not.toThrow();
+      expect(styleForText(fixture, "this").bold).toBe(true);
+      expect(styleForText(fixture, "answer").bold).toBe(true);
+    });
+  });
+
+  test("markdown_heading_uses_heading_theme", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await send(fixture, { type: "assistantDelta", text: "# Heading" });
+      advance(fixture, 16, 100);
+      expect(styleForText(fixture, "Heading").foreground).toBe("#ffc457");
+    });
+  });
+
+  test("markdown_inline_code_uses_code_theme", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await send(fixture, { type: "assistantDelta", text: "`inline`" });
+      advance(fixture, 16, 100);
+      expect(styleForText(fixture, "inline").foreground).toBe("#78c8d2");
+    });
+  });
+
+  test("live_gfm_table_stabilizes", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await send(fixture, { type: "assistantDelta", text: "| A | B |\n| --- | --- |\n| 1 | 2 |" });
+      advance(fixture, 16, 100);
+      const lines = transcriptLines(fixture.harness);
+      expect(lines.some((line) => line.includes("│ A │ B │"))).toBe(true);
+      expect(lines.some((line) => line.includes("│ 1 │ 2 │"))).toBe(true);
+    });
+  });
+
+  test("tool_call_pulses_every_480ms_natively", async () => {
+    await withFixture(80, 20, async (fixture) => {
+      await send(fixture, { type: "toolCallStarted", toolCallId: "pulse", toolName: "bash", arguments: { command: "true" } });
+      const row = position(transcriptLines(fixture.harness), "$ true");
+      const column = fixture.harness.cellXOfText(row, "●");
+      if (column === null) throw new Error("missing tool bullet");
+      const first = fixture.harness.styleAt(row, column);
+      advance(fixture, 480);
+      const second = fixture.harness.styleAt(row, column);
+      advance(fixture, 480);
+      const third = fixture.harness.styleAt(row, column);
+      expect(second.dim).not.toBe(first.dim);
+      expect(third.dim).toBe(first.dim);
+    });
+  });
+
+  test("tool_pulse_continues_from_preparing_into_running", async () => {
+    await withFixture(80, 20, async (fixture) => {
+      const key = draft(12, 0);
+      await sendAll(fixture, [
+        { type: "toolCallPreparing", key, toolName: "bash" },
+        { type: "toolCallPrepared", key, toolCallId: "pulse-continuity", toolName: "bash", arguments: { command: "true" } },
+      ]);
+      advance(fixture, 240);
+      await send(fixture, { type: "toolCallStarted", toolCallId: "pulse-continuity", toolName: "bash", arguments: { command: "true" } });
+      const row = position(transcriptLines(fixture.harness), "$ true");
+      const column = fixture.harness.cellXOfText(row, "●");
+      if (column === null) throw new Error("missing tool bullet");
+      const before = fixture.harness.styleAt(row, column);
+      advance(fixture, 240);
+      expect(fixture.harness.styleAt(row, column).dim).not.toBe(before.dim);
+    });
+  });
+
+  test("tool_terminal_state_stops_pulse", async () => {
+    await withFixture(80, 20, async (fixture) => {
+      await send(fixture, { type: "toolCallStarted", toolCallId: "terminal-pulse", toolName: "bash", arguments: { command: "true" } });
+      await send(fixture, { type: "toolResult", toolCallId: "terminal-pulse", toolName: "bash", text: "done", details: {}, isError: false });
+      const row = position(transcriptLines(fixture.harness), "$ true");
+      const first = fixture.harness.styleAt(row, fixture.harness.cellXOfText(row, "●") ?? 0);
+      advance(fixture, 960);
+      expect(fixture.harness.styleAt(row, fixture.harness.cellXOfText(row, "●") ?? 0)).toEqual(first);
+    });
+  });
+
+  test("tool_result_preserves_call_line", async () => {
+    await withFixture(60, 12, async (fixture) => {
+      await sendAll(fixture, [
+        { type: "toolCallStarted", toolCallId: "result-call", toolName: "bash", arguments: { command: "true" } },
+        { type: "toolResult", toolCallId: "result-call", toolName: "bash", text: "result", details: {}, isError: false },
+      ]);
+      const lines = transcriptLines(fixture.harness);
+      expect(position(lines, "$ true")).toBeLessThan(position(lines, "result"));
+    });
+  });
+
+  test("successful_tool_result_is_muted", async () => {
+    await withFixture(60, 12, async (fixture) => {
+      await sendAll(fixture, [
+        { type: "toolCallStarted", toolCallId: "muted-result", toolName: "bash", arguments: { command: "true" } },
+        { type: "toolResult", toolCallId: "muted-result", toolName: "bash", text: "result", details: {}, isError: false },
+      ]);
+      expect(styleForText(fixture, "result").foreground).toBe("#718096");
+    });
+  });
+
+  test("large_tool_result_is_collapsed_to_16_rows", async () => {
+    await withFixture(80, 40, async (fixture) => {
+      const text = Array.from({ length: 30 }, (_, index) => `line-${index}`).join("\n");
+      await sendAll(fixture, [
+        { type: "toolCallStarted", toolCallId: "large-result", toolName: "bash", arguments: { command: "true" } },
+        { type: "toolResult", toolCallId: "large-result", toolName: "bash", text, details: {}, isError: false },
+      ]);
+      const lines = transcriptLines(fixture.harness);
+      expect(lines.filter((line) => /line-\d+/.test(line))).toHaveLength(16);
+      expect(lines.some((line) => line.includes("… more lines"))).toBe(true);
+      expect(fixture.app.state.liveTools.get("large-result")?.text).toBe(text);
+    });
+  });
+
+  test("completed_tool_is_frozen_out_of_live_history", async () => {
+    await withFixture(40, 8, async (fixture) => {
+      const key = draft(13, 0);
+      await sendAll(fixture, [
+        { type: "toolCallPreparing", key, toolName: "bash" },
+        { type: "toolCallPrepared", key, toolCallId: "frozen-tool", toolName: "bash", arguments: { command: "true" } },
+        { type: "toolCallStarted", toolCallId: "frozen-tool", toolName: "bash", arguments: { command: "true" } },
+        { type: "toolResult", toolCallId: "frozen-tool", toolName: "bash", text: "finished", details: {}, isError: false },
+      ]);
+      for (let index = 0; index < 30; index += 1) {
+        await send(fixture, { type: "userMessage", text: `later-${index}` });
+        await send(fixture, { type: "assistantDelta", text: `reply-${index}` });
+        await send(fixture, { type: "turnFinished" });
+        advance(fixture, 16, 8);
+      }
+      expect(fixture.harness.nativeHistoryRows().length).toBeGreaterThan(8);
+      expect(transcriptLines(fixture.harness).some((line) => line.includes("reply-29"))).toBe(true);
+    });
+  });
+
+  test("live_component_does_not_block_native_transfer_after_completion", async () => {
+    await withFixture(40, 8, async (fixture) => {
+      await sendAll(fixture, [
+        { type: "toolCallStarted", toolCallId: "history-tool", toolName: "bash", arguments: { command: "true" } },
+        { type: "toolResult", toolCallId: "history-tool", toolName: "bash", text: "tool done", details: {}, isError: false },
+      ]);
+      for (let index = 0; index < 24; index += 1) {
+        await send(fixture, { type: "assistantDelta", text: `after-${index}` });
+        advance(fixture, 16, 12);
+      }
+      expect(fixture.harness.nativeHistoryRows().some((line) => line.includes("after-23"))).toBe(true);
+    });
+  });
+
+  test("stream_compaction_preserves_root_coordinates", async () => {
+    await withFixture(40, 8, async (fixture) => {
+      await send(fixture, { type: "assistantDelta", text: `${"prefix ".repeat(40)}\n` });
+      advance(fixture, 16, 160);
+      await send(fixture, { type: "assistantDelta", text: "post-compaction tail" });
+      advance(fixture, 16, 160);
+      expect(transcriptLines(fixture.harness).some((line) => line.includes("post-compaction tail"))).toBe(true);
+    });
+  });
+
+  test("identical_user_messages_are_not_deduplicated_by_text", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await fixture.app.handleAction({ type: "submit", text: "same" });
+      await send(fixture, { type: "turnFinished" });
+      await fixture.app.handleAction({ type: "submit", text: "same" });
+      await send(fixture, { type: "userMessage", text: "same" });
+      await send(fixture, { type: "userMessage", text: "same" });
+      expect(transcriptLines(fixture.harness).filter((line) => line.trim() === "same")).toHaveLength(2);
+    });
+  });
+
+  test("local_submit_and_canonical_user_event_produce_one_user_row", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await fixture.app.handleAction({ type: "submit", text: "canonical" });
+      await send(fixture, { type: "userMessage", text: "canonical" });
+      expect(transcriptLines(fixture.harness).filter((line) => line.trim() === "canonical")).toHaveLength(1);
+    });
+  });
+
+  test("identical_steers_have_distinct_queue_identity", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await sendAll(fixture, [
+        { type: "steerQueued", text: "same steer" },
+        { type: "steerQueued", text: "same steer" },
+        { type: "userMessage", text: "same steer" },
+      ]);
+      expect(fixture.app.state.steering).toHaveLength(1);
+    });
+  });
+
+  test("delivered_steer_removes_exact_queue_item", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await sendAll(fixture, [
+        { type: "steerQueued", text: "first" },
+        { type: "steerQueued", text: "second" },
+        { type: "userMessage", text: "first" },
+      ]);
+      expect(fixture.app.state.steering).toEqual(["second"]);
+    });
+  });
+
 });
