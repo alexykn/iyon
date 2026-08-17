@@ -7,6 +7,7 @@ export class ToolCardStore {
   private readonly ids = new Map<string, string>();
 
   preparing(key: ToolDraftKey, toolCallId?: string, toolName?: string): LiveTool {
+    toolCallId = normalizeToolCallId(toolCallId);
     const id = draftIdFor(key);
     const existing = this.cards.get(id);
     if (existing !== undefined) {
@@ -24,12 +25,14 @@ export class ToolCardStore {
   }
 
   prepared(key: ToolDraftKey, toolCallId: string, toolName: string, argumentsValue: JsonValue): LiveTool {
+    toolCallId = normalizeToolCallId(toolCallId)!;
     const card = this.preparing(key, toolCallId, toolName);
     const id = draftIdFor(key); const updated = { ...card, toolCallId, toolName, arguments: argumentsValue, status: "prepared" as const };
     this.cards.set(id, updated); this.ids.set(toolCallId, id); return updated;
   }
 
   started(toolCallId: string, toolName: string, argumentsValue: JsonValue): LiveTool {
+    toolCallId = normalizeToolCallId(toolCallId)!;
     const existingId = this.ids.get(toolCallId);
     if (existingId !== undefined) {
       const card = this.cards.get(existingId)!; const updated = { ...card, toolCallId, toolName, arguments: argumentsValue, status: "running" as const };
@@ -40,13 +43,14 @@ export class ToolCardStore {
   }
 
   update(toolCallId: string, update: ToolUpdatePresentation): LiveTool | undefined {
+    toolCallId = normalizeToolCallId(toolCallId)!;
     return this.map(toolCallId, (card) => update.type === "text" ? { ...card, update: card.update?.type === "text" ? { ...update, text: card.update.text + update.text } : update } : update.type === "progress" ? { ...card, update, progress: update } : { ...card, update, details: update.details });
   }
-  approval(toolCallId: string): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, status: "pendingApproval" as const })); }
-  resolveApproval(toolCallId: string, approved: boolean): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, status: approved ? "running" as const : "cancelled" as const, frozen: !approved })); }
-  cancel(toolCallId: string): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, status: "cancelled" as const, frozen: true, isError: true })); }
-  finish(toolCallId: string, isError: boolean): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, status: isError ? "failed" as const : "finished" as const, isError, frozen: true })); }
-  result(toolCallId: string, toolName: string, text: string, details: JsonValue, isError: boolean): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, toolName, result: { content: [{ type: "text", text }], details, isError, toolCallId: toolCallId as never, toolName, text }, status: isError ? "failed" as const : "finished" as const, isError, frozen: true })); }
+  approval(toolCallId: string): LiveTool | undefined { return this.map(normalizeToolCallId(toolCallId)!, (card) => ({ ...card, status: "pendingApproval" as const })); }
+  resolveApproval(toolCallId: string, approved: boolean): LiveTool | undefined { return this.map(normalizeToolCallId(toolCallId)!, (card) => ({ ...card, status: approved ? "running" as const : "cancelled" as const, frozen: !approved })); }
+  cancel(toolCallId: string): LiveTool | undefined { return this.map(normalizeToolCallId(toolCallId)!, (card) => ({ ...card, status: "cancelled" as const, frozen: true, isError: true })); }
+  finish(toolCallId: string, isError: boolean): LiveTool | undefined { return this.map(normalizeToolCallId(toolCallId)!, (card) => ({ ...card, status: isError ? "failed" as const : "finished" as const, isError, frozen: true })); }
+  result(toolCallId: string, toolName: string, text: string, details: JsonValue, isError: boolean): LiveTool | undefined { toolCallId = normalizeToolCallId(toolCallId)!; return this.map(toolCallId, (card) => ({ ...card, toolName, result: { content: [{ type: "text", text }], details, isError, toolCallId: toolCallId as never, toolName, text }, status: isError ? "failed" as const : "finished" as const, isError, frozen: true })); }
   get(toolCallId: string): LiveTool | undefined { const id = this.ids.get(toolCallId); return id === undefined ? undefined : this.cards.get(id); }
   keyFor(toolCallId: string): string | undefined { return this.ids.get(toolCallId); }
   keyForDraft(key: ToolDraftKey): string { return draftIdFor(key); }
@@ -59,4 +63,8 @@ export class ToolCardStore {
     const card = this.cards.get(id); if (card === undefined) return undefined;
     const updated = update(card); this.cards.set(id, updated); return updated;
   }
+}
+
+function normalizeToolCallId(toolCallId: string | number | undefined): string | undefined {
+  return toolCallId === undefined ? undefined : String(toolCallId);
 }

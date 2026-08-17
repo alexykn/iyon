@@ -117,6 +117,7 @@ class IyonAppImpl implements IyonApp {
       await this.historyHandle.dispose();
       await this.composerHandle.dispose();
       this.historyHandle = this.tui.createHistory() as unknown as RuntimeHistory;
+      await this.historyHandle.setLayout({ padding: 1, gap: 1 });
       this.composerHandle = this.tui.createTextInput({
         multiline: true,
         border: { style: "plain", edges: "topBottom", color: this.theme.inputBorder },
@@ -401,7 +402,7 @@ class IyonAppImpl implements IyonApp {
     if (card === undefined) return;
     const view = this.renderToolCall(card, key, false);
     if (card.frozen) {
-      await this.freezeToolSlot(key, view);
+      await this.freezeToolSlot(key, card.result === undefined ? view : View.vertical([view, this.renderToolResult(card.result)]).fillWidth());
       return;
     }
     const pulsing = !["finished", "failed", "cancelled"].includes(card.status);
