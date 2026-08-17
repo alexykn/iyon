@@ -96,7 +96,7 @@ export interface IyonState {
   readonly working: boolean;
   readonly activityVisible: boolean;
   readonly steering: readonly string[];
-  readonly steeringQueueIds: readonly string[];
+  readonly steeringQueueIds: readonly (string | undefined)[];
   readonly assistantText: string;
   readonly thinkingText: string;
   readonly assistantOpen: boolean;

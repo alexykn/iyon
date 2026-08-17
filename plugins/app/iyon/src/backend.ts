@@ -56,7 +56,7 @@ export class CoreEventMapper {
       case "toolResultStarted":
         return undefined;
       case "turnStarted": return { type: "turnStarted" };
-      case "steerQueued": return { type: "steerQueued", text: event.text };
+      case "steerQueued": return { type: "steerQueued", text: event.text, queueId: event.queueId };
       case "messageStarted": this.messageRoles.set(event.messageId, event.role); return undefined;
       case "messageFinished": this.messageRoles.delete(event.messageId); return undefined;
       case "messageDelta": return this.mapMessageDelta(event.messageId, event.delta);
