@@ -174,8 +174,8 @@ class IyonAppImpl implements IyonApp {
     const next = this.currentState;
     if (this.started) {
       this.historyMutation = this.historyMutation.then(async () => {
-        const viewChanged = await this.appendHistory(action, previous, next);
-        if (viewChanged) await this.renderCurrentScene();
+        await this.appendHistory(action, previous, next);
+        await this.renderCurrentScene();
       });
     }
     return this.historyMutation;
@@ -198,8 +198,8 @@ class IyonAppImpl implements IyonApp {
       this.currentState = result.state;
       await this.historyMutation;
       const effectiveAction = action.type === "submit" && result.queueId !== undefined ? { ...action, queueId: result.queueId } : action;
-      const viewChanged = await this.appendHistory(effectiveAction, previous, this.currentState);
-      if (viewChanged) await this.renderCurrentScene();
+      await this.appendHistory(effectiveAction, previous, this.currentState);
+      await this.renderCurrentScene();
       if ((result.exited && this.exitAfterRender) || (action.type === "requestExit" && result.state.goodbye)) {
         this.exitAfterRender = false;
         await this.shutdown();
@@ -234,8 +234,8 @@ class IyonAppImpl implements IyonApp {
     };
     const previous = this.currentState;
     this.currentState = reduceIyonState(this.currentState, action);
-    const viewChanged = await this.appendHistory(action, previous, this.currentState);
-    if (viewChanged) await this.renderCurrentScene();
+    await this.appendHistory(action, previous, this.currentState);
+    await this.renderCurrentScene();
   }
 
   private async appendHistory(
