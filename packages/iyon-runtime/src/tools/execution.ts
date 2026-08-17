@@ -65,8 +65,8 @@ export async function executeTool(
 
   try {
     if (signal.aborted) return cancelAndThrow(execution, signal.reason);
-    execution.prepared(request.arguments);
     if (!tool) {
+      execution.prepared(request.arguments);
       execution.start();
       const unknown = unknownResult(request.toolName, request.arguments);
       execution.finish(unknown);
@@ -76,7 +76,7 @@ export async function executeTool(
 
     const before = await options.hooks?.before?.(context, request.arguments);
     const argumentsValue = before && typeof before === "object" ? before as JsonValue : request.arguments;
-    execution.start();
+    execution.prepared(argumentsValue);
     const requirement = approvalRequirement(tool, request.toolName, argumentsValue, options.policy);
     const approval = execution.requestApproval(requirement);
     if (approval) {
@@ -99,6 +99,7 @@ export async function executeTool(
       }
     }
     if (signal.aborted) return cancelAndThrow(execution, signal.reason);
+    execution.start();
     const executedResult = await tool.execute(context, argumentsValue);
     result = { ...executedResult, toolName: tool.name, toolCallId: request.toolCallId };
     const after = await options.hooks?.after?.(context, result);

@@ -56,6 +56,7 @@ pub struct ToolLifecycleHandle {
     error: Option<String>,
     cancellation_reason: Option<String>,
     approval: Option<ApprovalState>,
+    approval_started_running: bool,
     next_approval_id: u64,
     sequence: u64,
     events: Vec<ToolLifecycleEvent>,
@@ -71,6 +72,7 @@ impl ToolLifecycleHandle {
             error: None,
             cancellation_reason: None,
             approval: None,
+            approval_started_running: false,
             next_approval_id: 1,
             sequence: 0,
             events: Vec::new(),
@@ -127,7 +129,12 @@ impl ToolLifecycleHandle {
         &mut self,
         requirement: ApprovalRequirement,
     ) -> Result<Option<ApprovalId>, ToolLifecycleError> {
-        self.require_state(ToolLifecycleState::Running, "request_approval")?;
+        if !matches!(self.state, ToolLifecycleState::Prepared | ToolLifecycleState::Running) {
+            return Err(ToolLifecycleError::InvalidTransition {
+                from: self.state,
+                operation: "request_approval",
+            });
+        }
         if requirement == ApprovalRequirement::NotRequired {
             return Ok(None);
         }
@@ -138,6 +145,7 @@ impl ToolLifecycleHandle {
             requirement,
             status: ApprovalStatus::Pending,
         });
+        self.approval_started_running = self.state == ToolLifecycleState::Running;
         self.state = ToolLifecycleState::PendingApproval;
         self.record_event();
         Ok(Some(id))
@@ -166,7 +174,11 @@ impl ToolLifecycleHandle {
         match decision {
             ApprovalDecision::Approved => {
                 approval.status = ApprovalStatus::Approved;
-                self.state = ToolLifecycleState::Running;
+                self.state = if self.approval_started_running {
+                    ToolLifecycleState::Running
+                } else {
+                    ToolLifecycleState::Prepared
+                };
             }
             ApprovalDecision::Rejected { reason } => {
                 approval.status = ApprovalStatus::Rejected {
