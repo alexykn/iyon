@@ -445,15 +445,7 @@ impl Component for MountedViewSlot {
     }
 
     fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
-        let animated = self
-            .0
-            .state
-            .lock()
-            .map(|state| state.frames.len() >= 2)
-            .unwrap_or(false);
-        if animated {
-            cx.tick(Duration::from_millis(480), Self::tick);
-        }
+        cx.tick(Duration::from_millis(480), Self::tick);
     }
 }
 
@@ -1460,6 +1452,16 @@ impl HostStreamState {
                     .atomic(StreamRange::new(start, end), view.into_view())
                     .expect("host semantic coverage is valid");
             }
+        }
+        if let Some(last) = visible.last()
+            && last.source().end() < semantic.source_end()
+        {
+            builder = builder
+                .atomic(
+                    StreamRange::new(last.source().end(), semantic.source_end()),
+                    View::spacer(0).into_view(),
+                )
+                .expect("host semantic trailing coverage is valid");
         }
         builder.finish().expect("host semantic snapshot is valid")
     }
