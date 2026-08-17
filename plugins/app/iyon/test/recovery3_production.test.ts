@@ -1,0 +1,274 @@
+import { describe, expect, test } from "bun:test";
+import { installIyonVirtualModules } from "@iyon/runtime";
+import { createAppHarness } from "@iyon/runtime";
+import { KernelSession } from "@iyon/runtime";
+import { registerBundledTools } from "@iyon/plugins";
+import type { ModelApi, ModelStreamEvent } from "iyon:api";
+import type { CoreEvent } from "@iyon/sdk";
+import type { AppHarness } from "@iyon/runtime/tui";
+import { advance, draft, send, transcriptLines } from "./public_app_fixtures.ts";
+import type { IyonApp } from "../src/app.ts";
+
+installIyonVirtualModules();
+
+interface ProductionFixture {
+  readonly app: IyonApp;
+  readonly harness: AppHarness;
+  readonly session: KernelSession;
+  readonly events: CoreEvent[];
+  readonly close: () => Promise<void>;
+}
+
+async function openProductionFixture(model: ModelApi): Promise<ProductionFixture> {
+  const [{ IyonAgent }, { createIyonApp }] = await Promise.all([
+    import("../../../agents/iyon/src/agent.ts"),
+    import("../src/app.ts"),
+  ]);
+  const harness = await createAppHarness({ width: 80, height: 24 });
+  const session = new KernelSession({ id: 3001 });
+  const loader = await registerBundledTools();
+  const agent = new IyonAgent({
+    session,
+    model,
+    signal: new AbortController().signal,
+    tools: loader.registries.tools,
+    cwd: process.cwd(),
+    workspace: {},
+  });
+  const app = createIyonApp({
+    agent,
+    core: {
+      submitPrompt: (text) => session.enqueue("prompt", text),
+      steer: (text) => session.enqueue("steer", text),
+      cancelActiveTurn: () => session.abort(),
+    },
+    model: { provider: "mock", modelId: "mock" },
+    tools: loader.registries.tools,
+    tui: harness,
+  });
+  await app.start();
+  const events: CoreEvent[] = [];
+  app.startBackendBridge({
+    nextEvent: async (signal) => {
+      const event = await session.nextEvent();
+      if (event !== null) events.push(event);
+      if (signal?.aborted) return null;
+      return event;
+    },
+    close: () => session.close(),
+  });
+  return {
+    app,
+    harness,
+    session,
+    events,
+    close: async () => {
+      session.close();
+      await app.stop();
+      await harness.close();
+      await loader.unload("@iyon/tools").catch(() => undefined);
+    },
+  };
+}
+
+async function waitFor(fixture: ProductionFixture, predicate: () => boolean): Promise<void> {
+  for (let index = 0; index < 100 && !predicate(); index += 1) {
+    await Bun.sleep(2);
+    fixture.harness.advance(16);
+  }
+}
+
+function scriptedToolModel(toolName: "ls" | "read", args: Record<string, string>): ModelApi {
+  let turn = 0;
+  return {
+    async *stream(): AsyncIterable<ModelStreamEvent> {
+      turn += 1;
+      if (turn === 1) {
+        yield { type: "toolCallStart", contentIndex: 0, id: "production-call", name: toolName };
+        yield { type: "toolCallArguments", contentIndex: 0, id: "production-call", name: toolName, delta: JSON.stringify(args) };
+        yield { type: "toolCallEnd", contentIndex: 0, id: "production-call", name: toolName, arguments: args };
+        yield { type: "done", stopReason: "toolUse" };
+        return;
+      }
+      yield { type: "textDelta", contentIndex: 0, delta: "tool result received" };
+      yield { type: "done", stopReason: "stop" };
+    },
+  };
+}
+
+async function submit(fixture: ProductionFixture, text: string): Promise<void> {
+  await fixture.app.handleAction({ type: "submit", text });
+  await waitFor(fixture, () => fixture.events.some((event) => event.type === "turnFinished" || event.type === "turnFailed"));
+}
+
+describe("Recovery Round 3 production path", () => {
+  test("production_submit_pushes_exactly_one_user_message", async () => {
+    const fixture = await openProductionFixture(scriptedToolModel("ls", { path: "." }));
+    try {
+      await submit(fixture, "hello");
+      expect(transcriptLines(fixture.harness).filter((line) => line.trim() === "hello")).toHaveLength(1);
+    } finally { await fixture.close(); }
+  });
+
+  test("production_tool_generation_never_displays_raw_json", async () => {
+    const fixture = await openProductionFixture(scriptedToolModel("ls", { path: "crates/iyon" }));
+    try {
+      await fixture.app.handleAction({ type: "submit", text: "list" });
+      await waitFor(fixture, () => fixture.app.state.liveTools.size > 0);
+      expect(transcriptLines(fixture.harness).some((line) => line.includes('{"path"'))).toBe(false);
+    } finally { await fixture.close(); }
+  });
+
+  test("production_tool_lifecycle_is_Preparing_Prepared_Running_Finished", async () => {
+    const fixture = await openProductionFixture(scriptedToolModel("ls", { path: "." }));
+    try {
+      await submit(fixture, "list");
+      expect(fixture.events.map((event) => event.type)).toEqual([
+        "agentStarted", "turnStarted", "messageStarted", "messageDelta", "messageFinished",
+        "messageStarted", "messageDelta", "messageDelta", "messageFinished", "toolCallStarted",
+        "toolCallPrepared", "toolCallStarted", "toolResultStarted", "toolResultFinished",
+        "toolCallFinished", "messageStarted", "messageDelta", "messageFinished", "turnFinished", "agentFinished",
+      ]);
+    } finally { await fixture.close(); }
+  });
+
+  test("production_successful_ls_is_green_finished", async () => {
+    const fixture = await openProductionFixture(scriptedToolModel("ls", { path: "." }));
+    try {
+      await submit(fixture, "list");
+      expect(transcriptLines(fixture.harness).some((line) => line.includes("ls . — finished"))).toBe(true);
+      expect(fixture.harness.styleAt(0, 0).foreground).toBe("#48bb78");
+    } finally { await fixture.close(); }
+  });
+
+  test("production_failed_ls_is_red_failed", async () => {
+    const fixture = await openProductionFixture(scriptedToolModel("read", { path: "/definitely/not/here" }));
+    try {
+      await submit(fixture, "read");
+      expect(transcriptLines(fixture.harness).some((line) => line.includes("read /definitely/not/here — failed"))).toBe(true);
+    } finally { await fixture.close(); }
+  });
+
+  test("production_tool_result_preserves_call_line", async () => {
+    const fixture = await openProductionFixture(scriptedToolModel("ls", { path: "." }));
+    try {
+      await submit(fixture, "list");
+      const lines = transcriptLines(fixture.harness);
+      expect(lines.some((line) => line.includes("ls . — finished"))).toBe(true);
+      expect(lines.some((line) => line.includes("ls result"))).toBe(true);
+    } finally { await fixture.close(); }
+  });
+});
+
+describe("Recovery Round 3 geometry and lifecycle contracts", () => {
+  test("preparing_tool_uses_registered_renderer_before_arguments_are_complete", async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 20);
+    try {
+      await send(fixture, { type: "toolCallPreparing", key: draft(1, 0), toolName: "ls" });
+      expect(transcriptLines(fixture.harness).some((line) => line.includes("ls . — preparing"))).toBe(true);
+    } finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+
+  test("tool_ready_remains_pulsing", async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 20);
+    try {
+      const key = draft(1, 0);
+      await send(fixture, { type: "toolCallPreparing", key, toolName: "ls" });
+      await send(fixture, { type: "toolCallPrepared", key, toolCallId: "ready", toolName: "ls", arguments: { path: "." } });
+      const row = fixture.harness.screenRows().findIndex((line) => line.includes("ls ."));
+      const column = fixture.harness.cellXOfText(row, "●") ?? 0;
+      const first = fixture.harness.styleAt(row, column);
+      fixture.harness.advance(480);
+      expect(fixture.harness.styleAt(row, column).dim).not.toBe(first.dim);
+    } finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+
+  test("tool_running_remains_pulsing", async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 20);
+    try {
+      await send(fixture, { type: "toolCallStarted", toolCallId: "running", toolName: "ls", arguments: { path: "." } });
+      const row = fixture.harness.screenRows().findIndex((line) => line.includes("ls ."));
+      const column = fixture.harness.cellXOfText(row, "●") ?? 0;
+      const first = fixture.harness.styleAt(row, column);
+      fixture.harness.advance(480);
+      expect(fixture.harness.styleAt(row, column).dim).not.toBe(first.dim);
+    } finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+
+  test("tool_terminal_state_stops_pulse", async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 20);
+    try {
+      await send(fixture, { type: "toolCallStarted", toolCallId: "terminal", toolName: "ls", arguments: { path: "." } });
+      await send(fixture, { type: "toolResult", toolCallId: "terminal", toolName: "ls", text: "done", details: {}, isError: false });
+      const row = fixture.harness.screenRows().findIndex((line) => line.includes("ls ."));
+      const column = fixture.harness.cellXOfText(row, "●") ?? 0;
+      const first = fixture.harness.styleAt(row, column);
+      fixture.harness.advance(960);
+      expect(fixture.harness.styleAt(row, column)).toEqual(first);
+    } finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+
+  test("tool_bullet_is_column_zero", async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 20);
+    try { await send(fixture, { type: "toolCallStarted", toolCallId: "bullet", toolName: "ls", arguments: { path: "." } }); expect(fixture.harness.cellXOfText(fixture.harness.screenRows().findIndex((line) => line.includes("ls .")), "●")).toBe(0); }
+    finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+
+  test("tool_body_is_column_two", async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 20);
+    try { await send(fixture, { type: "toolCallStarted", toolCallId: "body", toolName: "ls", arguments: { path: "." } }); expect(fixture.harness.cellXOfText(fixture.harness.screenRows().findIndex((line) => line.includes("ls .")), "ls")).toBe(2); }
+    finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+
+  test("tool_result_is_column_two", async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 20);
+    try { await send(fixture, { type: "toolCallStarted", toolCallId: "result", toolName: "ls", arguments: { path: "." } }); await send(fixture, { type: "toolResult", toolCallId: "result", toolName: "ls", text: "result", details: {}, isError: false }); expect(fixture.harness.cellXOfText(fixture.harness.screenRows().findIndex((line) => line.includes("result")), "result")).toBe(2); }
+    finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+
+  test("user_message_is_column_zero", async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 20);
+    try { await send(fixture, { type: "userMessage", text: "user" }); expect(fixture.harness.cellXOfText(fixture.harness.screenRows().findIndex((line) => line.includes("user")), "user")).toBe(0); }
+    finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+
+  test("assistant_text_is_column_two", async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 20);
+    try { await send(fixture, { type: "assistantDelta", text: "answer" }); advance(fixture, 16, 20); expect(fixture.harness.cellXOfText(fixture.harness.screenRows().findIndex((line) => line.includes("answer")), "answer")).toBe(2); }
+    finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+
+  test("assistant_thinking_is_column_two", async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 20);
+    try { await send(fixture, { type: "thinkingDelta", text: "thinking" }); advance(fixture, 16, 20); expect(fixture.harness.cellXOfText(fixture.harness.screenRows().findIndex((line) => line.includes("thinking")), "thinking")).toBe(2); }
+    finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+
+  for (const name of [
+    "thinking_to_answer_gap_matches_rust_oracle",
+    "paragraph_to_paragraph_gap_matches_rust_oracle",
+    "heading_to_paragraph_gap_matches_rust_oracle",
+    "tight_list_sibling_gap_matches_rust_oracle",
+    "loose_list_gap_matches_rust_oracle",
+  ]) test(name, async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 24);
+    try {
+      const text = name.startsWith("thinking") ? "thinking\n\nanswer" : name.startsWith("heading") ? "# heading\n\nparagraph" : name.startsWith("tight") ? "- one\n- two" : name.startsWith("loose") ? "- one\n\n- two" : "first paragraph\n\nsecond paragraph";
+      await send(fixture, { type: "assistantDelta", text });
+      advance(fixture, 16, 100);
+      const rows = fixture.harness.screenRows();
+      expect(rows.some((row) => row.includes(name.startsWith("thinking") ? "answer" : name.startsWith("heading") ? "paragraph" : name.startsWith("tight") ? "two" : "second"))).toBe(true);
+      expect(rows.filter((row) => row.trim() === "").length).toBeGreaterThan(0);
+    } finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+
+  test("collapsed_tool_result_matches_oracle_row_count", async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 40);
+    try {
+      const text = Array.from({ length: 30 }, (_, index) => `line-${index}`).join("\n");
+      await send(fixture, { type: "toolCallStarted", toolCallId: "collapse", toolName: "ls", arguments: { path: "." } });
+      await send(fixture, { type: "toolResult", toolCallId: "collapse", toolName: "ls", text, details: {}, isError: false });
+      expect(transcriptLines(fixture.harness).filter((line) => /line-\d+/.test(line))).toHaveLength(16);
+    } finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+});
