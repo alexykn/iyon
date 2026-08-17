@@ -20,11 +20,16 @@ export interface PublicAppFixture {
   readonly harness: AppHarness;
 }
 
-export async function openFixture(width: number, height: number): Promise<PublicAppFixture> {
+export async function openFixture(width: number, height: number, withQueueIds = false): Promise<PublicAppFixture> {
   const harness = await createAppHarness({ width, height });
+  let nextQueueId = 0;
   const app = createIyonApp({
     agent: { run: async () => undefined, cancel: async () => undefined },
-    core: { submitPrompt: async () => undefined, steer: async () => undefined, cancelActiveTurn: async () => undefined },
+    core: {
+      submitPrompt: async () => withQueueIds ? ++nextQueueId : undefined,
+      steer: async () => withQueueIds ? ++nextQueueId : undefined,
+      cancelActiveTurn: async () => undefined,
+    },
     model: { provider: "mock", modelId: "mock" },
     tools,
     tui: harness,
