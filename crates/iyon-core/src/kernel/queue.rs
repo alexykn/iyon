@@ -31,11 +31,27 @@ pub struct KernelQueues {
     prompts: VecDeque<QueueItem>,
     steers: VecDeque<QueueItem>,
     follow_ups: VecDeque<QueueItem>,
-    next_id: u64,
+    allocator: QueueIdAllocator,
     active: bool,
     steerable: bool,
     abort_requested: bool,
     cancellation: CancellationToken,
+}
+
+#[derive(Debug, Clone)]
+pub struct QueueIdAllocator {
+    next_id: u64,
+}
+
+impl QueueIdAllocator {
+    pub fn new() -> Self {
+        Self { next_id: 1 }
+    }
+    pub fn next(&mut self) -> QueueItemId {
+        let id = QueueItemId(self.next_id);
+        self.next_id = self.next_id.saturating_add(1);
+        id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,7 +67,7 @@ impl KernelQueues {
             prompts: VecDeque::new(),
             steers: VecDeque::new(),
             follow_ups: VecDeque::new(),
-            next_id: 1,
+            allocator: QueueIdAllocator::new(),
             active: false,
             steerable: false,
             abort_requested: false,
@@ -71,7 +87,7 @@ impl KernelQueues {
             text,
             QueueKind::Prompt,
             self.capacity,
-            &mut self.next_id,
+            &mut self.allocator,
         )
     }
     pub fn steer(&mut self, text: String) -> Result<(), QueueFull> {
@@ -83,7 +99,7 @@ impl KernelQueues {
             text,
             QueueKind::Steer,
             self.capacity,
-            &mut self.next_id,
+            &mut self.allocator,
         )
     }
     pub fn follow_up(&mut self, text: String) -> Result<(), QueueFull> {
@@ -95,7 +111,7 @@ impl KernelQueues {
             text,
             QueueKind::FollowUp,
             self.capacity,
-            &mut self.next_id,
+            &mut self.allocator,
         )
     }
     pub fn submit_turn_compat(&mut self, text: String) -> Result<QueueKind, QueueFull> {
@@ -169,13 +185,12 @@ impl KernelQueues {
         text: String,
         kind: QueueKind,
         capacity: usize,
-        next_id: &mut u64,
+        allocator: &mut QueueIdAllocator,
     ) -> Result<QueueItemId, QueueFull> {
         if queue.len() >= capacity {
             return Err(QueueFull { kind });
         }
-        let id = QueueItemId(*next_id);
-        *next_id = (*next_id).saturating_add(1);
+        let id = allocator.next();
         queue.push_back(QueueItem { id, text });
         Ok(id)
     }

@@ -26,7 +26,7 @@ struct RuntimeState {
     next_turn_id: u64,
     next_message_id: u64,
     next_approval_id: u64,
-    next_queue_id: u64,
+    queue_ids: crate::kernel::QueueIdAllocator,
     active_turn: Option<ActiveTurn>,
     /// Persistent steering queue shared with the running loop(s). Survives turn
     /// lifecycle, so queued messages are not lost on interrupt: on the next fresh
@@ -89,7 +89,7 @@ impl RuntimeState {
             next_turn_id: 1,
             next_message_id: 1,
             next_approval_id: 1,
-            next_queue_id: 1,
+            queue_ids: crate::kernel::QueueIdAllocator::new(),
             active_turn: None,
             steering: Arc::new(Mutex::new(VecDeque::new())),
             tools,
@@ -186,8 +186,7 @@ pub async fn run(
                         if state.active_turn.as_ref().is_some_and(ActiveTurn::is_steerable) {
                             // The steering lock is only held for the VecDeque push — never
                             // across an await — so the critical section stays bounded.
-                            let queue_id = state.next_queue_id;
-                            state.next_queue_id = state.next_queue_id.saturating_add(1);
+                            let queue_id = state.queue_ids.next().0;
                             state.steering.lock().await.push_back(text.clone());
                             let _ = event_tx.send(CoreEvent::SteerQueued { queue_id, text }).await;
                             continue;
