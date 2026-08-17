@@ -10,4 +10,10 @@ function stages(order: string[]): BootstrapStages {
 describe("CLI bootstrap", () => {
   test("runs stages in order and cleans up", async () => { const order: string[] = []; const result = await runBootstrap({ type: "run" }, stages(order)); expect(order).toEqual(["config", "native", "virtual", "discover", "activate", "provider", "agent", "app", "run", "cleanup"]); expect(result.result).toBe("done"); });
   test("cleans up after a run failure", async () => { const order: string[] = []; const value = stages(order); value.runApp = async () => { order.push("run"); throw new Error("boom"); }; await expect(runBootstrap({ type: "run" }, value)).rejects.toThrow("boom"); expect(order.at(-1)).toBe("cleanup"); });
+
+  test("normal_exit_does_not_report_cleanup_failure", async () => {
+    const value = stages([]);
+    value.cleanup = async () => { throw new Error("session already closed"); };
+    await expect(runBootstrap({ type: "run" }, value)).resolves.toMatchObject({ result: "done" });
+  });
 });
