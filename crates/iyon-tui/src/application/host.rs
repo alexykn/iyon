@@ -15,9 +15,10 @@ use anyhow::Result;
 use crate::controls::text_input::command::TextInputCommand;
 use crate::text::RewriteProjectionError;
 use crate::text::{
-    Alignment, Block, BlockKind, Inline, InlineContent, InlineKind, List, ListItem, LiteralText,
-    Mark, SemanticTag, Table, TableCell, TableColumn, TableRow, TextIrError, TextProjectionError,
-    TextProvenance, TextRewriter, TextRun, validate_text_projection, walk_rewrite_inline,
+    Alignment, Block, BlockKind, Inline, InlineContent, InlineKind, List, ListItem, ListMarker,
+    LiteralText, Mark, SemanticTag, Table, TableCell, TableColumn, TableRow, TextIrError,
+    TextProjectionError, TextProvenance, TextRewriter, TextRun, validate_text_projection,
+    walk_rewrite_inline,
 };
 use crate::{
     App as TuiApp, AppCx, BorderEdges, BorderSpec, CodeBlockLabelPolicy, Component, ComponentCx,
@@ -1406,6 +1407,17 @@ impl HostStreamState {
                 } else {
                     span.source().end()
                 };
+                let gap = host_chunk_bottom_gap(
+                    span.values(),
+                    visible.get(index + 1).map(|next| next.values()),
+                    self.pipeline
+                        .as_ref()
+                        .expect("semantic pipeline exists")
+                        .renderer
+                        .policy()
+                        .block_gap(),
+                    semantic.is_sealed(),
+                );
                 let view = Renderer::render(
                     &self
                         .pipeline
@@ -1413,13 +1425,68 @@ impl HostStreamState {
                         .expect("semantic pipeline exists")
                         .renderer,
                     span.values(),
-                );
+                )
+                .padding(crate::Insets::new(0, 2, gap, 2));
                 builder = builder
                     .atomic(StreamRange::new(start, end), view.into_view())
                     .expect("host semantic coverage is valid");
             }
         }
         builder.finish().expect("host semantic snapshot is valid")
+    }
+}
+
+fn host_chunk_bottom_gap(
+    current: &[TextContent],
+    next: Option<&[TextContent]>,
+    block_gap: u16,
+    sealed: bool,
+) -> u16 {
+    let current_list = current.last().and_then(|value| match value {
+        TextContent::Block(block) => block.as_list(),
+        TextContent::Raw(_) => None,
+    });
+    let next_list = next.and_then(|values| {
+        values.first().and_then(|value| match value {
+            TextContent::Block(block) => block.as_list(),
+            TextContent::Raw(_) => None,
+        })
+    });
+    if let (Some(left), Some(right)) = (current_list, next_list)
+        && same_host_list_kind(left.marker(), right.marker())
+    {
+        return if left.tight() && right.tight() {
+            0
+        } else {
+            block_gap
+        };
+    }
+    if next.is_none() {
+        return if current_list.is_some() && sealed {
+            block_gap
+        } else {
+            0
+        };
+    }
+    block_gap
+}
+
+fn same_host_list_kind(left: ListMarker, right: ListMarker) -> bool {
+    match (left, right) {
+        (ListMarker::Bullet, ListMarker::Bullet) => true,
+        (
+            ListMarker::Ordered {
+                style: left_style,
+                delimiter: left_delimiter,
+                ..
+            },
+            ListMarker::Ordered {
+                style: right_style,
+                delimiter: right_delimiter,
+                ..
+            },
+        ) => left_style == right_style && left_delimiter == right_delimiter,
+        _ => false,
     }
 }
 
