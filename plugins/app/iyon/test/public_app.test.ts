@@ -272,7 +272,7 @@ describe("Iyon public native TUI", () => {
     });
   });
 
-  test("renders an error result in the prepared card without an orphan row", async () => {
+  test("renders an error result in the prepared card with its call line", async () => {
     await withFixture(80, 20, async (fixture) => {
       const key = draft(7, 0);
       await sendAll(fixture, [
@@ -283,7 +283,7 @@ describe("Iyon public native TUI", () => {
       ]);
       const lines = transcriptLines(fixture.harness);
       expect(lines.filter((line) => line.includes("read failed")).length).toBe(1);
-      expect(lines.filter((line) => line.includes("read") && line.includes(" — ")).length).toBe(0);
+      expect(lines.filter((line) => line.includes("read") && line.includes(" — ")).length).toBe(1);
     });
   });
 
