@@ -24,10 +24,10 @@ use crate::{
     App as TuiApp, AppCx, BorderSpec, CodeBlockLabelPolicy, Component, ComponentCx,
     ComponentHandle, History, HistoryLayout, HistoryStreamHandle, HistoryUnitId, InteractionResult,
     IntoView, KeyStroke, MarkdownOptions, MarkdownProjector, Output, Projection, ProjectionBuilder,
-    Projector, Renderer, ScrollPane, Smooth, SoftBreakPolicy, StreamOffset, StreamRange,
-    StreamRevision, StreamSnapshot, StreamSnapshotBuilder, StreamingSource, TableColumnSizing,
-    TaskListMarkerPolicy, TextContent, TextInput, TextRenderPolicy, TextRenderer, Theme, View,
-    WrapMode,
+    Projector, Renderer, ScrollPane, Smooth, SmoothConfig, SoftBreakPolicy, StreamOffset,
+    StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder, StreamingSource,
+    TableColumnSizing, TaskListMarkerPolicy, TextContent, TextInput, TextRenderPolicy,
+    TextRenderer, Theme, View, WrapMode,
     backend::NativeHistorySink,
     geometry::Size,
     physical::PhysicalRow,
@@ -444,7 +444,7 @@ struct HostTextPipeline {
 }
 
 impl HostTextPipeline {
-    fn new() -> Self {
+    fn new(pacing: SmoothConfig) -> Self {
         let policy = TextRenderPolicy::new()
             .with_block_gap(1)
             .with_soft_break(SoftBreakPolicy::LineBreak)
@@ -456,7 +456,7 @@ impl HostTextPipeline {
             .with_code_block_gap(0)
             .with_code_wrap(WrapMode::NoWrap);
         Self {
-            smoother: Smooth::default(),
+            smoother: Smooth::new(pacing),
             markdown: MarkdownProjector::new(
                 MarkdownOptions::gfm().with_live_table_stabilization(true),
             ),
@@ -897,14 +897,27 @@ struct HostStreamState {
     presentation: TextStreamPresentation,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextStreamPresentation {
     pub insets: crate::Insets,
+    pacing: SmoothConfig,
 }
 
 impl TextStreamPresentation {
     pub const fn new(insets: crate::Insets) -> Self {
-        Self { insets }
+        Self {
+            insets,
+            pacing: SmoothConfig::new(),
+        }
+    }
+
+    pub fn with_pacing(mut self, pacing: SmoothConfig) -> Self {
+        self.pacing = pacing;
+        self
+    }
+
+    pub const fn pacing(self) -> SmoothConfig {
+        self.pacing
     }
 }
 
@@ -957,7 +970,7 @@ impl HostTextStream {
         let stream = Self::new();
         if let Ok(mut state) = stream.state.lock() {
             state.presentation = presentation;
-            state.pipeline = Some(HostTextPipeline::new());
+            state.pipeline = Some(HostTextPipeline::new(presentation.pacing()));
             state
                 .refresh_semantic()
                 .expect("empty host semantic stream is valid");

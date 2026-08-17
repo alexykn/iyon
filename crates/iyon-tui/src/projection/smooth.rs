@@ -55,8 +55,13 @@ impl std::fmt::Display for SmoothConfigError {
 impl std::error::Error for SmoothConfigError {}
 
 impl SmoothConfig {
-    pub fn new() -> Self {
-        Self::default()
+    pub const fn new() -> Self {
+        Self {
+            tick_interval: DEFAULT_TICK_INTERVAL,
+            spring: DEFAULT_SPRING,
+            min_units_per_second: DEFAULT_MIN_UNITS_PER_SECOND,
+            max_units_per_second: DEFAULT_MAX_UNITS_PER_SECOND,
+        }
     }
 
     pub fn try_from_parts(

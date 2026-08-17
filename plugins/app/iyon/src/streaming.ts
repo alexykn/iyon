@@ -29,6 +29,7 @@ export class NativeAssistantStream {
     this.native = new TextStream({
       projector: "markdown",
       presentation: { insets: { top: 0, right: 2, bottom: 0, left: 2 } },
+      pacing: { minUnitsPerSecond: 40, maxUnitsPerSecond: 800 },
     });
   }
   async append(kind: SegmentKind, text: string): Promise<void> {

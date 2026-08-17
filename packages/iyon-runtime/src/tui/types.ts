@@ -53,10 +53,18 @@ export interface TextInput extends NativeHandle {
 export interface TextStreamOptions {
   readonly projector?: "markdown";
   readonly presentation?: TextStreamPresentation;
+  readonly pacing?: TextStreamPacing;
 }
 
 export interface TextStreamPresentation {
   readonly insets?: { readonly top?: number; readonly right?: number; readonly bottom?: number; readonly left?: number };
+}
+
+export interface TextStreamPacing {
+  readonly tickIntervalMs?: number;
+  readonly spring?: number;
+  readonly minUnitsPerSecond?: number;
+  readonly maxUnitsPerSecond?: number;
 }
 
 export interface TextStream extends NativeHandle {
