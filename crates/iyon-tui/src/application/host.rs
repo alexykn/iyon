@@ -225,7 +225,7 @@ impl HostViewSlot {
             state.last_tick = None;
             state.revision = state.revision.saturating_add(1);
         }
-        self.render_host()
+        self.invalidate_host()
     }
 
     pub fn component_id(&self) -> Option<u64> {
@@ -261,7 +261,7 @@ impl HostViewSlot {
             }
             state.revision = state.revision.saturating_add(1);
         }
-        self.render_host()
+        self.invalidate_host()
     }
 
     pub fn stop_animation(&self, view: View) -> Result<()> {
@@ -277,10 +277,7 @@ impl HostViewSlot {
         }
         let Some(last) = state.last_tick else {
             state.last_tick = Some(now);
-            state.frame_index = (state.frame_index + 1) % state.frames.len();
-            state.view = state.frames[state.frame_index].clone();
-            state.revision = state.revision.saturating_add(1);
-            return true;
+            return false;
         };
         let due = now.duration_since(last) >= state.interval;
         if !due {
@@ -310,7 +307,7 @@ impl HostViewSlot {
         Ok(())
     }
 
-    fn render_host(&self) -> Result<()> {
+    fn invalidate_host(&self) -> Result<()> {
         let host = self
             .host
             .lock()
@@ -322,7 +319,6 @@ impl HostViewSlot {
                 .lock()
                 .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
             inner.running.invalidate_frame();
-            inner.render()?;
         }
         Ok(())
     }
@@ -342,7 +338,7 @@ impl HostScrollPane {
             .lock()
             .map_err(|_| anyhow::anyhow!("scroll pane lock is poisoned"))?
             .set_content(content);
-        self.render_host()
+        self.invalidate_host()
     }
 
     pub fn follow_end(&self) -> Result<()> {
@@ -350,7 +346,7 @@ impl HostScrollPane {
             .lock()
             .map_err(|_| anyhow::anyhow!("scroll pane lock is poisoned"))?
             .follow_end();
-        self.render_host()
+        self.invalidate_host()
     }
 
     pub fn component_id(&self) -> Option<u64> {
@@ -374,7 +370,7 @@ impl HostScrollPane {
         Ok(())
     }
 
-    fn render_host(&self) -> Result<()> {
+    fn invalidate_host(&self) -> Result<()> {
         let host = self
             .host
             .lock()
@@ -386,7 +382,6 @@ impl HostScrollPane {
                 .lock()
                 .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
             inner.running.invalidate_frame();
-            inner.render()?;
         }
         Ok(())
     }
@@ -450,7 +445,15 @@ impl Component for MountedViewSlot {
     }
 
     fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
-        cx.tick(Duration::from_millis(480), Self::tick);
+        let animated = self
+            .0
+            .state
+            .lock()
+            .map(|state| state.frames.len() >= 2)
+            .unwrap_or(false);
+        if animated {
+            cx.tick(Duration::from_millis(480), Self::tick);
+        }
     }
 }
 
@@ -1049,6 +1052,18 @@ struct HostStreamState {
     pipeline: Option<HostAssistantPipeline>,
     pacing_input: Projection<HostPacingAtom>,
     semantic: Option<Projection<TextContent>>,
+    presentation: TextStreamPresentation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextStreamPresentation {
+    pub insets: crate::Insets,
+}
+
+impl TextStreamPresentation {
+    pub const fn new(insets: crate::Insets) -> Self {
+        Self { insets }
+    }
 }
 
 impl Default for HostStreamState {
@@ -1072,6 +1087,7 @@ impl Default for HostStreamState {
             pipeline: None,
             pacing_input,
             semantic: None,
+            presentation: TextStreamPresentation::new(crate::Insets::ZERO),
         }
     }
 }
@@ -1094,8 +1110,13 @@ impl HostTextStream {
     }
 
     pub fn with_markdown() -> Self {
+        Self::with_markdown_presentation(TextStreamPresentation::new(crate::Insets::ZERO))
+    }
+
+    pub fn with_markdown_presentation(presentation: TextStreamPresentation) -> Self {
         let stream = Self::new();
         if let Ok(mut state) = stream.state.lock() {
+            state.presentation = presentation;
             state.pipeline = Some(HostAssistantPipeline::new());
             state
                 .refresh_semantic()
@@ -1406,7 +1427,7 @@ impl HostStreamState {
                     visible[index - 1].source().end()
                 };
                 let end = if index + 1 == visible.len() {
-                    semantic.source_end()
+                    span.source().end()
                 } else {
                     span.source().end()
                 };
@@ -1429,7 +1450,12 @@ impl HostStreamState {
                         .renderer,
                     span.values(),
                 )
-                .padding(crate::Insets::new(0, 2, gap, 2));
+                .padding(crate::Insets::new(
+                    self.presentation.insets.top(),
+                    self.presentation.insets.right(),
+                    gap + self.presentation.insets.bottom(),
+                    self.presentation.insets.left(),
+                ));
                 builder = builder
                     .atomic(StreamRange::new(start, end), view.into_view())
                     .expect("host semantic coverage is valid");
