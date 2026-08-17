@@ -6,9 +6,7 @@ import type { ToolCall, ToolLifecycleState, ToolResult } from "@iyon/sdk";
 export const MAX_COLLAPSED_TOOL_ROWS = 16;
 
 export function collapseResultView(view: View): View {
-  // Result renderers include a one-row summary and the footer consumes one
-  // row of the bounded view; the product body remains capped at 16 rows.
-  return view.clampRows(MAX_COLLAPSED_TOOL_ROWS + 2, {
+  return view.clampRows(MAX_COLLAPSED_TOOL_ROWS, {
     kind: "footer",
     prefix: "… more lines (full result retained)",
     style: Style.new().foreground("theme:truncation_footer").italic().dim(),

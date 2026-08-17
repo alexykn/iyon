@@ -2,10 +2,9 @@ import { Style, View } from "../tui/index.ts";
 import type { ToolCall, ToolResult } from "./contract.ts";
 
 export function renderGenericCall(call: ToolCall): View {
-  const status = call.state;
-  const lines = [`tool ${call.name} — ${status}`];
-  if (call.showArgPreview) lines.push(...jsonLines(call.arguments));
-  return View.vertical(lines.map((line) => View.text(line).fillWidth())).fillWidth() as unknown as View;
+  const bulletStyle = Style.new().theme(call.state === "failed" || call.state === "cancelled" ? "tool.error" : call.state === "prepared" || call.state === "finished" ? "tool.finished" : "tool.running");
+  const label = call.state === "prepared" ? "ready" : call.state === "pendingApproval" ? "waiting for approval" : call.state;
+  return View.hanging(View.text("● ").style(call.pulse ? bulletStyle.dim() : bulletStyle), View.text("  "), View.text(`tool ${call.name} — ${label}`).fillWidth()).fillWidth() as unknown as View;
 }
 
 export function renderGenericResult(result: ToolResult): View {
@@ -20,11 +19,3 @@ export const genericRenderer = {
   renderCall: renderGenericCall,
   renderResult: renderGenericResult,
 };
-
-function jsonLines(value: unknown): string[] {
-  try {
-    return JSON.stringify(value, null, 2)?.split("\n") ?? [String(value)];
-  } catch {
-    return [String(value)];
-  }
-}
