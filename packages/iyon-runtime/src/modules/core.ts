@@ -120,6 +120,10 @@ export class KernelSession implements KernelSessionContract {
     return this.handle.appendMessage(jsonValue(message)) as MessageId;
   }
 
+  deliverUserMessage(text: string): MessageId {
+    return this.handle.deliverUserMessage(text) as MessageId;
+  }
+
   appendEntry(entry: SessionEntry): void {
     this.handle.appendEntry(jsonValue(entry));
   }

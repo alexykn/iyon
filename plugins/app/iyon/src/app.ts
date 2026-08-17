@@ -88,6 +88,7 @@ class IyonAppImpl implements IyonApp {
   private liveUserBatch?: LiveUserBatch;
   private historyMutation: Promise<void> = Promise.resolve();
   private renderedBodyKey?: string;
+  private lastCtrlCAt = 0;
 
   constructor(
     readonly dependencies: IyonAppDependencies,
@@ -184,6 +185,11 @@ class IyonAppImpl implements IyonApp {
 
   async handleAction(action: import("./contracts.ts").IyonAction): Promise<void> {
     if (this.exiting) return;
+    if (action.type === "ctrlC") {
+      const now = Date.now();
+      if (now - this.lastCtrlCAt < 100) return;
+      this.lastCtrlCAt = now;
+    }
     try {
       const result = await handleIyonAction(this.currentState, action, {
         core: this.core,
@@ -194,11 +200,16 @@ class IyonAppImpl implements IyonApp {
         forwardPaste: (text) => this.tui?.forwardPaste?.(text),
         runAgent: () => this.startAgentRun(),
         onExit: () => { this.exitAfterRender = true; },
+        isAgentRunning: () => this.activeAgentRun !== undefined,
       });
       const previous = this.currentState;
       this.currentState = result.state;
       await this.historyMutation;
-      const effectiveAction = action.type === "submit" && result.queueId !== undefined ? { ...action, queueId: result.queueId } : action;
+      const effectiveAction = action.type === "submit" && result.queueId !== undefined
+        ? { ...action, queueId: result.queueId }
+        : result.cancelledWork
+          ? { type: "backend" as const, event: { type: "turnCancelled" as const } }
+          : action;
       await this.appendHistory(effectiveAction, previous, this.currentState);
       await this.renderCurrentScene();
       if ((result.exited && this.exitAfterRender) || (action.type === "requestExit" && result.state.goodbye)) {
@@ -269,7 +280,7 @@ class IyonAppImpl implements IyonApp {
       await this.sealAssistantStream();
       if (this.liveUserBatch !== undefined) {
         const isCanonicalPrompt = event.queueId === undefined
-          ? this.liveUserBatch.queueId === undefined
+          ? this.liveUserBatch.messages.at(-1) === event.text
           : String(event.queueId) === String(this.liveUserBatch.queueId);
         if (!isCanonicalPrompt) {
           this.liveUserBatch.messages.push(event.text);
@@ -520,6 +531,7 @@ class IyonAppImpl implements IyonApp {
   private async performShutdown(): Promise<void> {
     if (this.shutdownComplete) return;
     this.exiting = true;
+    this.agent.cancel?.();
     await this.sealAssistantStream();
     await this.workingHandle?.setActive(false);
     await this.workingHandle?.setPending([]);

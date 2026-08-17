@@ -2131,6 +2131,15 @@ impl TuiHost {
         inner.advance_and_render()
     }
 
+    pub fn forward_paste(&self, text: &str) -> Result<()> {
+        let mut inner = self.lock_mut()?;
+        inner
+            .running
+            .host_forward_paste(text.to_owned())
+            .map_err(|error| anyhow::anyhow!("paste forward failed: {error:?}"))?;
+        inner.advance_and_render()
+    }
+
     pub fn resize(&self, width: u16, height: u16) -> Result<()> {
         if width == 0 || height == 0 {
             return Err(anyhow::anyhow!("terminal size must be positive"));

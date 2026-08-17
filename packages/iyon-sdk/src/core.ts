@@ -229,6 +229,7 @@ export interface ToolLifecycleEvent {
 export interface NativeKernelSession {
   snapshot(): SessionSnapshot;
   appendMessage(message: unknown): MessageId;
+  deliverUserMessage(text: string): MessageId;
   appendEntry(entry: SessionEntry): void;
   nextEvent(): Promise<CoreEvent | null>;
   beginModelTurn(options: ModelTurnOptions): ModelTurn;

@@ -56,8 +56,8 @@ function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState 
     case "toolApprovalResolved": return { ...updateTool(state, normalizeToolCallId(event.toolCallId)!, (tool) => ({ ...tool, status: event.approved ? "running" : "cancelled", frozen: !event.approved })), pendingApproval: undefined };
     case "toolResult": return updateTool(state, normalizeToolCallId(event.toolCallId)!, (tool) => ({ ...tool, toolName: event.toolName, result: { content: [{ type: "text", text: event.text }], details: event.details, isError: event.isError, toolCallId: normalizeToolCallId(event.toolCallId) as never, toolName: event.toolName, text: event.text }, status: event.isError ? "failed" : "finished", isError: event.isError, frozen: true }));
     case "toolCallFinished": return state;
-    case "turnFinished": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: state.liveTools };
-    case "turnFailed": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: state.liveTools, info: { ...state.info, status: event.message } };
+    case "turnFinished": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: finalizeLiveTools(state.liveTools) };
+    case "turnFailed": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: finalizeLiveTools(state.liveTools), info: { ...state.info, status: event.message } };
     case "turnCancelled": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: cancelLiveTools(state.liveTools) };
   }
 }
@@ -106,5 +106,8 @@ function cancelLiveTools(tools: ReadonlyMap<string, LiveTool>): ReadonlyMap<stri
 }
 
 function finalizeLiveTools(tools: ReadonlyMap<string, LiveTool>): ReadonlyMap<string, LiveTool> {
-  return new Map([...tools].map(([key, tool]) => [key, tool.frozen ? tool : { ...tool, status: "failed" as const, frozen: true, isError: true }]));
+  return new Map([...tools].map(([key, tool]) => {
+    if (tool.frozen || tool.status === "preparing" || tool.status === "prepared" || tool.status === "pendingApproval") return [key, tool];
+    return [key, { ...tool, status: "failed" as const, frozen: true, isError: true }];
+  }));
 }

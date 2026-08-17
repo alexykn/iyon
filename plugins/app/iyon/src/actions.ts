@@ -12,9 +12,10 @@ export interface ActionContext {
   readonly forwardPaste?: (text: string) => Promise<void> | void;
   readonly runAgent?: () => Promise<unknown> | void;
   readonly onExit?: () => Promise<void> | void;
+  readonly isAgentRunning?: () => boolean;
 }
 
-export interface ActionResult { readonly state: IyonState; readonly exited: boolean; readonly queueId?: number; }
+export interface ActionResult { readonly state: IyonState; readonly exited: boolean; readonly queueId?: number; readonly cancelledWork?: boolean; }
 
 const REASONING_LEVELS: readonly ReasoningLevel[] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -35,20 +36,17 @@ export async function handleIyonAction(state: IyonState, action: IyonAction, con
     };
   }
   if (action.type === "ctrlC") {
+    if (hasActiveWork(state) || context.isAgentRunning?.()) return await cancelActiveWork(state, context);
     const composerText = await context.composerText?.() ?? state.composerText;
     if (composerText.length > 0) {
       context.pasteStore.clear(); await context.clearComposer?.();
       return { state: reduceIyonState(state, action), exited: false };
     }
-    if (hasActiveWork(state)) {
-      await context.core.cancelActiveTurn?.(); await context.agent.cancel?.();
-      return { state, exited: false };
-    }
     await context.onExit?.();
     return { state: reduceIyonState(state, { type: "requestExit" }), exited: true };
   }
   if (action.type === "escape") {
-    if (hasActiveWork(state)) { await context.core.cancelActiveTurn?.(); await context.agent.cancel?.(); }
+    if (hasActiveWork(state) || context.isAgentRunning?.()) return await cancelActiveWork(state, context);
     return { state, exited: false };
   }
   if (action.type === "cycleReasoningEffort") {
@@ -67,6 +65,12 @@ export async function handleIyonAction(state: IyonState, action: IyonAction, con
   if (action.type === "approve") { await context.core.approve?.(action.approvalId); return { state, exited: false }; }
   if (action.type === "reject") { await context.core.reject?.(action.approvalId, action.reason); return { state, exited: false }; }
   return { state: reduceIyonState(state, action), exited: false };
+}
+
+async function cancelActiveWork(state: IyonState, context: ActionContext): Promise<ActionResult> {
+  await context.core.cancelActiveTurn?.();
+  await context.agent.cancel?.();
+  return { state: reduceIyonState(state, { type: "backend", event: { type: "turnCancelled" } }), exited: false, cancelledWork: true };
 }
 
 async function submitPrompt(core: IyonCoreCommands, text: string): Promise<number | undefined> {

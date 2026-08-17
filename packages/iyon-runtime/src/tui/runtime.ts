@@ -122,7 +122,7 @@ export class Tui implements TuiRuntime {
     this.host.interceptPaste((input as unknown as { nativeHandle: object }).nativeHandle, actionId);
   }
 
-  forwardPaste(text: string): void { this.host.dispatchPaste(text); }
+  forwardPaste(text: string): void { this.host.forwardPaste(text); }
 
   async resize(width: number, height: number): Promise<void> {
     if (this.closed) throw tuiError("terminal", "TUI runtime is closed");

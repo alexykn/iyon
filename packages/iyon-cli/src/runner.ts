@@ -37,9 +37,11 @@ export async function runSelectedApp(options: RunnerOptions): Promise<void> {
       signalAction = Promise.resolve();
       return signalAction;
     }
-    signalAction = Promise.resolve(app.handleAction({ type: "ctrlC" })).catch((error: unknown) => {
-      signalError = error;
-    });
+    const pending = Promise.resolve()
+      .then(() => app.handleAction({ type: "ctrlC" }))
+      .catch((error: unknown) => { signalError = error; })
+      .finally(() => { if (signalAction === pending) signalAction = undefined; });
+    signalAction = pending;
     return signalAction;
   };
   processSignalAction = requestAction;
@@ -54,6 +56,7 @@ export async function runSelectedApp(options: RunnerOptions): Promise<void> {
     try { await options.app.stop(); } catch (error) {
       if (!isExpectedCleanupError(error)) throw error;
     }
+    await Promise.resolve(options.agent.cancel?.());
     if (cancellation) await cancellation;
     options.signal?.removeEventListener("abort", onAbort);
     if (processSignalAction === requestAction) processSignalAction = undefined;

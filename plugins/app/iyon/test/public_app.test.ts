@@ -128,7 +128,8 @@ describe("Iyon public native TUI", () => {
       const action = await harness.nextAction();
       expect(action).toEqual({ actionId: "ctrlC" });
       await app.handleAction({ type: "ctrlC" });
-      expect(app.state.activeTurn).toBe(true);
+      expect(app.state.activeTurn).toBe(false);
+      expect(app.state.working).toBe(false);
       expect(harness.exited()).toBe(false);
       expect(harness.screenRows().some((line) => line.includes("Goodbye."))).toBe(false);
     });
@@ -172,7 +173,43 @@ describe("Iyon public native TUI", () => {
       await app.handleAction({ type: "escape" });
       expect(harness.screenRows().filter((line) => line.includes("─")).length).toBeGreaterThanOrEqual(2);
       expect(harness.exited()).toBe(false);
+      expect(app.state.working).toBe(false);
       expect(harness.screenRows().some((line) => line.includes("Goodbye."))).toBe(false);
+    });
+  });
+
+  test("escape_during_running_tool_freezes_cancelled_red", async () => {
+    await withFixture(80, 20, async (fixture) => {
+      await sendAll(fixture, [
+        { type: "turnStarted" },
+        { type: "toolCallStarted", toolCallId: "abort-call", toolName: "bash", arguments: { command: "sleep 5" } },
+      ]);
+      await fixture.app.handleAction({ type: "escape" });
+      const lines = transcriptLines(fixture.harness);
+      expect(lines.some((line) => line.includes("$ sleep 5 — cancelled"))).toBe(true);
+      expect(lines.some((line) => line.includes("— running"))).toBe(false);
+      const row = fixture.harness.screenRows().findIndex((line) => line.includes("$ sleep 5"));
+      const column = fixture.harness.cellXOfText(row, "●");
+      expect(fixture.harness.styleAt(row, column ?? 0).foreground).toBe("Red");
+      expect(fixture.app.state.working).toBe(false);
+    });
+  });
+
+  test("ctrl_c_during_running_tool_freezes_cancelled_without_exiting", async () => {
+    await withFixture(80, 20, async (fixture) => {
+      await sendAll(fixture, [
+        { type: "turnStarted" },
+        { type: "toolCallStarted", toolCallId: "ctrlc-abort", toolName: "bash", arguments: { command: "sleep 5" } },
+      ]);
+      await fixture.app.composer.setText("queued steer");
+      await fixture.app.handleAction({ type: "ctrlC" });
+      const lines = transcriptLines(fixture.harness);
+      expect(lines.some((line) => line.includes("$ sleep 5 — cancelled"))).toBe(true);
+      expect(fixture.app.state.working).toBe(false);
+      expect(fixture.harness.exited()).toBe(false);
+      expect(fixture.harness.screenRows().some((line) => line.includes("Goodbye."))).toBe(false);
+      await fixture.app.handleAction({ type: "ctrlC" });
+      expect(fixture.harness.exited()).toBe(false);
     });
   });
 
@@ -438,6 +475,18 @@ describe("Iyon public native TUI", () => {
     });
   });
 
+  test("composer_paste_inserts_forwarded_text_without_reintercepting", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      fixture.harness.paste("hello paste");
+      const action = await fixture.harness.nextAction();
+      expect(action?.actionId).toBe("composerPaste");
+      expect(action?.payload).toBe("hello paste");
+      await fixture.app.handleAction({ type: "composerPaste", text: action?.payload ?? "" });
+      expect(await fixture.app.composer.text()).toBe("hello paste");
+      expect(fixture.harness.screenRows().some((line) => line.includes("hello paste"))).toBe(true);
+    });
+  });
+
   test("keeps streaming assistant content contiguous while the composer collapses", async () => {
     await withFixture(40, 20, async (fixture) => {
       await send(fixture, { type: "assistantDelta", text: "assistant before composer" });
@@ -665,6 +714,8 @@ describe("Iyon public native TUI", () => {
       await send(fixture, { type: "toolResult", toolCallId: "terminal-pulse", toolName: "bash", text: "done", details: {}, isError: false });
       const row = position(transcriptLines(fixture.harness), "$ true");
       const first = fixture.harness.styleAt(row, fixture.harness.cellXOfText(row, "●") ?? 0);
+      expect(first.foreground).toBe("#68d391");
+      expect(first.dim).toBe(false);
       advance(fixture, 960);
       expect(fixture.harness.styleAt(row, fixture.harness.cellXOfText(row, "●") ?? 0)).toEqual(first);
     });

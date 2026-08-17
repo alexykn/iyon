@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use iyon_core::{
-    CoreEvent,
+    CoreEvent, MessageDelta, MessageRole,
     ids::{MessageId, SessionId, ToolCallId as NativeToolCallId},
     kernel::{
         AgentMessage, ApprovalRequirement, ContentBlock, KernelQueues,
@@ -189,6 +189,41 @@ impl KernelSession {
             .append_message(message)
             .map(|id| id.0 as f64)
             .map_err(session_error)
+    }
+
+    #[napi(js_name = "deliverUserMessage")]
+    pub fn deliver_user_message(&self, text: String) -> Result<f64> {
+        self.state.ensure_open()?;
+        if text.is_empty() {
+            return Err(NativeError::invalid_input("user message text is required"));
+        }
+        let mut session = self
+            .state
+            .session
+            .lock()
+            .map_err(|_| NativeError::internal("session lock is poisoned"))?;
+        let id = session
+            .append_message(AgentMessage::user(vec![ContentBlock::Text {
+                text: text.clone(),
+            }]))
+            .map_err(session_error)?;
+        drop(session);
+        let turn_id = self.state.next_turn.load(Ordering::Relaxed);
+        self.state.try_emit(CoreEvent::MessageStarted {
+            turn_id,
+            message_id: id.0,
+            role: MessageRole::User,
+        })?;
+        self.state.try_emit(CoreEvent::MessageDelta {
+            turn_id,
+            message_id: id.0,
+            delta: MessageDelta::Text(text),
+        })?;
+        self.state.try_emit(CoreEvent::MessageFinished {
+            turn_id,
+            message_id: id.0,
+        })?;
+        Ok(id.0 as f64)
     }
 
     #[napi(js_name = "appendEntry")]
