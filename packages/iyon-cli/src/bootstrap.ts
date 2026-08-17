@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { CliCommand } from "./args.ts";
 import type { ReasoningLevel } from "@iyon/sdk";
-import { CleanupStack } from "./cleanup.ts";
+import { CleanupStack, isExpectedCleanupError } from "./cleanup.ts";
 import { ApprovalBroker, AgentSession, installIyonVirtualModules, native, selectProvider } from "@iyon/runtime";
 import { discoverPackages, PackageLoader, selectApp } from "@iyon/plugins";
 import { selectIyonAgent } from "./selection.ts";
@@ -27,7 +27,6 @@ export function createProductionStages(options: { readonly authOnly?: boolean } 
   let session: AgentSession | undefined;
   let lifetime: AbortController | undefined;
   let approvals: ApprovalBroker | undefined;
-  let activeApp: RunnableApp | undefined;
   let selectedAgent: { cancel?: () => void; setReasoningEffort?: (level: ReasoningLevel) => void } | undefined;
   let reasoningEffort: ReasoningLevel = "medium";
   let core: {
@@ -112,28 +111,37 @@ export function createProductionStages(options: { readonly authOnly?: boolean } 
     },
     async runApp(app, context) {
       const selectedAgent = context.agent as { agent: RunnableAgent }; const selectedApp = context.app as { app: RunnableApp }; if (!session) throw new Error("agent session was not initialized");
-      activeApp = selectedApp.app;
       return runSelectedApp({ app: selectedApp.app, agent: selectedAgent.agent, session });
     },
     async cleanup() {
-      const errors: unknown[] = [];
+      const errors: Array<{ readonly label: string; readonly error: unknown }> = [];
+      const attempt = async (label: string, operation: () => Promise<void> | void): Promise<void> => {
+        try { await operation(); } catch (error) {
+          if (!isExpectedCleanupError(error)) errors.push({ label, error });
+        }
+      };
       lifetime?.abort();
-      try { await selectedAgent?.cancel?.(); } catch (error) { errors.push(error); }
+      await attempt("cancel agent", () => selectedAgent?.cancel?.());
       approvals?.cancelAll();
-      try { await activeApp?.stop?.(); } catch (error) { errors.push(error); }
-      try { session?.abort(); } catch (error) { errors.push(error); }
-      try { session?.close(); } catch (error) { errors.push(error); }
+      try {
+        session?.abort();
+        session?.close();
+      } catch (error) {
+        if (!isExpectedCleanupError(error)) errors.push({ label: "close session", error });
+      }
       if (loader) {
         for (const extension of [...loader.activeExtensions].reverse()) {
-          try { await loader.unload(extension.packageId, extension.extensionId); } catch (error) { errors.push(error); }
+          await attempt(`unload ${extension.packageId}/${extension.extensionId}`, () => loader?.unload(extension.packageId, extension.extensionId));
         }
       }
-      activeApp = undefined;
       selectedAgent = undefined;
       approvals = undefined;
       session = undefined;
       loader = undefined;
-      if (errors.length > 0) throw new AggregateError(errors, "CLI cleanup failed");
+      if (errors.length > 0) {
+        const message = errors.map(({ label, error }) => `${label}: ${errorText(error)}`).join("; ");
+        throw new AggregateError(errors.map(({ error }) => error), `cleanup failed: ${message}`);
+      }
     },
   };
 }

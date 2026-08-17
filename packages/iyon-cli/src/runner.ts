@@ -1,5 +1,6 @@
 import type { AgentSession } from "@iyon/runtime";
 import type { CoreEvent } from "@iyon/sdk";
+import { isExpectedCleanupError } from "./cleanup.ts";
 
 export interface CoreEventSource { nextEvent(signal?: AbortSignal): Promise<CoreEvent | null>; close?(): void; }
 export interface CoreEventBridge { readonly done: Promise<void>; close(): void; }
@@ -27,7 +28,9 @@ export async function runSelectedApp(options: RunnerOptions): Promise<void> {
   } finally {
     bridge?.close();
     if (bridge) await bridge.done;
-    await options.app.stop();
+    try { await options.app.stop(); } catch (error) {
+      if (!isExpectedCleanupError(error)) throw error;
+    }
     if (cancellation) await cancellation;
     options.signal?.removeEventListener("abort", onAbort);
   }
