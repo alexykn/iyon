@@ -12,8 +12,8 @@ import {
 } from "./public_app_fixtures.ts";
 import type { TuiRuntime } from "@iyon/runtime/tui";
 
-async function withFixture<T>(width: number, height: number, callback: (fixture: PublicAppFixture) => Promise<T>): Promise<T> {
-  const fixture = await openFixture(width, height);
+async function withFixture<T>(width: number, height: number, callback: (fixture: PublicAppFixture) => Promise<T>, withQueueIds = false): Promise<T> {
+  const fixture = await openFixture(width, height, withQueueIds);
   try {
     return await callback(fixture);
   } finally {
@@ -354,6 +354,34 @@ describe("Iyon public native TUI", () => {
     });
   });
 
+  test("steered_submit_does_not_enter_history_until_delivery", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await fixture.app.handleAction({ type: "submit", text: "hello" });
+      await fixture.app.handleAction({ type: "submit", text: "jf" });
+      const lines = transcriptLines(fixture.harness);
+      expect(lines.some((line) => line.includes("Queue: jf"))).toBe(true);
+      expect(lines.filter((line) => line.trim() === "hello")).toHaveLength(1);
+      expect(lines.some((line) => line.trim() === "jf")).toBe(false);
+    }, true);
+  });
+
+  test("delivered_steer_lands_at_history_tail_before_next_assistant", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await fixture.app.handleAction({ type: "submit", text: "hello" });
+      await fixture.app.handleAction({ type: "submit", text: "jf" });
+      await send(fixture, { type: "userMessage", text: "jf", queueId: 2 });
+      await sendAll(fixture, [
+        { type: "thinkingDelta", text: "thinking after steer" },
+        { type: "assistantDelta", text: "answer after steer" },
+      ]);
+      advance(fixture, 16, 40);
+      const lines = transcriptLines(fixture.harness);
+      expect(lines.filter((line) => line.trim() === "jf")).toHaveLength(1);
+      expect(position(lines, "jf")).toBeLessThan(position(lines, "thinking after steer"));
+      expect(lines.some((line) => line.includes("Queue: jf"))).toBe(false);
+    }, true);
+  });
+
   test("keeps streaming assistant content contiguous while the composer collapses", async () => {
     await withFixture(40, 20, async (fixture) => {
       await send(fixture, { type: "assistantDelta", text: "assistant before composer" });
@@ -690,9 +718,9 @@ describe("Iyon public native TUI", () => {
   test("identical_steers_have_distinct_queue_identity", async () => {
     await withFixture(60, 20, async (fixture) => {
       await sendAll(fixture, [
-        { type: "steerQueued", text: "same steer" },
-        { type: "steerQueued", text: "same steer" },
-        { type: "userMessage", text: "same steer" },
+        { type: "steerQueued", text: "same steer", queueId: 1 },
+        { type: "steerQueued", text: "same steer", queueId: 2 },
+        { type: "userMessage", text: "same steer", queueId: 1 },
       ]);
       expect(fixture.app.state.steering).toHaveLength(1);
     });
@@ -701,9 +729,9 @@ describe("Iyon public native TUI", () => {
   test("delivered_steer_removes_exact_queue_item", async () => {
     await withFixture(60, 20, async (fixture) => {
       await sendAll(fixture, [
-        { type: "steerQueued", text: "first" },
-        { type: "steerQueued", text: "second" },
-        { type: "userMessage", text: "first" },
+        { type: "steerQueued", text: "first", queueId: 1 },
+        { type: "steerQueued", text: "second", queueId: 2 },
+        { type: "userMessage", text: "first", queueId: 1 },
       ]);
       expect(fixture.app.state.steering).toEqual(["second"]);
     });

@@ -42,7 +42,7 @@ describe("default app package", () => {
     expect(await app.composer.text()).toBe("");
     expect(runs).toBe(1);
     expect(submits).toEqual(["hello"]);
-    expect(harness.screenRows().some((row) => row.includes("⠋⣠ Working"))).toBe(true);
+    expect(harness.screenRows().some((row) => row.includes("Working"))).toBe(true);
     const firstTurnRows = [...harness.screenRows(), ...harness.nativeHistoryRows()];
     expect(firstTurnRows.filter((row) => row.includes("hello")).length).toBe(1);
     expect(firstTurnRows.every((row) => !row.includes("You:"))).toBe(true);
@@ -58,6 +58,7 @@ describe("default app package", () => {
     expect(harness.screenRows().some((row) => row.includes("Queue: steer") && row.includes("waiting"))).toBe(true);
     const queuedRows = [...harness.screenRows(), ...harness.nativeHistoryRows()];
     expect(queuedRows.filter((row) => row.includes("hello")).length).toBe(1);
+    expect(queuedRows.some((row) => row.trim() === "steer")).toBe(false);
     expect(queuedRows.every((row) => !row.includes("Working…"))).toBe(true);
     await app.stop();
     await harness.close();

@@ -15,7 +15,7 @@ import type {
 } from "./contracts.ts";
 import { ComposerPasteStore } from "./composer.ts";
 import { ApprovalStore } from "./approvals.ts";
-import { createInitialState, reduceIyonState } from "./state.ts";
+import { createInitialState, hasActiveWork, reduceIyonState } from "./state.ts";
 import { createIyonTheme, type IyonTheme } from "./theme.ts";
 import { createIyonView, userBatchView } from "./view.ts";
 import { handleIyonAction } from "./actions.ts";
@@ -27,7 +27,7 @@ interface LiveUserBatch {
   readonly unit: number;
   readonly slot: ViewSlot;
   readonly messages: string[];
-  readonly queueId?: number;
+  readonly queueId?: string | number;
 }
 
 export interface IyonAppDependencies {
@@ -245,6 +245,7 @@ class IyonAppImpl implements IyonApp {
   ): Promise<boolean> {
     if (action.type !== "backend") {
       if (action.type === "submit") {
+        if (hasActiveWork(previous)) return true;
         await this.openUserBatch(action.text, action.queueId);
         return true;
       }
@@ -264,15 +265,19 @@ class IyonAppImpl implements IyonApp {
       return true;
     }
     if (event.type === "userMessage") {
-      if (this.liveUserBatch !== undefined && event.queueId !== undefined && Number(event.queueId) === this.liveUserBatch.queueId) {
-        if (this.liveUserBatch.messages.at(-1) !== event.text) {
+      await this.sealAssistantStream();
+      if (this.liveUserBatch !== undefined) {
+        const isCanonicalPrompt = event.queueId === undefined
+          ? this.liveUserBatch.queueId === undefined
+          : String(event.queueId) === String(this.liveUserBatch.queueId);
+        if (!isCanonicalPrompt) {
           this.liveUserBatch.messages.push(event.text);
           await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme) as never);
         }
         return true;
       }
-      if (event.queueId === undefined) await this.history.push(userBatchView([event.text], this.theme));
-      return event.queueId === undefined;
+      await this.openUserBatch(event.text, event.queueId);
+      return true;
     }
     if (event.type === "turnStarted" || event.type === "steerQueued") {
       return true;
@@ -368,7 +373,7 @@ class IyonAppImpl implements IyonApp {
     await this.history.pushStream(this.assistantStream.native);
   }
 
-  private async openUserBatch(text: string, queueId?: number): Promise<void> {
+  private async openUserBatch(text: string, queueId?: string | number): Promise<void> {
     if (this.liveUserBatch !== undefined) {
       this.liveUserBatch.messages.push(text);
       await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme) as never);
