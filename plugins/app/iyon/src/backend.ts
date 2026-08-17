@@ -7,7 +7,7 @@ export interface CoreEventSource {
 }
 
 export interface FrontendDispatcher {
-  dispatch(action: { readonly type: "backend"; readonly event: FrontendEvent }): void;
+  dispatch(action: { readonly type: "backend"; readonly event: FrontendEvent }): void | Promise<void>;
 }
 
 export interface CoreEventBridge {
@@ -38,7 +38,7 @@ async function consumeCoreEvents(source: CoreEventSource, dispatcher: FrontendDi
     }
     if (event === null) return;
     const mapped = mapper.map(event);
-    if (mapped !== undefined && !signal.aborted) dispatcher.dispatch({ type: "backend", event: mapped });
+    if (mapped !== undefined && !signal.aborted) await dispatcher.dispatch({ type: "backend", event: mapped });
   }
 }
 

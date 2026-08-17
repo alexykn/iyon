@@ -3,7 +3,7 @@ import type { ToolCall, ToolResult } from "@iyon/sdk";
 import { renderDiff, resultBlock, resultStyle, resultText, statusLabel, toolCallLine, toolText } from "@iyon/plugins";
 
 export function renderWriteCall(call: ToolCall<{ path: string }>): View {
-  return toolCallLine(`write ${call.arguments.path} — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
+  return toolCallLine(call.arguments === undefined ? `write — ${statusLabel(call.state)}` : `write ${call.arguments.path} — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
 }
 
 export function renderWriteResult(result: ToolResult): View {

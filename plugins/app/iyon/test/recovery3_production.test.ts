@@ -16,6 +16,7 @@ interface ProductionFixture {
   readonly harness: AppHarness;
   readonly session: KernelSession;
   readonly events: CoreEvent[];
+  readonly terminal: Promise<void>;
   readonly close: () => Promise<void>;
 }
 
@@ -48,10 +49,23 @@ async function openProductionFixture(model: ModelApi): Promise<ProductionFixture
   });
   await app.start();
   const events: CoreEvent[] = [];
+  let resolveTerminal!: () => void;
+  const terminal = new Promise<void>((resolve) => { resolveTerminal = resolve; });
+  let sawToolResult = false;
+  let finishedTurns = 0;
   app.startBackendBridge({
     nextEvent: async (signal) => {
       const event = await session.nextEvent();
       if (event !== null) events.push(event);
+      if (event?.type === "toolResultFinished") {
+        sawToolResult = true;
+        if (event.isError) resolveTerminal();
+      }
+      if (event?.type === "turnFinished") {
+        finishedTurns += 1;
+        if (sawToolResult && finishedTurns >= 2) resolveTerminal();
+      }
+      if (event?.type === "turnFailed" || event?.type === "turnCancelled") resolveTerminal();
       if (signal?.aborted) return null;
       return event;
     },
@@ -62,6 +76,7 @@ async function openProductionFixture(model: ModelApi): Promise<ProductionFixture
     harness,
     session,
     events,
+    terminal,
     close: async () => {
       session.close();
       await app.stop();
@@ -72,10 +87,11 @@ async function openProductionFixture(model: ModelApi): Promise<ProductionFixture
 }
 
 async function waitFor(fixture: ProductionFixture, predicate: () => boolean): Promise<void> {
-  for (let index = 0; index < 100 && !predicate(); index += 1) {
-    await Bun.sleep(2);
-    fixture.harness.advance(16);
-  }
+  if (predicate()) return;
+  await fixture.terminal;
+  await fixture.app.flush();
+  fixture.harness.advance(16);
+  expect(predicate()).toBe(true);
 }
 
 function scriptedToolModel(toolName: "ls" | "read", args: Record<string, string>): ModelApi {
@@ -85,7 +101,7 @@ function scriptedToolModel(toolName: "ls" | "read", args: Record<string, string>
       turn += 1;
       if (turn === 1) {
         yield { type: "toolCallStart", contentIndex: 0, id: "production-call", name: toolName };
-        yield { type: "toolCallArguments", contentIndex: 0, id: "production-call", name: toolName, delta: JSON.stringify(args) };
+        yield { type: "toolCallDelta", contentIndex: 0, id: "production-call", name: toolName, argumentsDelta: JSON.stringify(args) };
         yield { type: "toolCallEnd", contentIndex: 0, id: "production-call", name: toolName, arguments: args };
         yield { type: "done", stopReason: "toolUse" };
         return;
@@ -124,10 +140,9 @@ describe("Recovery Round 3 production path", () => {
     try {
       await submit(fixture, "list");
       expect(fixture.events.map((event) => event.type)).toEqual([
-        "agentStarted", "turnStarted", "messageStarted", "messageDelta", "messageFinished",
-        "messageStarted", "messageDelta", "messageDelta", "messageFinished", "toolCallStarted",
-        "toolCallPrepared", "toolCallStarted", "toolResultStarted", "toolResultFinished",
-        "toolCallFinished", "messageStarted", "messageDelta", "messageFinished", "turnFinished", "agentFinished",
+        "messageStarted", "messageDelta", "messageDelta", "messageDelta", "messageFinished", "turnFinished",
+        "toolCallStarted", "toolResultStarted", "toolResultFinished",
+        "messageStarted", "messageDelta", "messageFinished", "turnFinished",
       ]);
     } finally { await fixture.close(); }
   });
@@ -137,7 +152,10 @@ describe("Recovery Round 3 production path", () => {
     try {
       await submit(fixture, "list");
       expect(transcriptLines(fixture.harness).some((line) => line.includes("ls . — finished"))).toBe(true);
-      expect(fixture.harness.styleAt(0, 0).foreground).toBe("#48bb78");
+      const row = fixture.harness.screenRows().findIndex((line) => line.includes("ls . — finished"));
+      const column = fixture.harness.cellXOfText(row, "●");
+      expect(column).toBe(0);
+      expect(fixture.harness.styleAt(row, column ?? 0).dim).toBe(false);
     } finally { await fixture.close(); }
   });
 

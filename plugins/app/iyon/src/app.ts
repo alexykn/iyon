@@ -23,6 +23,13 @@ import { startCoreEventBridge, type CoreEventBridge, type CoreEventSource } from
 import { NativeAssistantStream } from "./streaming.ts";
 import { ToolCardStore } from "./tool-cards.ts";
 
+interface LiveUserBatch {
+  readonly unit: number;
+  readonly slot: ViewSlot;
+  readonly messages: string[];
+  readonly queueId?: number;
+}
+
 export interface IyonAppDependencies {
   readonly agent: IyonAgent;
   readonly core: IyonCoreCommands;
@@ -46,6 +53,7 @@ export interface IyonApp extends App {
   run(signal?: AbortSignal): Promise<void>;
   handleAction(action: import("./contracts.ts").IyonAction): Promise<void>;
   startBackendBridge(source: CoreEventSource): CoreEventBridge;
+  flush(): Promise<void>;
 }
 
 export function createIyonApp(dependencies: IyonAppDependencies): IyonApp {
@@ -77,7 +85,8 @@ class IyonAppImpl implements IyonApp {
   private activeAgentRun?: Promise<void>;
   private shutdownPromise?: Promise<void>;
   private shutdownComplete = false;
-  private pendingLocalUserMessages = 0;
+  private liveUserBatch?: LiveUserBatch;
+  private historyMutation: Promise<void> = Promise.resolve();
 
   constructor(
     readonly dependencies: IyonAppDependencies,
@@ -92,6 +101,7 @@ class IyonAppImpl implements IyonApp {
   get agent(): IyonAgent { return this.dependencies.agent; }
   get core(): IyonCoreCommands { return this.dependencies.core; }
   get model(): IyonModelMetadata { return this.dependencies.model; }
+  async flush(): Promise<void> { await this.historyMutation; }
 
   async start(tui = this.dependencies.tui): Promise<void> {
     if (this.started) return;
@@ -126,6 +136,7 @@ class IyonAppImpl implements IyonApp {
 
   async stop(): Promise<void> {
     if (!this.started && this.tui === undefined) return;
+    await this.historyMutation;
     try {
       if (this.ownsTui && !this.shutdownComplete) await this.tui?.close();
     } finally {
@@ -151,18 +162,22 @@ class IyonAppImpl implements IyonApp {
       this.exiting = false;
       this.shutdownComplete = false;
       this.shutdownPromise = undefined;
-      this.pendingLocalUserMessages = 0;
+      this.liveUserBatch = undefined;
+      this.historyMutation = Promise.resolve();
     }
   }
 
-  dispatch(action: import("./contracts.ts").IyonAction): void {
+  dispatch(action: import("./contracts.ts").IyonAction): Promise<void> {
     const previous = this.currentState;
     this.currentState = reduceIyonState(this.currentState, action);
+    const next = this.currentState;
     if (this.started) {
-      void this.appendHistory(action, previous, this.currentState).then(async (viewChanged) => {
+      this.historyMutation = this.historyMutation.then(async () => {
+        const viewChanged = await this.appendHistory(action, previous, next);
         if (viewChanged) await this.renderCurrentScene();
       });
     }
+    return this.historyMutation;
   }
 
   async handleAction(action: import("./contracts.ts").IyonAction): Promise<void> {
@@ -180,7 +195,9 @@ class IyonAppImpl implements IyonApp {
       });
       const previous = this.currentState;
       this.currentState = result.state;
-      const viewChanged = await this.appendHistory(action, previous, this.currentState);
+      await this.historyMutation;
+      const effectiveAction = action.type === "submit" && result.queueId !== undefined ? { ...action, queueId: result.queueId } : action;
+      const viewChanged = await this.appendHistory(effectiveAction, previous, this.currentState);
       if (viewChanged) await this.renderCurrentScene();
       if ((result.exited && this.exitAfterRender) || (action.type === "requestExit" && result.state.goodbye)) {
         this.exitAfterRender = false;
@@ -227,30 +244,34 @@ class IyonAppImpl implements IyonApp {
   ): Promise<boolean> {
     if (action.type !== "backend") {
       if (action.type === "submit") {
-        await this.history.push(userBatchView([action.text], this.theme));
-        this.pendingLocalUserMessages += 1;
+        await this.openUserBatch(action.text, action.queueId);
         return true;
       }
       return action.type === "cycleReasoningEffort";
     }
     const event = action.event;
     if (event.type === "assistantDelta") {
+      await this.freezeUserBatch();
       await this.openAssistantStream();
       await this.assistantStream?.append("text", event.text);
       return true;
     }
     if (event.type === "thinkingDelta") {
+      await this.freezeUserBatch();
       await this.openAssistantStream();
       await this.assistantStream?.append("thinking", event.text);
       return true;
     }
     if (event.type === "userMessage") {
-      if (this.pendingLocalUserMessages > 0) {
-        this.pendingLocalUserMessages -= 1;
+      if (this.liveUserBatch !== undefined && event.queueId !== undefined && Number(event.queueId) === this.liveUserBatch.queueId) {
+        if (this.liveUserBatch.messages.at(-1) !== event.text) {
+          this.liveUserBatch.messages.push(event.text);
+          await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme) as never);
+        }
         return true;
       }
-      await this.history.push(userBatchView([event.text], this.theme));
-      return true;
+      if (event.queueId === undefined) await this.history.push(userBatchView([event.text], this.theme));
+      return event.queueId === undefined;
     }
     if (event.type === "turnStarted" || event.type === "steerQueued") {
       return true;
@@ -258,6 +279,7 @@ class IyonAppImpl implements IyonApp {
     if (event.type === "turnFinished" || event.type === "turnFailed" || event.type === "turnCancelled") {
       await this.sealAssistantStream();
       for (const [key, card] of next.liveTools) {
+        if (this.renderedToolResults.has(key)) continue;
         if (card.frozen && !previous.liveTools.get(key)?.frozen) {
           if (event.type === "turnCancelled" && card.toolCallId !== undefined) this.toolCards.cancel(String(card.toolCallId));
           await this.updateToolSlot(key, card);
@@ -266,6 +288,7 @@ class IyonAppImpl implements IyonApp {
       return true;
     }
     if (event.type === "toolCallPreparing") {
+      await this.freezeUserBatch();
       await this.sealAssistantStream();
       this.toolCards.preparing(event.key, event.toolCallId, event.toolName);
       await this.updateToolSlot(this.toolCards.keyForDraft(event.key), next.liveTools.get(this.toolCards.keyForDraft(event.key)));
@@ -284,6 +307,7 @@ class IyonAppImpl implements IyonApp {
       return false;
     }
     if (event.type === "toolCallStarted") {
+      await this.freezeUserBatch();
       await this.sealAssistantStream();
       const card = this.toolCards.started(event.toolCallId, event.toolName, event.arguments);
       const key = this.toolCards.keyFor(event.toolCallId) ?? event.toolCallId;
@@ -343,6 +367,29 @@ class IyonAppImpl implements IyonApp {
     await this.history.pushStream(this.assistantStream.native);
   }
 
+  private async openUserBatch(text: string, queueId?: number): Promise<void> {
+    if (this.liveUserBatch !== undefined) {
+      this.liveUserBatch.messages.push(text);
+      await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme) as never);
+      return;
+    }
+    if (this.tui?.createViewSlot === undefined) {
+      await this.history.push(userBatchView([text], this.theme));
+      return;
+    }
+    const slot = this.tui.createViewSlot(userBatchView([text], this.theme) as never);
+    const unit = await this.history.push(View.component(slot).fillWidth());
+    this.liveUserBatch = { unit, slot, messages: [text], queueId };
+  }
+
+  private async freezeUserBatch(): Promise<void> {
+    const batch = this.liveUserBatch;
+    if (batch === undefined) return;
+    await this.history.freeze(batch.unit, userBatchView(batch.messages, this.theme));
+    await batch.slot.dispose();
+    this.liveUserBatch = undefined;
+  }
+
   private async sealAssistantStream(): Promise<void> {
     if (this.assistantStream === undefined) return;
     await this.assistantStream.seal();
@@ -357,7 +404,7 @@ class IyonAppImpl implements IyonApp {
       await this.freezeToolSlot(key, view);
       return;
     }
-    const pulsing = card.status !== "finished" && card.status !== "failed" && card.status !== "cancelled";
+    const pulsing = !["finished", "failed", "cancelled"].includes(card.status);
     const slot = this.toolSlots.get(key);
     if (slot !== undefined) {
       await this.updateToolContent(key, card);
@@ -429,8 +476,9 @@ class IyonAppImpl implements IyonApp {
     const call: ToolCall = {
       id: (card.toolCallId ?? key) as never,
       name: card.toolName ?? "tool",
-      arguments: card.arguments ?? {},
+      arguments: card.arguments,
       state: card.status,
+      argumentPreview: card.argumentPreview,
       showArgPreview: false,
       pulse,
     };

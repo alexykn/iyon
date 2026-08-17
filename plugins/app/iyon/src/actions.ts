@@ -14,7 +14,7 @@ export interface ActionContext {
   readonly onExit?: () => Promise<void> | void;
 }
 
-export interface ActionResult { readonly state: IyonState; readonly exited: boolean; }
+export interface ActionResult { readonly state: IyonState; readonly exited: boolean; readonly queueId?: number; }
 
 const REASONING_LEVELS: readonly ReasoningLevel[] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -24,14 +24,14 @@ export async function handleIyonAction(state: IyonState, action: IyonAction, con
     if (text.length === 0) return { state, exited: false };
     const steering = hasActiveWork(state);
     await context.clearComposer?.();
-    if (steering) await submitSteering(context.core, text);
-    else await submitPrompt(context.core, text);
+    const queueId = steering ? await submitSteering(context.core, text) : await submitPrompt(context.core, text);
     if (!steering) await context.runAgent?.();
     return {
       state: steering
-        ? reduceIyonState(state, { type: "backend", event: { type: "steerQueued", text } })
-        : reduceIyonState(state, { type: "submit", text }),
+        ? reduceIyonState(state, { type: "backend", event: { type: "steerQueued", text, queueId } })
+        : reduceIyonState(state, { type: "submit", text, queueId }),
       exited: false,
+      queueId,
     };
   }
   if (action.type === "ctrlC") {
@@ -69,13 +69,15 @@ export async function handleIyonAction(state: IyonState, action: IyonAction, con
   return { state: reduceIyonState(state, action), exited: false };
 }
 
-async function submitPrompt(core: IyonCoreCommands, text: string): Promise<void> {
-  if (core.submitPrompt !== undefined) { await core.submitPrompt(text); return; }
+async function submitPrompt(core: IyonCoreCommands, text: string): Promise<number | undefined> {
+  if (core.submitPrompt !== undefined) return await core.submitPrompt(text);
   await core.submitTurn?.(text);
+  return undefined;
 }
 
-async function submitSteering(core: IyonCoreCommands, text: string): Promise<void> {
-  if (core.steer !== undefined) { await core.steer(text); return; }
-  if (core.followUp !== undefined) { await core.followUp(text); return; }
+async function submitSteering(core: IyonCoreCommands, text: string): Promise<number | undefined> {
+  if (core.steer !== undefined) return await core.steer(text);
+  if (core.followUp !== undefined) return await core.followUp(text);
   await core.submitTurn?.(text);
+  return undefined;
 }

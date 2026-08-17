@@ -3,9 +3,10 @@ import type { ToolCall, ToolResult } from "@iyon/sdk";
 import { resultLines, resultStyle, resultText, statusLabel, toolCallLine, toolResultLine } from "@iyon/plugins";
 
 export function renderReadCall(call: ToolCall<{ path: string; offset?: number; limit?: number }>): View {
-  const { offset, limit } = call.arguments;
+  if (call.arguments === undefined) return toolCallLine(`read — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
+  const { path, offset, limit } = call.arguments;
   const suffix = offset === undefined ? "" : limit === undefined ? `:${offset}` : `:${offset}-${offset + Math.max(0, limit - 1)}`;
-  return toolCallLine(`read ${call.arguments.path}${suffix} — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
+  return toolCallLine(`read ${path}${suffix} — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
 }
 
 export function renderReadResult(result: ToolResult): View {

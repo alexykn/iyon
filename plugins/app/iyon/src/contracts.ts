@@ -50,7 +50,7 @@ export interface PendingApproval {
 }
 
 export interface ToolRendererContribution {
-  readonly renderCall?: (call: ToolCall & { readonly argumentPreview?: string }) => View;
+  readonly renderCall?: (call: ToolCall & { readonly arguments?: JsonValue; readonly argumentPreview?: string }) => View;
   readonly renderResult?: (result: ToolResult) => View;
 }
 
@@ -80,7 +80,7 @@ export type FrontendEvent =
 
 export type IyonAction =
   | { readonly type: "backend"; readonly event: FrontendEvent }
-  | { readonly type: "submit"; readonly text: string }
+  | { readonly type: "submit"; readonly text: string; readonly queueId?: number }
   | { readonly type: "composerPaste"; readonly text: string }
   | { readonly type: "ctrlC" }
   | { readonly type: "escape" }
@@ -113,9 +113,9 @@ export interface IyonAgent {
 }
 
 export interface IyonCoreCommands {
-  readonly submitPrompt?: (text: string) => Promise<void> | void;
-  readonly steer?: (text: string) => Promise<void> | void;
-  readonly followUp?: (text: string) => Promise<void> | void;
+  readonly submitPrompt?: (text: string) => Promise<number> | number;
+  readonly steer?: (text: string) => Promise<number> | number;
+  readonly followUp?: (text: string) => Promise<number> | number;
   readonly setReasoningEffort?: (level: ReasoningLevel) => Promise<void> | void;
   readonly submitTurn?: (text: string) => Promise<void> | void;
   readonly cancelActiveTurn?: () => Promise<void> | void;

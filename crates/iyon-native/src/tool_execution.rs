@@ -272,8 +272,33 @@ impl ToolExecution {
         self.state.ensure_open()?;
         self.with_handle(|handle| {
             handle
-                .fail(error)
+                .fail(error.clone())
                 .map_err(|error| NativeError::invalid_input(error.to_string()))
+        })?;
+        let (tool_call_id, tool_name, _) = self.call_fields()?;
+        let details = serde_json::json!({});
+        self.state
+            .session
+            .lock()
+            .map_err(|_| NativeError::internal("session lock is poisoned"))?
+            .append_message(AgentMessage::tool_result(
+                ToolCallId(tool_call_id.clone()),
+                tool_name.clone(),
+                vec![iyon_api::ContentBlock::Text {
+                    text: error.clone(),
+                }],
+                details.clone(),
+                true,
+            ))
+            .map_err(|error| NativeError::internal(error.to_string()))?;
+        self.emit(CoreEvent::ToolResultFinished {
+            turn_id: self.turn_id.0,
+            message_id: self.message_id.0,
+            tool_call_id,
+            tool_name,
+            text: error,
+            details,
+            is_error: true,
         })
     }
 

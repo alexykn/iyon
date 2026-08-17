@@ -3,7 +3,7 @@ import type { ToolCall, ToolResult } from "@iyon/sdk";
 import { resultLines, resultStyle, resultText, statusLabel, toolCallLine, toolResultLine } from "@iyon/plugins";
 
 export function renderGrepCall(call: ToolCall<{ pattern: string; path?: string }>): View {
-  return toolCallLine(`grep /${call.arguments.pattern}/ in ${call.arguments.path ?? "."} — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
+  return toolCallLine(call.arguments === undefined ? `grep — ${statusLabel(call.state)}` : `grep /${call.arguments.pattern}/ in ${call.arguments.path ?? "."} — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
 }
 
 export function renderGrepResult(result: ToolResult): View {
