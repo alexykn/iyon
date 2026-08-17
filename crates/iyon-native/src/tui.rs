@@ -3,7 +3,7 @@ use napi_derive::napi;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use iyon_tui::{BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History, HostActivityConfig, HostCellStyle, HostHistory, HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, HorizontalAlign, IntoView, Key, KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output, Projector, StyleRef, StyleSpec, TextContent, TextInput, TextSpan, TextSelector, TextRole, TextPart, TuiHost, VerticalAlign, View, WrapMode};
+use iyon_tui::{BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History, HostActivityConfig, HostCellStyle, HostHistory, HostScrollPane, HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, HorizontalAlign, IntoView, Key, KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output, Projector, StyleRef, StyleSpec, TextContent, TextInput, TextSpan, TextSelector, TextRole, TextPart, TuiHost, VerticalAlign, View, WrapMode};
 use iyon_tui::text::{FormatId, LanguageId, SemanticTag, TextOrigin};
 use iyon_tui::projection::ProjectionBuilder;
 use iyon_tui::stream::{StreamOffset, StreamRange};
@@ -498,6 +498,16 @@ impl NativeTuiHost {
         Ok(NativeViewSlot::from_host(slot))
     }
 
+    #[napi(js_name = "scrollPane")]
+    pub fn scroll_pane(&self, initial: &NativeTuiView) -> Result<NativeScrollPane> {
+        ensure_alive(&self.alive)?;
+        let pane = self
+            .host
+            .create_scroll_pane(initial.view.clone())
+            .map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        Ok(NativeScrollPane::from_host(pane))
+    }
+
     #[napi(js_name = "bindKey")]
     pub fn bind_key(&self, key: String, modifiers: Option<Vec<String>>, action_id: String) -> Result<()> {
         ensure_alive(&self.alive)?;
@@ -813,6 +823,54 @@ pub struct NativeViewSlot {
 }
 
 #[napi]
+pub struct NativeScrollPane {
+    pane: HostScrollPane,
+    alive: AtomicBool,
+}
+
+#[napi]
+impl NativeScrollPane {
+    #[napi(constructor)]
+    pub fn new(initial: &NativeTuiView) -> Self {
+        Self {
+            pane: HostScrollPane::new(initial.view.clone()),
+            alive: AtomicBool::new(true),
+        }
+    }
+
+    #[napi]
+    pub fn dispose(&self) {
+        self.alive.store(false, Ordering::Release);
+    }
+
+    #[napi(js_name = "componentId")]
+    pub fn component_id(&self) -> Result<Option<i64>> {
+        ensure_alive(&self.alive)?;
+        Ok(self.pane.component_id().map(|id| id as i64))
+    }
+
+    #[napi(js_name = "setContent")]
+    pub fn set_content(&self, view: &NativeTuiView) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.pane
+            .set_content(view.view.clone())
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[napi(js_name = "followEnd")]
+    pub fn follow_end(&self) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.pane
+            .follow_end()
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    fn from_host(pane: HostScrollPane) -> Self {
+        Self { pane, alive: AtomicBool::new(true) }
+    }
+}
+
+#[napi]
 impl NativeViewSlot {
     #[napi(constructor)]
     pub fn new(initial: &NativeTuiView) -> Self {
@@ -981,6 +1039,9 @@ fn lower_axis(object: &Map<String, Value>, horizontal: bool) -> Result<View> {
             "contentMax" if !horizontal && max_rows.is_some() => {}
             "contentMax" if !horizontal => return Err(crate::NativeError::invalid_input("contentMax maxRows is required")),
             "contentMax" => return Err(crate::NativeError::invalid_input("contentMax is only valid for vertical children")),
+            "flexMax" if !horizontal && max_rows.is_some() => {}
+            "flexMax" if !horizontal => return Err(crate::NativeError::invalid_input("flexMax maxRows is required")),
+            "flexMax" => return Err(crate::NativeError::invalid_input("flexMax is only valid for vertical children")),
             other => return Err(crate::NativeError::invalid_input(format!("unknown layout child kind `{other}`"))),
         }
         lowered.push((kind.to_owned(), size, max_rows, view));
@@ -994,6 +1055,7 @@ fn lower_axis(object: &Map<String, Value>, horizontal: bool) -> Result<View> {
                     "fixed" => { row.fixed(size.expect("fixed size was validated"), view); }
                     "flex" => { row.flex(view); }
                     "contentMax" => unreachable!("contentMax was rejected for horizontal layout"),
+                    "flexMax" => unreachable!("flexMax was rejected for horizontal layout"),
                     _ => unreachable!("layout child kind was validated"),
                 }
             }
@@ -1007,6 +1069,7 @@ fn lower_axis(object: &Map<String, Value>, horizontal: bool) -> Result<View> {
                     "fixed" => { column.fixed(size.expect("fixed size was validated"), view); }
                     "flex" => { column.flex(view); }
                     "contentMax" => { column.content_max(max_rows.expect("validated content max"), view); }
+                    "flexMax" => { column.flex_max(max_rows.expect("validated flex max"), view); }
                     _ => unreachable!("layout child kind was validated"),
                 }
             }

@@ -83,6 +83,11 @@ export interface ViewSlot extends Component {
   revision(): TuiOperation<number>;
 }
 
+export interface ScrollPane extends Component {
+  setContent(view: View): TuiOperation<void>;
+  followEnd(): TuiOperation<void>;
+}
+
 export interface WorkingActivityHandle extends NativeHandle {
   setActive(active: boolean): TuiOperation<void>;
   setPending(pending: readonly string[]): TuiOperation<void>;
@@ -213,6 +218,7 @@ export interface TuiRuntime {
   createTextInput?(options?: { multiline?: boolean; border?: import("./ir.ts").BorderNode }): TextInput;
   createWorking?(): WorkingActivityHandle;
   createViewSlot?(initial: View): ViewSlot;
+  createScrollPane?(initial: View): ScrollPane;
   bindKey?(key: string, actionId: string, modifiers?: readonly string[]): void;
   route?(output: OutputHandle<string>, actionId: string): void;
   interceptPaste?(input: TextInput, actionId: string): void;
@@ -223,6 +229,7 @@ export interface TuiRuntime {
 
 export interface AppHarness extends TuiRuntime {
   createViewSlot(initial: View): ViewSlot;
+  createScrollPane(initial: View): ScrollPane;
   pressKey(key: string, modifiers?: readonly string[]): void;
   paste(text: string): void;
   advance(ms: number): void;

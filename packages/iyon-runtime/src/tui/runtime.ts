@@ -6,9 +6,11 @@ import { Scene } from "./scene.ts";
 import { History } from "./history.ts";
 import { TextInput } from "./text-input.ts";
 import { ViewSlot } from "./component.ts";
+import { NativeScrollPane } from "./scroll-pane.ts";
 import { WorkingActivity } from "./working.ts";
 import type {
   OutputHandle,
+  ScrollPane,
   Scene as SceneContract,
   TerminalMetadata,
   TuiEvent,
@@ -100,6 +102,12 @@ export class Tui implements TuiRuntime {
     const lowered = materializeView(initialView);
     if (lowered === undefined) throw tuiError("runtime", "native View materialization is unavailable");
     return new ViewSlot(this.host.createViewSlot(lowered as object));
+  }
+
+  createScrollPane(initialView: import("./values/view.ts").View): ScrollPane {
+    const lowered = materializeView(initialView);
+    if (lowered === undefined) throw tuiError("runtime", "native View materialization is unavailable");
+    return new NativeScrollPane(this.host.scrollPane(lowered as object));
   }
 
   bindKey(key: string, actionId: string, modifiers?: readonly string[]): void {

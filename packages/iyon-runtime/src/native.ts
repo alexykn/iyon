@@ -84,6 +84,7 @@ export interface NativeAddon {
   NativePlainProjector?: new () => { dispose(): void; project(text: string): object };
   NativeWorking?: new () => { dispose(): void; componentId(): number | null; setActive(active: boolean): void; setPending(pending: string[]): void };
   NativeViewSlot?: new (initial: object) => { dispose(): void; revision(): number; componentId(): number | null; setView(view: object): void; setAnimation(frames: object[], intervalMs: number): void; stopAnimation(view: object): void };
+  NativeScrollPane?: new (initial: object) => { dispose(): void; componentId(): number | null; setContent(view: object): void; followEnd(): void };
 }
 
 export interface NativeTuiOutputContract { readonly output?: unknown; }
@@ -112,6 +113,7 @@ export interface NativeTuiHostContract {
   resize(width: number, height: number): void;
   advanceTime(milliseconds: number): void;
   createViewSlot(initial: object): object;
+  scrollPane(initial: object): object;
   styleAt(row: number, column: number): object | null;
   cellXOfText(row: number, text: string): number | null;
 }

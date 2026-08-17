@@ -2,7 +2,7 @@ import type { App } from "iyon:plugins";
 import { History, Scene, Style, TextInput, Tui, View } from "iyon:tui";
 import { renderGenericCall, renderGenericResult } from "@iyon/runtime";
 import { History as RuntimeHistory, TextInput as RuntimeTextInput } from "@iyon/runtime/tui";
-import type { History as HistoryHandle, TextInput as TextInputHandle, TuiRuntime, ViewSlot, WorkingActivityHandle } from "@iyon/runtime/tui";
+import type { History as HistoryHandle, ScrollPane, TextInput as TextInputHandle, TuiRuntime, ViewSlot, WorkingActivityHandle } from "@iyon/runtime/tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
 import type {
   IyonAgent,
@@ -68,6 +68,7 @@ class IyonAppImpl implements IyonApp {
   private assistantStream?: NativeAssistantStream;
   private readonly toolCards = new ToolCardStore();
   private readonly toolSlots = new Map<string, ViewSlot>();
+  private readonly toolPanes = new Map<string, ScrollPane>();
   private readonly mountedToolCards = new Set<string>();
   private readonly renderedToolResults = new Set<string>();
   private readonly approvals = new ApprovalStore();
@@ -123,6 +124,8 @@ class IyonAppImpl implements IyonApp {
       await this.assistantStream?.dispose();
       for (const slot of this.toolSlots.values()) await slot.dispose();
       this.toolSlots.clear();
+      for (const pane of this.toolPanes.values()) await pane.dispose();
+      this.toolPanes.clear();
       this.mountedToolCards.clear();
       this.toolCards.clear();
       this.renderedToolResults.clear();
@@ -249,7 +252,10 @@ class IyonAppImpl implements IyonApp {
     if (event.type === "toolCallUpdated") {
       this.toolCards.update(event.toolCallId, event.update);
       const key = this.toolCards.keyFor(event.toolCallId);
-      if (key !== undefined) await this.updateToolSlot(key, next.liveTools.get(key));
+      if (key !== undefined) {
+        if (this.toolPanes.has(key)) await this.updateToolContent(key, next.liveTools.get(key));
+        else await this.updateToolSlot(key, next.liveTools.get(key));
+      }
       return false;
     }
     if (event.type === "toolApprovalRequested") {
@@ -314,6 +320,7 @@ class IyonAppImpl implements IyonApp {
     const pulsing = card.status === "preparing" || card.status === "running";
     const slot = this.toolSlots.get(key);
     if (slot !== undefined) {
+      await this.updateToolContent(key, card);
       if (pulsing) {
         await slot.setAnimation([view as never, this.renderToolCall(card, key, true) as never], 480);
       } else {
@@ -321,17 +328,31 @@ class IyonAppImpl implements IyonApp {
       }
       return;
     }
-    if (this.tui?.createViewSlot === undefined) {
+    if (this.tui?.createViewSlot === undefined || this.tui.createScrollPane === undefined) {
       if (this.mountedToolCards.has(key)) return;
       this.mountedToolCards.add(key);
-      await this.history.push(view as never);
+      await this.history.push(View.vertical([view, this.renderToolUpdate(card)]).fillWidth() as never);
       return;
     }
+    const pane = this.tui.createScrollPane(View.spacer(0));
+    this.toolPanes.set(key, pane);
     const created = this.tui.createViewSlot(view as never);
     this.toolSlots.set(key, created);
     this.mountedToolCards.add(key);
-    await this.history.push(View.component(created).fillWidth());
+    await this.updateToolContent(key, card);
+    await this.history.push(View.vertical((column) => {
+      column.child(View.component(created).fillWidth());
+      column.flexMax(16, View.component(pane).fillWidth());
+    }).fillWidth());
     if (pulsing) await created.setAnimation([view as never, this.renderToolCall(card, key, true) as never], 480);
+  }
+
+  private async updateToolContent(key: string, card: LiveTool | undefined): Promise<void> {
+    if (card === undefined) return;
+    const pane = this.toolPanes.get(key);
+    if (pane === undefined) return;
+    await pane.setContent(this.renderToolUpdate(card));
+    await pane.followEnd();
   }
 
   private async updateToolSlotResult(key: string, result: ToolResult): Promise<void> {
@@ -358,14 +379,18 @@ class IyonAppImpl implements IyonApp {
     };
     const contribution = card.arguments === undefined ? undefined : this.dependencies.tools?.get(call.name);
     const callView = contribution?.renderCall?.(call) ?? renderGenericCall(call);
+    return callView;
+  }
+
+  private renderToolUpdate(card: LiveTool) {
     const update = toolUpdateText(card);
-    if (update === undefined) return callView;
+    if (update === undefined) return View.spacer(0);
     const output = View.hanging(
       View.text("  ").noWrap(),
       View.text("  ").noWrap(),
       View.text(update).style(Style.new().theme("text.muted")).fillWidth(),
     ).fillWidth();
-    return View.vertical([callView, output]).fillWidth();
+    return output;
   }
 
   private renderToolResult(result: ToolResult) {

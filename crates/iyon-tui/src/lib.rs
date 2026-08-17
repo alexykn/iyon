@@ -171,7 +171,8 @@ mod theme;
 
 pub use application::{
     App, AppClosed, AppCx, AppHandle, AppSendError, RunError, RuntimeError, TimerHandle,
-    HostActivityConfig, HostCellStyle, HostHistory, HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, RoutedAction, TuiHost,
+    HostActivityConfig, HostCellStyle, HostHistory, HostScrollPane, HostStreamSegmentKind,
+    HostTextInput, HostTextStream, HostViewSlot, HostWorking, RoutedAction, TuiHost,
 };
 
 pub use component::{Component, ComponentCx, ComponentHandle};
