@@ -38,6 +38,8 @@ pub struct BindingRecord {
     pub implementation_owner: String,
     pub status: MappingStatus,
     pub note: String,
+    #[serde(default)]
+    pub evidence: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -232,6 +234,12 @@ fn validate_record(record: &BindingRecord) -> Result<(), ApiSurfaceError> {
     if record.implementation_owner.trim().is_empty() || record.note.trim().is_empty() {
         return Err(ApiSurfaceError::configuration(
             "mapping implementation_owner and note must not be empty",
+            None::<String>,
+        ));
+    }
+    if record.status == MappingStatus::Implemented && record.evidence.is_empty() {
+        return Err(ApiSurfaceError::configuration(
+            format!("implemented mapping `{}` has no verification evidence", record.path),
             None::<String>,
         ));
     }
