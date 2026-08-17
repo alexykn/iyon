@@ -425,10 +425,10 @@ class IyonAppImpl implements IyonApp {
       name: card.toolName ?? "tool",
       arguments: card.arguments ?? {},
       state: card.status,
-      showArgPreview: card.arguments !== undefined,
+      showArgPreview: false,
       pulse,
     };
-    const contribution = card.arguments === undefined ? undefined : this.dependencies.tools?.get(call.name);
+    const contribution = this.dependencies.tools?.get(call.name);
     const callView = contribution?.renderCall?.(call) ?? renderGenericCall(call);
     return callView;
   }
