@@ -1,4 +1,5 @@
 use crate::{
+    perf::{self, Counter},
     physical::{PhysicalStyle, Surface},
     presentation::{IntoView, TextSpan, View},
 };
@@ -43,6 +44,7 @@ impl ViewPainter {
         inherited: PhysicalStyle,
         inherited_context: crate::presentation::paint::StyleContext,
     ) -> Surface {
+        perf::inc(Counter::PaintNodesVisited);
         let node = tree.node(id);
         let node_context = inherited_context.enter_node(
             &node.style.style_states,
@@ -55,6 +57,10 @@ impl ViewPainter {
             &node_context,
         );
         let descendant_context = node_context.for_descendant();
+        perf::add(
+            Counter::PaintCellsAllocated,
+            u64::from(node.rect.width) * u64::from(node.rect.height),
+        );
         let mut output = Surface::new(node.rect.width, node.rect.height);
 
         match &node.content {
@@ -73,6 +79,10 @@ impl ViewPainter {
             }
             LayoutContent::Spacer { rows } => {
                 let height = (*rows).min(node.content_rect.height);
+                perf::add(
+                    Counter::PaintCellsAllocated,
+                    u64::from(node.content_rect.width) * u64::from(height),
+                );
                 let painted = Surface::new(node.content_rect.width, height);
                 let x = node.content_rect.x.saturating_sub(node.rect.x);
                 let y = node.content_rect.y.saturating_sub(node.rect.y);
@@ -124,6 +134,7 @@ impl ViewPainter {
                         }
                         for x in 0..output.width().min(painted.width()) {
                             *output.get_mut(x, y) = painted.get(x, source_y as u16).clone();
+                            perf::inc(Counter::SurfaceCellsComposited);
                         }
                     }
                     output.physically_complete = painted.physically_complete;

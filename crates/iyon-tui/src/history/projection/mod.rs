@@ -2,6 +2,7 @@
 
 use crate::{
     geometry::Size,
+    perf::{self, Counter},
     physical::PhysicalRow,
     presentation::{Insets, View, layout::measure_view},
     scene::{ResolveError, ResolveSession},
@@ -486,24 +487,27 @@ fn item_height_for_overflow(
         FlowItem::TopPadding => (top_padding, false),
         FlowItem::BottomPadding => (usize::from(history.layout().padding.bottom), false),
         FlowItem::Gap(index) => (resident_gap(history, index, &plans[index]), false),
-        FlowItem::Unit(index) => match (&plans[index].content, &units[index].content) {
-            (PlannedContent::Static, HistoryUnitContent::Static(view)) => {
-                (view_height(view, width), false)
+        FlowItem::Unit(index) => {
+            perf::inc(Counter::HistoryUnitsExamined);
+            match (&plans[index].content, &units[index].content) {
+                (PlannedContent::Static, HistoryUnitContent::Static(view)) => {
+                    (view_height(view, width), false)
+                }
+                (PlannedContent::Frozen(rows), _) => (rows.len(), false),
+                (PlannedContent::Live(view), _) => (view_height(view, width), false),
+                (PlannedContent::Stream { .. }, HistoryUnitContent::Stream(stream))
+                    if eager_stream_overflow || !stream.is_sealed() =>
+                {
+                    (ensure_height(&mut plans[index], units[index], width), false)
+                }
+                (PlannedContent::Stream { index, prefix, .. }, _) => {
+                    let prefix_height = prefix.as_ref().map_or(0, |rows| rows.as_slice().len());
+                    let known = index.as_ref().map_or(0, |index| index.anchors.len());
+                    (prefix_height.saturating_add(known), index.is_none())
+                }
+                _ => unreachable!("History overflow plan does not match its unit"),
             }
-            (PlannedContent::Frozen(rows), _) => (rows.len(), false),
-            (PlannedContent::Live(view), _) => (view_height(view, width), false),
-            (PlannedContent::Stream { .. }, HistoryUnitContent::Stream(stream))
-                if eager_stream_overflow || !stream.is_sealed() =>
-            {
-                (ensure_height(&mut plans[index], units[index], width), false)
-            }
-            (PlannedContent::Stream { index, prefix, .. }, _) => {
-                let prefix_height = prefix.as_ref().map_or(0, |rows| rows.as_slice().len());
-                let known = index.as_ref().map_or(0, |index| index.anchors.len());
-                (prefix_height.saturating_add(known), index.is_none())
-            }
-            _ => unreachable!("History overflow plan does not match its unit"),
-        },
+        }
     }
 }
 
@@ -519,7 +523,10 @@ fn item_height(
         FlowItem::TopPadding => top_padding,
         FlowItem::BottomPadding => usize::from(history.layout().padding.bottom),
         FlowItem::Gap(index) => resident_gap(history, index, &plans[index]),
-        FlowItem::Unit(index) => ensure_height(&mut plans[index], units[index], width),
+        FlowItem::Unit(index) => {
+            perf::inc(Counter::HistoryUnitsExamined);
+            ensure_height(&mut plans[index], units[index], width)
+        }
     }
 }
 
@@ -755,6 +762,7 @@ fn flow_items(history: &History, plans: &[UnitPlan]) -> Vec<FlowItem> {
 
 fn ensure_height(plan: &mut UnitPlan, unit: &super::HistoryUnit, width: u16) -> usize {
     if let Some(height) = plan.height {
+        perf::inc(Counter::HistoryCachedHeightHits);
         return height;
     }
     let height = match (&mut plan.content, &unit.content) {
@@ -769,6 +777,9 @@ fn ensure_height(plan: &mut UnitPlan, unit: &super::HistoryUnit, width: u16) -> 
             },
             HistoryUnitContent::Stream(stream),
         ) => {
+            if index.is_none() {
+                perf::inc(Counter::HistoryUnitsMeasured);
+            }
             let prepared = index.get_or_insert_with(|| stream.prepare_from(*start, width));
             prefix.as_ref().map_or(0, |rows| rows.as_slice().len()) + prepared.anchors.len()
         }
@@ -870,5 +881,6 @@ fn push_spacer(children: &mut Vec<View>, rows: usize) {
 }
 
 fn view_height(view: &View, width: u16) -> usize {
+    perf::inc(Counter::HistoryUnitsMeasured);
     usize::from(measure_view(view, width).height)
 }

@@ -81,6 +81,7 @@ impl<S: StreamingSource> StreamModel<S> {
         let mut staged_nodes = Vec::new();
         let mut captured_end = resident_end;
         for node in observed.view.suffix_from(resident_end).nodes {
+            crate::perf::inc(crate::perf::Counter::StreamSourceNodesExamined);
             if node.owned_range().end > observed.stable_through {
                 break;
             }

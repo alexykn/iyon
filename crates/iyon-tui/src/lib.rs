@@ -153,6 +153,14 @@ mod history;
 mod id;
 mod interaction;
 mod output;
+#[cfg(feature = "perf-counters")]
+#[doc(hidden)]
+pub mod perf;
+#[cfg(not(feature = "perf-counters"))]
+mod perf;
+#[cfg(feature = "perf-counters")]
+#[doc(hidden)]
+pub mod perf_bench;
 mod physical;
 mod presentation;
 /// Root-coordinate projection algebra and diagnostics.

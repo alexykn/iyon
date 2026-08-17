@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 
+use crate::perf::{self, Counter};
 use crate::presentation::{StyleFacts, StyleStates};
 use crate::{History, IntoView, View};
 
@@ -206,6 +207,7 @@ fn ensure_disjoint_mounts(
 }
 
 fn root_view(history: Option<View>, body: View) -> View {
+    perf::inc(Counter::ViewNodesConstructedRust);
     let mut children = Vec::with_capacity(usize::from(history.is_some()) + 1);
     if let Some(history) = history {
         children.push(ColumnChild {

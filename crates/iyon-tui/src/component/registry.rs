@@ -2,6 +2,7 @@ use std::{any::Any, collections::HashMap, fmt};
 
 use super::{Component, ComponentHandle, ComponentId, ComponentRevision};
 use crate::interaction::{ComponentCapabilities, ComponentCx};
+use crate::perf::{self, Counter};
 use crate::presentation::View;
 
 trait ErasedComponent {
@@ -17,10 +18,12 @@ where
     C: Component,
 {
     fn view(&self) -> View {
+        perf::inc(Counter::ComponentViewCalls);
         Component::view(self)
     }
 
     fn capabilities(&self) -> ComponentCapabilities {
+        perf::inc(Counter::ComponentCapabilityCalls);
         let mut capabilities = ComponentCapabilities::default();
         let mut cx = ComponentCx::new(&mut capabilities);
         Component::capabilities(self, &mut cx);

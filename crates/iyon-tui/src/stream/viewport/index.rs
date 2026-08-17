@@ -29,12 +29,24 @@ pub(crate) fn build_index_from<S: StreamingSource>(
 ) -> StreamRowIndex {
     #[cfg(test)]
     BUILD_INDEX_CALLS.with(|calls| calls.set(calls.get().saturating_add(1)));
+    crate::perf::set(
+        crate::perf::Counter::StreamSemanticRestartOffset,
+        start.as_u64(),
+    );
+    crate::perf::set(
+        crate::perf::Counter::StreamVisualRestartOffset,
+        start.as_u64(),
+    );
 
     let snapshot = model.snapshot();
     let compiled = compile_stream(
         &model.semantic_view_from(start),
         width,
         snapshot.stable_through,
+    );
+    crate::perf::add(
+        crate::perf::Counter::StreamRowsReindexed,
+        compiled.rows.len() as u64,
     );
     StreamRowIndex {
         revision: snapshot.revision,

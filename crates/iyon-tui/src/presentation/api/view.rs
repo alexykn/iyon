@@ -9,6 +9,7 @@ use super::{
     },
     text::{Text, TextSpan},
 };
+use crate::perf::{self, Counter};
 use crate::presentation::ir::{
     ClampRowsView, ColumnChild, ColumnView, ContainerNode, Decoration, HangingView, HeightRule,
     RowView, View, ViewKind, WidthRule,
@@ -16,6 +17,7 @@ use crate::presentation::ir::{
 
 impl View {
     pub(crate) fn new_kind(kind: ViewKind) -> Self {
+        perf::inc(Counter::ViewNodesConstructedRust);
         Self {
             component: None,
             width: WidthRule::Fit,
@@ -29,6 +31,7 @@ impl View {
     }
 
     fn wrap_structural(self, make_kind: impl FnOnce(Box<View>) -> ViewKind) -> Self {
+        perf::inc(Counter::ViewNodesConstructedRust);
         let mut child = self;
         let component = child.component.take();
         let width = child.width;
@@ -138,6 +141,7 @@ impl View {
 
     /// Creates a private vertical viewport around a semantic view.
     pub(crate) fn row_viewport(child: View, skip_rows: u16) -> Self {
+        perf::inc(Counter::ViewNodesConstructedRust);
         Self {
             component: None,
             width: WidthRule::Fill,
@@ -164,6 +168,7 @@ impl View {
         skip_rows: u16,
         visible_height: Option<u16>,
     ) -> Self {
+        perf::inc(Counter::ViewNodesConstructedRust);
         Self {
             component: None,
             width: WidthRule::Fill,
@@ -183,6 +188,7 @@ impl View {
     }
 
     pub(crate) fn bounded_row_viewport(child: View, height: u16) -> Self {
+        perf::inc(Counter::ViewNodesConstructedRust);
         Self {
             component: None,
             width: WidthRule::Fill,

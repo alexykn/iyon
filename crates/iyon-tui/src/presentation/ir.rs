@@ -3,7 +3,10 @@
 //! Construction APIs lower immediately into these owned nodes. This module
 //! contains no terminal/backend state.
 
-use crate::component::ComponentId;
+use crate::{
+    component::ComponentId,
+    perf::{self, Counter},
+};
 
 use super::api::{
     style::{
@@ -17,7 +20,7 @@ use super::api::{
 ///
 /// Views can be composed, styled, cloned, stored, and returned without
 /// exposing terminal state or layout implementation details.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct View {
     pub(crate) component: Option<ComponentId>,
     pub(crate) width: WidthRule,
@@ -29,12 +32,30 @@ pub struct View {
     pub(crate) kind: ViewKind,
 }
 
+impl Clone for View {
+    fn clone(&self) -> Self {
+        perf::inc(Counter::ViewCloneCalls);
+        perf::inc(Counter::ViewNodesDeepCopied);
+        Self {
+            component: self.component,
+            width: self.width,
+            height: self.height,
+            decoration: self.decoration.clone(),
+            style_states: self.style_states.clone(),
+            style_facts: self.style_facts.clone(),
+            component_scope: self.component_scope,
+            kind: self.kind.clone(),
+        }
+    }
+}
+
 impl View {
     pub(crate) fn clone_shell_with(
         &self,
         kind: ViewKind,
         component_scope: Option<ComponentId>,
     ) -> Self {
+        perf::inc(Counter::ViewNodesConstructedRust);
         Self {
             component: self.component,
             width: self.width,

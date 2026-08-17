@@ -6,6 +6,12 @@ edition.workspace = true
 [features]
 test-util = []
 native-host = []
+perf-counters = []
+
+[[bin]]
+name = "tui_perf"
+path = "src/bin/tui_perf.rs"
+required-features = ["perf-counters"]
 
 [dependencies]
 anyhow.workspace = true

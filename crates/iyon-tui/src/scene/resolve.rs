@@ -3,6 +3,7 @@ use std::{collections::HashSet, fmt};
 use crate::{
     component::{ComponentId, ComponentRegistry, MountGraph, MountNode},
     interaction::MountedCapabilities,
+    perf::{self, Counter},
     presentation::{
         View,
         ir::{
@@ -87,6 +88,7 @@ impl Resolver<'_> {
         view: &View,
         parent: Option<ComponentId>,
     ) -> Result<View, ResolveError> {
+        perf::inc(Counter::ResolverNodesVisited);
         let kind = match &view.kind {
             ViewKind::Text(text) => ViewKind::Text(text.clone()),
             ViewKind::Spacer { rows } => ViewKind::Spacer { rows: *rows },
@@ -196,6 +198,7 @@ impl Resolver<'_> {
         self.active.pop();
         let resolved = resolved?;
 
+        perf::inc(Counter::ViewNodesConstructedRust);
         Ok(View {
             component: Some(id),
             width: slot.width,

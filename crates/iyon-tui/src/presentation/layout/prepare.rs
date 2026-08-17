@@ -1,6 +1,10 @@
 //! Bounded allocation over measured semantic facts.
 
-use crate::{geometry::Size, presentation::ir::HeightRule};
+use crate::{
+    geometry::Size,
+    perf::{self, Counter},
+    presentation::ir::HeightRule,
+};
 
 use super::{
     grid::{FlexMode, SpanRequirement, allocate_grid_tracks, span_extent, track_offset},
@@ -43,6 +47,7 @@ pub(super) fn prepare_node<'m, 'v>(
     measured: &'m MeasuredNode<'v>,
     height_bound: Option<u16>,
 ) -> PreparedNode<'m, 'v> {
+    perf::inc(Counter::PrepareNodeCalls);
     #[cfg(test)]
     super::record_prepare_node();
     let view = measured.view;
