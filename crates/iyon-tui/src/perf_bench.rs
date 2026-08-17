@@ -1,0 +1,507 @@
+//! Deterministic, opt-in performance oracle for the TUI refactor.
+//!
+//! The executable target prints JSONL to stdout. It deliberately keeps the
+//! fixtures framework-generic: no assistant, provider, tool, or agent data is
+//! used. Result files are not written by the benchmark and should not be
+//! committed.
+
+use std::{process::Command, time::Instant};
+
+use crate::{
+    Component, History, IntoView, TextSpan, TextStream, Theme, View,
+    component::ComponentRegistry,
+    geometry::Size,
+    history::{HistoryViewportAnchor, project_into_session_for_host},
+    perf::{self, PerfSnapshot},
+    presentation::{layout, paint::ViewPainter},
+    scene::{ResolveSession, layout_resolved_scene},
+};
+
+const VIEW_SIZES: [(&str, usize); 4] = [
+    ("small_view", 20),
+    ("medium_view", 200),
+    ("large_view", 2_000),
+    ("huge_view", 10_000),
+];
+
+#[derive(Clone, Copy, Debug)]
+#[allow(clippy::enum_variant_names)]
+enum Workload {
+    TextHeavy,
+    ColumnHeavy,
+    RowHeavy,
+    GridHeavy,
+    StyledSpanHeavy,
+    ComponentHeavy,
+}
+
+impl Workload {
+    const ALL: [Self; 6] = [
+        Self::TextHeavy,
+        Self::ColumnHeavy,
+        Self::RowHeavy,
+        Self::GridHeavy,
+        Self::StyledSpanHeavy,
+        Self::ComponentHeavy,
+    ];
+
+    const fn name(self) -> &'static str {
+        match self {
+            Self::TextHeavy => "text_heavy",
+            Self::ColumnHeavy => "column_heavy",
+            Self::RowHeavy => "row_heavy",
+            Self::GridHeavy => "grid_heavy",
+            Self::StyledSpanHeavy => "styled_span_heavy",
+            Self::ComponentHeavy => "component_heavy",
+        }
+    }
+}
+
+struct ViewFixture {
+    view: View,
+    registry: Option<ComponentRegistry>,
+}
+
+struct PerfComponent {
+    body: View,
+}
+
+impl Component for PerfComponent {
+    fn view(&self) -> View {
+        self.body.clone()
+    }
+}
+
+fn leaf(workload: Workload, index: usize) -> View {
+    match workload {
+        Workload::StyledSpanHeavy => View::styled_text([
+            TextSpan::plain(format!("span-{index} ")),
+            TextSpan::plain("stable "),
+            TextSpan::plain("text "),
+            TextSpan::plain("payload"),
+        ])
+        .into_view(),
+        Workload::TextHeavy => {
+            View::text(format!("text-{index}: deterministic payload\n")).into_view()
+        }
+        _ => View::text(format!("node-{index}")).into_view(),
+    }
+}
+
+fn build_fixture(workload: Workload, nodes: usize) -> ViewFixture {
+    let leaves = nodes.saturating_sub(1).max(1);
+    match workload {
+        Workload::ComponentHeavy => {
+            let mut registry = ComponentRegistry::new();
+            let mut handles = Vec::with_capacity(leaves);
+            for index in 0..leaves {
+                handles.push(registry.register(PerfComponent {
+                    body: View::text(format!("component-{index}")).into_view(),
+                }));
+            }
+            let view = View::vertical(|column| {
+                for handle in handles {
+                    column.child(View::component(handle));
+                }
+            });
+            ViewFixture {
+                view,
+                registry: Some(registry),
+            }
+        }
+        Workload::GridHeavy => {
+            let side = (leaves as f64).sqrt().ceil() as usize;
+            let view = View::grid(|grid| {
+                grid.columns((0..side).map(|_| crate::GridTrack::content()));
+                for row in 0..side {
+                    grid.row(|cells| {
+                        for column in 0..side {
+                            let index = row * side + column;
+                            if index < leaves {
+                                cells.cell(leaf(workload, index));
+                            }
+                        }
+                    });
+                }
+            });
+            ViewFixture {
+                view,
+                registry: None,
+            }
+        }
+        Workload::RowHeavy => {
+            let view = View::horizontal(|row| {
+                for index in 0..leaves {
+                    row.child(leaf(workload, index));
+                }
+            });
+            ViewFixture {
+                view,
+                registry: None,
+            }
+        }
+        Workload::ColumnHeavy | Workload::TextHeavy | Workload::StyledSpanHeavy => {
+            let view = View::vertical(|column| {
+                for index in 0..leaves {
+                    column.child(leaf(workload, index));
+                }
+            });
+            ViewFixture {
+                view,
+                registry: None,
+            }
+        }
+    }
+}
+
+fn render_view(
+    view: &View,
+    registry: Option<&ComponentRegistry>,
+    width: u16,
+    height: u16,
+) -> usize {
+    if let Some(registry) = registry {
+        let mut session = ResolveSession::new(registry);
+        let resolved = session
+            .resolve_root(view)
+            .expect("deterministic component fixture must resolve");
+        let scene = session.finish(resolved);
+        let geometry = layout_resolved_scene(&scene, Size::new(width, height));
+        let compiler = crate::presentation::layout::ViewCompiler::with_interaction(
+            &Theme::default(),
+            None,
+            &scene.mounts,
+        );
+        return usize::from(ViewPainter.paint_tree(&compiler, &geometry.tree).height());
+    }
+
+    layout::compile_view_with_theme(view, width, &Theme::default())
+        .rows
+        .len()
+}
+
+fn iterations_for(nodes: usize) -> usize {
+    if let Ok(value) = std::env::var("PERF_ITERATIONS") {
+        return value.parse().expect("PERF_ITERATIONS must be an integer");
+    }
+    match nodes {
+        0..=20 => 100,
+        21..=200 => 50,
+        201..=2_000 => 20,
+        _ => 5,
+    }
+}
+
+fn percentile(samples: &[u128], percentile: usize) -> u128 {
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    let index = ((sorted.len().saturating_sub(1)) * percentile).div_ceil(100);
+    sorted[index]
+}
+
+fn git_sha() -> String {
+    if let Ok(value) = std::env::var("GIT_SHA") {
+        return value;
+    }
+    Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn print_record(
+    benchmark: &str,
+    implementation: &str,
+    node_count: usize,
+    source_bytes: usize,
+    iterations: usize,
+    samples: &[u128],
+    counters: PerfSnapshot,
+    sha: &str,
+) {
+    let counters_json = counters
+        .iter()
+        .map(|(name, value)| format!("\"{name}\":{value}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    println!(
+        "{{\"benchmark\":\"{benchmark}\",\"implementation\":\"{implementation}\",\"node_count\":{node_count},\"source_bytes\":{source_bytes},\"iterations\":{iterations},\"median_ns\":{},\"p95_ns\":{},\"p99_ns\":{},\"counters\":{{{counters_json}}},\"git_sha\":\"{sha}\"}}",
+        percentile(samples, 50),
+        percentile(samples, 95),
+        percentile(samples, 99),
+    );
+}
+
+fn run_view_case(
+    size_name: &str,
+    workload: Workload,
+    nodes: usize,
+    pattern: &'static str,
+    sha: &str,
+) {
+    let iterations = iterations_for(nodes);
+    let base = build_fixture(workload, nodes);
+    let shared = base.view.clone();
+    let mut samples = Vec::with_capacity(iterations);
+    perf::reset();
+    for index in 0..iterations {
+        let start = Instant::now();
+        match pattern {
+            "COLD" => {
+                let fixture = build_fixture(workload, nodes);
+                std::hint::black_box(render_view(
+                    &fixture.view,
+                    fixture.registry.as_ref(),
+                    80,
+                    24,
+                ));
+            }
+            "IDENTICAL_IDENTITY" => {
+                std::hint::black_box(render_view(&base.view, base.registry.as_ref(), 80, 24));
+            }
+            "SHARED_PATH" => {
+                let changed = View::text(format!("changed-{index}"));
+                let view = View::vertical(|column| {
+                    column.child(shared.clone());
+                    column.child(changed);
+                });
+                std::hint::black_box(render_view(&view, base.registry.as_ref(), 80, 24));
+            }
+            "REBUILT_EQUIVALENT" => {
+                let fixture = build_fixture(workload, nodes);
+                std::hint::black_box(render_view(
+                    &fixture.view,
+                    fixture.registry.as_ref(),
+                    80,
+                    24,
+                ));
+            }
+            _ => unreachable!("unknown View benchmark pattern"),
+        }
+        samples.push(start.elapsed().as_nanos());
+    }
+    print_record(
+        &format!("view/{size_name}/{}/{pattern}", workload.name()),
+        "baseline",
+        nodes,
+        0,
+        iterations,
+        &samples,
+        perf::snapshot(),
+        sha,
+    );
+}
+
+fn render_history(history: &History, registry: &ComponentRegistry) -> usize {
+    let mut session = ResolveSession::new(registry);
+    let projection = project_into_session_for_host(
+        history,
+        Size::new(80, 24),
+        &mut session,
+        HistoryViewportAnchor::FollowEnd,
+    )
+    .expect("deterministic History fixture must project");
+    let scene = session.finish(projection.view);
+    let geometry = layout_resolved_scene(&scene, Size::new(80, 24));
+    let compiler = crate::presentation::layout::ViewCompiler::with_interaction(
+        &Theme::default(),
+        None,
+        &scene.mounts,
+    );
+    usize::from(ViewPainter.paint_tree(&compiler, &geometry.tree).height())
+}
+
+fn run_history_case(sha: &str) {
+    let iterations = std::env::var("PERF_HISTORY_ITERATIONS")
+        .ok()
+        .map(|value| {
+            value
+                .parse()
+                .expect("PERF_HISTORY_ITERATIONS must be an integer")
+        })
+        .unwrap_or(100);
+
+    let mut static_history = History::new();
+    for index in 0..1_000 {
+        static_history
+            .push(View::text(format!("static-{index}")))
+            .expect("static fixture append");
+    }
+    let static_registry = ComponentRegistry::new();
+    let _ = render_history(&static_history, &static_registry);
+    let mut static_samples = Vec::with_capacity(iterations);
+    perf::reset();
+    for _ in 0..iterations {
+        let start = Instant::now();
+        std::hint::black_box(render_history(&static_history, &static_registry));
+        static_samples.push(start.elapsed().as_nanos());
+    }
+    print_record(
+        "history_static_1000",
+        "baseline",
+        1_000,
+        0,
+        iterations,
+        &static_samples,
+        perf::snapshot(),
+        sha,
+    );
+
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(PerfComponent {
+        body: View::text("live tail").into_view(),
+    });
+    let mut history = History::new();
+    for index in 0..1_000 {
+        history
+            .push(View::text(format!("static-{index}")))
+            .expect("static fixture append");
+    }
+    history
+        .push(View::component(handle))
+        .expect("live fixture append");
+    let _ = render_history(&history, &registry);
+
+    let mut samples = Vec::with_capacity(iterations);
+    perf::reset();
+    for _ in 0..iterations {
+        registry.with_any_mut(handle.id(), |_| {});
+        let start = Instant::now();
+        std::hint::black_box(render_history(&history, &registry));
+        samples.push(start.elapsed().as_nanos());
+    }
+    print_record(
+        "history_live_tail",
+        "baseline",
+        1_001,
+        0,
+        iterations,
+        &samples,
+        perf::snapshot(),
+        sha,
+    );
+}
+
+const STREAM_CHUNK: &str = "stream chunk: deterministic generic text output.\n";
+
+fn stream_chunk() -> String {
+    let mut chunk = String::with_capacity(256);
+    while chunk.len() < 256 {
+        chunk.push_str(STREAM_CHUNK);
+    }
+    chunk.truncate(256);
+    if !chunk.ends_with('\n') {
+        chunk.pop();
+        chunk.push('\n');
+    }
+    chunk
+}
+
+fn stream_source(target: usize, chunk: &str) -> String {
+    let mut source = String::with_capacity(target);
+    while source.len() < target {
+        source.push_str(chunk);
+    }
+    source.truncate(target);
+    if !source.ends_with('\n') {
+        source.pop();
+        source.push('\n');
+    }
+    source
+}
+
+fn run_stream_case(target: usize, sha: &str) {
+    let chunk = stream_chunk();
+    let mut history = History::new();
+    let handle = history
+        .push_stream(TextStream::from_text(stream_source(target, &chunk)))
+        .expect("stream fixture append");
+
+    let iterations = std::env::var("PERF_STREAM_ITERATIONS")
+        .ok()
+        .map(|value| {
+            value
+                .parse()
+                .expect("PERF_STREAM_ITERATIONS must be an integer")
+        })
+        .unwrap_or(20);
+    let mut samples = Vec::with_capacity(iterations);
+    perf::reset();
+    for _ in 0..iterations {
+        let start = Instant::now();
+        history
+            .update_stream(handle, |stream| stream.push(&chunk))
+            .expect("stream append");
+        std::hint::black_box(());
+        samples.push(start.elapsed().as_nanos());
+    }
+    print_record(
+        &format!("stream_{target}B_next_256B"),
+        "baseline",
+        0,
+        target,
+        iterations,
+        &samples,
+        perf::snapshot(),
+        sha,
+    );
+
+    if target == 1_024 {
+        let registry = ComponentRegistry::new();
+        let _ = render_history(&history, &registry);
+        let layout_iterations = std::env::var("PERF_STREAM_LAYOUT_ITERATIONS")
+            .ok()
+            .map(|value| {
+                value
+                    .parse()
+                    .expect("PERF_STREAM_LAYOUT_ITERATIONS must be an integer")
+            })
+            .unwrap_or(5);
+        let mut layout_samples = Vec::with_capacity(layout_iterations);
+        perf::reset();
+        for _ in 0..layout_iterations {
+            let start = Instant::now();
+            history
+                .update_stream(handle, |stream| stream.push(&chunk))
+                .expect("stream layout append");
+            std::hint::black_box(render_history(&history, &registry));
+            layout_samples.push(start.elapsed().as_nanos());
+        }
+        print_record(
+            "stream_layout_1024B_next_256B",
+            "baseline",
+            0,
+            target,
+            layout_iterations,
+            &layout_samples,
+            perf::snapshot(),
+            sha,
+        );
+    }
+}
+
+/// Runs the complete first-tranche oracle and emits one JSON object per line.
+pub fn run() {
+    let sha = git_sha();
+    for workload in Workload::ALL {
+        for (size_name, node_count) in VIEW_SIZES {
+            for pattern in [
+                "COLD",
+                "IDENTICAL_IDENTITY",
+                "SHARED_PATH",
+                "REBUILT_EQUIVALENT",
+            ] {
+                run_view_case(size_name, workload, node_count, pattern, &sha);
+            }
+        }
+    }
+    run_history_case(&sha);
+    for target in [1_024, 10_240, 51_200, 102_400, 512_000] {
+        run_stream_case(target, &sha);
+    }
+}

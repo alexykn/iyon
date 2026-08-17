@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
+    perf::{self, Counter},
     physical::{PhysicalCell, PhysicalRow, PhysicalStyle, Surface, grapheme_cell_width},
     presentation::{HorizontalAlign, WidthRule, ir::TextView},
 };
@@ -40,7 +41,12 @@ impl ViewCompiler {
         let (width, rows) =
             self.compile_text_with_metadata(text, max_width, width_rule, inherited, true, context);
         let all_fit = rows.iter().all(|row| row.fits);
-        let mut surface = Surface::new(width, rows.len().max(1) as u16);
+        let height = rows.len().max(1) as u16;
+        perf::add(
+            Counter::PaintCellsAllocated,
+            u64::from(width) * u64::from(height),
+        );
+        let mut surface = Surface::new(width, height);
         surface.physically_complete = all_fit;
         for (y, row) in rows.into_iter().enumerate() {
             let line_width = row.width;

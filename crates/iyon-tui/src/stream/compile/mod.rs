@@ -49,6 +49,7 @@ pub(crate) fn compile_stream_with_theme(
     let mut next_atomic_id = 0usize;
 
     for node in &view.nodes {
+        crate::perf::inc(crate::perf::Counter::StreamSourceNodesExamined);
         match node {
             StreamNode::Text(text) => {
                 let (_w, compiled_rows) =

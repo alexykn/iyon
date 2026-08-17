@@ -18,12 +18,42 @@ use iyon_tui::{
 use serde_json::Map;
 use serde_json::Value;
 
+macro_rules! tui_perf_inc {
+    ($counter:ident) => {
+        #[cfg(feature = "perf-counters")]
+        iyon_tui::perf::inc(iyon_tui::perf::Counter::$counter);
+    };
+}
+
+macro_rules! tui_perf_add {
+    ($counter:ident, $amount:expr) => {
+        #[cfg(feature = "perf-counters")]
+        iyon_tui::perf::add(iyon_tui::perf::Counter::$counter, $amount as u64);
+    };
+}
+
 /// Link/surface probe only: construct one owned public TUI value and discard
 /// it. The native bridge must not duplicate or serialize the TUI renderer.
 #[napi(js_name = "tuiSmoke")]
 pub fn tui_smoke() -> Result<String> {
     let _view = View::text("iyon-tui/t1").into_view();
     Ok("iyon-tui/t1".to_owned())
+}
+
+#[cfg(feature = "perf-counters")]
+#[napi(js_name = "tuiPerfReset")]
+pub fn tui_perf_reset() {
+    iyon_tui::perf::reset();
+}
+
+#[cfg(feature = "perf-counters")]
+#[napi(js_name = "tuiPerfSnapshot")]
+pub fn tui_perf_snapshot() -> Value {
+    let mut counters = Map::new();
+    for (name, value) in iyon_tui::perf::snapshot().iter() {
+        counters.insert(name.to_owned(), Value::from(value));
+    }
+    Value::Object(counters)
 }
 
 /// Opaque native result of one semantic materialization boundary. The Rust
@@ -1085,6 +1115,8 @@ pub fn materialize_view(value: Value) -> Result<NativeTuiView> {
 }
 
 fn lower_view(value: &Value) -> Result<View> {
+    tui_perf_inc!(NapiViewNodesSeen);
+    tui_perf_inc!(NapiViewCacheMisses);
     let object = value
         .as_object()
         .ok_or_else(|| crate::NativeError::invalid_input("view node must be an object"))?;
@@ -1384,18 +1416,21 @@ fn lower_overflow(value: Option<&Value>) -> Result<iyon_tui::OverflowIndicator> 
                 })?)?,
             })
         }
-        "footer" => Ok(iyon_tui::OverflowIndicator::Footer {
-            prefix: object
+        "footer" => {
+            let prefix = object
                 .get("prefix")
                 .and_then(Value::as_str)
-                .ok_or_else(|| crate::NativeError::invalid_input("footer prefix must be a string"))?
-                .to_owned(),
-            style: lower_style_ref(
-                object
-                    .get("style")
-                    .ok_or_else(|| crate::NativeError::invalid_input("footer style is required"))?,
-            )?,
-        }),
+                .ok_or_else(|| {
+                    crate::NativeError::invalid_input("footer prefix must be a string")
+                })?;
+            tui_perf_add!(NapiViewStringBytesCopied, prefix.len());
+            Ok(iyon_tui::OverflowIndicator::Footer {
+                prefix: prefix.to_owned(),
+                style: lower_style_ref(object.get("style").ok_or_else(|| {
+                    crate::NativeError::invalid_input("footer style is required")
+                })?)?,
+            })
+        }
         other => Err(crate::NativeError::invalid_input(format!(
             "unknown overflow indicator `{other}`"
         ))),
@@ -1432,6 +1467,7 @@ fn lower_text_span(value: &Value) -> Result<TextSpan> {
         .get("text")
         .and_then(Value::as_str)
         .ok_or_else(|| crate::NativeError::invalid_input("text span text must be a string"))?;
+    tui_perf_add!(NapiViewStringBytesCopied, text.len());
     let style = object
         .get("style")
         .map(lower_style_ref)

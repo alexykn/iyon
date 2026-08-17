@@ -1,6 +1,9 @@
 //! Mutable backend-neutral physical composition surface.
 
-use crate::geometry::Size;
+use crate::{
+    geometry::Size,
+    perf::{self, Counter},
+};
 
 use super::glyph::{clear_glyph_covering, glyphs, place_glyphs, validate_cells, write_glyph_span};
 use super::{PhysicalColor, PhysicalStyle};
@@ -133,6 +136,7 @@ impl Surface {
                     break;
                 }
                 let dest_row = self.row_cells_mut(target_y);
+                perf::add(Counter::SurfaceCellsComposited, glyph.width as u64);
                 write_glyph_span(dest_row, dest_start, child_row, glyph.start, glyph.width);
             }
             debug_assert!(validate_cells(self.row_cells(target_y)).is_ok());

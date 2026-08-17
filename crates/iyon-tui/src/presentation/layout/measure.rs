@@ -2,6 +2,7 @@
 
 use crate::{
     geometry::Size,
+    perf::{self, Counter},
     presentation::{
         ir::{
             ColumnView, ContainerNode, GridView, HangingView, RowView, RowViewportView, TrackSize,
@@ -172,6 +173,7 @@ pub(super) fn measure_node<'a>(
     width: u16,
     intent: WidthIntent,
 ) -> MeasuredNode<'a> {
+    perf::inc(Counter::MeasureNodeCalls);
     #[cfg(test)]
     super::record_measure_node();
     let bounds = view.decoration.bounds;

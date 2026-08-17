@@ -5,7 +5,10 @@ use super::{
     prepare::{PreparedChild, PreparedKind, PreparedNode},
     tree::{LayoutContent, LayoutNode, LayoutNodeId, LayoutStyle},
 };
-use crate::geometry::{Point, Rect};
+use crate::{
+    geometry::{Point, Rect},
+    perf::{self, Counter},
+};
 
 pub(super) fn emit_prepared(
     prepared: &PreparedNode<'_, '_>,
@@ -13,6 +16,7 @@ pub(super) fn emit_prepared(
     inherited_clip: Rect,
     nodes: &mut Vec<LayoutNode>,
 ) -> LayoutNodeId {
+    perf::inc(Counter::LayoutNodesEmitted);
     #[cfg(test)]
     super::record_emitted_node();
     let rect = Rect::new(
