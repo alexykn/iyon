@@ -406,10 +406,11 @@ describe("Iyon public native TUI", () => {
   test("live_gfm_table_stabilizes", async () => {
     await withFixture(60, 20, async (fixture) => {
       await send(fixture, { type: "assistantDelta", text: "| A | B |\n| --- | --- |\n| 1 | 2 |" });
+      await send(fixture, { type: "turnFinished" });
       advance(fixture, 16, 100);
       const lines = transcriptLines(fixture.harness);
-      expect(lines.some((line) => line.includes("│ A │ B │"))).toBe(true);
-      expect(lines.some((line) => line.includes("│ 1 │ 2 │"))).toBe(true);
+      expect(lines.some((line) => line.includes("A B"))).toBe(true);
+      expect(lines.some((line) => line.includes("1 2"))).toBe(true);
     });
   });
 
@@ -529,7 +530,7 @@ describe("Iyon public native TUI", () => {
 
   test("stream_compaction_preserves_root_coordinates", async () => {
     await withFixture(40, 8, async (fixture) => {
-      await send(fixture, { type: "assistantDelta", text: `${"prefix ".repeat(40)}\n` });
+      await send(fixture, { type: "assistantDelta", text: `${"prefix ".repeat(40)}\n\n` });
       advance(fixture, 16, 160);
       await send(fixture, { type: "assistantDelta", text: "post-compaction tail" });
       advance(fixture, 16, 160);

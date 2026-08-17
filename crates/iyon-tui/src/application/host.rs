@@ -17,7 +17,9 @@ use crate::{
     ComponentHandle, History, HistoryLayout, InteractionResult, KeyStroke, Output, TextInput,
     HistoryStreamHandle, IntoView, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
     StreamSnapshotBuilder, StreamingSource, StyleRef, TextContent, Theme, View,
-    MarkdownOptions, MarkdownProjector, ProjectionBuilder, Projector, Smooth,
+    CodeBlockLabelPolicy, MarkdownOptions, MarkdownProjector, Projection, ProjectionBuilder,
+    Projector, Renderer, Smooth, SoftBreakPolicy, TableColumnSizing, TaskListMarkerPolicy,
+    TextRenderPolicy, TextRenderer, WrapMode,
     backend::NativeHistorySink,
     geometry::Size,
     physical::PhysicalRow,
@@ -25,7 +27,8 @@ use crate::{
     terminal::{TerminalBackend, TerminalEvent, termwiz::TermwizBackend},
 };
 use crate::controls::text_input::command::TextInputCommand;
-use crate::text::{TextRun, TextVisitor};
+use crate::text::{Alignment, Block, BlockKind, Inline, InlineContent, InlineKind, List, ListItem, LiteralText, Mark, SemanticTag, Table, TableCell, TableColumn, TableRow, TextProjectionError, TextRewriter, TextRun, TextIrError, TextProvenance, validate_text_projection, walk_rewrite_inline};
+use crate::text::RewriteProjectionError;
 
 /// One application-level action produced by native interaction routing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -352,21 +355,398 @@ pub enum HostStreamSegmentKind {
     Thinking,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HostAssistantSegmentKind {
+    Text,
+    Thinking,
+}
+
 #[derive(Clone, Debug)]
-struct HostStreamSegment {
-    kind: HostStreamSegmentKind,
+struct HostPacingAtom {
+    kind: HostAssistantSegmentKind,
     text: String,
 }
 
-#[derive(Default)]
+struct HostAssistantPipeline {
+    smoother: Smooth,
+    markdown: MarkdownProjector,
+    renderer: TextRenderer,
+}
+
+impl HostAssistantPipeline {
+    fn new() -> Self {
+        let policy = TextRenderPolicy::new()
+            .with_block_gap(1)
+            .with_soft_break(SoftBreakPolicy::LineBreak)
+            .with_table_column_sizing(TableColumnSizing::Content)
+            .with_table_column_gap(1)
+            .with_table_row_gap(0)
+            .with_task_list_marker(TaskListMarkerPolicy::TaskOnly)
+            .with_code_block_label(CodeBlockLabelPolicy::Language)
+            .with_code_block_gap(0)
+            .with_code_wrap(WrapMode::NoWrap);
+        Self {
+            smoother: Smooth::default(),
+            markdown: MarkdownProjector::new(MarkdownOptions::gfm().with_live_table_stabilization(true)),
+            renderer: TextRenderer::with_policy(policy),
+        }
+    }
+
+    fn project(&mut self, input: &Projection<HostPacingAtom>) -> Result<Projection<TextContent>> {
+        let paced = self.smoother.project(input).expect("host stream smoothing is infallible");
+        let raw = paced.map_ref(|atom| TextContent::raw(atom.text.clone()));
+        let markdown = self
+            .markdown
+            .project(&raw)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        let mut pipe_tables = PipeTableRewriter;
+        let markdown = pipe_tables
+            .project(&markdown)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        ThinkingRewriter::new(&paced)
+            .into_projector()
+            .project(&markdown)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))
+    }
+
+    fn advance(&mut self, now: Instant) -> bool {
+        self.smoother.advance(now)
+    }
+
+    fn next_wakeup(&self) -> Option<Instant> {
+        self.smoother.next_wakeup()
+    }
+
+    fn restart_from(&self, offset: StreamOffset) -> StreamOffset {
+        self.markdown.restart_from(offset)
+    }
+}
+
+struct ThinkingMap(Vec<(StreamRange, HostAssistantSegmentKind)>);
+
+impl ThinkingMap {
+    fn new(projection: &Projection<HostPacingAtom>) -> Self {
+        let mut ranges: Vec<(StreamRange, HostAssistantSegmentKind)> = Vec::new();
+        for span in projection.spans() {
+            let Some(atom) = span.values().first() else {
+                continue;
+            };
+            if let Some((last, kind)) = ranges.last_mut()
+                && *kind == atom.kind
+                && last.end() == span.source().start()
+            {
+                *last = StreamRange::new(last.start(), span.source().end());
+            } else {
+                ranges.push((span.source(), atom.kind));
+            }
+        }
+        Self(ranges)
+    }
+
+    fn kind_for(&self, range: StreamRange) -> Option<HostAssistantSegmentKind> {
+        self.0.iter().find_map(|(candidate, kind)| {
+            (candidate.start() <= range.start() && range.end() <= candidate.end()).then_some(*kind)
+        })
+    }
+}
+
+struct ThinkingRewriter {
+    map: ThinkingMap,
+    tag: SemanticTag,
+}
+
+impl ThinkingRewriter {
+    fn new(paced: &Projection<HostPacingAtom>) -> Self {
+        Self {
+            map: ThinkingMap::new(paced),
+            tag: SemanticTag::new("app", "thinking").expect("static thinking tag is valid"),
+        }
+    }
+
+    fn annotate_run(&self, run: TextRun) -> Result<Vec<TextRun>, TextIrError> {
+        let TextProvenance::Exact(range) = run.provenance().clone() else {
+            let range = match run.provenance() {
+                TextProvenance::Derived(range) => *range,
+                TextProvenance::Synthetic => return Ok(vec![run]),
+                TextProvenance::Exact(_) => unreachable!(),
+            };
+            return Ok(if self.map.kind_for(range) == Some(HostAssistantSegmentKind::Thinking) {
+                vec![run.map_annotations(|annotations| annotations.with_tag(self.tag.clone()))]
+            } else {
+                vec![run]
+            });
+        };
+        if range.is_empty() {
+            return Ok(vec![run]);
+        }
+        let mut result = Vec::new();
+        let mut remaining = run;
+        let mut cursor = range.start();
+        while !remaining.text().is_empty() {
+            let Some((map_range, kind)) = self
+                .map
+                .0
+                .iter()
+                .find(|(candidate, _)| candidate.contains_offset(cursor))
+            else {
+                return Ok(vec![remaining]);
+            };
+            let end = map_range.end().min(range.end());
+            let length = usize::try_from(end.as_u64().saturating_sub(cursor.as_u64()))
+                .expect("stream range fits usize");
+            let (piece, rest) = if length == remaining.text().len() {
+                (remaining, None)
+            } else {
+                let (left, right) = remaining.split_at(length)?;
+                (left, Some(right))
+            };
+            let piece = if *kind == HostAssistantSegmentKind::Thinking {
+                piece.map_annotations(|annotations| annotations.with_tag(self.tag.clone()))
+            } else {
+                piece
+            };
+            result.push(piece);
+            cursor = end;
+            let Some(next) = rest else { break };
+            remaining = next;
+        }
+        Ok(result)
+    }
+}
+
+impl TextRewriter for ThinkingRewriter {
+    type Error = TextIrError;
+
+    fn rewrite_inline(&mut self, inline: Inline) -> Result<Inline, Self::Error> {
+        let InlineKind::Text(run) = inline.kind().clone() else {
+            return walk_rewrite_inline(self, inline);
+        };
+        let Some(run) = self.annotate_run(run)?.into_iter().next() else {
+            return Ok(inline);
+        };
+        Ok(Inline::new(InlineKind::Text(run))
+            .with_marks(inline.marks().clone())
+            .with_annotations(inline.annotations().clone()))
+    }
+
+    fn rewrite_inline_content(&mut self, content: InlineContent) -> Result<InlineContent, Self::Error> {
+        let mut items = Vec::new();
+        for inline in content.items() {
+            let InlineKind::Text(run) = inline.kind() else {
+                items.push(self.rewrite_inline(inline.clone())?);
+                continue;
+            };
+            for run in self.annotate_run(run.clone())? {
+                items.push(
+                    Inline::new(InlineKind::Text(run))
+                        .with_marks(inline.marks().clone())
+                        .with_annotations(inline.annotations().clone()),
+                );
+            }
+        }
+        Ok(InlineContent::new(items))
+    }
+
+    fn rewrite_literal(&mut self, literal: LiteralText) -> Result<LiteralText, Self::Error> {
+        let mut runs = Vec::new();
+        for run in literal.runs() {
+            runs.extend(self.annotate_run(run.clone())?);
+        }
+        Ok(LiteralText::new(runs))
+    }
+}
+
+struct PipeTableRewriter;
+
+impl Projector<TextContent> for PipeTableRewriter {
+    type Output = TextContent;
+    type Error = RewriteProjectionError<TextIrError>;
+
+    fn project(&mut self, input: &Projection<TextContent>) -> Result<Projection<Self::Output>, Self::Error> {
+        let mut output = input.rebuild();
+        let spans = input.spans();
+        for (index, span) in spans.iter().enumerate() {
+            let following = input.is_sealed() || spans[index + 1..].iter().any(|later| !later.values().is_empty());
+            let values = span.values().iter().cloned().enumerate().map(|(value_index, value)| {
+                let closed = following || value_index + 1 < span.values().len();
+                rewrite_pipe_content(value, closed).map_err(RewriteProjectionError::Rewrite)
+            }).collect::<Result<Vec<_>, _>>()?;
+            output = output.emit_many(span.source(), values);
+        }
+        let output = output.finish().map_err(|error| RewriteProjectionError::Invalid(TextProjectionError::Projection(error)))?;
+        validate_text_projection(&output).map_err(RewriteProjectionError::Invalid)?;
+        Ok(output)
+    }
+}
+
+fn rewrite_pipe_content(content: TextContent, closed: bool) -> Result<TextContent, TextIrError> {
+    match content {
+        TextContent::Raw(_) => Ok(content),
+        TextContent::Block(block) => Ok(TextContent::Block(rewrite_pipe_block(block, closed)?)),
+    }
+}
+
+fn rewrite_pipe_block(block: Block, closed: bool) -> Result<Block, TextIrError> {
+    match block.kind() {
+        BlockKind::Paragraph(content) if closed => {
+            if let Some(table) = pipe_table_from_paragraph(content) {
+                return Ok(Block::table(table).with_annotations(block.annotations().clone()));
+            }
+            Ok(block)
+        }
+        BlockKind::BlockQuote { blocks } => {
+            let rewritten = rewrite_pipe_blocks(blocks, closed)?;
+            if rewritten.as_slice() == blocks.as_ref() { return Ok(block); }
+            Ok(Block::block_quote(rewritten).with_annotations(block.annotations().clone()))
+        }
+        BlockKind::Container { blocks } => {
+            let rewritten = rewrite_pipe_blocks(blocks, closed)?;
+            if rewritten.as_slice() == blocks.as_ref() { return Ok(block); }
+            Ok(Block::container(rewritten).with_annotations(block.annotations().clone()))
+        }
+        BlockKind::List(list) => {
+            let mut changed = false;
+            let mut items = Vec::with_capacity(list.items().len());
+            for (index, item) in list.items().iter().enumerate() {
+                let blocks = rewrite_pipe_blocks(item.blocks(), index + 1 < list.items().len() || closed)?;
+                changed |= blocks.as_slice() != item.blocks();
+                items.push(ListItem::new(blocks).with_annotations(item.annotations().clone()).with_checked(item.checked()));
+            }
+            if !changed { return Ok(block); }
+            Ok(Block::list(List::new(list.marker(), list.tight(), items)).with_annotations(block.annotations().clone()))
+        }
+        _ => Ok(block),
+    }
+}
+
+fn rewrite_pipe_blocks(blocks: &[Block], trailing_closed: bool) -> Result<Vec<Block>, TextIrError> {
+    blocks.iter().enumerate().map(|(index, block)| rewrite_pipe_block(block.clone(), index + 1 < blocks.len() || trailing_closed)).collect()
+}
+
+fn pipe_table_from_paragraph(content: &InlineContent) -> Option<Table> {
+    let lines = pipe_lines(content)?;
+    let mut rows: Vec<Vec<String>> = lines.iter().map(|line| split_pipe_cells(line)).collect::<Option<_>>()?;
+    let width = rows.first()?.len();
+    if width < 2 { return None; }
+    for row in &mut rows {
+        row.truncate(width);
+        while row.len() < width { row.push(String::new()); }
+    }
+    let (header_rows, alignments, body) = if rows.len() >= 3 && is_pipe_delimiter_row(&rows[1]) {
+        (1, rows[1].iter().map(pipe_alignment).collect(), std::iter::once(rows[0].clone()).chain(rows[2..].iter().cloned()).collect::<Vec<_>>())
+    } else if rows.iter().any(|row| is_pipe_delimiter_row(row)) {
+        return None;
+    } else if rows.len() >= 2 {
+        (0, vec![Alignment::Start; width], rows)
+    } else {
+        return None;
+    };
+    let range = pipe_covering_range(content);
+    let columns = alignments.into_iter().map(TableColumn::new);
+    let table_rows = body.into_iter().map(|cells| TableRow::new(cells.into_iter().map(|cell| TableCell::text(pipe_cell_run(cell, range))).collect::<Vec<_>>()));
+    Table::new(None::<Vec<Block>>, columns, header_rows, table_rows).ok()
+}
+
+fn pipe_lines(content: &InlineContent) -> Option<Vec<String>> {
+    let mut lines = vec![String::new()];
+    let mut last_exact_end = None;
+    for inline in content.items() {
+        match inline.kind() {
+            InlineKind::Break(_) => { last_exact_end = None; lines.push(String::new()); }
+            InlineKind::Text(run) => {
+                if inline.marks().contains(&Mark::Code) { return None; }
+                match run.provenance() {
+                    TextProvenance::Derived(_) => return None,
+                    TextProvenance::Exact(range) => {
+                        if last_exact_end.is_some_and(|end| range.start() > end) && run.text().contains('|') { return None; }
+                        last_exact_end = Some(range.end());
+                    }
+                    TextProvenance::Synthetic => last_exact_end = None,
+                }
+                lines.last_mut()?.push_str(run.text());
+            }
+            _ => return None,
+        }
+    }
+    while lines.first().is_some_and(|line| line.trim().is_empty()) { lines.remove(0); }
+    while lines.last().is_some_and(|line| line.trim().is_empty()) { lines.pop(); }
+    (!lines.is_empty() && !lines.iter().any(|line| line.trim().is_empty())).then_some(lines)
+}
+
+fn split_pipe_cells(line: &str) -> Option<Vec<String>> {
+    let line = line.trim();
+    if line.len() < 3 || !line.starts_with('|') || !line.ends_with('|') || line.contains('\\') || line.contains('`') { return None; }
+    Some(line[1..line.len() - 1].split('|').map(|cell| cell.trim().to_owned()).collect())
+}
+
+fn is_pipe_delimiter_row(cells: &[String]) -> bool {
+    !cells.is_empty() && cells.iter().all(|cell| {
+        let core = cell.trim_matches(':');
+        !core.is_empty() && core.chars().all(|character| character == '-')
+    })
+}
+
+fn pipe_alignment(cell: &String) -> Alignment {
+    match (cell.starts_with(':'), cell.ends_with(':')) {
+        (true, true) => Alignment::Center,
+        (false, true) => Alignment::End,
+        _ => Alignment::Start,
+    }
+}
+
+fn pipe_covering_range(content: &InlineContent) -> Option<StreamRange> {
+    let mut start: Option<StreamOffset> = None;
+    let mut end: Option<StreamOffset> = None;
+    for inline in content.items() {
+        let Some(run) = inline.as_text() else { continue; };
+        let range = match run.provenance() {
+            TextProvenance::Exact(range) | TextProvenance::Derived(range) => *range,
+            TextProvenance::Synthetic => continue,
+        };
+        start = Some(start.map_or(range.start(), |value| value.min(range.start())));
+        end = Some(end.map_or(range.end(), |value| value.max(range.end())));
+    }
+    Some(StreamRange::new(start?, end?))
+}
+
+fn pipe_cell_run(text: String, range: Option<StreamRange>) -> TextRun {
+    match range {
+        Some(range) => TextRun::derived(text, range),
+        None => TextRun::synthetic(text),
+    }
+}
+
 struct HostStreamState {
-    segments: Vec<HostStreamSegment>,
-    display_text: String,
+    pacing_atoms: Vec<(StreamRange, HostPacingAtom)>,
     source_base: StreamOffset,
+    received_end: StreamOffset,
+    last_received_kind: Option<HostAssistantSegmentKind>,
+    last_received_ends_with_newline: bool,
     revision: StreamRevision,
     sealed: bool,
-    markdown: Option<MarkdownProjector>,
-    smooth: Option<Smooth>,
+    pipeline: Option<HostAssistantPipeline>,
+    pacing_input: Projection<HostPacingAtom>,
+    semantic: Option<Projection<TextContent>>,
+}
+
+impl Default for HostStreamState {
+    fn default() -> Self {
+        let pacing_input = ProjectionBuilder::new(StreamOffset::ZERO, StreamOffset::ZERO, StreamOffset::ZERO, false)
+            .finish()
+            .expect("empty host pacing projection is valid");
+        Self {
+            pacing_atoms: Vec::new(),
+            source_base: StreamOffset::ZERO,
+            received_end: StreamOffset::ZERO,
+            last_received_kind: None,
+            last_received_ends_with_newline: false,
+            revision: StreamRevision::ZERO,
+            sealed: false,
+            pipeline: None,
+            pacing_input,
+            semantic: None,
+        }
+    }
 }
 
 /// A mutable native stream shared by a History unit and its language binding.
@@ -389,8 +769,8 @@ impl HostTextStream {
     pub fn with_markdown() -> Self {
         let stream = Self::new();
         if let Ok(mut state) = stream.state.lock() {
-            state.markdown = Some(MarkdownProjector::new(MarkdownOptions::commonmark()));
-            state.smooth = Some(Smooth::default());
+            state.pipeline = Some(HostAssistantPipeline::new());
+            state.refresh_semantic().expect("empty host semantic stream is valid");
         }
         stream
     }
@@ -408,9 +788,36 @@ impl HostTextStream {
             if state.sealed {
                 return Err(anyhow::anyhow!("stream is already sealed"));
             }
-            state.segments.push(HostStreamSegment { kind, text: text.to_owned() });
+            let kind = match kind {
+                HostStreamSegmentKind::Text => HostAssistantSegmentKind::Text,
+                HostStreamSegmentKind::Thinking => HostAssistantSegmentKind::Thinking,
+            };
+            let normalized = kind == HostAssistantSegmentKind::Text
+                && state.last_received_kind == Some(HostAssistantSegmentKind::Thinking)
+                && !state.last_received_ends_with_newline
+                && !text.starts_with('\n');
+            let text = if normalized {
+                let mut value = String::with_capacity(text.len() + 2);
+                value.push_str("\n\n");
+                value.push_str(text);
+                value
+            } else {
+                text.to_owned()
+            };
+            state.last_received_kind = Some(kind);
+            state.last_received_ends_with_newline = text.ends_with('\n');
+            let mut cursor = state.received_end;
+            for character in text.chars() {
+                let next = cursor.saturating_add(character.len_utf8() as u64);
+                state.pacing_atoms.push((
+                    StreamRange::new(cursor, next),
+                    HostPacingAtom { kind, text: character.to_string() },
+                ));
+                cursor = next;
+            }
+            state.received_end = cursor;
             state.revision = state.revision.next();
-            state.refresh_display()?;
+            state.refresh_semantic()?;
         }
         self.render_host()
     }
@@ -424,12 +831,23 @@ impl HostTextStream {
             if state.sealed {
                 return Err(anyhow::anyhow!("stream is already sealed"));
             }
-            state.segments = vec![HostStreamSegment {
-                kind: HostStreamSegmentKind::Text,
-                text: text.into(),
-            }];
+            let text = text.into();
+            state.pacing_atoms.clear();
+            state.source_base = StreamOffset::ZERO;
+            state.received_end = StreamOffset::new(text.len() as u64);
+            state.last_received_kind = (!text.is_empty()).then_some(HostAssistantSegmentKind::Text);
+            state.last_received_ends_with_newline = text.ends_with('\n');
+            let mut cursor = StreamOffset::ZERO;
+            for character in text.chars() {
+                let next = cursor.saturating_add(character.len_utf8() as u64);
+                state.pacing_atoms.push((
+                    StreamRange::new(cursor, next),
+                    HostPacingAtom { kind: HostAssistantSegmentKind::Text, text: character.to_string() },
+                ));
+                cursor = next;
+            }
             state.revision = state.revision.next();
-            state.refresh_display()?;
+            state.refresh_semantic()?;
         }
         self.render_host()
     }
@@ -445,7 +863,7 @@ impl HostTextStream {
             }
             state.sealed = true;
             state.revision = state.revision.next();
-            state.refresh_display()?;
+            state.refresh_semantic()?;
         }
         self.render_host()
     }
@@ -455,22 +873,8 @@ impl HostTextStream {
             .state
             .lock()
             .map_err(|_| anyhow::anyhow!("stream lock is poisoned"))?;
-        let segments = state.markdown.as_ref().map(|_| {
-            state
-                .segments
-                .iter()
-                .map(|segment| {
-                    (
-                        match segment.kind {
-                            HostStreamSegmentKind::Text => "text".to_owned(),
-                            HostStreamSegmentKind::Thinking => "thinking".to_owned(),
-                        },
-                        segment.text.clone(),
-                    )
-                })
-                .collect()
-        }).unwrap_or_default();
-        Ok((state.display_text.clone(), state.revision.as_u64(), state.sealed, segments))
+        let segments = state.segments_json();
+        Ok((state.source_text(), state.revision.as_u64(), state.sealed, segments))
     }
 
     pub fn attach(&self, history: &mut History) -> Result<()> {
@@ -540,89 +944,108 @@ impl HostTextStream {
 
 impl HostStreamState {
     fn source_text(&self) -> String {
-        self.segments.iter().map(|segment| segment.text.as_str()).collect()
+        self.pacing_atoms.iter().map(|(_, atom)| atom.text.as_str()).collect()
     }
 
-    fn refresh_display(&mut self) -> Result<()> {
-        let source = self.source_text();
-        let Some(markdown) = &mut self.markdown else {
-            self.display_text = source;
-            return Ok(());
-        };
-        let end = StreamOffset::new(source.len() as u64);
-        let mut input = ProjectionBuilder::new(
-            StreamOffset::ZERO,
-            if self.sealed { end } else { end },
-            end,
+    fn segments_json(&self) -> Vec<(String, String)> {
+        let mut segments: Vec<(String, String)> = Vec::new();
+        for (_, atom) in &self.pacing_atoms {
+            let kind = match atom.kind {
+                HostAssistantSegmentKind::Text => "text",
+                HostAssistantSegmentKind::Thinking => "thinking",
+            };
+            if let Some((previous, text)) = segments.last_mut()
+                && previous == kind
+            {
+                text.push_str(&atom.text);
+            } else {
+                segments.push((kind.to_owned(), atom.text.clone()));
+            }
+        }
+        segments
+    }
+
+    fn rebuild_pacing_input(&mut self) -> Result<()> {
+        let mut builder = ProjectionBuilder::new(
+            self.source_base,
+            self.received_end,
+            self.received_end,
             self.sealed,
         );
-        let mut cursor = StreamOffset::ZERO;
-        for segment in &self.segments {
-            if self.segments.len() == 1 {
-                let next = cursor.saturating_add(segment.text.len() as u64);
-                input = input.emit(
-                    StreamRange::new(cursor, next),
-                    TextContent::raw(segment.text.clone()),
-                );
-                cursor = next;
-                continue;
-            }
-            for character in segment.text.chars() {
-                let next = cursor.saturating_add(character.len_utf8() as u64);
-                input = input.emit(StreamRange::new(cursor, next), TextContent::raw(character.to_string()));
-                cursor = next;
-            }
+        for (range, atom) in &self.pacing_atoms {
+            builder = builder.emit(*range, atom.clone());
         }
-        let input = input.finish()
-        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-        let input = if let Some(smooth) = &mut self.smooth {
-            smooth
-                .project(&input)
-                .map_err(|error| anyhow::anyhow!(error.to_string()))?
-        } else {
-            input
-        };
-        let projection = markdown
-            .project(&input)
+        self.pacing_input = builder
+            .finish()
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-        let mut display = String::new();
-        for span in projection.spans() {
-            for value in span.values() {
-                let mut visitor = HostPlainTextVisitor { output: String::new() };
-                visitor.visit_content(value);
-                display.push_str(&visitor.output);
-            }
+        Ok(())
+    }
+
+    fn refresh_semantic(&mut self) -> Result<()> {
+        self.rebuild_pacing_input()?;
+        if let Some(pipeline) = &mut self.pipeline {
+            self.semantic = Some(pipeline.project(&self.pacing_input)?);
         }
-        self.display_text = display;
         Ok(())
     }
 
     fn advance(&mut self, now: Instant) -> bool {
-        let Some(smooth) = &mut self.smooth else {
+        let Some(pipeline) = &mut self.pipeline else {
             return false;
         };
-        if !smooth.advance(now) {
+        if !pipeline.advance(now) {
             return false;
         }
-        self.refresh_display().is_ok()
+        self.revision = self.revision.next();
+        self.refresh_semantic().is_ok()
     }
 
     fn next_wakeup(&self) -> Option<Instant> {
-        self.smooth.as_ref().and_then(Smooth::next_wakeup)
-    }
-}
-
-struct HostPlainTextVisitor {
-    output: String,
-}
-
-impl TextVisitor for HostPlainTextVisitor {
-    fn visit_raw(&mut self, raw: &crate::RawText) {
-        self.output.push_str(raw.text());
+        self.pipeline.as_ref().and_then(HostAssistantPipeline::next_wakeup)
     }
 
-    fn visit_text_run(&mut self, run: &TextRun) {
-        self.output.push_str(run.text());
+    fn snapshot(&self) -> StreamSnapshot {
+        let source_end = self.received_end;
+        let Some(semantic) = &self.semantic else {
+            let range = StreamRange::new(self.source_base, source_end);
+            let builder = StreamSnapshotBuilder::new(
+                self.revision,
+                self.source_base,
+                if self.sealed { source_end } else { self.source_base },
+                source_end,
+            );
+            return if self.source_text().is_empty() {
+                builder.exact_text(range, []).finish().expect("host plain snapshot is valid")
+            } else {
+                builder.atomic(range, View::text(self.source_text()).into_view()).expect("host plain stream coverage is valid").finish().expect("host plain snapshot is valid")
+            };
+        };
+        let visible: Vec<_> = semantic.spans().iter().filter(|span| !span.values().is_empty()).collect();
+        let mut builder = StreamSnapshotBuilder::new(
+            self.revision,
+            semantic.source_base(),
+            semantic.stable_through(),
+            semantic.source_end(),
+        );
+        if visible.is_empty() {
+            if semantic.source_base() != semantic.source_end() {
+                builder = builder.atomic(
+                    StreamRange::new(semantic.source_base(), semantic.source_end()),
+                    View::spacer(0).into_view(),
+                ).expect("host empty semantic coverage is valid");
+            }
+        } else {
+            for (index, span) in visible.iter().enumerate() {
+                let start = if index == 0 { semantic.source_base() } else { visible[index - 1].source().end() };
+                let end = if index + 1 == visible.len() { semantic.source_end() } else { span.source().end() };
+                let view = Renderer::render(
+                    &self.pipeline.as_ref().expect("semantic pipeline exists").renderer,
+                    span.values(),
+                );
+                builder = builder.atomic(StreamRange::new(start, end), view.into_view()).expect("host semantic coverage is valid");
+            }
+        }
+        builder.finish().expect("host semantic snapshot is valid")
     }
 }
 
@@ -634,60 +1057,24 @@ struct HostStreamSource {
 impl StreamingSource for HostStreamSource {
     fn snapshot(&self) -> StreamSnapshot {
         let state = self.state.lock().expect("host stream lock is poisoned");
-        let source_text = state.source_text();
-        let source_end = state
-            .source_base
-            .saturating_add(source_text.len() as u64);
-        let range = StreamRange::new(state.source_base, source_end);
-        let builder = StreamSnapshotBuilder::new(
-            state.revision,
-            state.source_base,
-            if state.sealed { source_end } else { state.source_base },
-            source_end,
-        );
-        let builder = if source_text.is_empty() {
-            builder.exact_text(range, [])
-        } else {
-            builder
-                .atomic(range, View::text(state.display_text.clone()).into_view())
-                .expect("host stream atomic view must be valid")
-        };
-        builder.finish().expect("host stream snapshot must be valid")
+        state.snapshot()
     }
 
     fn compact_before(&mut self, offset: StreamOffset) {
         let mut state = self.state.lock().expect("host stream lock is poisoned");
-        let target = offset.min(
-            state
-                .source_base
-                .saturating_add(state.source_text().len() as u64),
-        );
+        let target = offset.min(state.received_end);
         if target <= state.source_base {
             return;
         }
-        let local = usize::try_from(target.as_u64() - state.source_base.as_u64())
-            .expect("host stream coordinate fits usize");
-        let source_text = state.source_text();
-        if !source_text.is_char_boundary(local) {
-            return;
-        }
-        let mut remaining = local;
-        for segment in &mut state.segments {
-            if remaining == 0 {
-                break;
-            }
-            if remaining >= segment.text.len() {
-                remaining -= segment.text.len();
-                segment.text.clear();
-            } else {
-                segment.text.drain(..remaining);
-                remaining = 0;
-            }
-        }
-        state.segments.retain(|segment| !segment.text.is_empty());
-        state.source_base = target;
+        let restart = state
+            .pipeline
+            .as_ref()
+            .map_or(target, |pipeline| pipeline.restart_from(target))
+            .max(state.source_base);
+        state.pacing_atoms.retain(|(range, _)| range.end() > restart);
+        state.source_base = restart;
         state.revision = state.revision.next();
-        let _ = state.refresh_display();
+        state.refresh_semantic().expect("host stream compaction must preserve projection coverage");
     }
 
     fn seal(&mut self) {
@@ -695,7 +1082,7 @@ impl StreamingSource for HostStreamSource {
             if !state.sealed {
                 state.sealed = true;
                 state.revision = state.revision.next();
-                let _ = state.refresh_display();
+                state.refresh_semantic().expect("host stream sealing must preserve projection coverage");
             }
         }
     }
