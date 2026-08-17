@@ -3,7 +3,8 @@ use napi_derive::napi;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use iyon_tui::{BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History, HostActivityConfig, HostCellStyle, HostHistory, HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, HorizontalAlign, IntoView, Key, KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output, Projector, StyleRef, StyleSpec, TextContent, TextInput, TextSpan, TuiHost, VerticalAlign, View, WrapMode};
+use iyon_tui::{BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History, HostActivityConfig, HostCellStyle, HostHistory, HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, HorizontalAlign, IntoView, Key, KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output, Projector, StyleRef, StyleSpec, TextContent, TextInput, TextSpan, TextSelector, TextRole, TextPart, TuiHost, VerticalAlign, View, WrapMode};
+use iyon_tui::text::{FormatId, LanguageId, SemanticTag, TextOrigin};
 use iyon_tui::projection::ProjectionBuilder;
 use iyon_tui::stream::{StreamOffset, StreamRange};
 use iyon_tui::text::{TextRun, TextVisitor};
@@ -469,10 +470,13 @@ impl NativeTuiHost {
     }
 
     #[napi(js_name = "textInput")]
-    pub fn text_input(&self, multiline: Option<bool>) -> Result<NativeTextInput> {
+    pub fn text_input(&self, multiline: Option<bool>, border: Option<Value>) -> Result<NativeTextInput> {
         ensure_alive(&self.alive)?;
         let input = self.host.create_text_input(multiline.unwrap_or(false))
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        if let Some(border) = border {
+            input.set_border(lower_border(&border)?).map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        }
         Ok(NativeTextInput::from_host(input))
     }
 
@@ -1193,7 +1197,103 @@ fn lower_theme(value: &Value) -> Result<iyon_tui::Theme> {
             }
         }
     }
+    if let Some(text_styles) = object.get("textStyles").and_then(Value::as_array) {
+        for entry in text_styles {
+            let entry = entry.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme text style entry must be an object"))?;
+            let selector = lower_text_selector(entry.get("selector").ok_or_else(|| crate::NativeError::invalid_input("theme text style selector is required"))?)?;
+            let style = lower_style_spec(entry.get("value").ok_or_else(|| crate::NativeError::invalid_input("theme text style value is required"))?)?;
+            theme.set_text_style(selector, style);
+        }
+    }
     Ok(theme)
+}
+
+fn lower_text_selector(value: &Value) -> Result<TextSelector> {
+    let object = value.as_object().ok_or_else(|| crate::NativeError::invalid_input("text selector must be an object"))?;
+    let mut selector = TextSelector::any();
+    if let Some(roles) = object.get("roles").and_then(Value::as_array) {
+        for role in roles {
+            selector = selector.and_role(lower_text_role(role.as_str().ok_or_else(|| crate::NativeError::invalid_input("text selector role must be a string"))?)?);
+        }
+    }
+    if let Some(parts) = object.get("parts").and_then(Value::as_array) {
+        for part in parts {
+            selector = selector.and_part(lower_text_part(part.as_str().ok_or_else(|| crate::NativeError::invalid_input("text selector part must be a string"))?)?);
+        }
+    }
+    if let Some(annotations) = object.get("annotations").and_then(Value::as_array) {
+        for annotation in annotations {
+            let annotation = annotation.as_object().ok_or_else(|| crate::NativeError::invalid_input("text selector annotation must be an object"))?;
+            let namespace = annotation.get("namespace").and_then(Value::as_str).ok_or_else(|| crate::NativeError::invalid_input("text selector annotation namespace is required"))?;
+            let name = annotation.get("name").and_then(Value::as_str).ok_or_else(|| crate::NativeError::invalid_input("text selector annotation name is required"))?;
+            let tag = SemanticTag::new(namespace, name).map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
+            selector = selector.and_annotation(&tag);
+        }
+    }
+    if let Some(language) = object.get("language").and_then(Value::as_str) {
+        let language = LanguageId::new(language).map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
+        selector = selector.language(&language);
+    }
+    if let Some(origin) = object.get("origin").and_then(Value::as_str) {
+        let origin = TextOrigin::new(origin).map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
+        selector = selector.origin(origin);
+    }
+    if let Some(format) = object.get("format").and_then(Value::as_str) {
+        let format = FormatId::new(format).map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
+        selector = selector.format(&format);
+    }
+    if object.get("focused").and_then(Value::as_bool).unwrap_or(false) { selector = selector.and_focused(); }
+    if object.get("focusWithin").and_then(Value::as_bool).unwrap_or(false) { selector = selector.and_focus_within(); }
+    if let Some(states) = object.get("states").and_then(Value::as_object) {
+        for (key, value) in states {
+            selector = selector.and_state(key.clone(), value.as_str().ok_or_else(|| crate::NativeError::invalid_input("text selector states must be strings"))?);
+        }
+    }
+    Ok(selector)
+}
+
+fn lower_text_role(value: &str) -> Result<TextRole> {
+    let role = match value {
+        "paragraph" => TextRole::Paragraph,
+        "heading" => TextRole::Heading,
+        "blockQuote" => TextRole::BlockQuote,
+        "list" => TextRole::List,
+        "listItem" => TextRole::ListItem,
+        "codeBlock" => TextRole::CodeBlock,
+        "table" => TextRole::Table,
+        "tableRow" => TextRole::TableRow,
+        "tableCell" => TextRole::TableCell,
+        "thematicBreak" => TextRole::ThematicBreak,
+        "rawBlock" => TextRole::RawBlock,
+        "container" => TextRole::Container,
+        "strong" => TextRole::Strong,
+        "emphasis" => TextRole::Emphasis,
+        "strikethrough" => TextRole::Strikethrough,
+        "underline" => TextRole::Underline,
+        "superscript" => TextRole::Superscript,
+        "subscript" => TextRole::Subscript,
+        "smallCaps" => TextRole::SmallCaps,
+        "inlineCode" => TextRole::InlineCode,
+        "link" => TextRole::Link,
+        "image" => TextRole::Image,
+        "rawInline" => TextRole::RawInline,
+        _ => return Err(crate::NativeError::invalid_input(format!("unknown text selector role `{value}`"))),
+    };
+    Ok(role)
+}
+
+fn lower_text_part(value: &str) -> Result<TextPart> {
+    let part = match value {
+        "listMarker" => TextPart::ListMarker,
+        "taskMarker" => TextPart::TaskMarker,
+        "quoteMarker" => TextPart::QuoteMarker,
+        "codeLabel" => TextPart::CodeLabel,
+        "tableRule" => TextPart::TableRule,
+        "thematicRule" => TextPart::ThematicRule,
+        "imageFallback" => TextPart::ImageFallback,
+        _ => return Err(crate::NativeError::invalid_input(format!("unknown text selector part `{value}`"))),
+    };
+    Ok(part)
 }
 
 fn lower_selector(value: &Value) -> Result<iyon_tui::StyleSelector> {
@@ -1214,6 +1314,37 @@ fn lower_theme_color(value: &Value) -> Result<iyon_tui::ThemeColor> {
         iyon_tui::ColorSpec::Ansi(value) => Ok(iyon_tui::ThemeColor::Indexed(value)),
         iyon_tui::ColorSpec::Rgb { r, g, b } => Ok(iyon_tui::ThemeColor::Rgb { r, g, b }),
     }
+}
+
+fn lower_border(value: &Value) -> Result<BorderSpec> {
+    let border = value.as_object().ok_or_else(|| crate::NativeError::invalid_input("border must be an object"))?;
+    let mut spec = match border.get("style").and_then(Value::as_str).unwrap_or("plain") {
+        "plain" => BorderSpec::plain(),
+        "rounded" => BorderSpec::rounded(),
+        "double" => BorderSpec::double(),
+        other => return Err(crate::NativeError::invalid_input(format!("unknown border style `{other}`"))),
+    };
+    if border.get("edges").and_then(Value::as_str) == Some("topBottom") {
+        spec = spec.edges(BorderEdges::TOP_BOTTOM);
+    }
+    if let Some(color) = border.get("color") {
+        spec = spec.color(color_spec(color)?);
+    }
+    if let Some(glyphs) = border.get("glyphs").and_then(Value::as_object) {
+        let fields = ["top", "right", "bottom", "left", "topLeft", "topRight", "bottomLeft", "bottomRight"];
+        let values = fields
+            .iter()
+            .map(|field| glyphs.get(*field).and_then(Value::as_str).ok_or_else(|| crate::NativeError::invalid_input(format!("border glyph `{field}` must be a string"))))
+            .collect::<Result<Vec<_>>>()?;
+        spec = BorderSpec::custom(BorderGlyphs::new(values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7]).map_err(|error| crate::NativeError::invalid_input(error.to_string()))?);
+        if border.get("edges").and_then(Value::as_str) == Some("topBottom") {
+            spec = spec.edges(BorderEdges::TOP_BOTTOM);
+        }
+        if let Some(color) = border.get("color") {
+            spec = spec.color(color_spec(color)?);
+        }
+    }
+    Ok(spec)
 }
 
 fn apply_decoration(view: View, decoration: Option<&Value>) -> Result<View> {
@@ -1239,33 +1370,7 @@ fn apply_decoration(view: View, decoration: Option<&Value>) -> Result<View> {
         view = view.foreground(color_spec(color)?);
     }
     if let Some(border) = decoration.get("border").and_then(Value::as_object) {
-        let mut spec = match border.get("style").and_then(Value::as_str).unwrap_or("plain") {
-            "plain" => BorderSpec::plain(),
-            "rounded" => BorderSpec::rounded(),
-            "double" => BorderSpec::double(),
-            other => return Err(crate::NativeError::invalid_input(format!("unknown border style `{other}`"))),
-        };
-        if border.get("edges").and_then(Value::as_str) == Some("topBottom") {
-            spec = spec.edges(BorderEdges::TOP_BOTTOM);
-        }
-        if let Some(color) = border.get("color") {
-            spec = spec.color(color_spec(color)?);
-        }
-        if let Some(glyphs) = border.get("glyphs").and_then(Value::as_object) {
-            let fields = ["top", "right", "bottom", "left", "topLeft", "topRight", "bottomLeft", "bottomRight"];
-            let values = fields
-                .iter()
-                .map(|field| glyphs.get(*field).and_then(Value::as_str).ok_or_else(|| crate::NativeError::invalid_input(format!("border glyph `{field}` must be a string"))))
-                .collect::<Result<Vec<_>>>()?;
-            spec = BorderSpec::custom(BorderGlyphs::new(values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7]).map_err(|error| crate::NativeError::invalid_input(error.to_string()))?);
-            if border.get("edges").and_then(Value::as_str) == Some("topBottom") {
-                spec = spec.edges(BorderEdges::TOP_BOTTOM);
-            }
-            if let Some(color) = border.get("color") {
-                spec = spec.color(color_spec(color)?);
-            }
-        }
-        view = view.border(spec);
+        view = view.border(lower_border(&Value::Object(border.clone()))?);
     }
     if let Some(style) = decoration.get("style").and_then(Value::as_object) {
         view = view.style(lower_style_ref(&Value::Object(style.clone()))?);

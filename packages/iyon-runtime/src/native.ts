@@ -92,7 +92,7 @@ export interface NativeTuiHostContract {
   dispose(): void;
   exit(): void;
   history(): object;
-  textInput(multiline?: boolean): object;
+  textInput(multiline?: boolean, border?: object): object;
   working(config?: object): object;
   setTheme(theme: object): void;
   setHistory(history: object): void;
