@@ -3,7 +3,7 @@ import type { ToolCall, ToolResult } from "@iyon/sdk";
 import { resultLines, resultStyle, resultText, statusLabel, toolCallLine, toolResultLine } from "@iyon/plugins";
 
 export function renderBashCall(call: ToolCall<{ command: string }>): View {
-  return toolCallLine(`$ ${call.arguments.command} — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
+  return toolCallLine(call.arguments === undefined ? `$ — ${statusLabel(call.state)}` : `$ ${call.arguments.command} — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
 }
 
 export function renderBashResult(result: ToolResult): View {

@@ -26,10 +26,11 @@ export interface ToolMetadata {
 export interface ToolCall<TArgs = JsonValue> {
   readonly id: ToolCallId;
   readonly name: string;
-  readonly arguments: TArgs;
+  readonly arguments?: TArgs;
   readonly turnId?: TurnId;
   readonly messageId?: MessageId;
   readonly state: ToolLifecycleState;
+  readonly argumentPreview?: string;
   readonly showArgPreview?: boolean;
   readonly pulse?: boolean;
 }

@@ -4,7 +4,7 @@ import type { ToolCall, ToolResult } from "./contract.ts";
 export function renderGenericCall(call: ToolCall): View {
   const bulletStyle = Style.new().theme(call.state === "failed" || call.state === "cancelled" ? "tool.error" : call.state === "prepared" || call.state === "finished" ? "tool.finished" : "tool.running");
   const label = call.state === "prepared" ? "ready" : call.state === "pendingApproval" ? "waiting for approval" : call.state;
-  return View.hanging(View.text("● ").style(call.pulse ? bulletStyle.dim() : bulletStyle), View.text("  "), View.text(`tool ${call.name} — ${label}`).fillWidth()).fillWidth() as unknown as View;
+  return View.hanging(View.text("● ").style(call.pulse ? bulletStyle.dim() : bulletStyle), View.text("  "), View.text(`${call.name || "tool"} — ${label}`).fillWidth()).fillWidth() as unknown as View;
 }
 
 export function renderGenericResult(result: ToolResult): View {

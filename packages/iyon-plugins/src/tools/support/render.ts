@@ -56,7 +56,9 @@ export function statusLabel(state: ToolLifecycleState): string {
 
 export function toolCallPreview<T>(call: ToolCall<T>): View | undefined {
   if (!call.showArgPreview || call.state === "failed" || call.state === "cancelled") return undefined;
-  return View.vertical(JSON.stringify(call.arguments, null, 2).split("\n").map((line) => toolResultLine(line, toolStyle(call.state)))).fillWidth();
+  const value = call.arguments === undefined ? undefined : JSON.stringify(call.arguments, null, 2);
+  if (value === undefined) return undefined;
+  return View.vertical(value.split("\n").map((line) => toolResultLine(line, toolStyle(call.state)))).fillWidth();
 }
 
 export function renderDiff(details: unknown): View | undefined {

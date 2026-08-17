@@ -5,7 +5,7 @@ import { renderDiff, resultStyle, resultText, statusLabel, toolCallLine, toolCal
 import type { EditArgs } from "./execute.ts";
 
 export function renderEditCall(call: ToolCall<EditArgs>): ContributionView {
-  const body = toolCallLine(`edit ${call.arguments.path} — ${statusLabel(call.state)}`, call.state, call.pulse);
+  const body = toolCallLine(call.arguments === undefined ? `edit — ${statusLabel(call.state)}` : `edit ${call.arguments.path} — ${statusLabel(call.state)}`, call.state, call.pulse);
   const preview = toolCallPreview(call);
   return (preview ? View.vertical([body, preview]).fillWidth() : body) as unknown as ContributionView;
 }
