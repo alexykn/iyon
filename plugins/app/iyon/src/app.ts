@@ -321,11 +321,6 @@ class IyonAppImpl implements IyonApp {
       return false;
     }
     if (event.type === "toolCallFinished") {
-      const key = this.toolCards.keyFor(event.toolCallId);
-      if (key !== undefined && !this.renderedToolResults.has(key)) {
-        this.toolCards.finish(event.toolCallId, event.isError);
-        await this.updateToolSlot(key, next.liveTools.get(key));
-      }
       return false;
     }
     return false;
@@ -393,7 +388,7 @@ class IyonAppImpl implements IyonApp {
   private async updateToolSlotResult(key: string, result: ToolResult): Promise<void> {
     const slot = this.toolSlots.get(key);
     const card = this.toolCards.getByKey(key);
-    const call = card === undefined || result.isError ? undefined : this.renderToolCall(card, key, false);
+    const call = card === undefined ? undefined : this.renderToolCall(card, key, false);
     const resultView = this.renderToolResult(result);
     const view = call === undefined ? resultView : View.vertical([call, resultView]).fillWidth();
     if (slot !== undefined) {
