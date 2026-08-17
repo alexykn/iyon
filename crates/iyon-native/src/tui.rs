@@ -1,4 +1,4 @@
-use napi::bindgen_prelude::Result;
+use napi::bindgen_prelude::{Reference, Result};
 use napi_derive::napi;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -844,6 +844,29 @@ impl NativeViewSlot {
         ensure_alive(&self.alive)?;
         self.slot
             .set_view(view.view.clone())
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[napi(js_name = "setAnimation")]
+    pub fn set_animation(&self, frames: Vec<Reference<NativeTuiView>>, interval_ms: i64) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let interval_ms = u64::try_from(interval_ms).map_err(|_| crate::NativeError::invalid_input("animation interval must be positive"))?;
+        if interval_ms == 0 {
+            return Err(crate::NativeError::invalid_input("animation interval must be positive"));
+        }
+        if frames.is_empty() {
+            return Err(crate::NativeError::invalid_input("animation requires at least one frame"));
+        }
+        self.slot
+            .set_animation(frames.into_iter().map(|frame| frame.view.clone()).collect(), std::time::Duration::from_millis(interval_ms))
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[napi(js_name = "stopAnimation")]
+    pub fn stop_animation(&self, view: &NativeTuiView) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.slot
+            .stop_animation(view.view.clone())
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 

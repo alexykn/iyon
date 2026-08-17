@@ -310,10 +310,15 @@ class IyonAppImpl implements IyonApp {
 
   private async updateToolSlot(key: string, card: LiveTool | undefined): Promise<void> {
     if (card === undefined) return;
-    const view = this.renderToolCall(card, key);
+    const view = this.renderToolCall(card, key, false);
+    const pulsing = card.status === "preparing" || card.status === "running";
     const slot = this.toolSlots.get(key);
     if (slot !== undefined) {
-      await slot.setView(view as never);
+      if (pulsing) {
+        await slot.setAnimation([view as never, this.renderToolCall(card, key, true) as never], 480);
+      } else {
+        await slot.stopAnimation(view as never);
+      }
       return;
     }
     if (this.tui?.createViewSlot === undefined) {
@@ -326,13 +331,14 @@ class IyonAppImpl implements IyonApp {
     this.toolSlots.set(key, created);
     this.mountedToolCards.add(key);
     await this.history.push(View.component(created).fillWidth());
+    if (pulsing) await created.setAnimation([view as never, this.renderToolCall(card, key, true) as never], 480);
   }
 
   private async updateToolSlotResult(key: string, result: ToolResult): Promise<void> {
     const slot = this.toolSlots.get(key);
     const view = this.renderToolResult(result);
     if (slot !== undefined) {
-      await slot.setView(view as never);
+      await slot.stopAnimation(view as never);
       return;
     }
     if (!this.mountedToolCards.has(key)) {
@@ -341,13 +347,14 @@ class IyonAppImpl implements IyonApp {
     }
   }
 
-  private renderToolCall(card: LiveTool, key: string) {
+  private renderToolCall(card: LiveTool, key: string, pulse: boolean) {
     const call: ToolCall = {
       id: (card.toolCallId ?? key) as never,
       name: card.toolName ?? "tool",
       arguments: card.arguments ?? {},
       state: card.status,
       showArgPreview: card.arguments !== undefined,
+      pulse,
     };
     const contribution = card.arguments === undefined ? undefined : this.dependencies.tools?.get(call.name);
     const callView = contribution?.renderCall?.(call) ?? renderGenericCall(call);
