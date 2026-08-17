@@ -69,11 +69,13 @@ export function createProductionStages(options: { readonly authOnly?: boolean } 
       const value = activated as { loader: PackageLoader }; session = new AgentSession();
       lifetime = new AbortController();
       approvals = new ApprovalBroker();
-      const submitPrompt = (text: string) => session?.enqueue("prompt", text) ?? Promise.resolve();
+      const submitPrompt = async (text: string): Promise<void> => {
+        await session?.enqueue("prompt", text);
+      };
       core = {
         submitPrompt,
-        steer: (text) => session?.enqueue("steer", text) ?? Promise.resolve(),
-        followUp: (text) => session?.enqueue("followUp", text) ?? Promise.resolve(),
+        steer: async (text) => { await session?.enqueue("steer", text); },
+        followUp: async (text) => { await session?.enqueue("followUp", text); },
         submitTurn: submitPrompt,
         cancelActiveTurn: () => { selectedAgent?.cancel?.(); },
         setReasoningEffort: (level) => {

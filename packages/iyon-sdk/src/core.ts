@@ -67,7 +67,7 @@ export type CoreEvent =
   | { type: "agentStarted" }
   | { type: "agentFinished" }
   | { type: "turnStarted"; turnId: TurnId }
-  | { type: "steerQueued"; text: string }
+  | { type: "steerQueued"; queueId: number; text: string }
   | { type: "messageStarted"; turnId: TurnId; messageId: MessageId; role: MessageRole }
   | { type: "messageDelta"; turnId: TurnId; messageId: MessageId; delta: MessageDelta }
   | { type: "messageFinished"; turnId: TurnId; messageId: MessageId }
@@ -233,7 +233,7 @@ export interface NativeKernelSession {
   nextEvent(): Promise<CoreEvent | null>;
   beginModelTurn(options: ModelTurnOptions): ModelTurn;
   prepareToolExecution(request: ToolExecutionRequest): ToolExecution;
-  enqueue(kind: "prompt" | "steer" | "followUp", text: string): Promise<void>;
+  enqueue(kind: "prompt" | "steer" | "followUp", text: string): Promise<number>;
   dequeue(kind: "prompt" | "steer" | "followUp"): string | null;
   abort(): void;
   close(): void;
@@ -269,8 +269,8 @@ export interface KernelSession extends NativeKernelSession {
 
 export interface AgentSession extends KernelSession {
   prompt(text: string, options?: { signal?: AbortSignal }): Promise<ModelTurn>;
-  steer(text: string): Promise<void>;
-  followUp(text: string): Promise<void>;
+  steer(text: string): Promise<number>;
+  followUp(text: string): Promise<number>;
   setModel(model: string): void;
   setReasoning(reasoning: string): void;
   setActiveTools(tools: string[]): void;

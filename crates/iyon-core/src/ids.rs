@@ -15,6 +15,9 @@ pub struct ToolCallId(pub String);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ApprovalId(pub u64);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct QueueItemId(pub u64);
+
 impl From<TurnId> for u64 {
     fn from(id: TurnId) -> Self {
         id.0
@@ -23,6 +26,12 @@ impl From<TurnId> for u64 {
 
 impl From<MessageId> for u64 {
     fn from(id: MessageId) -> Self {
+        id.0
+    }
+}
+
+impl From<QueueItemId> for u64 {
+    fn from(id: QueueItemId) -> Self {
         id.0
     }
 }

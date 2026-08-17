@@ -58,8 +58,8 @@ export interface ToolResolver {
 
 export type FrontendEvent =
   | { readonly type: "turnStarted" }
-  | { readonly type: "steerQueued"; readonly text: string }
-  | { readonly type: "userMessage"; readonly text: string }
+  | { readonly type: "steerQueued"; readonly text: string; readonly queueId?: string | number }
+  | { readonly type: "userMessage"; readonly text: string; readonly queueId?: string | number }
   | { readonly type: "assistantDelta"; readonly text: string }
   | { readonly type: "thinkingDelta"; readonly text: string }
   | { readonly type: "toolCallPreparing"; readonly key: ToolDraftKey; readonly toolCallId?: string; readonly toolName?: string }
@@ -94,6 +94,7 @@ export interface IyonState {
   readonly working: boolean;
   readonly activityVisible: boolean;
   readonly steering: readonly string[];
+  readonly steeringQueueIds: readonly string[];
   readonly assistantText: string;
   readonly thinkingText: string;
   readonly assistantOpen: boolean;

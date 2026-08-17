@@ -193,8 +193,7 @@ class IyonAppImpl implements IyonApp {
     next: IyonState,
   ): Promise<boolean> {
     if (action.type === "submit" && action.text.length > 0 && !hasActiveWork(previous)) {
-      await this.history.push(userBatchView([action.text], this.theme));
-      return true;
+      return false;
     }
     if (action.type !== "backend") {
       return action.type === "submit" || action.type === "cycleReasoningEffort";

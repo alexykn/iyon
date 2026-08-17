@@ -4,7 +4,7 @@ import type { FrontendEvent, InfoState, IyonAction, IyonModelMetadata, IyonState
 export function createInitialState(model: IyonModelMetadata): IyonState {
   return {
     info: { status: "", provider: model.provider, modelId: model.modelId, reasoningEffort: model.reasoningEffort ?? "medium" },
-    composerText: "", userBatches: [], working: false, activityVisible: false, steering: [], assistantText: "", thinkingText: "", assistantOpen: false,
+    composerText: "", userBatches: [], working: false, activityVisible: false, steering: [], steeringQueueIds: [], assistantText: "", thinkingText: "", assistantOpen: false,
     liveTools: new Map(), draftTools: new Map(), activeTurn: false, goodbye: false,
   };
 }
@@ -36,10 +36,25 @@ export function cycleReasoningEffort(state: IyonState, next: ReasoningLevel): Iy
 function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState {
   switch (event.type) {
     case "turnStarted": return { ...state, activeTurn: true, working: true, activityVisible: true };
-    case "userMessage": return { ...state, userBatches: [...state.userBatches, event.text] };
+    case "userMessage": {
+      const queueId = event.queueId === undefined ? undefined : String(event.queueId);
+      const index = queueId === undefined
+        ? state.steering.findIndex((text) => text === event.text)
+        : state.steeringQueueIds.indexOf(queueId);
+      if (index < 0) return { ...state, userBatches: [...state.userBatches, event.text] };
+      return {
+        ...state,
+        userBatches: [...state.userBatches, event.text],
+        steering: state.steering.filter((_, itemIndex) => itemIndex !== index),
+        steeringQueueIds: state.steeringQueueIds.filter((_, itemIndex) => itemIndex !== index),
+      };
+    }
     case "assistantDelta": return { ...state, assistantText: state.assistantText + event.text, assistantOpen: true, activityVisible: state.steering.length > 0 };
     case "thinkingDelta": return { ...state, thinkingText: state.thinkingText + event.text, assistantOpen: true, activityVisible: state.steering.length > 0 };
-    case "steerQueued": return { ...state, steering: [...state.steering, event.text], activityVisible: true };
+    case "steerQueued": {
+      const queueId = event.queueId === undefined ? `${event.text}:${state.steeringQueueIds.length}` : String(event.queueId);
+      return { ...state, steering: [...state.steering, event.text], steeringQueueIds: [...state.steeringQueueIds, queueId], activityVisible: true };
+    }
     case "configChanged": return updateInfo(state, { provider: event.provider, modelId: event.modelId, reasoningEffort: event.reasoningEffort });
     case "toolCallPreparing": return withDraft(state, event.key, { draftKey: event.key, toolCallId: event.toolCallId, toolName: event.toolName, status: "preparing", text: "", isError: false, frozen: false });
     case "toolCallArguments": return updateDraft(state, event.key, (tool) => ({ ...tool, text: tool.text + event.delta, toolCallId: event.toolCallId ?? tool.toolCallId, toolName: event.toolName ?? tool.toolName }));
@@ -50,9 +65,9 @@ function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState 
     case "toolApprovalResolved": return { ...updateTool(state, event.toolCallId, (tool) => ({ ...tool, status: event.approved ? "running" : "cancelled", frozen: !event.approved })), pendingApproval: undefined };
     case "toolResult": return updateTool(state, event.toolCallId, (tool) => ({ ...tool, toolName: event.toolName, text: event.text, details: event.details, status: event.isError ? "failed" : "finished", isError: event.isError, frozen: true }));
     case "toolCallFinished": return updateTool(state, event.toolCallId, (tool) => ({ ...tool, status: event.isError ? "failed" : "finished", isError: event.isError, frozen: true }));
-    case "turnFinished": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], liveTools: finalizeLiveTools(state.liveTools) };
-    case "turnFailed": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, liveTools: finalizeLiveTools(state.liveTools), info: { ...state.info, status: event.message } };
-    case "turnCancelled": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, liveTools: cancelLiveTools(state.liveTools) };
+    case "turnFinished": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: finalizeLiveTools(state.liveTools) };
+    case "turnFailed": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: finalizeLiveTools(state.liveTools), info: { ...state.info, status: event.message } };
+    case "turnCancelled": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: cancelLiveTools(state.liveTools) };
   }
 }
 

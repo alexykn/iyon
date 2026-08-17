@@ -10,6 +10,7 @@ pub enum CoreEvent {
     /// A message was queued for steering (delivered to the agent at the next turn
     /// boundary). Lets the UI show it as pending until it is actually sent.
     SteerQueued {
+        queue_id: u64,
         text: String,
     },
     MessageStarted {

@@ -22,6 +22,7 @@ pub struct ToolDraftKey {
 pub enum FrontendEvent {
     TurnStarted,
     SteerQueued {
+        queue_id: u64,
         text: String,
     },
     UserMessage {
@@ -171,7 +172,7 @@ impl CoreEventMapper {
         match event {
             CoreEvent::AgentStarted | CoreEvent::AgentFinished => None,
             CoreEvent::TurnStarted { .. } => Some(FrontendEvent::TurnStarted),
-            CoreEvent::SteerQueued { text } => Some(FrontendEvent::SteerQueued { text }),
+            CoreEvent::SteerQueued { queue_id, text } => Some(FrontendEvent::SteerQueued { queue_id, text }),
             CoreEvent::MessageStarted {
                 message_id, role, ..
             } => {

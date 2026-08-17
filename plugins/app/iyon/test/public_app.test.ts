@@ -46,6 +46,7 @@ describe("Iyon public native TUI", () => {
       const action = await harness.nextAction();
       expect(action).toEqual({ actionId: "submit", payload: "hello" });
       await app.handleAction({ type: "submit", text: action?.payload ?? "" });
+      await send({ harness, app }, { type: "userMessage", text: "hello" });
       expect(await app.composer.text()).toBe("");
       expect(harness.screenRows().at(-1)).toContain("effort: Medium");
       expect(transcriptLines(harness).filter((line) => line.includes("hello"))).toHaveLength(1);

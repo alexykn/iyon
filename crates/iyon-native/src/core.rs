@@ -246,7 +246,7 @@ impl KernelSession {
     }
 
     #[napi]
-    pub fn enqueue(&self, kind: String, text: String) -> Result<()> {
+    pub fn enqueue(&self, kind: String, text: String) -> Result<i64> {
         self.state.ensure_open()?;
         let mut queues = self
             .state
@@ -254,21 +254,21 @@ impl KernelSession {
             .lock()
             .map_err(|_| NativeError::internal("queue lock is poisoned"))?;
         let result = match kind.as_str() {
-            "prompt" => queues.prompt(text.clone()),
-            "steer" => queues.steer(text.clone()),
-            "followUp" => queues.follow_up(text.clone()),
+            "prompt" => queues.prompt_with_id(text.clone()).map(|id| id.0),
+            "steer" => queues.steer_with_id(text.clone()).map(|id| id.0),
+            "followUp" => queues.follow_up_with_id(text.clone()).map(|id| id.0),
             other => {
                 return Err(NativeError::invalid_input(format!(
                     "unknown queue kind `{other}`"
                 )));
             }
         };
-        result.map_err(|error| NativeError::invalid_input(error.to_string()))?;
+        let queue_id = result.map_err(|error| NativeError::invalid_input(error.to_string()))?;
         if kind == "steer" {
             drop(queues);
-            self.state.try_emit(CoreEvent::SteerQueued { text })?;
+            self.state.try_emit(CoreEvent::SteerQueued { queue_id, text })?;
         }
-        Ok(())
+        Ok(queue_id as i64)
     }
 
     #[napi]
