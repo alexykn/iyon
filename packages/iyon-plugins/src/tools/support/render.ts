@@ -15,7 +15,7 @@ export function collapseResultView(view: View): View {
 
 export function toolStyle(state: ToolLifecycleState) {
   const key = state === "preparing" || state === "running" ? "tool.running" : state === "pendingApproval" ? "text.warning" : state === "failed" || state === "cancelled" ? "tool.error" : "tool.finished";
-  return Style.new().theme(key);
+  return Style.new().foreground(`theme:${key}`);
 }
 
 export function resultStyle(isError: boolean) {

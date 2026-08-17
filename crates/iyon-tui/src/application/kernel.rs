@@ -97,6 +97,14 @@ where
         self.paste_interceptors.intercept(component, map);
     }
 
+    pub(crate) fn host_forward_paste(
+        &mut self,
+        text: String,
+    ) -> Result<(), KernelError<Error>> {
+        self.deferred_pastes.push_back(text);
+        self.drain_deferred_pastes()
+    }
+
     pub(crate) fn host_set_body(&mut self, body: View) {
         if self.scene.body() == &body {
             self.body_dirty = false;

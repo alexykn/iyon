@@ -48,6 +48,22 @@ describe("T4 core façade", () => {
     session.close();
   });
 
+  test("deliverUserMessage appends and emits the canonical user triple", async () => {
+    const session = new core.KernelSession({ id: 23 });
+    expect(session.deliverUserMessage("wh")).toBe(1);
+    expect(session.snapshot().entries.map((entry) => entry.role)).toEqual(["user"]);
+    session.close();
+    const events = [];
+    for await (const event of session.events()) events.push(event);
+    expect(events.map((event) => event.type)).toEqual([
+      "messageStarted",
+      "messageDelta",
+      "messageFinished",
+    ]);
+    expect(events[0]).toMatchObject({ type: "messageStarted", role: "user", messageId: 1 });
+    expect(events[1]).toMatchObject({ type: "messageDelta", delta: { type: "text", text: "wh" } });
+  });
+
   test("drives approval and records one tool result", async () => {
     const session = new core.KernelSession({ id: 22 });
     const tool = session.prepareToolExecution({

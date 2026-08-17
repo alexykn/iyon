@@ -631,6 +631,14 @@ impl NativeTuiHost {
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
+    #[napi(js_name = "forwardPaste")]
+    pub fn forward_paste(&self, text: String) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.host
+            .forward_paste(&text)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
     #[napi(js_name = "pollTerminal")]
     pub fn poll_terminal(&self) -> Result<()> {
         ensure_alive(&self.alive)?;

@@ -22,5 +22,5 @@ function drainQueue(session: KernelSession, kind: "prompt" | "steer" | "followUp
 }
 
 export function injectSteeredMessages(session: KernelSession, messages: readonly string[]): readonly MessageId[] {
-  return messages.map((text) => session.appendMessage({ role: "user", content: [{ type: "text", text }] }));
+  return messages.map((text) => session.deliverUserMessage(text));
 }

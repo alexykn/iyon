@@ -25,6 +25,7 @@ export interface NativeToolExecutionContract {
 export interface NativeKernelSessionContract {
   snapshot(): JsonValue;
   appendMessage(message: JsonValue): number;
+  deliverUserMessage(text: string): number;
   appendEntry(entry: JsonValue): void;
   nextEvent(): Promise<JsonValue | null>;
   beginModelTurn(options: JsonValue): NativeModelTurnContract;
@@ -104,6 +105,7 @@ export interface NativeTuiHostContract {
   render(view: object): void;
   dispatchKey(key: string, modifiers?: readonly string[]): void;
   dispatchPaste(text: string): void;
+  forwardPaste(text: string): void;
   pollTerminal(): void;
   nextWakeMs(): number;
   nextAction(): { action_id: string; payload?: string | null } | null;

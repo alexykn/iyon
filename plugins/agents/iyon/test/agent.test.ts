@@ -60,6 +60,31 @@ describe("bundled Iyon agent", () => {
     driver.close();
   });
 
+  test("steering_delivery_emits_user_message_events", async () => {
+    const driver = await SessionDriver.create(509);
+    driver.session.appendMessage({ role: "user", content: [{ type: "text", text: "hey" }] });
+    const steering = new TestSteeringQueue();
+    let calls = 0;
+    const model: ModelApi = {
+      stream: async function* () {
+        calls += 1;
+        yield { type: "textDelta", contentIndex: 0, delta: calls === 1 ? "first" : "second" };
+        if (calls === 1) steering.items.push("wh");
+        yield { type: "done", stopReason: "stop" };
+      },
+    };
+    await new IyonAgent(contextFor(driver, undefined, steering, model)).run();
+    expect(driver.session.snapshot().entries.some((entry) => entry.kind === "message" && entry.role === "user" && entry.content[0]?.type === "text" && entry.content[0].text === "wh")).toBe(true);
+    driver.session.close();
+    const events = [];
+    for await (const event of driver.session.events()) events.push(event);
+    const deltaIndex = events.findIndex((event) => event.type === "messageDelta" && event.delta.type === "text" && event.delta.text === "wh");
+    expect(deltaIndex).toBeGreaterThan(0);
+    expect(events[deltaIndex - 1]).toMatchObject({ type: "messageStarted", role: "user" });
+    expect(events[deltaIndex + 1]).toMatchObject({ type: "messageFinished" });
+    driver.close();
+  });
+
   test("stop_with_pending_steering_continues", async () => {
     const driver = await SessionDriver.create(504);
     driver.session.appendMessage({ role: "user", content: [{ type: "text", text: "initial" }] });

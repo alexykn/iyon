@@ -94,6 +94,40 @@ async function waitFor(fixture: ProductionFixture, predicate: () => boolean): Pr
   expect(predicate()).toBe(true);
 }
 
+async function waitUntil(fixture: ProductionFixture, predicate: () => boolean, timeoutMs = 8000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      await fixture.app.flush();
+      fixture.harness.advance(16);
+      expect(predicate()).toBe(true);
+      return;
+    }
+    await Bun.sleep(15);
+    await fixture.app.flush();
+    fixture.harness.advance(16);
+  }
+}
+
+function gatedTwoTurnModel(gate: Promise<void>): ModelApi {
+  let turn = 0;
+  return {
+    async *stream(): AsyncIterable<ModelStreamEvent> {
+      turn += 1;
+      if (turn === 1) {
+        yield { type: "thinkingDelta", contentIndex: 0, delta: "thinking about hey" };
+        await gate;
+        yield { type: "textDelta", contentIndex: 0, delta: "reply to hey" };
+        yield { type: "done", stopReason: "stop" };
+        return;
+      }
+      yield { type: "thinkingDelta", contentIndex: 0, delta: "The user said 'wh'" };
+      yield { type: "textDelta", contentIndex: 0, delta: "reply to wh" };
+      yield { type: "done", stopReason: "stop" };
+    },
+  };
+}
+
 function scriptedToolModel(toolName: "ls" | "read", args: Record<string, string>): ModelApi {
   let turn = 0;
   return {
@@ -118,6 +152,35 @@ async function submit(fixture: ProductionFixture, text: string): Promise<void> {
 }
 
 describe("Recovery Round 3 production path", () => {
+  test("production_steered_user_batch_appears_at_tail_when_drained", async () => {
+    let releaseFirst = () => undefined;
+    const firstTurnGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const fixture = await openProductionFixture(gatedTwoTurnModel(firstTurnGate));
+    try {
+      await fixture.app.handleAction({ type: "submit", text: "hey" });
+      await waitUntil(fixture, () => fixture.events.some((event) => event.type === "messageDelta"));
+      await fixture.app.handleAction({ type: "submit", text: "wh" });
+      const queued = transcriptLines(fixture.harness);
+      expect(queued.some((line) => line.includes("Queue: wh"))).toBe(true);
+      expect(queued.filter((line) => line.trim() === "wh")).toHaveLength(0);
+      releaseFirst();
+      await waitUntil(fixture, () => fixture.events.filter((event) => event.type === "turnFinished").length >= 2);
+      const lines = transcriptLines(fixture.harness);
+      expect(lines.filter((line) => line.trim() === "wh")).toHaveLength(1);
+      const hey = lines.findIndex((line) => line.trim() === "hey");
+      const wh = lines.findIndex((line) => line.trim() === "wh");
+      const after = lines.findIndex((line) => line.includes("The user said 'wh'") || line.includes("reply to wh"));
+      expect(hey).toBeGreaterThanOrEqual(0);
+      expect(wh).toBeGreaterThan(hey);
+      expect(after).toBeGreaterThan(wh);
+    } finally {
+      releaseFirst();
+      await fixture.close();
+    }
+  }, 15000);
+
   test("production_submit_pushes_exactly_one_user_message", async () => {
     const fixture = await openProductionFixture(scriptedToolModel("ls", { path: "." }));
     try {
@@ -140,6 +203,7 @@ describe("Recovery Round 3 production path", () => {
     try {
       await submit(fixture, "list");
       expect(fixture.events.map((event) => event.type)).toEqual([
+        "messageStarted", "messageDelta", "messageFinished",
         "messageStarted", "messageDelta", "messageDelta", "messageDelta", "messageFinished", "turnFinished",
         "toolCallStarted", "toolResultStarted", "toolResultFinished",
         "messageStarted", "messageDelta", "messageFinished", "turnFinished",
@@ -156,6 +220,7 @@ describe("Recovery Round 3 production path", () => {
       const column = fixture.harness.cellXOfText(row, "●");
       expect(column).toBe(0);
       expect(fixture.harness.styleAt(row, column ?? 0).dim).toBe(false);
+      expect(fixture.harness.styleAt(row, column ?? 0).foreground).toBe("#68d391");
     } finally { await fixture.close(); }
   });
 
@@ -164,6 +229,9 @@ describe("Recovery Round 3 production path", () => {
     try {
       await submit(fixture, "read");
       expect(transcriptLines(fixture.harness).some((line) => line.includes("read /definitely/not/here — failed"))).toBe(true);
+      const row = fixture.harness.screenRows().findIndex((line) => line.includes("read /definitely/not/here — failed"));
+      const column = fixture.harness.cellXOfText(row, "●");
+      expect(fixture.harness.styleAt(row, column ?? 0).foreground).toBe("Red");
     } finally { await fixture.close(); }
   });
 
