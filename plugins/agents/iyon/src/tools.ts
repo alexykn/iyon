@@ -1,4 +1,4 @@
-import { executeTool, type AnyTool, type ToolExecutionHooks } from "@iyon/runtime";
+import { executeTool, isCancelledError, type AnyTool, type ToolExecutionHooks } from "@iyon/runtime";
 import type { JsonValue, MessageId, ToolCallId, ToolContext, ToolDefinition, ToolResult, TurnId } from "@iyon/sdk";
 import type { AgentModelTurnResult } from "./turn.ts";
 import type { AgentPolicyContext } from "./context.ts";
@@ -32,48 +32,54 @@ export async function executeRequestedTools(context: AgentToolContext, result: A
   const sessionId = String(context.session.snapshot().sessionId) as never;
   const results: ToolResult[] = [];
   for (const invalid of result.invalidToolCalls) {
-    if (context.signal?.aborted) return { completed: false, results };
-    const argumentsValue = parseArguments(invalid.argumentsText);
-    const request = {
+    const outcome = await runRequestedCall(context, results, {
       sessionId,
       turnId: result.turnId,
       messageId: context.messageId ?? 0 as never,
       toolCallId: (invalid.id ?? `invalid-${invalid.contentIndex}`) as ToolCallId,
       toolName: invalid.name ?? "<invalid>",
-      arguments: argumentsValue,
-    };
-    let executed;
-    try {
-      executed = await executeTool(context.session, undefined, request, runtimeOptions(context));
-    } catch (error) {
-      if (context.signal?.aborted) return { completed: false, results };
-      throw error;
-    }
-    results.push(executed.result);
+      arguments: parseArguments(invalid.argumentsText),
+    });
+    if (outcome === "cancelled") return { completed: false, results };
   }
 
   for (const call of result.toolCalls) {
-    if (context.signal?.aborted) return { completed: false, results };
-    const tool = findTool(context, call.name);
-    const request = {
+    const outcome = await runRequestedCall(context, results, {
       sessionId,
       turnId: result.turnId,
       messageId: context.messageId ?? 0 as never,
       toolCallId: call.id,
       toolName: call.name,
       arguments: call.arguments as JsonValue,
-    };
-    let executed;
-    try {
-      executed = await executeTool(context.session, tool as AnyTool | undefined, request, runtimeOptions(context, tool));
-    } catch (error) {
-      if (context.signal?.aborted) return { completed: false, results };
-      throw error;
-    }
-    results.push(executed.result);
+    }, findTool(context, call.name));
+    if (outcome === "cancelled") return { completed: false, results };
   }
 
   return { completed: !context.signal?.aborted, results };
+}
+
+async function runRequestedCall(
+  context: AgentToolContext,
+  results: ToolResult[],
+  request: { sessionId: never; turnId: TurnId; messageId: MessageId; toolCallId: ToolCallId; toolName: string; arguments: JsonValue },
+  tool?: ToolDefinition,
+): Promise<"ok" | "cancelled"> {
+  if (context.signal?.aborted) return "cancelled";
+  try {
+    const executed = await executeTool(context.session, tool as AnyTool | undefined, request, runtimeOptions(context, tool));
+    results.push(executed.result);
+    return "ok";
+  } catch (error) {
+    if (context.signal?.aborted || isCancelledError(error)) return "cancelled";
+    results.push({
+      content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+      details: {},
+      isError: true,
+      toolName: request.toolName,
+      toolCallId: request.toolCallId,
+    });
+    return "ok";
+  }
 }
 
 function runtimeOptions(context: AgentToolContext, tool?: ToolDefinition) {

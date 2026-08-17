@@ -71,6 +71,18 @@ describe("bundled agent stop and tool policy", () => {
     expect(driver.snapshot().entries.filter((entry) => entry.kind === "message" && entry.role === "toolResult")).toHaveLength(1);
     driver.close();
   });
+
+  test("a_failed_tool_does_not_block_later_calls", async () => {
+    const driver = await SessionDriver.create(407);
+    const order: string[] = [];
+    const first = testTool("first", async () => { order.push("first"); throw new Error("EISDIR: illegal operation on a directory, read"); });
+    const second = testTool("second", async () => { order.push("second"); return ok(); });
+    const summary = await executeRequestedTools({ session: driver.session, tools: registry(first, second), turnId: 1 as never, messageId: 2 as never }, resultWithCalls(2, "first", "second"));
+    expect(summary.completed).toBe(true);
+    expect(order).toEqual(["first", "second"]);
+    expect(summary.results.map((result) => result.isError)).toEqual([true, false]);
+    driver.close();
+  });
 });
 
 function resultWithCalls(count: number, ...names: string[]): AgentModelTurnResult {
