@@ -5,7 +5,7 @@ import { AppHarness, TextStream, View } from "../src/tui/index.ts";
 describe("native headless harness", () => {
   test("uses native snapshots and dispatches input through the mounted host", async () => {
     const harness = await AppHarness.open({ width: 20, height: 4 });
-    const input = harness.createTextInput({ multiline: true });
+    const input = harness.createTextInput({ multiline: true, border: { style: "plain", edges: "topBottom", color: "white" } });
     const history = harness.createHistory();
     await history.push(View.text("native history"));
     await harness.render({ body: View.vertical([View.component(input), View.text("footer")]), history });
@@ -38,18 +38,15 @@ describe("native headless harness", () => {
     await harness.close();
   });
 
-  test("ticks the native working component and renders its queue", async () => {
+  test("animates a generic native view slot", async () => {
     const harness = await AppHarness.open({ width: 80, height: 6 });
-    const working = harness.createWorking();
-    await working.setActive(true);
-    await harness.render({ body: View.component(working) });
-    expect(harness.screenRows().some((row) => row.includes("⠋⣠ Working"))).toBe(true);
+    const slot = harness.createViewSlot(View.text("frame one"));
+    await slot.setAnimation([View.text("frame one"), View.text("frame two")], 80);
+    await harness.render({ body: View.component(slot) });
+    expect(harness.screenRows().some((row) => row.includes("frame one"))).toBe(true);
     harness.advance(80);
-    expect(harness.screenRows().some((row) => row.includes("⢁⡴ Working"))).toBe(true);
-    await working.setPending(["hello   world", "second"]);
-    await harness.render({ body: View.component(working) });
-    expect(harness.screenRows().some((row) => row.includes("waiting") && row.includes("Queue: hello world") && row.includes("+ 1 more"))).toBe(true);
-    await working.dispose();
+    expect(harness.screenRows().some((row) => row.includes("frame two"))).toBe(true);
+    await slot.dispose();
     await harness.close();
   });
 

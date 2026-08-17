@@ -18,8 +18,8 @@ describe("real-time native TUI driving", () => {
   test("real_runtime_drives_working_tick_without_manual_clock_advance", async () => {
     const tui = await Tui.open({ width: 60, height: 12, headless: true });
     try {
-      const working = tui.createWorking();
-      await working.setActive(true);
+      const working = tui.createViewSlot(View.text("frame one"));
+      await working.setAnimation([View.text("frame one"), View.text("frame two")], 80);
       await tui.render(new Scene(View.component(working).fillWidth()));
       const before = tui.screenRows();
       const nextAction = tui.nextAction();
@@ -44,7 +44,7 @@ describe("real-time native TUI driving", () => {
       await history.pushStream(stream);
       const response = "abcdefghijklmnopqrstuvwxyz";
       const nextAction = tui.nextAction();
-      await stream.appendSegment("text", response);
+      await stream.append(response);
       const first = tui.screenRows().join("\n");
       await sleep(120);
       const second = tui.screenRows().join("\n");
@@ -69,7 +69,7 @@ describe("real-time native TUI driving", () => {
       await tui.render(new Scene(View.spacer(0), history));
       await history.pushStream(stream);
       const response = "one provider delta";
-      await stream.appendSegment("text", response);
+      await stream.append(response);
       expect(tui.screenRows().join("\n")).not.toContain(response);
       await sleep(120);
       expect(tui.screenRows().join("\n")).toContain(response[0]!);

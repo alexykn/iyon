@@ -381,8 +381,8 @@ fn exact_text_zwj_split_across_spans() {
 }
 
 #[test]
-fn thinking_style_transition_preserves_muted_and_italic() {
-    let span_thinking = TextSpan::styled(
+fn annotated_style_transition_preserves_muted_and_italic() {
+    let span_annotated = TextSpan::styled(
         "reasoning\n",
         StyleSpec::new()
             .foreground(ColorSpec::Theme(ThemeKey::from("muted")))
@@ -393,13 +393,13 @@ fn thinking_style_transition_preserves_muted_and_italic() {
 
     let view = StreamView::exact_text(
         StreamRange::new(StreamOffset::ZERO, StreamOffset::new(16)),
-        vec![span_thinking, span_text],
+        vec![span_annotated, span_text],
     );
 
     let compiled = compile_stream(&view, 20, StreamOffset::new(16));
     assert_eq!(compiled.rows.len(), 2);
 
-    // Row 0 has thinking styling (italic & dim)
+    // Row 0 has annotated styling (italic & dim)
     assert!(
         compiled.rows[0]
             .cell(0)

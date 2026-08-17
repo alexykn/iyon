@@ -2,6 +2,7 @@ schema_version = 1
 crate_id = "iyon"
 
 [[records]]
+
 item_id = "iyon::tui"
 path = "iyon::tui"
 strategy = "MirrorValue"
@@ -13,6 +14,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent"
 path = "iyon::tui::FrontendEvent"
 strategy = "MirrorValue"
@@ -24,6 +26,7 @@ status = "stub"
 note = "explicit public alias projection"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::AssistantDelta"
 path = "iyon::tui::backend::FrontendEvent::AssistantDelta"
 strategy = "MirrorValue"
@@ -35,6 +38,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::AssistantDelta::text"
 path = "iyon::tui::backend::FrontendEvent::AssistantDelta::text"
 strategy = "NativeHandle"
@@ -46,6 +50,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ConfigChanged"
 path = "iyon::tui::backend::FrontendEvent::ConfigChanged"
 strategy = "MirrorValue"
@@ -57,6 +62,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ConfigChanged::model_id"
 path = "iyon::tui::backend::FrontendEvent::ConfigChanged::model_id"
 strategy = "NativeHandle"
@@ -68,6 +74,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ConfigChanged::provider"
 path = "iyon::tui::backend::FrontendEvent::ConfigChanged::provider"
 strategy = "NativeHandle"
@@ -79,6 +86,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ConfigChanged::reasoning_effort"
 path = "iyon::tui::backend::FrontendEvent::ConfigChanged::reasoning_effort"
 strategy = "NativeHandle"
@@ -90,6 +98,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::SteerQueued"
 path = "iyon::tui::backend::FrontendEvent::SteerQueued"
 strategy = "MirrorValue"
@@ -101,6 +110,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::SteerQueued::text"
 path = "iyon::tui::backend::FrontendEvent::SteerQueued::text"
 strategy = "NativeHandle"
@@ -112,6 +122,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ThinkingDelta"
 path = "iyon::tui::backend::FrontendEvent::ThinkingDelta"
 strategy = "MirrorValue"
@@ -123,6 +134,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ThinkingDelta::text"
 path = "iyon::tui::backend::FrontendEvent::ThinkingDelta::text"
 strategy = "NativeHandle"
@@ -134,6 +146,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested"
 path = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested"
 strategy = "MirrorValue"
@@ -145,6 +158,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested::approval_id"
 path = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested::approval_id"
 strategy = "NativeHandle"
@@ -156,6 +170,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested::arguments"
 path = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested::arguments"
 strategy = "NativeHandle"
@@ -167,6 +182,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested::tool_call_id"
 path = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested::tool_call_id"
 strategy = "NativeHandle"
@@ -178,6 +194,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested::tool_name"
 path = "iyon::tui::backend::FrontendEvent::ToolApprovalRequested::tool_name"
 strategy = "NativeHandle"
@@ -189,6 +206,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved"
 path = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved"
 strategy = "MirrorValue"
@@ -200,6 +218,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved::approval_id"
 path = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved::approval_id"
 strategy = "NativeHandle"
@@ -211,6 +230,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved::approved"
 path = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved::approved"
 strategy = "NativeHandle"
@@ -222,6 +242,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved::reason"
 path = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved::reason"
 strategy = "NativeHandle"
@@ -233,6 +254,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved::tool_call_id"
 path = "iyon::tui::backend::FrontendEvent::ToolApprovalResolved::tool_call_id"
 strategy = "NativeHandle"
@@ -244,6 +266,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallArguments"
 path = "iyon::tui::backend::FrontendEvent::ToolCallArguments"
 strategy = "MirrorValue"
@@ -255,6 +278,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallArguments::delta"
 path = "iyon::tui::backend::FrontendEvent::ToolCallArguments::delta"
 strategy = "NativeHandle"
@@ -266,6 +290,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallArguments::key"
 path = "iyon::tui::backend::FrontendEvent::ToolCallArguments::key"
 strategy = "NativeHandle"
@@ -277,6 +302,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallArguments::tool_call_id"
 path = "iyon::tui::backend::FrontendEvent::ToolCallArguments::tool_call_id"
 strategy = "NativeHandle"
@@ -288,6 +314,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallArguments::tool_name"
 path = "iyon::tui::backend::FrontendEvent::ToolCallArguments::tool_name"
 strategy = "NativeHandle"
@@ -299,6 +326,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallFinished"
 path = "iyon::tui::backend::FrontendEvent::ToolCallFinished"
 strategy = "MirrorValue"
@@ -310,6 +338,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallFinished::is_error"
 path = "iyon::tui::backend::FrontendEvent::ToolCallFinished::is_error"
 strategy = "NativeHandle"
@@ -321,6 +350,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallFinished::tool_call_id"
 path = "iyon::tui::backend::FrontendEvent::ToolCallFinished::tool_call_id"
 strategy = "NativeHandle"
@@ -332,6 +362,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallPrepared"
 path = "iyon::tui::backend::FrontendEvent::ToolCallPrepared"
 strategy = "MirrorValue"
@@ -343,6 +374,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallPrepared::arguments"
 path = "iyon::tui::backend::FrontendEvent::ToolCallPrepared::arguments"
 strategy = "NativeHandle"
@@ -354,6 +386,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallPrepared::key"
 path = "iyon::tui::backend::FrontendEvent::ToolCallPrepared::key"
 strategy = "NativeHandle"
@@ -365,6 +398,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallPrepared::tool_call_id"
 path = "iyon::tui::backend::FrontendEvent::ToolCallPrepared::tool_call_id"
 strategy = "NativeHandle"
@@ -376,6 +410,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallPrepared::tool_name"
 path = "iyon::tui::backend::FrontendEvent::ToolCallPrepared::tool_name"
 strategy = "NativeHandle"
@@ -387,6 +422,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallPreparing"
 path = "iyon::tui::backend::FrontendEvent::ToolCallPreparing"
 strategy = "MirrorValue"
@@ -398,6 +434,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallPreparing::key"
 path = "iyon::tui::backend::FrontendEvent::ToolCallPreparing::key"
 strategy = "NativeHandle"
@@ -409,6 +446,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallPreparing::tool_call_id"
 path = "iyon::tui::backend::FrontendEvent::ToolCallPreparing::tool_call_id"
 strategy = "NativeHandle"
@@ -420,6 +458,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallPreparing::tool_name"
 path = "iyon::tui::backend::FrontendEvent::ToolCallPreparing::tool_name"
 strategy = "NativeHandle"
@@ -431,6 +470,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallStarted"
 path = "iyon::tui::backend::FrontendEvent::ToolCallStarted"
 strategy = "MirrorValue"
@@ -442,6 +482,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallStarted::arguments"
 path = "iyon::tui::backend::FrontendEvent::ToolCallStarted::arguments"
 strategy = "NativeHandle"
@@ -453,6 +494,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallStarted::tool_call_id"
 path = "iyon::tui::backend::FrontendEvent::ToolCallStarted::tool_call_id"
 strategy = "NativeHandle"
@@ -464,6 +506,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallStarted::tool_name"
 path = "iyon::tui::backend::FrontendEvent::ToolCallStarted::tool_name"
 strategy = "NativeHandle"
@@ -475,6 +518,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallUpdated"
 path = "iyon::tui::backend::FrontendEvent::ToolCallUpdated"
 strategy = "MirrorValue"
@@ -486,6 +530,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallUpdated::tool_call_id"
 path = "iyon::tui::backend::FrontendEvent::ToolCallUpdated::tool_call_id"
 strategy = "NativeHandle"
@@ -497,6 +542,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolCallUpdated::update"
 path = "iyon::tui::backend::FrontendEvent::ToolCallUpdated::update"
 strategy = "NativeHandle"
@@ -508,6 +554,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolResult"
 path = "iyon::tui::backend::FrontendEvent::ToolResult"
 strategy = "MirrorValue"
@@ -519,6 +566,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolResult::details"
 path = "iyon::tui::backend::FrontendEvent::ToolResult::details"
 strategy = "NativeHandle"
@@ -530,6 +578,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolResult::is_error"
 path = "iyon::tui::backend::FrontendEvent::ToolResult::is_error"
 strategy = "NativeHandle"
@@ -541,6 +590,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolResult::text"
 path = "iyon::tui::backend::FrontendEvent::ToolResult::text"
 strategy = "NativeHandle"
@@ -552,6 +602,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolResult::tool_call_id"
 path = "iyon::tui::backend::FrontendEvent::ToolResult::tool_call_id"
 strategy = "NativeHandle"
@@ -563,6 +614,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::ToolResult::tool_name"
 path = "iyon::tui::backend::FrontendEvent::ToolResult::tool_name"
 strategy = "NativeHandle"
@@ -574,6 +626,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::TurnCancelled"
 path = "iyon::tui::backend::FrontendEvent::TurnCancelled"
 strategy = "MirrorValue"
@@ -585,6 +638,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::TurnFailed"
 path = "iyon::tui::backend::FrontendEvent::TurnFailed"
 strategy = "MirrorValue"
@@ -596,6 +650,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::TurnFailed::message"
 path = "iyon::tui::backend::FrontendEvent::TurnFailed::message"
 strategy = "NativeHandle"
@@ -607,6 +662,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::TurnFinished"
 path = "iyon::tui::backend::FrontendEvent::TurnFinished"
 strategy = "MirrorValue"
@@ -618,6 +674,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::TurnStarted"
 path = "iyon::tui::backend::FrontendEvent::TurnStarted"
 strategy = "MirrorValue"
@@ -629,6 +686,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::UserMessage"
 path = "iyon::tui::backend::FrontendEvent::UserMessage"
 strategy = "MirrorValue"
@@ -640,6 +698,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::FrontendEvent::UserMessage::text"
 path = "iyon::tui::backend::FrontendEvent::UserMessage::text"
 strategy = "NativeHandle"
@@ -651,6 +710,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::ToolDraftKey"
 path = "iyon::tui::ToolDraftKey"
 strategy = "MirrorValue"
@@ -662,6 +722,7 @@ status = "stub"
 note = "explicit public alias projection"
 
 [[records]]
+
 item_id = "iyon::tui::backend::ToolDraftKey::content_index"
 path = "iyon::tui::backend::ToolDraftKey::content_index"
 strategy = "NativeHandle"
@@ -673,6 +734,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::ToolDraftKey::message_id"
 path = "iyon::tui::backend::ToolDraftKey::message_id"
 strategy = "NativeHandle"
@@ -684,6 +746,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::ToolUpdatePresentation"
 path = "iyon::tui::ToolUpdatePresentation"
 strategy = "MirrorValue"
@@ -695,6 +758,7 @@ status = "stub"
 note = "explicit public alias projection"
 
 [[records]]
+
 item_id = "iyon::tui::backend::ToolUpdatePresentation::Details"
 path = "iyon::tui::backend::ToolUpdatePresentation::Details"
 strategy = "MirrorValue"
@@ -706,6 +770,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::ToolUpdatePresentation::Details::0"
 path = "iyon::tui::backend::ToolUpdatePresentation::Details::0"
 strategy = "NativeHandle"
@@ -717,6 +782,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::ToolUpdatePresentation::Progress"
 path = "iyon::tui::backend::ToolUpdatePresentation::Progress"
 strategy = "MirrorValue"
@@ -728,6 +794,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::ToolUpdatePresentation::Progress::current"
 path = "iyon::tui::backend::ToolUpdatePresentation::Progress::current"
 strategy = "NativeHandle"
@@ -739,6 +806,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::ToolUpdatePresentation::Progress::label"
 path = "iyon::tui::backend::ToolUpdatePresentation::Progress::label"
 strategy = "NativeHandle"
@@ -750,6 +818,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::ToolUpdatePresentation::Progress::total"
 path = "iyon::tui::backend::ToolUpdatePresentation::Progress::total"
 strategy = "NativeHandle"
@@ -761,6 +830,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::ToolUpdatePresentation::Text"
 path = "iyon::tui::backend::ToolUpdatePresentation::Text"
 strategy = "MirrorValue"
@@ -772,6 +842,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::backend::ToolUpdatePresentation::Text::0"
 path = "iyon::tui::backend::ToolUpdatePresentation::Text::0"
 strategy = "NativeHandle"
@@ -783,6 +854,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::build_app"
 path = "iyon::tui::build_app"
 strategy = "NativeAsync"
@@ -794,6 +866,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::components::conversation_activity::ApprovalDecision"
 path = "iyon::tui::ApprovalDecision"
 strategy = "MirrorValue"
@@ -805,6 +878,7 @@ status = "stub"
 note = "explicit public alias projection"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction"
 path = "iyon::tui::IyonAction"
 strategy = "MirrorValue"
@@ -816,6 +890,7 @@ status = "stub"
 note = "explicit public alias projection"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::Backend"
 path = "iyon::tui::controller::IyonAction::Backend"
 strategy = "MirrorValue"
@@ -827,6 +902,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::Backend::0"
 path = "iyon::tui::controller::IyonAction::Backend::0"
 strategy = "NativeHandle"
@@ -838,6 +914,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::ComposerPaste"
 path = "iyon::tui::controller::IyonAction::ComposerPaste"
 strategy = "MirrorValue"
@@ -849,6 +926,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::ComposerPaste::0"
 path = "iyon::tui::controller::IyonAction::ComposerPaste::0"
 strategy = "NativeHandle"
@@ -860,6 +938,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::CtrlC"
 path = "iyon::tui::controller::IyonAction::CtrlC"
 strategy = "MirrorValue"
@@ -871,6 +950,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::CycleReasoningEffort"
 path = "iyon::tui::controller::IyonAction::CycleReasoningEffort"
 strategy = "MirrorValue"
@@ -882,6 +962,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::Escape"
 path = "iyon::tui::controller::IyonAction::Escape"
 strategy = "MirrorValue"
@@ -893,6 +974,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::InterruptActiveTurn"
 path = "iyon::tui::controller::IyonAction::InterruptActiveTurn"
 strategy = "MirrorValue"
@@ -904,6 +986,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::RequestExit"
 path = "iyon::tui::controller::IyonAction::RequestExit"
 strategy = "MirrorValue"
@@ -915,6 +998,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::SubmitTurn"
 path = "iyon::tui::controller::IyonAction::SubmitTurn"
 strategy = "MirrorValue"
@@ -926,6 +1010,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::SubmitTurn::0"
 path = "iyon::tui::controller::IyonAction::SubmitTurn::0"
 strategy = "NativeHandle"
@@ -937,6 +1022,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::ToolApproval"
 path = "iyon::tui::controller::IyonAction::ToolApproval"
 strategy = "MirrorValue"
@@ -948,6 +1034,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::controller::IyonAction::ToolApproval::0"
 path = "iyon::tui::controller::IyonAction::ToolApproval::0"
 strategy = "NativeHandle"
@@ -959,6 +1046,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::run_with_core"
 path = "iyon::tui::run_with_core"
 strategy = "NativeAsync"
@@ -970,6 +1058,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon::tui::state::IyonState"
 path = "iyon::tui::IyonState"
 strategy = "MirrorValue"
@@ -979,3 +1068,13 @@ typescript_export = "tui__IyonState"
 implementation_owner = "T10"
 status = "stub"
 note = "explicit public alias projection"
+[[records]]
+item_id = "iyon::tui::backend::FrontendEvent::SteerQueued::queue_id"
+path = "iyon::tui::backend::FrontendEvent::SteerQueued::queue_id"
+strategy = "MirrorValue"
+rust_path = "iyon::tui::backend::FrontendEvent::SteerQueued::queue_id"
+typescript_module = "iyon:tui"
+typescript_export = "tui__backend__FrontendEvent__SteerQueued__queue_id"
+implementation_owner = "T10"
+status = "stub"
+note = "public surface recovery mapping"

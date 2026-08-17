@@ -8,12 +8,12 @@ export {
 export type {
   ComponentAdapter,
   ComponentCapabilities,
-  WorkingActivityHandle,
   ComponentContext,
   HistoryLayout,
   KeyEvent,
   NativeHandle,
   NativeHandleId,
+  OutputEvent,
   Output,
   OutputHandle,
   PasteEvent,
@@ -21,7 +21,10 @@ export type {
   RenderContext,
   Renderer,
   ResizeEvent,
+  StreamAnnotation,
   StreamSnapshot,
+  TextStreamOptions,
+  TextStreamPresentation,
   StreamingSource,
   TerminateEvent,
   TextRewriter,
@@ -33,7 +36,6 @@ export type {
   TuiFailure,
   ViewSlot,
   ScrollPane,
-  WorkingActivityOptions,
 } from "./types.ts";
 export { View, ChildrenBuilder } from "./values/view.ts";
 export { Insets } from "./values/geometry.ts";
@@ -42,7 +44,6 @@ export { TextSelector, TextSpan } from "./values/text.ts";
 export { materializeView } from "./materialize.ts";
 export { History } from "./history.ts";
 export { TextInput, NativeOutputHandle } from "./text-input.ts";
-export { WorkingActivity } from "./working.ts";
 export { TextStream, StreamPane } from "./stream.ts";
 export { Component, ViewSlot as NativeViewSlot } from "./component.ts";
 export { NativeScrollPane } from "./scroll-pane.ts";

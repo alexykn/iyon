@@ -102,8 +102,7 @@
 //!
 //! [`Smooth`] is optional temporal publication control: `Projection<T> ->
 //! Smooth<T> -> next projector`. Its pacing granularity is determined by the
-//! upstream spans and values. It currently serves Iyon's assistant pacing
-//! atoms; it is not required by Markdown.
+//! upstream spans and values; it is not required by Markdown.
 //!
 //! Advanced compiler and protocol machinery is organized under [`text`],
 //! [`projection`], and [`stream`]. Root coordinates are source coordinates,
@@ -183,9 +182,8 @@ pub use application::{
 
 #[cfg(feature = "native-host")]
 pub use application::{
-    HostActivityConfig, HostCellStyle, HostHistory, HostScrollPane, HostStreamSegmentKind,
-    HostTextInput, HostTextStream, HostViewSlot, HostWorking, RoutedAction, TextStreamPresentation,
-    TuiHost,
+    HostCellStyle, HostHistory, HostScrollPane, HostTextInput, HostTextStream, HostViewSlot,
+    RoutedOutput, TextStreamAnnotation, TextStreamPresentation, TuiHost,
 };
 
 pub use component::{Component, ComponentCx, ComponentHandle};

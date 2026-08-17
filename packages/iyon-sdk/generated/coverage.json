@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "reachable": 2389,
-  "mapped": 2389,
+  "reachable": 2315,
+  "mapped": 2315,
   "missing": [],
   "stale": [],
-  "aliases": 339,
+  "aliases": 330,
   "packages": [
     "iyon",
     "iyon-api",

@@ -217,7 +217,7 @@ describe("Iyon public native TUI", () => {
     await withFixture(40, 12, async ({ app, harness }) => {
       const tui = new Proxy(harness, {
         get(target, property, receiver) {
-          if (property === "nextAction") return async () => null;
+          if (property === "nextEvent") return async () => ({ type: "terminate", reason: "closed" });
           const value = Reflect.get(target, property, receiver);
           return typeof value === "function" ? value.bind(target) : value;
         },

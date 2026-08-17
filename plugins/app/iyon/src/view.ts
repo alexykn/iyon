@@ -1,11 +1,33 @@
 import { Insets, View } from "iyon:tui";
-import type { History, TextInput, View as ViewValue, WorkingActivityHandle } from "@iyon/runtime/tui";
+import type { History, TextInput, View as ViewValue, ViewSlot } from "@iyon/runtime/tui";
 import type { IyonState } from "./contracts.ts";
 import { MAX_COMPOSER_ROWS } from "./composer.ts";
 import { approvalView } from "./approvals.ts";
 import type { IyonTheme } from "./theme.ts";
 
-export interface IyonViewOptions { readonly composer: TextInput; readonly history: History; readonly state: IyonState; readonly theme: IyonTheme; readonly working?: WorkingActivityHandle; }
+export interface IyonViewOptions { readonly composer: TextInput; readonly history: History; readonly state: IyonState; readonly theme: IyonTheme; readonly working?: ViewSlot; }
+
+
+const SPINNER_FRAMES = ["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"] as const;
+
+export function workingFrames(state: IyonState, theme: IyonTheme): ViewValue[] {
+  const pending = state.steering;
+  return SPINNER_FRAMES.map((frame, index) => {
+    const spinner = pending.length === 0
+      ? SPINNER_FRAMES[SPINNER_FRAMES.length - 1 - index]
+      : frame;
+    const status = View.text(`${spinner} ${pending.length === 0 ? "Working" : "waiting"}`).noWrap();
+    if (pending.length === 0) return status.padding(Insets.horizontal(2)).fillWidth();
+    const preview = pending[0]!.split(/\s+/).filter(Boolean).join(" ");
+    const extra = pending.length - 1;
+    return View.horizontal((row) => {
+      row.gap(4);
+      row.child(status);
+      row.flex(View.text(`Queue: ${preview}`).noWrap().style(theme.muted));
+      if (extra > 0) row.child(View.text(` + ${extra} more`).noWrap().style(theme.muted));
+    }).fillWidth().padding(Insets.horizontal(2));
+  });
+}
 
 export function footerText(state: IyonState): string {
   const effort = { none: "None", minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "XHigh", max: "Max" }[state.info.reasoningEffort];
