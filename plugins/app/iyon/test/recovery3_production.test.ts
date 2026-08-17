@@ -158,6 +158,24 @@ describe("Recovery Round 3 production path", () => {
       expect(lines.some((line) => line.includes("ls result"))).toBe(true);
     } finally { await fixture.close(); }
   });
+
+  test("production_executable_ls_dot_uses_bundled_tool", async () => {
+    const fixture = await openProductionFixture(scriptedToolModel("ls", { path: "." }));
+    try {
+      await submit(fixture, "ls .");
+      expect(fixture.events.some((event) => event.type === "toolResultFinished" && !event.isError)).toBe(true);
+      expect(transcriptLines(fixture.harness).some((line) => line.includes("ls result"))).toBe(true);
+    } finally { await fixture.close(); }
+  });
+
+  test("production_executable_read_missing_path_is_bundled_failure", async () => {
+    const fixture = await openProductionFixture(scriptedToolModel("read", { path: "/definitely/not/here" }));
+    try {
+      await submit(fixture, "read /definitely/not/here");
+      expect(fixture.events.some((event) => event.type === "toolResultFinished" && event.isError)).toBe(true);
+      expect(transcriptLines(fixture.harness).some((line) => line.includes("read failed"))).toBe(true);
+    } finally { await fixture.close(); }
+  });
 });
 
 describe("Recovery Round 3 geometry and lifecycle contracts", () => {
