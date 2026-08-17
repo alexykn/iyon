@@ -129,7 +129,10 @@ impl ToolLifecycleHandle {
         &mut self,
         requirement: ApprovalRequirement,
     ) -> Result<Option<ApprovalId>, ToolLifecycleError> {
-        if !matches!(self.state, ToolLifecycleState::Prepared | ToolLifecycleState::Running) {
+        if !matches!(
+            self.state,
+            ToolLifecycleState::Prepared | ToolLifecycleState::Running
+        ) {
             return Err(ToolLifecycleError::InvalidTransition {
                 from: self.state,
                 operation: "request_approval",

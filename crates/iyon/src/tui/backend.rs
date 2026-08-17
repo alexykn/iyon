@@ -172,7 +172,9 @@ impl CoreEventMapper {
         match event {
             CoreEvent::AgentStarted | CoreEvent::AgentFinished => None,
             CoreEvent::TurnStarted { .. } => Some(FrontendEvent::TurnStarted),
-            CoreEvent::SteerQueued { queue_id, text } => Some(FrontendEvent::SteerQueued { queue_id, text }),
+            CoreEvent::SteerQueued { queue_id, text } => {
+                Some(FrontendEvent::SteerQueued { queue_id, text })
+            }
             CoreEvent::MessageStarted {
                 message_id, role, ..
             } => {

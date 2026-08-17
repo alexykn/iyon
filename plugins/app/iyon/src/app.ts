@@ -211,7 +211,7 @@ class IyonAppImpl implements IyonApp {
     }
     if (event.type === "userMessage") {
       await this.history.push(userBatchView([event.text], this.theme));
-      return false;
+      return true;
     }
     if (event.type === "turnStarted" || event.type === "steerQueued") {
       return true;
@@ -365,7 +365,7 @@ class IyonAppImpl implements IyonApp {
   private async updateToolSlotResult(key: string, result: ToolResult): Promise<void> {
     const slot = this.toolSlots.get(key);
     const card = this.toolCards.getByKey(key);
-    const call = card === undefined ? undefined : this.renderToolCall(card, key, false);
+    const call = card === undefined || result.isError ? undefined : this.renderToolCall(card, key, false);
     const resultView = this.renderToolResult(result);
     const view = call === undefined ? resultView : View.vertical([call, resultView]).fillWidth();
     if (slot !== undefined) {

@@ -9,12 +9,12 @@ mod app;
 mod context;
 mod error;
 mod handle;
+#[cfg(feature = "native-host")]
+mod host;
 mod input;
 mod kernel;
 mod run;
 mod timer;
-#[cfg(feature = "native-host")]
-mod host;
 
 #[cfg(test)]
 mod tests;
@@ -23,8 +23,11 @@ pub use app::App;
 pub use context::AppCx;
 pub use error::{RunError, RuntimeError};
 pub use handle::{AppClosed, AppHandle, AppSendError};
+#[cfg(feature = "native-host")]
+pub use host::{
+    HostActivityConfig, HostCellStyle, HostHistory, HostScrollPane, HostStreamSegmentKind,
+    HostTextInput, HostTextStream, HostViewSlot, HostWorking, RoutedAction, TuiHost,
+};
 #[cfg(feature = "test-util")]
 pub(crate) use kernel::{KernelError, RunningApp};
 pub use timer::TimerHandle;
-#[cfg(feature = "native-host")]
-pub use host::{HostActivityConfig, HostCellStyle, HostHistory, HostScrollPane, HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, RoutedAction, TuiHost};

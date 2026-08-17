@@ -60,4 +60,23 @@ describe("real-time native TUI driving", () => {
       await tui.close();
     }
   });
+
+  test("single_provider_delta_is_paced_not_atomic", async () => {
+    const tui = await Tui.open({ width: 60, height: 12, headless: true });
+    try {
+      const history = tui.createHistory();
+      const stream = new TextStream({ projector: "markdown" });
+      await tui.render(new Scene(View.spacer(0), history));
+      await history.pushStream(stream);
+      const response = "one provider delta";
+      await stream.appendSegment("text", response);
+      expect(tui.screenRows().join("\n")).not.toContain(response);
+      await sleep(120);
+      expect(tui.screenRows().join("\n")).toContain(response[0]!);
+      await stream.dispose();
+      await history.dispose();
+    } finally {
+      await tui.close();
+    }
+  });
 });

@@ -34,7 +34,8 @@ pub fn run(command: Command) -> Result<(), ApiSurfaceError> {
         Command::Check => check_from_config(
             &config_path,
             argument_value(&args, "--artifacts"),
-            args.iter().any(|argument| argument == "--require-implemented"),
+            args.iter()
+                .any(|argument| argument == "--require-implemented"),
         ),
     }
 }
@@ -114,8 +115,7 @@ pub fn check_from_config(
     let mapping = check::check_mappings(&manifest, &config.mapping_dir)?;
     if !mapping.missing.is_empty()
         || !mapping.stale.is_empty()
-        || (require_implemented
-            && (!mapping.stubbed.is_empty() || !mapping.planned.is_empty()))
+        || (require_implemented && (!mapping.stubbed.is_empty() || !mapping.planned.is_empty()))
     {
         return Err(ApiSurfaceError::configuration(
             format!(

@@ -267,7 +267,11 @@ impl TextInput {
         input.focus_changed(focused);
     }
 
-    pub(crate) fn paste_callback(input: &mut Self, text: &str, cx: &mut EventCx<'_>) -> InteractionResult {
+    pub(crate) fn paste_callback(
+        input: &mut Self,
+        text: &str,
+        cx: &mut EventCx<'_>,
+    ) -> InteractionResult {
         input.handle_paste(text, cx)
     }
 

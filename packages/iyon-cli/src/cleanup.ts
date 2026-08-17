@@ -7,7 +7,7 @@ interface CleanupEntry {
 
 export function isExpectedCleanupError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /already (?:closed|restored)|(?:session|terminal) closed/u.test(message.toLowerCase());
+  return /already (?:closed|restored)|(?:session|terminal) closed|operation is closed/u.test(message.toLowerCase());
 }
 
 export class CleanupStack {

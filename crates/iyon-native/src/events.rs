@@ -6,7 +6,9 @@ pub(crate) fn core_event(event: &CoreEvent) -> Value {
         CoreEvent::AgentStarted => json!({"type": "agentStarted"}),
         CoreEvent::AgentFinished => json!({"type": "agentFinished"}),
         CoreEvent::TurnStarted { turn_id } => json!({"type": "turnStarted", "turnId": turn_id}),
-        CoreEvent::SteerQueued { queue_id, text } => json!({"type": "steerQueued", "queueId": queue_id, "text": text}),
+        CoreEvent::SteerQueued { queue_id, text } => {
+            json!({"type": "steerQueued", "queueId": queue_id, "text": text})
+        }
         CoreEvent::MessageStarted {
             turn_id,
             message_id,

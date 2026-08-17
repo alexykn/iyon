@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
+use crate::ids::QueueItemId;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
-use crate::ids::QueueItemId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueueKind {
@@ -65,15 +65,39 @@ impl KernelQueues {
     pub fn prompt(&mut self, text: String) -> Result<(), QueueFull> {
         self.prompt_with_id(text).map(|_| ())
     }
-    pub fn prompt_with_id(&mut self, text: String) -> Result<QueueItemId, QueueFull> { Self::push(&mut self.prompts, text, QueueKind::Prompt, self.capacity, &mut self.next_id) }
+    pub fn prompt_with_id(&mut self, text: String) -> Result<QueueItemId, QueueFull> {
+        Self::push(
+            &mut self.prompts,
+            text,
+            QueueKind::Prompt,
+            self.capacity,
+            &mut self.next_id,
+        )
+    }
     pub fn steer(&mut self, text: String) -> Result<(), QueueFull> {
         self.steer_with_id(text).map(|_| ())
     }
-    pub fn steer_with_id(&mut self, text: String) -> Result<QueueItemId, QueueFull> { Self::push(&mut self.steers, text, QueueKind::Steer, self.capacity, &mut self.next_id) }
+    pub fn steer_with_id(&mut self, text: String) -> Result<QueueItemId, QueueFull> {
+        Self::push(
+            &mut self.steers,
+            text,
+            QueueKind::Steer,
+            self.capacity,
+            &mut self.next_id,
+        )
+    }
     pub fn follow_up(&mut self, text: String) -> Result<(), QueueFull> {
         self.follow_up_with_id(text).map(|_| ())
     }
-    pub fn follow_up_with_id(&mut self, text: String) -> Result<QueueItemId, QueueFull> { Self::push(&mut self.follow_ups, text, QueueKind::FollowUp, self.capacity, &mut self.next_id) }
+    pub fn follow_up_with_id(&mut self, text: String) -> Result<QueueItemId, QueueFull> {
+        Self::push(
+            &mut self.follow_ups,
+            text,
+            QueueKind::FollowUp,
+            self.capacity,
+            &mut self.next_id,
+        )
+    }
     pub fn submit_turn_compat(&mut self, text: String) -> Result<QueueKind, QueueFull> {
         if self.active && self.steerable {
             self.steer(text)?;
@@ -89,9 +113,14 @@ impl KernelQueues {
     pub fn take_prompt(&mut self) -> Option<String> {
         self.take_prompt_with_id().map(|item| item.text)
     }
-    pub fn take_prompt_with_id(&mut self) -> Option<QueueItem> { self.prompts.pop_front() }
+    pub fn take_prompt_with_id(&mut self) -> Option<QueueItem> {
+        self.prompts.pop_front()
+    }
     pub fn drain_steers_at_boundary(&mut self) -> Vec<String> {
-        self.drain_steers_at_boundary_with_id().into_iter().map(|item| item.text).collect()
+        self.drain_steers_at_boundary_with_id()
+            .into_iter()
+            .map(|item| item.text)
+            .collect()
     }
     pub fn drain_steers_at_boundary_with_id(&mut self) -> Vec<QueueItem> {
         if self.active && self.steerable {
@@ -100,7 +129,10 @@ impl KernelQueues {
         self.steers.drain(..).collect()
     }
     pub fn drain_follow_ups_after_settle(&mut self) -> Vec<String> {
-        self.drain_follow_ups_after_settle_with_id().into_iter().map(|item| item.text).collect()
+        self.drain_follow_ups_after_settle_with_id()
+            .into_iter()
+            .map(|item| item.text)
+            .collect()
     }
     pub fn drain_follow_ups_after_settle_with_id(&mut self) -> Vec<QueueItem> {
         if self.active {
@@ -132,7 +164,13 @@ impl KernelQueues {
         }
     }
 
-    fn push(queue: &mut VecDeque<QueueItem>, text: String, kind: QueueKind, capacity: usize, next_id: &mut u64) -> Result<QueueItemId, QueueFull> {
+    fn push(
+        queue: &mut VecDeque<QueueItem>,
+        text: String,
+        kind: QueueKind,
+        capacity: usize,
+        next_id: &mut u64,
+    ) -> Result<QueueItemId, QueueFull> {
         if queue.len() >= capacity {
             return Err(QueueFull { kind });
         }

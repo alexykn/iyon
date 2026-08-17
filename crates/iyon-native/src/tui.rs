@@ -3,11 +3,18 @@ use napi_derive::napi;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use iyon_tui::{BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History, HostActivityConfig, HostCellStyle, HostHistory, HostScrollPane, HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, HorizontalAlign, IntoView, Key, KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output, Projector, StyleRef, StyleSpec, TextContent, TextInput, TextSpan, TextSelector, TextRole, TextPart, TuiHost, VerticalAlign, View, WrapMode};
-use iyon_tui::text::{FormatId, LanguageId, SemanticTag, TextOrigin};
 use iyon_tui::projection::ProjectionBuilder;
 use iyon_tui::stream::{StreamOffset, StreamRange};
+use iyon_tui::text::{FormatId, LanguageId, SemanticTag, TextOrigin};
 use iyon_tui::text::{TextRun, TextVisitor};
+use iyon_tui::{
+    BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History,
+    HorizontalAlign, HostActivityConfig, HostCellStyle, HostHistory, HostScrollPane,
+    HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, IntoView, Key,
+    KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output, Projector, StyleRef,
+    StyleSpec, TextContent, TextInput, TextPart, TextRole, TextSelector, TextSpan, TuiHost,
+    VerticalAlign, View, WrapMode,
+};
 use serde_json::Map;
 use serde_json::Value;
 
@@ -74,7 +81,9 @@ impl NativeHistory {
 
     fn take_for_host(&mut self) -> Result<History> {
         if self.host.is_some() {
-            return Err(crate::NativeError::invalid_input("history is already attached to a native host"));
+            return Err(crate::NativeError::invalid_input(
+                "history is already attached to a native host",
+            ));
         }
         let mut state = self
             .state
@@ -90,7 +99,9 @@ impl NativeHistory {
             let layout = host
                 .layout()
                 .map_err(|error| crate::NativeError::internal(error.to_string()))?;
-            return Ok(serde_json::json!({"padding": layout.padding().bottom(), "gap": layout.gap()}));
+            return Ok(
+                serde_json::json!({"padding": layout.padding().bottom(), "gap": layout.gap()}),
+            );
         }
         let _layout = self
             .state
@@ -108,7 +119,8 @@ impl NativeHistory {
             .ok_or_else(|| crate::NativeError::invalid_input("history layout must be an object"))?;
         let padding = u16_value(object, "padding")?;
         let gap = u16_value(object, "gap")?;
-        let layout = iyon_tui::HistoryLayout::from_parts(iyon_tui::Insets::new(0, 0, padding, 0), gap);
+        let layout =
+            iyon_tui::HistoryLayout::from_parts(iyon_tui::Insets::new(0, 0, padding, 0), gap);
         if let Some(host) = &self.host {
             return host
                 .set_layout(layout)
@@ -141,25 +153,31 @@ impl NativeHistory {
     #[napi]
     pub fn freeze(&self, unit: i64, view: &NativeTuiView) -> Result<()> {
         ensure_alive(&self.alive)?;
-        let unit = u64::try_from(unit).map_err(|_| crate::NativeError::invalid_input("history unit id must be positive"))?;
+        let unit = u64::try_from(unit)
+            .map_err(|_| crate::NativeError::invalid_input("history unit id must be positive"))?;
         if let Some(host) = &self.host {
             return host
                 .freeze(unit, view.view.clone())
                 .map_err(|error| crate::NativeError::invalid_input(error.to_string()));
         }
-        Err(crate::NativeError::invalid_input("detached history cannot freeze a unit"))
+        Err(crate::NativeError::invalid_input(
+            "detached history cannot freeze a unit",
+        ))
     }
 
     #[napi(js_name = "discardLive")]
     pub fn discard_live(&self, unit: i64) -> Result<()> {
         ensure_alive(&self.alive)?;
-        let unit = u64::try_from(unit).map_err(|_| crate::NativeError::invalid_input("history unit id must be positive"))?;
+        let unit = u64::try_from(unit)
+            .map_err(|_| crate::NativeError::invalid_input("history unit id must be positive"))?;
         if let Some(host) = &self.host {
             return host
                 .discard_live(unit)
                 .map_err(|error| crate::NativeError::invalid_input(error.to_string()));
         }
-        Err(crate::NativeError::invalid_input("detached history cannot discard a unit"))
+        Err(crate::NativeError::invalid_input(
+            "detached history cannot discard a unit",
+        ))
     }
 
     fn from_host(host: HostHistory) -> Self {
@@ -420,17 +438,24 @@ impl NativeTuiHost {
     pub fn new(width: Option<i64>, height: Option<i64>, headless: Option<bool>) -> Result<Self> {
         let width = width.unwrap_or(80);
         let height = height.unwrap_or(24);
-        let width = u16::try_from(width).map_err(|_| crate::NativeError::invalid_input("width must fit in u16"))?;
-        let height = u16::try_from(height).map_err(|_| crate::NativeError::invalid_input("height must fit in u16"))?;
+        let width = u16::try_from(width)
+            .map_err(|_| crate::NativeError::invalid_input("width must fit in u16"))?;
+        let height = u16::try_from(height)
+            .map_err(|_| crate::NativeError::invalid_input("height must fit in u16"))?;
         let host = TuiHost::open(width, height, headless.unwrap_or(false))
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
-        Ok(Self { host, alive: AtomicBool::new(true) })
+        Ok(Self {
+            host,
+            alive: AtomicBool::new(true),
+        })
     }
 
     #[napi]
     pub fn dispose(&self) -> Result<()> {
         if self.alive.swap(false, Ordering::AcqRel) {
-            self.host.close().map_err(|error| crate::NativeError::internal(error.to_string()))?;
+            self.host
+                .close()
+                .map_err(|error| crate::NativeError::internal(error.to_string()))?;
         }
         Ok(())
     }
@@ -476,15 +501,18 @@ impl NativeTuiHost {
     #[napi(js_name = "styleAt")]
     pub fn style_at(&self, row: i64, column: i64) -> Result<Option<Value>> {
         ensure_alive(&self.alive)?;
-        let row = u16::try_from(row).map_err(|_| crate::NativeError::invalid_input("row must fit in u16"))?;
-        let column = u16::try_from(column).map_err(|_| crate::NativeError::invalid_input("column must fit in u16"))?;
+        let row = u16::try_from(row)
+            .map_err(|_| crate::NativeError::invalid_input("row must fit in u16"))?;
+        let column = u16::try_from(column)
+            .map_err(|_| crate::NativeError::invalid_input("column must fit in u16"))?;
         Ok(self.host.style_at(row, column).map(cell_style_value))
     }
 
     #[napi(js_name = "cellXOfText")]
     pub fn cell_x_of_text(&self, row: i64, text: String) -> Result<Option<i64>> {
         ensure_alive(&self.alive)?;
-        let row = u16::try_from(row).map_err(|_| crate::NativeError::invalid_input("row must fit in u16"))?;
+        let row = u16::try_from(row)
+            .map_err(|_| crate::NativeError::invalid_input("row must fit in u16"))?;
         Ok(self.host.cell_x_of_text(row, &text).map(i64::from))
     }
 
@@ -495,12 +523,20 @@ impl NativeTuiHost {
     }
 
     #[napi(js_name = "textInput")]
-    pub fn text_input(&self, multiline: Option<bool>, border: Option<Value>) -> Result<NativeTextInput> {
+    pub fn text_input(
+        &self,
+        multiline: Option<bool>,
+        border: Option<Value>,
+    ) -> Result<NativeTextInput> {
         ensure_alive(&self.alive)?;
-        let input = self.host.create_text_input(multiline.unwrap_or(false))
+        let input = self
+            .host
+            .create_text_input(multiline.unwrap_or(false))
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
         if let Some(border) = border {
-            input.set_border(lower_border(&border)?).map_err(|error| crate::NativeError::internal(error.to_string()))?;
+            input
+                .set_border(lower_border(&border)?)
+                .map_err(|error| crate::NativeError::internal(error.to_string()))?;
         }
         Ok(NativeTextInput::from_host(input))
     }
@@ -508,9 +544,14 @@ impl NativeTuiHost {
     #[napi(js_name = "working")]
     pub fn working(&self, config: Option<Value>) -> Result<NativeWorking> {
         ensure_alive(&self.alive)?;
-        let working = self.host.create_working(activity_config(config.as_ref())?)
+        let working = self
+            .host
+            .create_working(activity_config(config.as_ref())?)
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
-        Ok(NativeWorking { working, alive: AtomicBool::new(true) })
+        Ok(NativeWorking {
+            working,
+            alive: AtomicBool::new(true),
+        })
     }
 
     #[napi(js_name = "createViewSlot")]
@@ -534,56 +575,76 @@ impl NativeTuiHost {
     }
 
     #[napi(js_name = "bindKey")]
-    pub fn bind_key(&self, key: String, modifiers: Option<Vec<String>>, action_id: String) -> Result<()> {
+    pub fn bind_key(
+        &self,
+        key: String,
+        modifiers: Option<Vec<String>>,
+        action_id: String,
+    ) -> Result<()> {
         ensure_alive(&self.alive)?;
-        self.host.bind_key(parse_key(&key, modifiers.as_deref())?, action_id)
+        self.host
+            .bind_key(parse_key(&key, modifiers.as_deref())?, action_id)
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
     #[napi]
     pub fn route(&self, output: &NativeTuiOutput, action_id: String) -> Result<()> {
         ensure_alive(&self.alive)?;
-        self.host.route_text_input_output(output.output, action_id)
+        self.host
+            .route_text_input_output(output.output, action_id)
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
     #[napi(js_name = "interceptPaste")]
     pub fn intercept_paste(&self, input: &NativeTextInput, action_id: String) -> Result<()> {
         ensure_alive(&self.alive)?;
-        let host_input = input.host.as_ref().ok_or_else(|| crate::NativeError::invalid_input("text input is not mounted"))?;
-        self.host.intercept_paste(host_input, action_id)
+        let host_input = input
+            .host
+            .as_ref()
+            .ok_or_else(|| crate::NativeError::invalid_input("text input is not mounted"))?;
+        self.host
+            .intercept_paste(host_input, action_id)
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
     #[napi]
     pub fn render(&self, view: &NativeTuiView) -> Result<()> {
         ensure_alive(&self.alive)?;
-        self.host.render(view.view.clone()).map_err(|error| crate::NativeError::internal(error.to_string()))
+        self.host
+            .render(view.view.clone())
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
     #[napi(js_name = "dispatchKey")]
     pub fn dispatch_key(&self, key: String, modifiers: Option<Vec<String>>) -> Result<()> {
         ensure_alive(&self.alive)?;
-        self.host.dispatch_key(parse_key(&key, modifiers.as_deref())?)
+        self.host
+            .dispatch_key(parse_key(&key, modifiers.as_deref())?)
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
     #[napi(js_name = "dispatchPaste")]
     pub fn dispatch_paste(&self, text: String) -> Result<()> {
         ensure_alive(&self.alive)?;
-        self.host.dispatch_paste(&text).map_err(|error| crate::NativeError::internal(error.to_string()))
+        self.host
+            .dispatch_paste(&text)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
     #[napi(js_name = "pollTerminal")]
     pub fn poll_terminal(&self) -> Result<()> {
         ensure_alive(&self.alive)?;
-        self.host.poll_terminal().map_err(|error| crate::NativeError::internal(error.to_string()))
+        self.host
+            .poll_terminal()
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
     #[napi(js_name = "nextAction")]
     pub fn next_action(&self) -> Result<Option<Value>> {
         ensure_alive(&self.alive)?;
-        Ok(self.host.next_action().map(|action| serde_json::json!({"action_id": action.action_id, "payload": action.payload})))
+        Ok(self.host.next_action().map(
+            |action| serde_json::json!({"action_id": action.action_id, "payload": action.payload}),
+        ))
     }
 
     /// Wait in the native TUI driver until Rust has routed a semantic action
@@ -596,7 +657,9 @@ impl NativeTuiHost {
             .wait_for_action()
             .await
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
-        Ok(action.map(|action| serde_json::json!({"action_id": action.action_id, "payload": action.payload})))
+        Ok(action.map(
+            |action| serde_json::json!({"action_id": action.action_id, "payload": action.payload}),
+        ))
     }
 
     #[napi(js_name = "screenRows")]
@@ -614,16 +677,23 @@ impl NativeTuiHost {
     #[napi]
     pub fn resize(&self, width: i64, height: i64) -> Result<()> {
         ensure_alive(&self.alive)?;
-        let width = u16::try_from(width).map_err(|_| crate::NativeError::invalid_input("width must fit in u16"))?;
-        let height = u16::try_from(height).map_err(|_| crate::NativeError::invalid_input("height must fit in u16"))?;
-        self.host.resize(width, height).map_err(|error| crate::NativeError::internal(error.to_string()))
+        let width = u16::try_from(width)
+            .map_err(|_| crate::NativeError::invalid_input("width must fit in u16"))?;
+        let height = u16::try_from(height)
+            .map_err(|_| crate::NativeError::invalid_input("height must fit in u16"))?;
+        self.host
+            .resize(width, height)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
     #[napi(js_name = "advanceTime")]
     pub fn advance_time(&self, milliseconds: i64) -> Result<()> {
         ensure_alive(&self.alive)?;
-        let milliseconds = u64::try_from(milliseconds).map_err(|_| crate::NativeError::invalid_input("time must be non-negative"))?;
-        self.host.advance_time(std::time::Duration::from_millis(milliseconds)).map_err(|error| crate::NativeError::internal(error.to_string()))
+        let milliseconds = u64::try_from(milliseconds)
+            .map_err(|_| crate::NativeError::invalid_input("time must be non-negative"))?;
+        self.host
+            .advance_time(std::time::Duration::from_millis(milliseconds))
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 }
 
@@ -645,8 +715,14 @@ fn parse_key(key: &str, modifiers: Option<&[String]>) -> Result<KeyStroke> {
         "Right" => Key::Right,
         value => {
             let mut chars = value.chars();
-            let Some(character) = chars.next() else { return Err(crate::NativeError::invalid_input("key must not be empty")); };
-            if chars.next().is_some() { return Err(crate::NativeError::invalid_input("character key must contain one character")); }
+            let Some(character) = chars.next() else {
+                return Err(crate::NativeError::invalid_input("key must not be empty"));
+            };
+            if chars.next().is_some() {
+                return Err(crate::NativeError::invalid_input(
+                    "character key must contain one character",
+                ));
+            }
             Key::Char(character)
         }
     };
@@ -657,7 +733,11 @@ fn parse_key(key: &str, modifiers: Option<&[String]>) -> Result<KeyStroke> {
             "control" | "ctrl" => Modifiers::CONTROL,
             "alt" | "option" => Modifiers::ALT,
             "super" | "meta" => Modifiers::SUPER,
-            other => return Err(crate::NativeError::invalid_input(format!("unknown key modifier `{other}`"))),
+            other => {
+                return Err(crate::NativeError::invalid_input(format!(
+                    "unknown key modifier `{other}`"
+                )));
+            }
         });
     }
     Ok(KeyStroke::with_modifiers(key, flags))
@@ -702,7 +782,11 @@ impl NativeTextStream {
         let kind = match kind.as_str() {
             "text" => HostStreamSegmentKind::Text,
             "thinking" => HostStreamSegmentKind::Thinking,
-            _ => return Err(crate::NativeError::invalid_input("segment kind must be text or thinking")),
+            _ => {
+                return Err(crate::NativeError::invalid_input(
+                    "segment kind must be text or thinking",
+                ));
+            }
         };
         self.stream
             .append_segment(kind, text)
@@ -724,7 +808,8 @@ impl NativeTextStream {
             .stream
             .snapshot_json()
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
-        let mut snapshot = serde_json::json!({"text": text, "revision": revision, "sealed": sealed});
+        let mut snapshot =
+            serde_json::json!({"text": text, "revision": revision, "sealed": sealed});
         if !segments.is_empty() {
             snapshot["segments"] = serde_json::Value::Array(
                 segments
@@ -735,7 +820,6 @@ impl NativeTextStream {
         }
         Ok(snapshot)
     }
-
 }
 
 #[napi]
@@ -753,7 +837,9 @@ pub struct NativePlainProjector {
 impl NativePlainProjector {
     #[napi(constructor)]
     pub fn new() -> Self {
-        Self { alive: AtomicBool::new(true) }
+        Self {
+            alive: AtomicBool::new(true),
+        }
     }
 
     #[napi]
@@ -797,7 +883,10 @@ impl NativeMarkdownProjector {
             end,
             sealed,
         )
-        .emit(StreamRange::new(StreamOffset::ZERO, end), TextContent::raw(text))
+        .emit(
+            StreamRange::new(StreamOffset::ZERO, end),
+            TextContent::raw(text),
+        )
         .finish()
         .map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
         let projection = self
@@ -812,7 +901,9 @@ impl NativeMarkdownProjector {
             .map(|span| {
                 let mut output = String::new();
                 for value in span.values() {
-                    let mut visitor = PlainTextVisitor { output: String::new() };
+                    let mut visitor = PlainTextVisitor {
+                        output: String::new(),
+                    };
                     visitor.visit_content(value);
                     output.push_str(&visitor.output);
                 }
@@ -891,7 +982,10 @@ impl NativeScrollPane {
     }
 
     fn from_host(pane: HostScrollPane) -> Self {
-        Self { pane, alive: AtomicBool::new(true) }
+        Self {
+            pane,
+            alive: AtomicBool::new(true),
+        }
     }
 }
 
@@ -931,17 +1025,30 @@ impl NativeViewSlot {
     }
 
     #[napi(js_name = "setAnimation")]
-    pub fn set_animation(&self, frames: Vec<Reference<NativeTuiView>>, interval_ms: i64) -> Result<()> {
+    pub fn set_animation(
+        &self,
+        frames: Vec<Reference<NativeTuiView>>,
+        interval_ms: i64,
+    ) -> Result<()> {
         ensure_alive(&self.alive)?;
-        let interval_ms = u64::try_from(interval_ms).map_err(|_| crate::NativeError::invalid_input("animation interval must be positive"))?;
+        let interval_ms = u64::try_from(interval_ms).map_err(|_| {
+            crate::NativeError::invalid_input("animation interval must be positive")
+        })?;
         if interval_ms == 0 {
-            return Err(crate::NativeError::invalid_input("animation interval must be positive"));
+            return Err(crate::NativeError::invalid_input(
+                "animation interval must be positive",
+            ));
         }
         if frames.is_empty() {
-            return Err(crate::NativeError::invalid_input("animation requires at least one frame"));
+            return Err(crate::NativeError::invalid_input(
+                "animation requires at least one frame",
+            ));
         }
         self.slot
-            .set_animation(frames.into_iter().map(|frame| frame.view.clone()).collect(), std::time::Duration::from_millis(interval_ms))
+            .set_animation(
+                frames.into_iter().map(|frame| frame.view.clone()).collect(),
+                std::time::Duration::from_millis(interval_ms),
+            )
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
@@ -954,7 +1061,10 @@ impl NativeViewSlot {
     }
 
     fn from_host(slot: HostViewSlot) -> Self {
-        Self { slot, alive: AtomicBool::new(true) }
+        Self {
+            slot,
+            alive: AtomicBool::new(true),
+        }
     }
 }
 
@@ -978,19 +1088,38 @@ fn lower_view(value: &Value) -> Result<View> {
                 .get("spans")
                 .and_then(Value::as_array)
                 .ok_or_else(|| crate::NativeError::invalid_input("text spans must be an array"))?;
-            let spans = spans.iter().map(lower_text_span).collect::<Result<Vec<_>>>()?;
+            let spans = spans
+                .iter()
+                .map(lower_text_span)
+                .collect::<Result<Vec<_>>>()?;
             let text = View::styled_text(spans);
-            let text = match object.get("wrap").and_then(Value::as_str).unwrap_or("wordThenGrapheme") {
+            let text = match object
+                .get("wrap")
+                .and_then(Value::as_str)
+                .unwrap_or("wordThenGrapheme")
+            {
                 "wordThenGrapheme" => text.wrap(WrapMode::WordThenGrapheme),
                 "grapheme" => text.wrap(WrapMode::Grapheme),
                 "noWrap" => text.wrap(WrapMode::NoWrap),
-                other => return Err(crate::NativeError::invalid_input(format!("unknown wrap mode `{other}`"))),
+                other => {
+                    return Err(crate::NativeError::invalid_input(format!(
+                        "unknown wrap mode `{other}`"
+                    )));
+                }
             };
-            let text = match object.get("align").and_then(Value::as_str).unwrap_or("start") {
+            let text = match object
+                .get("align")
+                .and_then(Value::as_str)
+                .unwrap_or("start")
+            {
                 "start" => text.text_align(HorizontalAlign::Start),
                 "center" => text.text_align(HorizontalAlign::Center),
                 "end" => text.text_align(HorizontalAlign::End),
-                other => return Err(crate::NativeError::invalid_input(format!("unknown text alignment `{other}`"))),
+                other => {
+                    return Err(crate::NativeError::invalid_input(format!(
+                        "unknown text alignment `{other}`"
+                    )));
+                }
             };
             text.into_view()
         }
@@ -998,31 +1127,27 @@ fn lower_view(value: &Value) -> Result<View> {
             let rows = u16_value(object, "rows")?;
             View::spacer(rows)
         }
-        "row" => {
-            lower_axis(object, true)?
-        }
-        "column" => {
-            lower_axis(object, false)?
-        }
+        "row" => lower_axis(object, true)?,
+        "column" => lower_axis(object, false)?,
         "hanging" => View::hanging(
             lower_required(object, "prefix")?,
             lower_required(object, "continuation")?,
             lower_required(object, "body")?,
         ),
-        "grid" => {
-            lower_grid(object)?
-        }
+        "grid" => lower_grid(object)?,
         "container" => lower_required(object, "child")?.container(),
-        "clamp" => lower_required(object, "child")?.clamp_rows(u16_value(object, "maxRows")?, lower_overflow(object.get("overflow"))?),
+        "clamp" => lower_required(object, "child")?.clamp_rows(
+            u16_value(object, "maxRows")?,
+            lower_overflow(object.get("overflow"))?,
+        ),
         "decorated" => {
             apply_decoration(lower_required(object, "child")?, object.get("decoration"))?
         }
-        "component" => View::native_component(
-            object
-                .get("handle")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| crate::NativeError::invalid_input("component handle must be an integer"))?,
-        ),
+        "component" => {
+            View::native_component(object.get("handle").and_then(Value::as_u64).ok_or_else(
+                || crate::NativeError::invalid_input("component handle must be an integer"),
+            )?)
+        }
         "contentMax" => lower_required(object, "child")?.clamp_rows(
             u16_value(object, "maxRows")?,
             iyon_tui::OverflowIndicator::None,
@@ -1047,24 +1172,56 @@ fn lower_axis(object: &Map<String, Value>, horizontal: bool) -> Result<View> {
         let child = child
             .as_object()
             .ok_or_else(|| crate::NativeError::invalid_input("layout child must be an object"))?;
-        let kind = child
-            .get("kind")
-            .and_then(Value::as_str)
-            .ok_or_else(|| crate::NativeError::invalid_input("layout child kind must be a string"))?;
-        let view = lower_view(child.get("child").ok_or_else(|| crate::NativeError::invalid_input("layout child view is required"))?)?;
-        let size = child.get("size").map(|_| u16_value(child, "size")).transpose()?;
-        let max_rows = child.get("maxRows").map(|_| u16_value(child, "maxRows")).transpose()?;
+        let kind = child.get("kind").and_then(Value::as_str).ok_or_else(|| {
+            crate::NativeError::invalid_input("layout child kind must be a string")
+        })?;
+        let view =
+            lower_view(child.get("child").ok_or_else(|| {
+                crate::NativeError::invalid_input("layout child view is required")
+            })?)?;
+        let size = child
+            .get("size")
+            .map(|_| u16_value(child, "size"))
+            .transpose()?;
+        let max_rows = child
+            .get("maxRows")
+            .map(|_| u16_value(child, "maxRows"))
+            .transpose()?;
         match kind {
             "normal" | "flex" => {}
             "fixed" if size.is_some() => {}
-            "fixed" => return Err(crate::NativeError::invalid_input("fixed layout child size is required")),
+            "fixed" => {
+                return Err(crate::NativeError::invalid_input(
+                    "fixed layout child size is required",
+                ));
+            }
             "contentMax" if !horizontal && max_rows.is_some() => {}
-            "contentMax" if !horizontal => return Err(crate::NativeError::invalid_input("contentMax maxRows is required")),
-            "contentMax" => return Err(crate::NativeError::invalid_input("contentMax is only valid for vertical children")),
+            "contentMax" if !horizontal => {
+                return Err(crate::NativeError::invalid_input(
+                    "contentMax maxRows is required",
+                ));
+            }
+            "contentMax" => {
+                return Err(crate::NativeError::invalid_input(
+                    "contentMax is only valid for vertical children",
+                ));
+            }
             "flexMax" if !horizontal && max_rows.is_some() => {}
-            "flexMax" if !horizontal => return Err(crate::NativeError::invalid_input("flexMax maxRows is required")),
-            "flexMax" => return Err(crate::NativeError::invalid_input("flexMax is only valid for vertical children")),
-            other => return Err(crate::NativeError::invalid_input(format!("unknown layout child kind `{other}`"))),
+            "flexMax" if !horizontal => {
+                return Err(crate::NativeError::invalid_input(
+                    "flexMax maxRows is required",
+                ));
+            }
+            "flexMax" => {
+                return Err(crate::NativeError::invalid_input(
+                    "flexMax is only valid for vertical children",
+                ));
+            }
+            other => {
+                return Err(crate::NativeError::invalid_input(format!(
+                    "unknown layout child kind `{other}`"
+                )));
+            }
         }
         lowered.push((kind.to_owned(), size, max_rows, view));
     }
@@ -1073,9 +1230,15 @@ fn lower_axis(object: &Map<String, Value>, horizontal: bool) -> Result<View> {
             row.gap(gap);
             for (kind, size, _max_rows, view) in lowered {
                 match kind.as_str() {
-                    "normal" => { row.child(view); }
-                    "fixed" => { row.fixed(size.expect("fixed size was validated"), view); }
-                    "flex" => { row.flex(view); }
+                    "normal" => {
+                        row.child(view);
+                    }
+                    "fixed" => {
+                        row.fixed(size.expect("fixed size was validated"), view);
+                    }
+                    "flex" => {
+                        row.flex(view);
+                    }
                     "contentMax" => unreachable!("contentMax was rejected for horizontal layout"),
                     "flexMax" => unreachable!("flexMax was rejected for horizontal layout"),
                     _ => unreachable!("layout child kind was validated"),
@@ -1087,11 +1250,21 @@ fn lower_axis(object: &Map<String, Value>, horizontal: bool) -> Result<View> {
             column.gap(gap);
             for (kind, size, max_rows, view) in lowered {
                 match kind.as_str() {
-                    "normal" => { column.child(view); }
-                    "fixed" => { column.fixed(size.expect("fixed size was validated"), view); }
-                    "flex" => { column.flex(view); }
-                    "contentMax" => { column.content_max(max_rows.expect("validated content max"), view); }
-                    "flexMax" => { column.flex_max(max_rows.expect("validated flex max"), view); }
+                    "normal" => {
+                        column.child(view);
+                    }
+                    "fixed" => {
+                        column.fixed(size.expect("fixed size was validated"), view);
+                    }
+                    "flex" => {
+                        column.flex(view);
+                    }
+                    "contentMax" => {
+                        column.content_max(max_rows.expect("validated content max"), view);
+                    }
+                    "flexMax" => {
+                        column.flex_max(max_rows.expect("validated flex max"), view);
+                    }
                     _ => unreachable!("layout child kind was validated"),
                 }
             }
@@ -1118,7 +1291,10 @@ fn lower_grid(object: &Map<String, Value>) -> Result<View> {
         let row = row
             .as_object()
             .ok_or_else(|| crate::NativeError::invalid_input("grid row must be an object"))?;
-        let track = lower_grid_track(row.get("track").ok_or_else(|| crate::NativeError::invalid_input("grid row track is required"))?)?;
+        let track = lower_grid_track(
+            row.get("track")
+                .ok_or_else(|| crate::NativeError::invalid_input("grid row track is required"))?,
+        )?;
         let cells = row
             .get("cells")
             .and_then(Value::as_array)
@@ -1131,8 +1307,16 @@ fn lower_grid(object: &Map<String, Value>) -> Result<View> {
             let spec = GridCellSpec::new()
                 .column_span(u16_value(cell, "columnSpan")?)
                 .row_span(u16_value(cell, "rowSpan")?)
-                .horizontal_align(parse_horizontal_align(cell.get("horizontalAlign").and_then(Value::as_str).unwrap_or("start"))?)
-                .vertical_align(parse_vertical_align(cell.get("verticalAlign").and_then(Value::as_str).unwrap_or("top"))?);
+                .horizontal_align(parse_horizontal_align(
+                    cell.get("horizontalAlign")
+                        .and_then(Value::as_str)
+                        .unwrap_or("start"),
+                )?)
+                .vertical_align(parse_vertical_align(
+                    cell.get("verticalAlign")
+                        .and_then(Value::as_str)
+                        .unwrap_or("top"),
+                )?);
             lowered_cells.push((spec, lower_required(cell, "view")?));
         }
         lowered_rows.push((track, lowered_cells));
@@ -1165,7 +1349,9 @@ fn lower_grid_track(value: &Value) -> Result<GridTrack> {
         "fixed" => Ok(GridTrack::fixed(u16_value(object, "size")?)),
         "flex" => Ok(GridTrack::flex()),
         "flexMax" => Ok(GridTrack::flex_max(u16_value(object, "max")?)),
-        other => Err(crate::NativeError::invalid_input(format!("unknown grid track kind `{other}`"))),
+        other => Err(crate::NativeError::invalid_input(format!(
+            "unknown grid track kind `{other}`"
+        ))),
     }
 }
 
@@ -1176,22 +1362,33 @@ fn lower_overflow(value: Option<&Value>) -> Result<iyon_tui::OverflowIndicator> 
     let object = value
         .as_object()
         .ok_or_else(|| crate::NativeError::invalid_input("overflow indicator must be an object"))?;
-    let kind = object
-        .get("kind")
-        .and_then(Value::as_str)
-        .ok_or_else(|| crate::NativeError::invalid_input("overflow indicator kind must be a string"))?;
+    let kind = object.get("kind").and_then(Value::as_str).ok_or_else(|| {
+        crate::NativeError::invalid_input("overflow indicator kind must be a string")
+    })?;
     match kind {
         "none" => Ok(iyon_tui::OverflowIndicator::None),
-        "ellipsis" => Ok(iyon_tui::OverflowIndicator::Ellipsis { style: lower_style_ref(object.get("style").ok_or_else(|| crate::NativeError::invalid_input("ellipsis style is required"))?)? }),
+        "ellipsis" => {
+            Ok(iyon_tui::OverflowIndicator::Ellipsis {
+                style: lower_style_ref(object.get("style").ok_or_else(|| {
+                    crate::NativeError::invalid_input("ellipsis style is required")
+                })?)?,
+            })
+        }
         "footer" => Ok(iyon_tui::OverflowIndicator::Footer {
             prefix: object
                 .get("prefix")
                 .and_then(Value::as_str)
                 .ok_or_else(|| crate::NativeError::invalid_input("footer prefix must be a string"))?
                 .to_owned(),
-            style: lower_style_ref(object.get("style").ok_or_else(|| crate::NativeError::invalid_input("footer style is required"))?)?,
+            style: lower_style_ref(
+                object
+                    .get("style")
+                    .ok_or_else(|| crate::NativeError::invalid_input("footer style is required"))?,
+            )?,
         }),
-        other => Err(crate::NativeError::invalid_input(format!("unknown overflow indicator `{other}`"))),
+        other => Err(crate::NativeError::invalid_input(format!(
+            "unknown overflow indicator `{other}`"
+        ))),
     }
 }
 
@@ -1200,7 +1397,9 @@ fn parse_horizontal_align(value: &str) -> Result<HorizontalAlign> {
         "start" => Ok(HorizontalAlign::Start),
         "center" => Ok(HorizontalAlign::Center),
         "end" => Ok(HorizontalAlign::End),
-        other => Err(crate::NativeError::invalid_input(format!("unknown horizontal alignment `{other}`"))),
+        other => Err(crate::NativeError::invalid_input(format!(
+            "unknown horizontal alignment `{other}`"
+        ))),
     }
 }
 
@@ -1209,7 +1408,9 @@ fn parse_vertical_align(value: &str) -> Result<VerticalAlign> {
         "top" => Ok(VerticalAlign::Top),
         "center" => Ok(VerticalAlign::Center),
         "bottom" => Ok(VerticalAlign::Bottom),
-        other => Err(crate::NativeError::invalid_input(format!("unknown vertical alignment `{other}`"))),
+        other => Err(crate::NativeError::invalid_input(format!(
+            "unknown vertical alignment `{other}`"
+        ))),
     }
 }
 
@@ -1253,10 +1454,12 @@ fn lower_style_spec(value: &Value) -> Result<StyleSpec> {
     }
     if let Some(attributes) = object.get("attributes").and_then(Value::as_object) {
         for (name, enabled) in attributes {
-            let attribute = text_attribute(name).ok_or_else(|| crate::NativeError::invalid_input(format!("unknown text attribute `{name}`")))?;
-            let enabled = enabled
-                .as_bool()
-                .ok_or_else(|| crate::NativeError::invalid_input("text attributes must be booleans"))?;
+            let attribute = text_attribute(name).ok_or_else(|| {
+                crate::NativeError::invalid_input(format!("unknown text attribute `{name}`"))
+            })?;
+            let enabled = enabled.as_bool().ok_or_else(|| {
+                crate::NativeError::invalid_input("text attributes must be booleans")
+            })?;
             style = style.attribute(attribute, enabled);
         }
     }
@@ -1279,19 +1482,65 @@ fn u16_value(object: &Map<String, Value>, field: &str) -> Result<u16> {
 }
 
 fn activity_config(value: Option<&Value>) -> Result<HostActivityConfig> {
-    let Some(value) = value else { return Ok(HostActivityConfig::default()); };
-    let object = value.as_object().ok_or_else(|| crate::NativeError::invalid_input("activity config must be an object"))?;
+    let Some(value) = value else {
+        return Ok(HostActivityConfig::default());
+    };
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("activity config must be an object"))?;
     let mut config = HostActivityConfig::default();
     if let Some(frames) = object.get("frames") {
-        config.frames = frames.as_array().ok_or_else(|| crate::NativeError::invalid_input("activity frames must be an array"))?.iter().map(|frame| frame.as_str().map(str::to_owned).ok_or_else(|| crate::NativeError::invalid_input("activity frames must be strings"))).collect::<Result<Vec<_>>>()?;
-        if config.frames.is_empty() { return Err(crate::NativeError::invalid_input("activity frames must not be empty")); }
+        config.frames = frames
+            .as_array()
+            .ok_or_else(|| crate::NativeError::invalid_input("activity frames must be an array"))?
+            .iter()
+            .map(|frame| {
+                frame.as_str().map(str::to_owned).ok_or_else(|| {
+                    crate::NativeError::invalid_input("activity frames must be strings")
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if config.frames.is_empty() {
+            return Err(crate::NativeError::invalid_input(
+                "activity frames must not be empty",
+            ));
+        }
     }
-    if let Some(label) = object.get("activeLabel") { config.active_label = label.as_str().ok_or_else(|| crate::NativeError::invalid_input("activeLabel must be a string"))?.to_owned(); }
-    if let Some(label) = object.get("pendingLabel") { config.pending_label = label.as_str().ok_or_else(|| crate::NativeError::invalid_input("pendingLabel must be a string"))?.to_owned(); }
-    if let Some(prefix) = object.get("queuePrefix") { config.queue_prefix = prefix.as_str().ok_or_else(|| crate::NativeError::invalid_input("queuePrefix must be a string"))?.to_owned(); }
-    if let Some(tick) = object.get("tickMs") { config.tick_ms = tick.as_u64().ok_or_else(|| crate::NativeError::invalid_input("tickMs must be an integer"))?; if config.tick_ms == 0 { return Err(crate::NativeError::invalid_input("tickMs must be positive")); } }
-    if let Some(padding) = object.get("padding") { config.padding = u16::try_from(padding.as_u64().ok_or_else(|| crate::NativeError::invalid_input("activity padding must be an integer"))?).map_err(|_| crate::NativeError::invalid_input("activity padding must fit in u16"))?; }
-    if let Some(style) = object.get("mutedStyle") { config.muted_style = lower_style_ref(style)?; }
+    if let Some(label) = object.get("activeLabel") {
+        config.active_label = label
+            .as_str()
+            .ok_or_else(|| crate::NativeError::invalid_input("activeLabel must be a string"))?
+            .to_owned();
+    }
+    if let Some(label) = object.get("pendingLabel") {
+        config.pending_label = label
+            .as_str()
+            .ok_or_else(|| crate::NativeError::invalid_input("pendingLabel must be a string"))?
+            .to_owned();
+    }
+    if let Some(prefix) = object.get("queuePrefix") {
+        config.queue_prefix = prefix
+            .as_str()
+            .ok_or_else(|| crate::NativeError::invalid_input("queuePrefix must be a string"))?
+            .to_owned();
+    }
+    if let Some(tick) = object.get("tickMs") {
+        config.tick_ms = tick
+            .as_u64()
+            .ok_or_else(|| crate::NativeError::invalid_input("tickMs must be an integer"))?;
+        if config.tick_ms == 0 {
+            return Err(crate::NativeError::invalid_input("tickMs must be positive"));
+        }
+    }
+    if let Some(padding) = object.get("padding") {
+        config.padding = u16::try_from(padding.as_u64().ok_or_else(|| {
+            crate::NativeError::invalid_input("activity padding must be an integer")
+        })?)
+        .map_err(|_| crate::NativeError::invalid_input("activity padding must fit in u16"))?;
+    }
+    if let Some(style) = object.get("mutedStyle") {
+        config.muted_style = lower_style_ref(style)?;
+    }
     Ok(config)
 }
 
@@ -1309,33 +1558,79 @@ fn cell_style_value(style: HostCellStyle) -> Value {
 }
 
 fn lower_theme(value: &Value) -> Result<iyon_tui::Theme> {
-    let object = value.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme must be an object"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("theme must be an object"))?;
     let mut theme = iyon_tui::Theme::new();
     if let Some(colors) = object.get("colors").and_then(Value::as_object) {
         for (key, entry) in colors {
-            let entry = entry.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme color entry must be an object"))?;
-            if let Some(base) = entry.get("base") { theme.set_color(key.as_str(), lower_theme_color(base)?); }
-            for variant in entry.get("variants").and_then(Value::as_array).into_iter().flatten() {
-                let variant = variant.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme color variant must be an object"))?;
-                theme.set_color_variant(key.as_str(), lower_selector(variant.get("selector").ok_or_else(|| crate::NativeError::invalid_input("theme color selector is required"))?)?, lower_theme_color(variant.get("value").ok_or_else(|| crate::NativeError::invalid_input("theme color value is required"))?)?);
+            let entry = entry.as_object().ok_or_else(|| {
+                crate::NativeError::invalid_input("theme color entry must be an object")
+            })?;
+            if let Some(base) = entry.get("base") {
+                theme.set_color(key.as_str(), lower_theme_color(base)?);
+            }
+            for variant in entry
+                .get("variants")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let variant = variant.as_object().ok_or_else(|| {
+                    crate::NativeError::invalid_input("theme color variant must be an object")
+                })?;
+                theme.set_color_variant(
+                    key.as_str(),
+                    lower_selector(variant.get("selector").ok_or_else(|| {
+                        crate::NativeError::invalid_input("theme color selector is required")
+                    })?)?,
+                    lower_theme_color(variant.get("value").ok_or_else(|| {
+                        crate::NativeError::invalid_input("theme color value is required")
+                    })?)?,
+                );
             }
         }
     }
     if let Some(styles) = object.get("styles").and_then(Value::as_object) {
         for (key, entry) in styles {
-            let entry = entry.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme style entry must be an object"))?;
-            if let Some(base) = entry.get("base") { theme.set_style(key.as_str(), lower_style_spec(base)?); }
-            for variant in entry.get("variants").and_then(Value::as_array).into_iter().flatten() {
-                let variant = variant.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme style variant must be an object"))?;
-                theme.set_style_variant(key.as_str(), lower_selector(variant.get("selector").ok_or_else(|| crate::NativeError::invalid_input("theme style selector is required"))?)?, lower_style_spec(variant.get("value").ok_or_else(|| crate::NativeError::invalid_input("theme style value is required"))?)?);
+            let entry = entry.as_object().ok_or_else(|| {
+                crate::NativeError::invalid_input("theme style entry must be an object")
+            })?;
+            if let Some(base) = entry.get("base") {
+                theme.set_style(key.as_str(), lower_style_spec(base)?);
+            }
+            for variant in entry
+                .get("variants")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let variant = variant.as_object().ok_or_else(|| {
+                    crate::NativeError::invalid_input("theme style variant must be an object")
+                })?;
+                theme.set_style_variant(
+                    key.as_str(),
+                    lower_selector(variant.get("selector").ok_or_else(|| {
+                        crate::NativeError::invalid_input("theme style selector is required")
+                    })?)?,
+                    lower_style_spec(variant.get("value").ok_or_else(|| {
+                        crate::NativeError::invalid_input("theme style value is required")
+                    })?)?,
+                );
             }
         }
     }
     if let Some(text_styles) = object.get("textStyles").and_then(Value::as_array) {
         for entry in text_styles {
-            let entry = entry.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme text style entry must be an object"))?;
-            let selector = lower_text_selector(entry.get("selector").ok_or_else(|| crate::NativeError::invalid_input("theme text style selector is required"))?)?;
-            let style = lower_style_spec(entry.get("value").ok_or_else(|| crate::NativeError::invalid_input("theme text style value is required"))?)?;
+            let entry = entry.as_object().ok_or_else(|| {
+                crate::NativeError::invalid_input("theme text style entry must be an object")
+            })?;
+            let selector = lower_text_selector(entry.get("selector").ok_or_else(|| {
+                crate::NativeError::invalid_input("theme text style selector is required")
+            })?)?;
+            let style = lower_style_spec(entry.get("value").ok_or_else(|| {
+                crate::NativeError::invalid_input("theme text style value is required")
+            })?)?;
             theme.set_text_style(selector, style);
         }
     }
@@ -1343,44 +1638,85 @@ fn lower_theme(value: &Value) -> Result<iyon_tui::Theme> {
 }
 
 fn lower_text_selector(value: &Value) -> Result<TextSelector> {
-    let object = value.as_object().ok_or_else(|| crate::NativeError::invalid_input("text selector must be an object"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("text selector must be an object"))?;
     let mut selector = TextSelector::any();
     if let Some(roles) = object.get("roles").and_then(Value::as_array) {
         for role in roles {
-            selector = selector.and_role(lower_text_role(role.as_str().ok_or_else(|| crate::NativeError::invalid_input("text selector role must be a string"))?)?);
+            selector = selector.and_role(lower_text_role(role.as_str().ok_or_else(|| {
+                crate::NativeError::invalid_input("text selector role must be a string")
+            })?)?);
         }
     }
     if let Some(parts) = object.get("parts").and_then(Value::as_array) {
         for part in parts {
-            selector = selector.and_part(lower_text_part(part.as_str().ok_or_else(|| crate::NativeError::invalid_input("text selector part must be a string"))?)?);
+            selector = selector.and_part(lower_text_part(part.as_str().ok_or_else(|| {
+                crate::NativeError::invalid_input("text selector part must be a string")
+            })?)?);
         }
     }
     if let Some(annotations) = object.get("annotations").and_then(Value::as_array) {
         for annotation in annotations {
-            let annotation = annotation.as_object().ok_or_else(|| crate::NativeError::invalid_input("text selector annotation must be an object"))?;
-            let namespace = annotation.get("namespace").and_then(Value::as_str).ok_or_else(|| crate::NativeError::invalid_input("text selector annotation namespace is required"))?;
-            let name = annotation.get("name").and_then(Value::as_str).ok_or_else(|| crate::NativeError::invalid_input("text selector annotation name is required"))?;
-            let tag = SemanticTag::new(namespace, name).map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
+            let annotation = annotation.as_object().ok_or_else(|| {
+                crate::NativeError::invalid_input("text selector annotation must be an object")
+            })?;
+            let namespace = annotation
+                .get("namespace")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    crate::NativeError::invalid_input(
+                        "text selector annotation namespace is required",
+                    )
+                })?;
+            let name = annotation
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    crate::NativeError::invalid_input("text selector annotation name is required")
+                })?;
+            let tag = SemanticTag::new(namespace, name)
+                .map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
             selector = selector.and_annotation(&tag);
         }
     }
     if let Some(language) = object.get("language").and_then(Value::as_str) {
-        let language = LanguageId::new(language).map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
+        let language = LanguageId::new(language)
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
         selector = selector.language(&language);
     }
     if let Some(origin) = object.get("origin").and_then(Value::as_str) {
-        let origin = TextOrigin::new(origin).map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
+        let origin = TextOrigin::new(origin)
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
         selector = selector.origin(origin);
     }
     if let Some(format) = object.get("format").and_then(Value::as_str) {
-        let format = FormatId::new(format).map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
+        let format = FormatId::new(format)
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))?;
         selector = selector.format(&format);
     }
-    if object.get("focused").and_then(Value::as_bool).unwrap_or(false) { selector = selector.and_focused(); }
-    if object.get("focusWithin").and_then(Value::as_bool).unwrap_or(false) { selector = selector.and_focus_within(); }
+    if object
+        .get("focused")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        selector = selector.and_focused();
+    }
+    if object
+        .get("focusWithin")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        selector = selector.and_focus_within();
+    }
     if let Some(states) = object.get("states").and_then(Value::as_object) {
         for (key, value) in states {
-            selector = selector.and_state(key.clone(), value.as_str().ok_or_else(|| crate::NativeError::invalid_input("text selector states must be strings"))?);
+            selector = selector.and_state(
+                key.clone(),
+                value.as_str().ok_or_else(|| {
+                    crate::NativeError::invalid_input("text selector states must be strings")
+                })?,
+            );
         }
     }
     Ok(selector)
@@ -1411,7 +1747,11 @@ fn lower_text_role(value: &str) -> Result<TextRole> {
         "link" => TextRole::Link,
         "image" => TextRole::Image,
         "rawInline" => TextRole::RawInline,
-        _ => return Err(crate::NativeError::invalid_input(format!("unknown text selector role `{value}`"))),
+        _ => {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unknown text selector role `{value}`"
+            )));
+        }
     };
     Ok(role)
 }
@@ -1425,25 +1765,52 @@ fn lower_text_part(value: &str) -> Result<TextPart> {
         "tableRule" => TextPart::TableRule,
         "thematicRule" => TextPart::ThematicRule,
         "imageFallback" => TextPart::ImageFallback,
-        _ => return Err(crate::NativeError::invalid_input(format!("unknown text selector part `{value}`"))),
+        _ => {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unknown text selector part `{value}`"
+            )));
+        }
     };
     Ok(part)
 }
 
 fn lower_selector(value: &Value) -> Result<iyon_tui::StyleSelector> {
-    let object = value.as_object().ok_or_else(|| crate::NativeError::invalid_input("theme selector must be an object"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("theme selector must be an object"))?;
     let mut selector = iyon_tui::StyleSelector::default();
-    if object.get("focused").and_then(Value::as_bool).unwrap_or(false) { selector = selector.and_focused(); }
-    if object.get("focusWithin").and_then(Value::as_bool).unwrap_or(false) { selector = selector.and_focus_within(); }
+    if object
+        .get("focused")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        selector = selector.and_focused();
+    }
+    if object
+        .get("focusWithin")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        selector = selector.and_focus_within();
+    }
     if let Some(states) = object.get("states").and_then(Value::as_object) {
-        for (key, value) in states { selector = selector.and_state(key.clone(), value.as_str().ok_or_else(|| crate::NativeError::invalid_input("theme selector states must be strings"))?); }
+        for (key, value) in states {
+            selector = selector.and_state(
+                key.clone(),
+                value.as_str().ok_or_else(|| {
+                    crate::NativeError::invalid_input("theme selector states must be strings")
+                })?,
+            );
+        }
     }
     Ok(selector)
 }
 
 fn lower_theme_color(value: &Value) -> Result<iyon_tui::ThemeColor> {
     match color_spec(value)? {
-        iyon_tui::ColorSpec::Theme(_) => Err(crate::NativeError::invalid_input("theme colors cannot reference another theme color")),
+        iyon_tui::ColorSpec::Theme(_) => Err(crate::NativeError::invalid_input(
+            "theme colors cannot reference another theme color",
+        )),
         iyon_tui::ColorSpec::Named(color) => Ok(iyon_tui::ThemeColor::Named(color)),
         iyon_tui::ColorSpec::Ansi(value) => Ok(iyon_tui::ThemeColor::Indexed(value)),
         iyon_tui::ColorSpec::Rgb { r, g, b } => Ok(iyon_tui::ThemeColor::Rgb { r, g, b }),
@@ -1451,12 +1818,22 @@ fn lower_theme_color(value: &Value) -> Result<iyon_tui::ThemeColor> {
 }
 
 fn lower_border(value: &Value) -> Result<BorderSpec> {
-    let border = value.as_object().ok_or_else(|| crate::NativeError::invalid_input("border must be an object"))?;
-    let mut spec = match border.get("style").and_then(Value::as_str).unwrap_or("plain") {
+    let border = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("border must be an object"))?;
+    let mut spec = match border
+        .get("style")
+        .and_then(Value::as_str)
+        .unwrap_or("plain")
+    {
         "plain" => BorderSpec::plain(),
         "rounded" => BorderSpec::rounded(),
         "double" => BorderSpec::double(),
-        other => return Err(crate::NativeError::invalid_input(format!("unknown border style `{other}`"))),
+        other => {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unknown border style `{other}`"
+            )));
+        }
     };
     if border.get("edges").and_then(Value::as_str) == Some("topBottom") {
         spec = spec.edges(BorderEdges::TOP_BOTTOM);
@@ -1465,12 +1842,33 @@ fn lower_border(value: &Value) -> Result<BorderSpec> {
         spec = spec.color(color_spec(color)?);
     }
     if let Some(glyphs) = border.get("glyphs").and_then(Value::as_object) {
-        let fields = ["top", "right", "bottom", "left", "topLeft", "topRight", "bottomLeft", "bottomRight"];
+        let fields = [
+            "top",
+            "right",
+            "bottom",
+            "left",
+            "topLeft",
+            "topRight",
+            "bottomLeft",
+            "bottomRight",
+        ];
         let values = fields
             .iter()
-            .map(|field| glyphs.get(*field).and_then(Value::as_str).ok_or_else(|| crate::NativeError::invalid_input(format!("border glyph `{field}` must be a string"))))
+            .map(|field| {
+                glyphs.get(*field).and_then(Value::as_str).ok_or_else(|| {
+                    crate::NativeError::invalid_input(format!(
+                        "border glyph `{field}` must be a string"
+                    ))
+                })
+            })
             .collect::<Result<Vec<_>>>()?;
-        spec = BorderSpec::custom(BorderGlyphs::new(values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7]).map_err(|error| crate::NativeError::invalid_input(error.to_string()))?);
+        spec = BorderSpec::custom(
+            BorderGlyphs::new(
+                values[0], values[1], values[2], values[3], values[4], values[5], values[6],
+                values[7],
+            )
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))?,
+        );
         if border.get("edges").and_then(Value::as_str) == Some("topBottom") {
             spec = spec.edges(BorderEdges::TOP_BOTTOM);
         }
@@ -1511,59 +1909,99 @@ fn apply_decoration(view: View, decoration: Option<&Value>) -> Result<View> {
         if let Some(attributes) = style.get("attributes").and_then(Value::as_object) {
             for (name, enabled) in attributes {
                 if let Some(attribute) = text_attribute(name) {
-                    view = view.text_attribute(attribute, enabled.as_bool().ok_or_else(|| crate::NativeError::invalid_input("text attributes must be booleans"))?);
+                    view = view.text_attribute(
+                        attribute,
+                        enabled.as_bool().ok_or_else(|| {
+                            crate::NativeError::invalid_input("text attributes must be booleans")
+                        })?,
+                    );
                 }
             }
         }
     }
     if let Some(states) = decoration.get("styleStates").and_then(Value::as_object) {
         for (key, value) in states {
-            let value = value
-                .as_str()
-                .ok_or_else(|| crate::NativeError::invalid_input("style state values must be strings"))?;
+            let value = value.as_str().ok_or_else(|| {
+                crate::NativeError::invalid_input("style state values must be strings")
+            })?;
             view = view.style_state(key.as_str(), value);
         }
     }
     match decoration.get("width").and_then(Value::as_str) {
         Some("fit") => view = view.fit_width(),
         Some("fill") => view = view.fill_width(),
-        Some(other) => return Err(crate::NativeError::invalid_input(format!("unknown width rule `{other}`"))),
+        Some(other) => {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unknown width rule `{other}`"
+            )));
+        }
         None => {}
     }
     match decoration.get("height").and_then(Value::as_str) {
         Some("fit") => view = view.fit_height(),
         Some("fill") => view = view.fill_height(),
-        Some(other) => return Err(crate::NativeError::invalid_input(format!("unknown height rule `{other}`"))),
+        Some(other) => {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unknown height rule `{other}`"
+            )));
+        }
         None => {}
     }
-    if let Some(value) = decoration.get("minWidth") { view = view.min_width(u16_value(decoration, "minWidth")?); let _ = value; }
-    if decoration.get("maxWidth").is_some() { view = view.max_width(u16_value(decoration, "maxWidth")?); }
-    if decoration.get("minHeight").is_some() { view = view.min_height(u16_value(decoration, "minHeight")?); }
-    if decoration.get("maxHeight").is_some() { view = view.max_height(u16_value(decoration, "maxHeight")?); }
+    if let Some(value) = decoration.get("minWidth") {
+        view = view.min_width(u16_value(decoration, "minWidth")?);
+        let _ = value;
+    }
+    if decoration.get("maxWidth").is_some() {
+        view = view.max_width(u16_value(decoration, "maxWidth")?);
+    }
+    if decoration.get("minHeight").is_some() {
+        view = view.min_height(u16_value(decoration, "minHeight")?);
+    }
+    if decoration.get("maxHeight").is_some() {
+        view = view.max_height(u16_value(decoration, "maxHeight")?);
+    }
     Ok(view)
 }
 
 fn color_spec(value: &Value) -> Result<iyon_tui::ColorSpec> {
     if let Some(object) = value.as_object() {
-        let kind = object.get("type").and_then(Value::as_str).ok_or_else(|| crate::NativeError::invalid_input("color object type must be a string"))?;
+        let kind = object.get("type").and_then(Value::as_str).ok_or_else(|| {
+            crate::NativeError::invalid_input("color object type must be a string")
+        })?;
         if kind == "ansi" {
-            let number = object.get("value").and_then(Value::as_u64).ok_or_else(|| crate::NativeError::invalid_input("ANSI color value must be an integer"))?;
-            return Ok(iyon_tui::ColorSpec::ansi(u8::try_from(number).map_err(|_| crate::NativeError::invalid_input("ANSI color value must fit in u8"))?));
+            let number = object.get("value").and_then(Value::as_u64).ok_or_else(|| {
+                crate::NativeError::invalid_input("ANSI color value must be an integer")
+            })?;
+            return Ok(iyon_tui::ColorSpec::ansi(u8::try_from(number).map_err(
+                |_| crate::NativeError::invalid_input("ANSI color value must fit in u8"),
+            )?));
         }
-        return Err(crate::NativeError::invalid_input(format!("unknown color object type `{kind}`")));
+        return Err(crate::NativeError::invalid_input(format!(
+            "unknown color object type `{kind}`"
+        )));
     }
-    let value = value.as_str().ok_or_else(|| crate::NativeError::invalid_input("color must be a string or ANSI color object"))?;
+    let value = value.as_str().ok_or_else(|| {
+        crate::NativeError::invalid_input("color must be a string or ANSI color object")
+    })?;
     if let Some(value) = value.strip_prefix("theme:") {
         return Ok(iyon_tui::ColorSpec::theme(value));
     }
     if let Some(value) = value.strip_prefix("ansi:") {
-        return Ok(iyon_tui::ColorSpec::ansi(value.parse::<u8>().map_err(|_| crate::NativeError::invalid_input("ANSI color must fit in u8"))?));
+        return Ok(iyon_tui::ColorSpec::ansi(value.parse::<u8>().map_err(
+            |_| crate::NativeError::invalid_input("ANSI color must fit in u8"),
+        )?));
     }
     if let Some(value) = value.strip_prefix('#') {
         if value.len() == 6 {
-            let r = u8::from_str_radix(&value[0..2], 16).map_err(|_| crate::NativeError::invalid_input("RGB color must contain hexadecimal bytes"))?;
-            let g = u8::from_str_radix(&value[2..4], 16).map_err(|_| crate::NativeError::invalid_input("RGB color must contain hexadecimal bytes"))?;
-            let b = u8::from_str_radix(&value[4..6], 16).map_err(|_| crate::NativeError::invalid_input("RGB color must contain hexadecimal bytes"))?;
+            let r = u8::from_str_radix(&value[0..2], 16).map_err(|_| {
+                crate::NativeError::invalid_input("RGB color must contain hexadecimal bytes")
+            })?;
+            let g = u8::from_str_radix(&value[2..4], 16).map_err(|_| {
+                crate::NativeError::invalid_input("RGB color must contain hexadecimal bytes")
+            })?;
+            let b = u8::from_str_radix(&value[4..6], 16).map_err(|_| {
+                crate::NativeError::invalid_input("RGB color must contain hexadecimal bytes")
+            })?;
             return Ok(iyon_tui::ColorSpec::rgb(r, g, b));
         }
     }
@@ -1584,7 +2022,11 @@ fn color_spec(value: &Value) -> Result<iyon_tui::ColorSpec> {
         "lightmagenta" => iyon_tui::AnsiColor::LightMagenta,
         "lightcyan" => iyon_tui::AnsiColor::LightCyan,
         "white" => iyon_tui::AnsiColor::White,
-        _ => return Err(crate::NativeError::invalid_input(format!("unknown color `{value}`"))),
+        _ => {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unknown color `{value}`"
+            )));
+        }
     };
     Ok(iyon_tui::ColorSpec::named(color))
 }
