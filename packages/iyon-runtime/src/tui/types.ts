@@ -215,17 +215,17 @@ export interface TuiRuntime {
   render(scene: Scene, signal?: AbortSignal): TuiOperation<void>;
   resize(width: number, height: number): TuiOperation<void>;
   close(): TuiOperation<void>;
-  exit?(): TuiOperation<void>;
+  exit(): TuiOperation<void>;
   createHistory?(): History;
   createTextInput?(options?: { multiline?: boolean; border?: import("./ir.ts").BorderNode }): TextInput;
   createWorking?(): WorkingActivityHandle;
   createViewSlot?(initial: View): ViewSlot;
   createScrollPane?(initial: View): ScrollPane;
-  bindKey?(key: string, actionId: string, modifiers?: readonly string[]): void;
-  route?(output: OutputHandle<string>, actionId: string): void;
+  bindKey(key: string, actionId: string, modifiers?: readonly string[]): void;
+  route(output: OutputHandle<string>, actionId: string): void;
   interceptPaste?(input: TextInput, actionId: string): void;
   forwardPaste?(text: string): void;
-  nextAction?(signal?: AbortSignal): TuiOperation<{ actionId: string; payload?: string } | null>;
+  nextAction(signal?: AbortSignal): TuiOperation<{ actionId: string; payload?: string } | null>;
   setTheme?(theme: SemanticTheme): TuiOperation<void>;
 }
 

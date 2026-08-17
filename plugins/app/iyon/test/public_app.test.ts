@@ -10,6 +10,7 @@ import {
   transcriptLines,
   type PublicAppFixture,
 } from "./public_app_fixtures.ts";
+import type { TuiRuntime } from "@iyon/runtime/tui";
 
 async function withFixture<T>(width: number, height: number, callback: (fixture: PublicAppFixture) => Promise<T>): Promise<T> {
   const fixture = await openFixture(width, height);
@@ -39,7 +40,7 @@ function styleForText(fixture: PublicAppFixture, text: string): Readonly<Record<
 }
 
 describe("Iyon public native TUI", () => {
-  test("is drivable through the public TUI harness", async () => {
+  test("submit_hello_does_not_exit_the_tui", async () => {
     await withFixture(40, 12, async ({ app, harness }) => {
       for (const key of "hello") harness.pressKey(key);
       harness.pressKey("Enter");
@@ -50,6 +51,113 @@ describe("Iyon public native TUI", () => {
       expect(await app.composer.text()).toBe("");
       expect(harness.screenRows().at(-1)).toContain("effort: Medium");
       expect(transcriptLines(harness).filter((line) => line.includes("hello"))).toHaveLength(1);
+      expect(harness.exited()).toBe(false);
+      expect(harness.screenRows().some((line) => line.includes("Goodbye."))).toBe(false);
+    });
+  });
+
+  test("submit_hello_clears_composer_and_shows_working", async () => {
+    await withFixture(40, 12, async ({ app, harness }) => {
+      for (const key of "hello") harness.pressKey(key);
+      harness.pressKey("Enter");
+      const action = await harness.nextAction();
+      await app.handleAction({ type: "submit", text: action?.payload ?? "" });
+      expect(await app.composer.text()).toBe("");
+      expect(harness.screenRows().some((line) => line.includes("Working"))).toBe(true);
+      expect(harness.exited()).toBe(false);
+    });
+  });
+
+  test("submit_hello_keeps_process_alive_when_agent_run_throws", async () => {
+    await withFixture(40, 12, async ({ app, harness }) => {
+      (app.agent as unknown as { run: () => Promise<void> }).run = () => {
+        throw new Error("provider failed");
+      };
+      for (const key of "hello") harness.pressKey(key);
+      harness.pressKey("Enter");
+      const action = await harness.nextAction();
+      await expect(app.handleAction({ type: "submit", text: action?.payload ?? "" })).resolves.toBeUndefined();
+      expect(harness.exited()).toBe(false);
+      expect(app.state.info.status).toBe("provider failed");
+      expect(harness.screenRows().some((line) => line.includes("Goodbye."))).toBe(false);
+    });
+  });
+
+  test("idle_ctrl_c_presents_goodbye_before_terminal_restore", async () => {
+    await withFixture(40, 12, async ({ app, harness }) => {
+      const originalExit = harness.exit.bind(harness);
+      (harness as unknown as { exit: () => Promise<void> }).exit = async () => {
+        expect(harness.exited()).toBe(false);
+        expect(harness.screenRows().some((line) => line.includes("Goodbye."))).toBe(true);
+        await originalExit();
+      };
+      harness.pressKey("c", ["control"]);
+      const action = await harness.nextAction();
+      expect(action).toEqual({ actionId: "ctrlC" });
+      await app.handleAction({ type: "ctrlC" });
+      expect(harness.exited()).toBe(true);
+    });
+  });
+
+  test("idle_ctrl_c_leaves_goodbye_in_native_history", async () => {
+    await withFixture(40, 12, async ({ app, harness }) => {
+      harness.pressKey("c", ["control"]);
+      await harness.nextAction();
+      await app.handleAction({ type: "ctrlC" });
+      expect(harness.nativeHistoryRows().some((line) => line.includes("Goodbye."))).toBe(true);
+    });
+  });
+
+  test("ctrl_c_with_composer_text_clears_and_does_not_exit", async () => {
+    await withFixture(40, 12, async ({ app, harness }) => {
+      for (const key of "hello") harness.pressKey(key);
+      harness.pressKey("\u0003");
+      const action = await harness.nextAction();
+      expect(action).toEqual({ actionId: "ctrlC" });
+      await app.handleAction({ type: "ctrlC" });
+      expect(await app.composer.text()).toBe("");
+      expect(harness.exited()).toBe(false);
+      expect(harness.screenRows().some((line) => line.includes("Goodbye."))).toBe(false);
+    });
+  });
+
+  test("ctrl_c_during_active_work_cancels_and_does_not_exit", async () => {
+    await withFixture(40, 12, async ({ app, harness }) => {
+      await send({ app, harness }, { type: "turnStarted" });
+      harness.pressKey("c", ["control"]);
+      const action = await harness.nextAction();
+      expect(action).toEqual({ actionId: "ctrlC" });
+      await app.handleAction({ type: "ctrlC" });
+      expect(app.state.activeTurn).toBe(true);
+      expect(harness.exited()).toBe(false);
+      expect(harness.screenRows().some((line) => line.includes("Goodbye."))).toBe(false);
+    });
+  });
+
+  test("ctrl_c_etx_and_control_c_both_route_to_ctrlC", async () => {
+    for (const key of ["\u0003", "c"] as const) {
+      await withFixture(40, 12, async ({ app, harness }) => {
+        harness.pressKey(key, key === "c" ? ["control"] : undefined);
+        await expect(harness.nextAction()).resolves.toEqual({ actionId: "ctrlC" });
+        await app.stop();
+        await harness.close();
+      });
+    }
+  });
+
+  test("run_loop_null_next_action_still_runs_goodbye_shutdown", async () => {
+    await withFixture(40, 12, async ({ app, harness }) => {
+      const tui = new Proxy(harness, {
+        get(target, property, receiver) {
+          if (property === "nextAction") return async () => null;
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }) as unknown as TuiRuntime;
+      (app as unknown as { tui: TuiRuntime }).tui = tui;
+      await app.run();
+      expect(app.state.goodbye).toBe(true);
+      expect(harness.nativeHistoryRows().some((line) => line.includes("Goodbye."))).toBe(true);
     });
   });
 

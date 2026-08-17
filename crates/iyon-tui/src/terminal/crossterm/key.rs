@@ -189,4 +189,12 @@ mod tests {
             KeyStroke::with_modifiers(Key::Char('j'), Modifiers::CONTROL)
         );
     }
+
+    #[test]
+    fn ctrl_c_etx_is_preserved_as_a_native_character_stroke() {
+        assert_eq!(
+            key(KeyCode::Char('\u{0003}'), KeyModifiers::NONE),
+            KeyStroke::new(Key::Char('\u{0003}'))
+        );
+    }
 }
