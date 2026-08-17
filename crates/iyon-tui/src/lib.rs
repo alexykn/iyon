@@ -171,6 +171,10 @@ mod theme;
 
 pub use application::{
     App, AppClosed, AppCx, AppHandle, AppSendError, RunError, RuntimeError, TimerHandle,
+};
+
+#[cfg(feature = "native-host")]
+pub use application::{
     HostActivityConfig, HostCellStyle, HostHistory, HostScrollPane, HostStreamSegmentKind,
     HostTextInput, HostTextStream, HostViewSlot, HostWorking, RoutedAction, TuiHost,
 };

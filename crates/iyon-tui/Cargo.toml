@@ -5,6 +5,7 @@ edition.workspace = true
 
 [features]
 test-util = []
+native-host = []
 
 [dependencies]
 anyhow.workspace = true
