@@ -12,8 +12,8 @@ use iyon_tui::{
     HorizontalAlign, HostActivityConfig, HostCellStyle, HostHistory, HostScrollPane,
     HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, IntoView, Key,
     KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output, Projector, StyleRef,
-    StyleSpec, TextContent, TextInput, TextPart, TextRole, TextSelector, TextSpan, TuiHost,
-    VerticalAlign, View, WrapMode,
+    StyleSpec, TextContent, TextInput, TextPart, TextRole, TextSelector, TextSpan,
+    TextStreamPresentation, TuiHost, VerticalAlign, View, WrapMode,
 };
 use serde_json::Map;
 use serde_json::Value;
@@ -755,7 +755,9 @@ impl NativeTextStream {
     pub fn new(projector: Option<String>) -> Self {
         Self {
             stream: if projector.as_deref() == Some("markdown") {
-                HostTextStream::with_markdown()
+                HostTextStream::with_markdown_presentation(TextStreamPresentation::new(
+                    iyon_tui::Insets::new(0, 2, 0, 2),
+                ))
             } else {
                 HostTextStream::new()
             },
