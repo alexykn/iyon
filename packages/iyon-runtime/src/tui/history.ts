@@ -10,12 +10,24 @@ export class History extends HandleBase<ReturnType<typeof nativeTui.history>, "h
     return this.call(() => this.nativeHandle.layout() as HistoryLayout);
   }
 
-  push(view: View): Promise<void> {
+  push(view: View): Promise<number> {
     return this.call(() => {
       const lowered = materializeView(view);
       if (lowered === undefined) throw new Error("native view materialization is unavailable");
-      this.nativeHandle.push(lowered);
+      return this.nativeHandle.push(lowered);
     });
+  }
+
+  freeze(unit: number, view: View): Promise<void> {
+    return this.call(() => {
+      const lowered = materializeView(view);
+      if (lowered === undefined) throw new Error("native view materialization is unavailable");
+      this.nativeHandle.freeze(unit, lowered);
+    });
+  }
+
+  discardLive(unit: number): Promise<void> {
+    return this.call(() => this.nativeHandle.discardLive(unit));
   }
 
   pushStream(stream: TextStream): Promise<void> {

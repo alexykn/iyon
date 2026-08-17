@@ -25,7 +25,9 @@ export interface TextContent {
 export interface History extends NativeHandle {
   readonly kind: "history";
   layout(): TuiOperation<HistoryLayout>;
-  push(view: View): TuiOperation<void>;
+  push(view: View): TuiOperation<number>;
+  freeze(unit: number, view: View): TuiOperation<void>;
+  discardLive(unit: number): TuiOperation<void>;
   pushStream(stream: TextStream): TuiOperation<void>;
   sealStream(stream: TextStream): TuiOperation<void>;
   setLayout?(layout: HistoryLayout): TuiOperation<void>;
