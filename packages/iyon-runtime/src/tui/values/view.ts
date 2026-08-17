@@ -11,6 +11,7 @@ import {
   type GridRowNode,
   type GridTrackNode,
   type LayoutChild,
+  type OverflowIndicatorNode,
   type ViewNode,
 } from "../ir.ts";
 import { insets, Insets } from "./geometry.ts";
@@ -18,6 +19,11 @@ import { StyleSpec } from "./style.ts";
 import { TextSpan, type HorizontalAlign, type WrapMode } from "./text.ts";
 
 type ChildBuilder = readonly View[] | ((builder: ChildrenBuilder) => void);
+
+export type OverflowIndicator =
+  | { readonly kind: "none" }
+  | { readonly kind: "ellipsis"; readonly style: StyleSpec }
+  | { readonly kind: "footer"; readonly prefix: string; readonly style: StyleSpec };
 
 export type GridTrack = GridTrackNode;
 
@@ -205,7 +211,10 @@ export class View {
     });
   }
   container(): View { return new View({ type: "container", child: this.node }); }
-  clampRows(maxRows: number): View { validateU16(maxRows, "maxRows"); return new View({ type: "clamp", child: this.node, maxRows }); }
+  clampRows(maxRows: number, overflow: OverflowIndicator = { kind: "none" }): View {
+    validateU16(maxRows, "maxRows");
+    return new View({ type: "clamp", child: this.node, maxRows, overflow: overflowNode(overflow) });
+  }
   fitWidth(): View { return this.decorate({ width: "fit" }); }
   fillWidth(): View { return this.decorate({ width: "fill" }); }
   fitHeight(): View { return this.decorate({ height: "fit" }); }
@@ -265,6 +274,12 @@ function rows(node: ViewNode): string[] {
     case "component": return [""];
     case "decorated": return rows(node.child);
   }
+}
+
+function overflowNode(overflow: OverflowIndicator): OverflowIndicatorNode {
+  if (overflow.kind === "none") return overflow;
+  if (overflow.kind === "ellipsis") return { kind: "ellipsis", style: overflow.style.value };
+  return { kind: "footer", prefix: overflow.prefix, style: overflow.style.value };
 }
 
 function buildChildren(children: ChildBuilder): ChildrenBuilder {
