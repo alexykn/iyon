@@ -947,9 +947,16 @@ impl HostHistory {
 }
 
 /// Native retained interaction host used by language bindings.
+#[derive(Clone)]
 pub struct TuiHost {
     inner: Arc<Mutex<HostInner>>,
 }
+
+// The host is the single owner of the retained native runtime. All access to
+// its non-Send component registry and routing tables is serialized through
+// `inner`; no component or callback is exposed to the async bridge.
+unsafe impl Send for TuiHost {}
+unsafe impl Sync for TuiHost {}
 
 impl TuiHost {
     pub fn open(width: u16, height: u16, headless: bool) -> Result<Self> {
@@ -1227,6 +1234,7 @@ impl TuiHost {
             HostBackend::Headless(_) => None,
             HostBackend::Real(backend) => backend.try_next_event()?,
         };
+        inner.now = Instant::now();
         match event {
             Some(TerminalEvent::Key(key)) => {
                 inner.running.dispatch_key(key).map_err(|error| anyhow::anyhow!("key dispatch failed: {error:?}"))?;
@@ -1241,6 +1249,25 @@ impl TuiHost {
                 inner.advance_and_render()
             }
             None => inner.advance_and_render(),
+        }
+    }
+
+    /// Run the native interaction driver until a semantic application action
+    /// or exit is available. Terminal input, component ticks, stream
+    /// wakeups, and rendering all stay on the Rust side of the boundary.
+    pub async fn wait_for_action(&self) -> Result<Option<RoutedAction>> {
+        loop {
+            if self.exited() {
+                return Ok(None);
+            }
+
+            self.poll_terminal()?;
+            if let Some(action) = self.next_action() {
+                return Ok(Some(action));
+            }
+
+            let wait_ms = self.next_wake_ms().min(16).max(1);
+            super::run::wait_for_deadline(Some(Instant::now() + Duration::from_millis(wait_ms))).await;
         }
     }
 

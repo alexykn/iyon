@@ -49,15 +49,12 @@ export class Tui implements TuiRuntime {
   get size(): Promise<TerminalMetadata> { return Promise.resolve({ width: this.width, height: this.height }); }
 
   async nextAction(signal?: AbortSignal): Promise<{ actionId: string; payload?: string } | null> {
-    while (!this.closed) {
-      if (signal?.aborted) throw tuiError("cancelled", "TUI action wait was cancelled");
-      const action = this.host.nextAction();
-      if (action !== null) return { actionId: action.action_id, ...(action.payload === null || action.payload === undefined ? {} : { payload: action.payload }) };
-      this.host.pollTerminal();
-      const waitMs = this.host.nextWakeMs();
-      await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
-    }
-    return null;
+    if (signal?.aborted) throw tuiError("cancelled", "TUI action wait was cancelled");
+    if (this.closed) return null;
+    const action = await this.host.waitForAction();
+    if (signal?.aborted) throw tuiError("cancelled", "TUI action wait was cancelled");
+    if (action === null) return null;
+    return { actionId: action.action_id, ...(action.payload === null || action.payload === undefined ? {} : { payload: action.payload }) };
   }
 
   /** Compatibility surface for callers that only need termination. */

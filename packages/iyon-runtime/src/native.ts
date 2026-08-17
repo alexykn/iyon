@@ -106,6 +106,7 @@ export interface NativeTuiHostContract {
   pollTerminal(): void;
   nextWakeMs(): number;
   nextAction(): { action_id: string; payload?: string | null } | null;
+  waitForAction(): Promise<{ action_id: string; payload?: string | null } | null>;
   screenRows(): string[];
   nativeHistoryRows(): string[];
   resize(width: number, height: number): void;
