@@ -348,7 +348,7 @@ describe("Iyon public native TUI", () => {
         { type: "userMessage", text: "steered user" },
         { type: "assistantDelta", text: "assistant after steering" },
       ]);
-      advance(fixture, 16, 40);
+      advance(fixture, 16, 120);
       const lines = transcriptLines(fixture.harness);
       expect(position(lines, "steered user")).toBeLessThan(position(lines, "assistant after steering"));
     });
@@ -380,6 +380,31 @@ describe("Iyon public native TUI", () => {
       expect(position(lines, "jf")).toBeLessThan(position(lines, "thinking after steer"));
       expect(lines.some((line) => line.includes("Queue: jf"))).toBe(false);
     }, true);
+  });
+
+  test("steered_submit_during_thinking_lands_at_tail_on_delivery", async () => {
+    await withFixture(60, 24, async (fixture) => {
+      await fixture.app.handleAction({ type: "submit", text: "hello" });
+      await send(fixture, { type: "thinkingDelta", text: "thinking about hello" });
+      advance(fixture, 16, 120);
+      await fixture.app.handleAction({ type: "submit", text: "jf" });
+      const queued = transcriptLines(fixture.harness);
+      expect(queued.some((line) => line.includes("Queue: jf"))).toBe(true);
+      expect(queued.filter((line) => line.trim() === "jf")).toHaveLength(0);
+      expect(position(queued, "hello")).toBeLessThan(position(queued, "thinking about hello"));
+
+      await send(fixture, { type: "userMessage", text: "jf" });
+      await sendAll(fixture, [
+        { type: "thinkingDelta", text: "thinking after steer" },
+        { type: "assistantDelta", text: "answer after steer" },
+      ]);
+      advance(fixture, 16, 120);
+      const lines = transcriptLines(fixture.harness);
+      expect(lines.filter((line) => line.trim() === "jf")).toHaveLength(1);
+      expect(position(lines, "thinking about hello")).toBeLessThan(position(lines, "jf"));
+      expect(position(lines, "jf")).toBeLessThan(position(lines, "thinking after steer"));
+      expect(lines.some((line) => line.includes("Queue: jf"))).toBe(false);
+    });
   });
 
   test("keeps streaming assistant content contiguous while the composer collapses", async () => {
@@ -442,6 +467,7 @@ describe("Iyon public native TUI", () => {
       const rows = fixture.harness.screenRows();
       expect(rows.some((line) => line.includes("Queue: steer"))).toBe(true);
       expect(rows.some((line) => line.includes("waiting"))).toBe(true);
+      expect(transcriptLines(fixture.harness).some((line) => line.trim() === "steer")).toBe(false);
     });
   });
 
