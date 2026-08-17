@@ -36,6 +36,7 @@ export type LayoutChild =
   | { readonly kind: "normal"; readonly child: ViewNode }
   | { readonly kind: "fixed"; readonly size: number; readonly child: ViewNode }
   | { readonly kind: "flex"; readonly child: ViewNode }
+  | { readonly kind: "flexMax"; readonly maxRows: number; readonly child: ViewNode }
   | { readonly kind: "contentMax"; readonly maxRows: number; readonly child: ViewNode };
 
 export type GridTrackNode =

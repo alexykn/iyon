@@ -87,6 +87,11 @@ export class ChildrenBuilder {
     return this;
   }
   flex(view: View): this { this.children.push({ kind: "flex", child: nodeForMaterialization(view) }); return this; }
+  flexMax(maxRows: number, view: View): this {
+    validateU16(maxRows, "maxRows");
+    this.children.push({ kind: "flexMax", maxRows, child: nodeForMaterialization(view) });
+    return this;
+  }
   contentMax(maxRows: number, view: View): this {
     validateU16(maxRows, "maxRows");
     this.children.push({ kind: "contentMax", maxRows, child: nodeForMaterialization(view) });

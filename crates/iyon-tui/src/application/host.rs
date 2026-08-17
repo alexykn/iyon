@@ -19,7 +19,7 @@ use crate::{
     StreamSnapshotBuilder, StreamingSource, StyleRef, TextContent, Theme, View,
     CodeBlockLabelPolicy, MarkdownOptions, MarkdownProjector, Projection, ProjectionBuilder,
     Projector, Renderer, Smooth, SoftBreakPolicy, TableColumnSizing, TaskListMarkerPolicy,
-    TextRenderPolicy, TextRenderer, WrapMode,
+    TextRenderPolicy, TextRenderer, WrapMode, ScrollPane,
     backend::NativeHistorySink,
     geometry::Size,
     physical::PhysicalRow,
@@ -174,6 +174,14 @@ pub struct HostViewSlot {
     host: Arc<Mutex<Option<Weak<Mutex<HostInner>>>>>,
 }
 
+/// A shared native scrolling viewport for live tool output.
+#[derive(Clone)]
+pub struct HostScrollPane {
+    state: Arc<Mutex<ScrollPane>>,
+    component_id: Arc<Mutex<Option<u64>>>,
+    host: Arc<Mutex<Option<Weak<Mutex<HostInner>>>>>,
+}
+
 struct ViewSlotState {
     view: View,
     revision: u64,
@@ -295,6 +303,113 @@ impl HostViewSlot {
             inner.render()?;
         }
         Ok(())
+    }
+}
+
+impl HostScrollPane {
+    pub fn new(content: View) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(ScrollPane::new(content))),
+            component_id: Arc::new(Mutex::new(None)),
+            host: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn set_content(&self, content: View) -> Result<()> {
+        self.state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("scroll pane lock is poisoned"))?
+            .set_content(content);
+        self.render_host()
+    }
+
+    pub fn follow_end(&self) -> Result<()> {
+        self.state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("scroll pane lock is poisoned"))?
+            .follow_end();
+        self.render_host()
+    }
+
+    pub fn component_id(&self) -> Option<u64> {
+        self.component_id.lock().ok().and_then(|id| *id)
+    }
+
+    fn attach_host(&self, host: &Arc<Mutex<HostInner>>) -> Result<()> {
+        *self
+            .host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("scroll pane host lock is poisoned"))? =
+            Some(Arc::downgrade(host));
+        Ok(())
+    }
+
+    fn set_component_id(&self, id: u64) -> Result<()> {
+        *self
+            .component_id
+            .lock()
+            .map_err(|_| anyhow::anyhow!("scroll pane component lock is poisoned"))? = Some(id);
+        Ok(())
+    }
+
+    fn render_host(&self) -> Result<()> {
+        let host = self
+            .host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("scroll pane host lock is poisoned"))?
+            .clone()
+            .and_then(|host| host.upgrade());
+        if let Some(host) = host {
+            let mut inner = host
+                .lock()
+                .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
+            inner.running.invalidate_frame();
+            inner.render()?;
+        }
+        Ok(())
+    }
+}
+
+struct MountedScrollPane(HostScrollPane);
+
+impl Component for MountedScrollPane {
+    fn view(&self) -> View {
+        self.0
+            .state
+            .lock()
+            .map(|pane| Component::view(&*pane))
+            .unwrap_or_else(|_| View::spacer(0))
+    }
+
+    fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+        cx.focusable();
+        cx.on_layout_changed(Self::on_layout_changed);
+        cx.key_commands(Self::map_command, Self::handle_command);
+    }
+}
+
+impl MountedScrollPane {
+    fn on_layout_changed(component: &mut Self, size: Size) {
+        if let Ok(mut pane) = component.0.state.lock() {
+            pane.on_layout_changed(size);
+        }
+    }
+
+    fn map_command(component: &Self, key: KeyStroke) -> Option<crate::scroll_command::ScrollCommand> {
+        component.0.state.lock().ok()?.map_command(key)
+    }
+
+    fn handle_command(
+        component: &mut Self,
+        command: crate::scroll_command::ScrollCommand,
+        cx: &mut crate::EventCx<'_>,
+    ) -> InteractionResult {
+        component
+            .0
+            .state
+            .lock()
+            .map(|mut pane| pane.handle_command(command, cx))
+            .unwrap_or(InteractionResult::Ignored)
     }
 }
 
@@ -1493,6 +1608,15 @@ impl TuiHost {
         let handle = inner.running.host_register(MountedViewSlot(slot.clone()));
         slot.set_component_id(handle.raw_id())?;
         Ok(slot)
+    }
+
+    pub fn create_scroll_pane(&self, view: View) -> Result<HostScrollPane> {
+        let pane = HostScrollPane::new(view);
+        pane.attach_host(&self.inner)?;
+        let mut inner = self.lock_mut()?;
+        let handle = inner.running.host_register(MountedScrollPane(pane.clone()));
+        pane.set_component_id(handle.raw_id())?;
+        Ok(pane)
     }
 
     pub fn bind_key(&self, key: KeyStroke, action_id: impl Into<String>) -> Result<()> {

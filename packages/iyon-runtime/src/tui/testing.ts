@@ -8,6 +8,7 @@ import type {
   Scene,
   TextInput,
   WorkingActivityHandle,
+  ScrollPane,
   TuiEvent,
   TuiOpenOptions,
 } from "./types.ts";
@@ -42,6 +43,10 @@ export class AppHarness implements AppHarnessContract {
   createViewSlot(initial: import("./values/view.ts").View) {
     if (this.tui.createViewSlot === undefined) throw tuiError("runtime", "native view slots are unavailable");
     return this.tui.createViewSlot(initial);
+  }
+  createScrollPane(initial: import("./values/view.ts").View): ScrollPane {
+    if (this.tui.createScrollPane === undefined) throw tuiError("runtime", "native scroll panes are unavailable");
+    return this.tui.createScrollPane(initial);
   }
   bindKey(key: string, actionId: string, modifiers?: readonly string[]): void { this.tui.bindKey(key, actionId, modifiers); }
   route(output: OutputHandle<string>, actionId: string): void { this.tui.route(output, actionId); }
