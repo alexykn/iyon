@@ -10,7 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 iyon-api.workspace = true
 iyon-core.workspace = true
-iyon-tui.workspace = true
+iyon-tui = { workspace = true, features = ["native-host"] }
 futures-util.workspace = true
 keyring.workspace = true
 napi.workspace = true

@@ -13,6 +13,7 @@ mod input;
 mod kernel;
 mod run;
 mod timer;
+#[cfg(feature = "native-host")]
 mod host;
 
 #[cfg(test)]
@@ -25,4 +26,5 @@ pub use handle::{AppClosed, AppHandle, AppSendError};
 #[cfg(feature = "test-util")]
 pub(crate) use kernel::{KernelError, RunningApp};
 pub use timer::TimerHandle;
+#[cfg(feature = "native-host")]
 pub use host::{HostActivityConfig, HostCellStyle, HostHistory, HostScrollPane, HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, RoutedAction, TuiHost};
