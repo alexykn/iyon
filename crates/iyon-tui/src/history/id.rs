@@ -18,8 +18,12 @@ impl HistoryUnitId {
         ))
     }
 
-    pub(crate) const fn value(self) -> u64 {
+    pub const fn value(self) -> u64 {
         self.0.get()
+    }
+
+    pub(crate) fn from_value(value: u64) -> Option<Self> {
+        NonZeroU64::new(value).map(Self)
     }
 }
 

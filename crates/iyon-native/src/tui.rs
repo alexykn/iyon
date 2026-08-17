@@ -122,19 +122,44 @@ impl NativeHistory {
     }
 
     #[napi]
-    pub fn push(&self, view: &NativeTuiView) -> Result<()> {
+    pub fn push(&self, view: &NativeTuiView) -> Result<i64> {
         ensure_alive(&self.alive)?;
         if let Some(host) = &self.host {
             return host
                 .push(view.view.clone())
+                .map(|unit| unit.value() as i64)
                 .map_err(|error| crate::NativeError::invalid_input(error.to_string()));
         }
         self.state
             .lock()
             .map_err(|_| crate::NativeError::internal("history lock is poisoned"))?
             .push(view.view.clone())
-            .map(|_| ())
+            .map(|unit| unit.value() as i64)
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
+    }
+
+    #[napi]
+    pub fn freeze(&self, unit: i64, view: &NativeTuiView) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let unit = u64::try_from(unit).map_err(|_| crate::NativeError::invalid_input("history unit id must be positive"))?;
+        if let Some(host) = &self.host {
+            return host
+                .freeze(unit, view.view.clone())
+                .map_err(|error| crate::NativeError::invalid_input(error.to_string()));
+        }
+        Err(crate::NativeError::invalid_input("detached history cannot freeze a unit"))
+    }
+
+    #[napi(js_name = "discardLive")]
+    pub fn discard_live(&self, unit: i64) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let unit = u64::try_from(unit).map_err(|_| crate::NativeError::invalid_input("history unit id must be positive"))?;
+        if let Some(host) = &self.host {
+            return host
+                .discard_live(unit)
+                .map_err(|error| crate::NativeError::invalid_input(error.to_string()));
+        }
+        Err(crate::NativeError::invalid_input("detached history cannot discard a unit"))
     }
 
     fn from_host(host: HostHistory) -> Self {

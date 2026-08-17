@@ -70,6 +70,7 @@ class IyonAppImpl implements IyonApp {
   private readonly toolCards = new ToolCardStore();
   private readonly toolSlots = new Map<string, ViewSlot>();
   private readonly toolPanes = new Map<string, ScrollPane>();
+  private readonly toolHistoryUnits = new Map<string, number>();
   private readonly mountedToolCards = new Set<string>();
   private readonly renderedToolResults = new Set<string>();
   private readonly approvals = new ApprovalStore();
@@ -127,6 +128,7 @@ class IyonAppImpl implements IyonApp {
       this.toolSlots.clear();
       for (const pane of this.toolPanes.values()) await pane.dispose();
       this.toolPanes.clear();
+      this.toolHistoryUnits.clear();
       this.mountedToolCards.clear();
       this.toolCards.clear();
       this.renderedToolResults.clear();
@@ -318,6 +320,10 @@ class IyonAppImpl implements IyonApp {
   private async updateToolSlot(key: string, card: LiveTool | undefined): Promise<void> {
     if (card === undefined) return;
     const view = this.renderToolCall(card, key, false);
+    if (card.frozen) {
+      await this.freezeToolSlot(key, view);
+      return;
+    }
     const pulsing = card.status === "preparing" || card.status === "running";
     const slot = this.toolSlots.get(key);
     if (slot !== undefined) {
@@ -341,10 +347,11 @@ class IyonAppImpl implements IyonApp {
     this.toolSlots.set(key, created);
     this.mountedToolCards.add(key);
     await this.updateToolContent(key, card);
-    await this.history.push(View.vertical((column) => {
+    const historyUnit = await this.history.push(View.vertical((column) => {
       column.child(View.component(created).fillWidth());
       column.flexMax(16, View.component(pane).fillWidth());
     }).fillWidth());
+    this.toolHistoryUnits.set(key, historyUnit);
     if (pulsing) await created.setAnimation([view as never, this.renderToolCall(card, key, true) as never], 480);
   }
 
@@ -363,15 +370,26 @@ class IyonAppImpl implements IyonApp {
     const resultView = this.renderToolResult(result);
     const view = call === undefined ? resultView : View.vertical([call, resultView]).fillWidth();
     if (slot !== undefined) {
-      const pane = this.toolPanes.get(key);
-      if (pane !== undefined) await pane.setContent(View.spacer(0));
-      await slot.stopAnimation(view as never);
+      await this.freezeToolSlot(key, view);
       return;
     }
     if (!this.mountedToolCards.has(key)) {
       this.mountedToolCards.add(key);
       await this.history.push(view as never);
     }
+  }
+
+  private async freezeToolSlot(key: string, view: unknown): Promise<void> {
+    const unit = this.toolHistoryUnits.get(key);
+    if (unit === undefined) return;
+    await this.history.freeze(unit, view as never);
+    const slot = this.toolSlots.get(key);
+    if (slot !== undefined) await slot.dispose();
+    const pane = this.toolPanes.get(key);
+    if (pane !== undefined) await pane.dispose();
+    this.toolHistoryUnits.delete(key);
+    this.toolSlots.delete(key);
+    this.toolPanes.delete(key);
   }
 
   private renderToolCall(card: LiveTool, key: string, pulse: boolean) {

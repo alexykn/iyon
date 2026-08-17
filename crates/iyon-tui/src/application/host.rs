@@ -14,7 +14,7 @@ use anyhow::Result;
 
 use crate::{
     AppCx, App as TuiApp, BorderEdges, BorderSpec, Component, ComponentCx,
-    ComponentHandle, History, HistoryLayout, InteractionResult, KeyStroke, Output, TextInput,
+    ComponentHandle, History, HistoryLayout, HistoryUnitId, InteractionResult, KeyStroke, Output, TextInput,
     HistoryStreamHandle, IntoView, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
     StreamSnapshotBuilder, StreamingSource, StyleRef, TextContent, Theme, View,
     CodeBlockLabelPolicy, MarkdownOptions, MarkdownProjector, Projection, ProjectionBuilder,
@@ -1477,14 +1477,41 @@ impl HostHistory {
         Ok(())
     }
 
-    pub fn push(&self, view: View) -> Result<()> {
+    pub fn push(&self, view: View) -> Result<HistoryUnitId> {
+        let mut inner = self.lock_mut()?;
+        let unit = inner
+            .running
+            .scene_history_mut()
+            .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?
+            .push(view)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        inner.render()?;
+        Ok(unit)
+    }
+
+    pub fn freeze(&self, unit: u64, view: View) -> Result<()> {
+        let unit = HistoryUnitId::from_value(unit)
+            .ok_or_else(|| anyhow::anyhow!("history unit id must be non-zero"))?;
         let mut inner = self.lock_mut()?;
         inner
             .running
             .scene_history_mut()
             .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?
-            .push(view)
-            .map(|_| ())
+            .freeze(unit, view)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        inner.render()?;
+        Ok(())
+    }
+
+    pub fn discard_live(&self, unit: u64) -> Result<()> {
+        let unit = HistoryUnitId::from_value(unit)
+            .ok_or_else(|| anyhow::anyhow!("history unit id must be non-zero"))?;
+        let mut inner = self.lock_mut()?;
+        inner
+            .running
+            .scene_history_mut()
+            .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?
+            .discard_live(unit)
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
         inner.render()?;
         Ok(())
