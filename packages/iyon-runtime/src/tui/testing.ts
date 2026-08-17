@@ -35,6 +35,7 @@ export class AppHarness implements AppHarnessContract {
 
   async render(scene: Scene, signal?: AbortSignal): Promise<void> {
     await this.tui.render(scene, signal);
+    this.tui.advance(0);
   }
 
   createHistory(): History { return this.tui.createHistory(); }

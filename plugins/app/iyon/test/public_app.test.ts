@@ -446,14 +446,14 @@ describe("Iyon public native TUI", () => {
 
   test("assistant_stream_replaces_unqueued_working_activity", async () => {
     await withFixture(60, 20, async (fixture) => {
-      await sendAll(fixture, [
-        { type: "turnStarted" },
-        { type: "userMessage", text: "prompt" },
-        { type: "assistantDelta", text: "assistant tail" },
-      ]);
+      await sendAll(fixture, [{ type: "turnStarted" }, { type: "userMessage", text: "prompt" }]);
+      advance(fixture);
+      const workingRow = fixture.harness.screenRows().findIndex((line) => line.includes("Working"));
+      expect(workingRow).toBeGreaterThanOrEqual(0);
+      await send(fixture, { type: "assistantDelta", text: "assistant tail" });
       advance(fixture, 16, 20);
       const lines = transcriptLines(fixture.harness);
-      expect(position(lines, "assista")).toBeGreaterThanOrEqual(0);
+      expect(fixture.harness.screenRows().findIndex((line) => line.includes("assista"))).toBe(workingRow);
       expect(lines.some((line) => line.includes("Working"))).toBe(false);
     });
   });
