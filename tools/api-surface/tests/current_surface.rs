@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use api_surface::check::{check_mappings, compare_manifests, read_manifest};
+use api_surface::model::ApiKind;
 use api_surface::render::write_manifest;
 use api_surface::scan_config;
 use api_surface::tsgen::write_sdk;
@@ -41,6 +42,35 @@ fn current_surface_contains_inventory_oracle_paths() {
     ] {
         assert!(paths.contains(expected), "missing {expected}");
     }
+}
+
+#[test]
+fn every_reachable_method_has_a_generated_ts_declaration() {
+    let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("surface.toml");
+    let (config, manifest) = scan_config(&config_path).unwrap();
+    let generated = ["iyon-api.d.ts", "iyon-core.d.ts", "iyon-tui.d.ts"]
+        .into_iter()
+        .map(|file| std::fs::read_to_string(config.sdk_output_dir.join(file)).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut methods = 0;
+    for package in &manifest.crates {
+        for item in &package.surface.items {
+            if !matches!(item.kind, ApiKind::Method | ApiKind::AssociatedFunction) {
+                continue;
+            }
+            for path in &item.paths {
+                methods += 1;
+                let marker = format!("// {} [", path.path.display());
+                assert!(
+                    generated.contains(&marker),
+                    "missing generated TypeScript declaration for {}",
+                    path.path.display()
+                );
+            }
+        }
+    }
+    assert!(methods > 0, "the public method inventory must not be empty");
 }
 
 #[test]
