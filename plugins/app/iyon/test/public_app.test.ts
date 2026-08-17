@@ -310,9 +310,9 @@ describe("Iyon public native TUI", () => {
 
   test("reasoning_effort_changes_focused_composer_border_color", async () => {
     await withFixture(40, 12, async (fixture) => {
-      const medium = fixture.harness.styleAt(9, 0);
+      const medium = fixture.harness.styleAt(8, 0);
       await fixture.app.handleAction({ type: "cycleReasoningEffort" });
-      const high = fixture.harness.styleAt(9, 0);
+      const high = fixture.harness.styleAt(8, 0);
       expect(medium.foreground).toBe("Yellow");
       expect(high.foreground).toBe("LightMagenta");
     });

@@ -52,6 +52,8 @@ declare module "iyon:tui" {
   export const Style: typeof import("./tui/values/style.ts").Style;
   export const StyleSpec: typeof import("./tui/values/style.ts").StyleSpec;
   export const TextSpan: typeof import("./tui/values/text.ts").TextSpan;
+  export const TextSelector: typeof import("./tui/values/text.ts").TextSelector;
+  export const Theme: typeof import("./tui/values/theme.ts").Theme;
   export const History: typeof import("./tui/history.ts").History;
   export const TextInput: typeof import("./tui/text-input.ts").TextInput;
   export const TextStream: typeof import("./tui/stream.ts").TextStream;

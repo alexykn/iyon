@@ -79,8 +79,8 @@ export class Tui implements TuiRuntime {
 
   createHistory(): History { return new History(this.host.history() as never); }
 
-  createTextInput(options: { multiline?: boolean } = {}): TextInput {
-    return new TextInput(options, this.host.textInput(options.multiline) as never);
+  createTextInput(options: { multiline?: boolean; border?: import("./ir.ts").BorderNode } = {}): TextInput {
+    return new TextInput(options, this.host.textInput(options.multiline, options.border) as never);
   }
 
   createWorking(options: WorkingActivityOptions = {}): WorkingActivity {

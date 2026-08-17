@@ -37,7 +37,7 @@ export class AppHarness implements AppHarnessContract {
   }
 
   createHistory(): History { return this.tui.createHistory(); }
-  createTextInput(options: { multiline?: boolean } = {}): TextInput { return this.tui.createTextInput(options); }
+  createTextInput(options: { multiline?: boolean; border?: import("./ir.ts").BorderNode } = {}): TextInput { return this.tui.createTextInput(options); }
   createWorking(): WorkingActivityHandle { return this.tui.createWorking?.() ?? (() => { throw tuiError("runtime", "native working component is unavailable"); })(); }
   createViewSlot(initial: import("./values/view.ts").View) {
     if (this.tui.createViewSlot === undefined) throw tuiError("runtime", "native view slots are unavailable");
@@ -47,6 +47,7 @@ export class AppHarness implements AppHarnessContract {
   route(output: OutputHandle<string>, actionId: string): void { this.tui.route(output, actionId); }
   interceptPaste(input: TextInput, actionId: string): void { this.tui.interceptPaste(input as RuntimeTextInput, actionId); }
   forwardPaste(text: string): void { this.tui.forwardPaste(text); }
+  setTheme(theme: import("./values/theme.ts").Theme): Promise<void> { return this.tui.setTheme(theme); }
 
   resize(width: number, height: number): Promise<void> {
     this.options.width = width;

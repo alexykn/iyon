@@ -747,6 +747,11 @@ impl HostTextInput {
         self.render_host()
     }
 
+    pub fn set_border(&self, border: BorderSpec) -> Result<()> {
+        self.lock()?.set_border(border);
+        self.render_host()
+    }
+
     pub fn submitted(&self) -> Result<Output<String>> {
         Ok(self.lock()?.submitted())
     }

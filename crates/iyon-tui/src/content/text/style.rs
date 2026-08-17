@@ -143,6 +143,10 @@ impl TextSelector {
         Self::any().and_fact(TextFact::Part(part))
     }
 
+    pub fn and_part(self, part: TextPart) -> Self {
+        self.and_fact(TextFact::Part(part))
+    }
+
     pub fn annotation(tag: &SemanticTag) -> Self {
         Self::any().and_annotation(tag)
     }

@@ -26,7 +26,7 @@ import {
   asIyonError,
   isCancelledError,
 } from "./modules/core.ts";
-import { AppHarness, Component, History, Insets, Scene, Style, StyleSpec, Tui, TextInput, TextSpan, TextStream, View } from "./tui/index.ts";
+import { AppHarness, Component, History, Insets, Scene, Style, StyleSpec, Tui, TextInput, TextSelector, TextSpan, TextStream, Theme, View } from "./tui/index.ts";
 
 const virtualModules = {
   "iyon:api": `
@@ -121,8 +121,10 @@ function registerRuntimeModules(build: Bun.PluginBuilder): void {
       StyleSpec,
       Tui,
       TextInput,
+      TextSelector,
       TextSpan,
       TextStream,
+      Theme,
       View,
       TuiError: require("./tui/errors.ts").TuiError,
       asTuiError: require("./tui/errors.ts").asTuiError,

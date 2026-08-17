@@ -208,7 +208,7 @@ export interface TuiRuntime {
   close(): TuiOperation<void>;
   exit?(): TuiOperation<void>;
   createHistory?(): History;
-  createTextInput?(options?: { multiline?: boolean }): TextInput;
+  createTextInput?(options?: { multiline?: boolean; border?: import("./ir.ts").BorderNode }): TextInput;
   createWorking?(): WorkingActivityHandle;
   createViewSlot?(initial: View): ViewSlot;
   bindKey?(key: string, actionId: string, modifiers?: readonly string[]): void;
@@ -216,6 +216,7 @@ export interface TuiRuntime {
   interceptPaste?(input: TextInput, actionId: string): void;
   forwardPaste?(text: string): void;
   nextAction?(signal?: AbortSignal): TuiOperation<{ actionId: string; payload?: string } | null>;
+  setTheme?(theme: SemanticTheme): TuiOperation<void>;
 }
 
 export interface AppHarness extends TuiRuntime {

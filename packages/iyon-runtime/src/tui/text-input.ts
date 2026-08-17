@@ -1,10 +1,11 @@
 import { HandleBase, nativeTui } from "./handles.ts";
 import type { TextInput as TextInputContract, OutputHandle } from "./types.ts";
 import { View } from "./values/view.ts";
+import type { BorderNode } from "./ir.ts";
 import type { NativeTuiOutputContract } from "../native.ts";
 
 export class TextInput extends HandleBase<ReturnType<typeof nativeTui.textInput>, "text-input"> implements TextInputContract {
-  constructor(options?: { multiline?: boolean }, nativeHandle = nativeTui.textInput(options?.multiline)) { super("text-input", nativeHandle); }
+  constructor(options?: { multiline?: boolean; border?: BorderNode }, nativeHandle = nativeTui.textInput(options?.multiline)) { super("text-input", nativeHandle); }
 
   text(): Promise<string> { return this.call(() => this.nativeHandle.text()); }
   cursorBytes(): Promise<number> { return this.call(() => this.nativeHandle.cursorBytes()); }
