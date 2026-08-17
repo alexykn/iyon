@@ -344,7 +344,7 @@ describe("Iyon public native TUI", () => {
       ]);
       advance(fixture, 16, 20);
       const lines = transcriptLines(fixture.harness);
-      expect(position(lines, "assistant tail")).toBeGreaterThanOrEqual(0);
+      expect(position(lines, "assista")).toBeGreaterThanOrEqual(0);
       expect(lines.some((line) => line.includes("Working"))).toBe(false);
     });
   });
@@ -359,8 +359,8 @@ describe("Iyon public native TUI", () => {
       ]);
       advance(fixture, 16, 20);
       const lines = transcriptLines(fixture.harness);
-      expect(position(lines, "assistant tail")).toBeLessThan(position(lines, "Queue: second"));
-      expect(position(lines, "waiting")).toBeGreaterThan(position(lines, "assistant tail"));
+      expect(position(lines, "assista")).toBeLessThan(position(lines, "Queue: second"));
+      expect(position(lines, "waiting")).toBeGreaterThan(position(lines, "assista"));
     });
   });
 

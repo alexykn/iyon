@@ -303,7 +303,12 @@ impl Component for MountedWorking {
         if !state.active {
             return View::spacer(0);
         }
-        let frame = self.0.config.frames.get(state.frame % self.0.config.frames.len()).map(String::as_str).unwrap_or("");
+        let index = state.frame % self.0.config.frames.len();
+        let frame = if state.pending.is_empty() {
+            self.0.config.frames.get(self.0.config.frames.len().saturating_sub(1).saturating_sub(index)).map(String::as_str).unwrap_or("")
+        } else {
+            self.0.config.frames.get(index).map(String::as_str).unwrap_or("")
+        };
         let label = if state.pending.is_empty() { &self.0.config.active_label } else { &self.0.config.pending_label };
         let status = View::text(format!("{frame} {label}")).no_wrap();
         let row = if let Some(first) = state.pending.first() {

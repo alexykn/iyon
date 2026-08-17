@@ -3,7 +3,6 @@ import type { History, TextInput, View as ViewValue, WorkingActivityHandle } fro
 import type { IyonState } from "./contracts.ts";
 import { MAX_COMPOSER_ROWS } from "./composer.ts";
 import { approvalView } from "./approvals.ts";
-import { hasActiveWork } from "./state.ts";
 import type { IyonTheme } from "./theme.ts";
 
 export interface IyonViewOptions { readonly composer: TextInput; readonly history: History; readonly state: IyonState; readonly theme: IyonTheme; readonly working?: WorkingActivityHandle; }
@@ -20,7 +19,7 @@ export function createIyonView(options: IyonViewOptions): ViewValue {
     .styleState("iyon.agent.effort", options.state.info.reasoningEffort)
     .fillWidth();
   const footer = View.text(footerText(options.state)).style(options.theme.footer).fillWidth();
-  const working = hasActiveWork(options.state) && options.working !== undefined
+  const working = options.state.activityVisible && options.working !== undefined
     ? View.component(options.working).fillWidth().padding(Insets.of(0, 0, 1, 0))
     : View.spacer(0);
   const approval = options.state.pendingApproval === undefined ? View.spacer(0) : approvalView(options.state.pendingApproval);

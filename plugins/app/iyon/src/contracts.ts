@@ -92,6 +92,7 @@ export interface IyonState {
   readonly composerText: string;
   readonly userBatches: readonly string[];
   readonly working: boolean;
+  readonly activityVisible: boolean;
   readonly steering: readonly string[];
   readonly assistantText: string;
   readonly thinkingText: string;
