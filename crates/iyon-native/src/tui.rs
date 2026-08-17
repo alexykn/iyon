@@ -2,6 +2,7 @@ use napi::bindgen_prelude::{Reference, Result};
 use napi_derive::napi;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use iyon_tui::projection::ProjectionBuilder;
 use iyon_tui::stream::{StreamOffset, StreamRange};
@@ -763,12 +764,12 @@ pub struct NativeTextStream {
 impl NativeTextStream {
     #[napi(constructor)]
     pub fn new(options: Option<Value>) -> Result<Self> {
-        let (markdown, insets) = parse_stream_options(options)?;
+        let (markdown, insets, pacing) = parse_stream_options(options)?;
         Ok(Self {
             stream: if markdown {
-                HostTextStream::with_markdown_presentation(iyon_tui::TextStreamPresentation::new(
-                    insets,
-                ))
+                HostTextStream::with_markdown_presentation(
+                    iyon_tui::TextStreamPresentation::new(insets).with_pacing(pacing),
+                )
             } else {
                 HostTextStream::new()
             },
@@ -842,14 +843,16 @@ impl NativeTextStream {
     }
 }
 
-fn parse_stream_options(value: Option<Value>) -> Result<(bool, iyon_tui::Insets)> {
+fn parse_stream_options(
+    value: Option<Value>,
+) -> Result<(bool, iyon_tui::Insets, iyon_tui::SmoothConfig)> {
     let Some(value) = value else {
-        return Ok((false, iyon_tui::Insets::ZERO));
+        return Ok((false, iyon_tui::Insets::ZERO, iyon_tui::SmoothConfig::new()));
     };
     if let Some(projector) = value.as_str() {
         return match projector {
-            "markdown" => Ok((true, iyon_tui::Insets::ZERO)),
-            "" => Ok((false, iyon_tui::Insets::ZERO)),
+            "markdown" => Ok((true, iyon_tui::Insets::ZERO, iyon_tui::SmoothConfig::new())),
+            "" => Ok((false, iyon_tui::Insets::ZERO, iyon_tui::SmoothConfig::new())),
             _ => Err(crate::NativeError::invalid_input(
                 "stream projector must be markdown",
             )),
@@ -884,7 +887,55 @@ fn parse_stream_options(value: Option<Value>) -> Result<(bool, iyon_tui::Insets)
         })
         .transpose()?
         .unwrap_or(iyon_tui::Insets::ZERO);
-    Ok((markdown, insets))
+    let pacing = parse_stream_pacing(object.get("pacing"))?;
+    Ok((markdown, insets, pacing))
+}
+
+fn parse_stream_pacing(value: Option<&Value>) -> Result<iyon_tui::SmoothConfig> {
+    let Some(value) = value else {
+        return Ok(iyon_tui::SmoothConfig::new());
+    };
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("stream pacing must be an object"))?;
+    let defaults = iyon_tui::SmoothConfig::new();
+    let tick_interval_ms = object
+        .get("tickIntervalMs")
+        .map(|value| {
+            value.as_u64().ok_or_else(|| {
+                crate::NativeError::invalid_input("stream pacing tickIntervalMs must be an integer")
+            })
+        })
+        .transpose()?
+        .unwrap_or(
+            u64::try_from(defaults.tick_interval().as_millis())
+                .expect("default stream tick interval fits u64"),
+        );
+    let spring = pacing_f32(object, "spring", defaults.spring())?;
+    let minimum = pacing_f32(object, "minUnitsPerSecond", defaults.min_units_per_second())?;
+    let maximum = pacing_f32(object, "maxUnitsPerSecond", defaults.max_units_per_second())?;
+    iyon_tui::SmoothConfig::try_from_parts(
+        Duration::from_millis(tick_interval_ms),
+        spring,
+        minimum,
+        maximum,
+    )
+    .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
+}
+
+fn pacing_f32(object: &Map<String, Value>, field: &str, default: f32) -> Result<f32> {
+    let Some(value) = object.get(field) else {
+        return Ok(default);
+    };
+    let value = value.as_f64().ok_or_else(|| {
+        crate::NativeError::invalid_input(format!("stream pacing {field} must be a number"))
+    })?;
+    if !value.is_finite() || value < f64::from(f32::MIN) || value > f64::from(f32::MAX) {
+        return Err(crate::NativeError::invalid_input(format!(
+            "stream pacing {field} must be finite"
+        )));
+    }
+    Ok(value as f32)
 }
 
 fn parse_stream_annotation(value: Value) -> Result<iyon_tui::TextStreamAnnotation> {

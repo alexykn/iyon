@@ -24,6 +24,7 @@ export type {
   StreamAnnotation,
   StreamSnapshot,
   TextStreamOptions,
+  TextStreamPacing,
   TextStreamPresentation,
   StreamingSource,
   TerminateEvent,

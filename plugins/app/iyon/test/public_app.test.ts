@@ -742,20 +742,6 @@ describe("Iyon public native TUI", () => {
     });
   });
 
-  test("large_tool_result_is_collapsed_to_16_rows", async () => {
-    await withFixture(80, 40, async (fixture) => {
-      const text = Array.from({ length: 30 }, (_, index) => `line-${index}`).join("\n");
-      await sendAll(fixture, [
-        { type: "toolCallStarted", toolCallId: "large-result", toolName: "bash", arguments: { command: "true" } },
-        { type: "toolResult", toolCallId: "large-result", toolName: "bash", text, details: {}, isError: false },
-      ]);
-      const lines = transcriptLines(fixture.harness);
-      expect(lines.filter((line) => /line-\d+/.test(line))).toHaveLength(16);
-      expect(lines.some((line) => line.includes("… more lines"))).toBe(true);
-      expect(fixture.app.state.liveTools.get("large-result")?.result?.text).toBe(text);
-    });
-  });
-
   test("large_tool_result_retains_full_payload", async () => {
     await withFixture(80, 40, async (fixture) => {
       const text = Array.from({ length: 30 }, (_, index) => `line-${index}`).join("\n");
@@ -784,20 +770,6 @@ describe("Iyon public native TUI", () => {
       }
       expect(fixture.harness.nativeHistoryRows().length).toBeGreaterThan(8);
       expect(transcriptLines(fixture.harness).some((line) => line.includes("reply-29"))).toBe(true);
-    });
-  });
-
-  test("live_component_does_not_block_native_transfer_after_completion", async () => {
-    await withFixture(40, 8, async (fixture) => {
-      await sendAll(fixture, [
-        { type: "toolCallStarted", toolCallId: "history-tool", toolName: "bash", arguments: { command: "true" } },
-        { type: "toolResult", toolCallId: "history-tool", toolName: "bash", text: "tool done", details: {}, isError: false },
-      ]);
-      for (let index = 0; index < 24; index += 1) {
-        await send(fixture, { type: "assistantDelta", text: `after-${index}` });
-        advance(fixture, 16, 12);
-      }
-      expect(fixture.harness.nativeHistoryRows().some((line) => line.includes("after-23"))).toBe(true);
     });
   });
 

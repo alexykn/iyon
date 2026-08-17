@@ -110567,7 +110567,7 @@
               ]
             },
             "kind": "AssociatedFunction",
-            "signature": "\"impl-fn new Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(new), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "signature": "\"impl-fn new Signature { constness: Some(Const), asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(new), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
             "visibility": "Public",
             "source": {
               "path": "crates/iyon-tui/src/projection/smooth.rs",
@@ -148019,5 +148019,5 @@
       }
     }
   ],
-  "content_hash": "86d9ffe9ca6f54f2"
+  "content_hash": "9e1a4fe2c4ffab68"
 }
