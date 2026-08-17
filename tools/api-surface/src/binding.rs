@@ -239,7 +239,10 @@ fn validate_record(record: &BindingRecord) -> Result<(), ApiSurfaceError> {
     }
     if record.status == MappingStatus::Implemented && record.evidence.is_empty() {
         return Err(ApiSurfaceError::configuration(
-            format!("implemented mapping `{}` has no verification evidence", record.path),
+            format!(
+                "implemented mapping `{}` has no verification evidence",
+                record.path
+            ),
             None::<String>,
         ));
     }

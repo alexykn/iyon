@@ -266,7 +266,8 @@ impl KernelSession {
         let queue_id = result.map_err(|error| NativeError::invalid_input(error.to_string()))?;
         if kind == "steer" {
             drop(queues);
-            self.state.try_emit(CoreEvent::SteerQueued { queue_id, text })?;
+            self.state
+                .try_emit(CoreEvent::SteerQueued { queue_id, text })?;
         }
         Ok(queue_id as i64)
     }

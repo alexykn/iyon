@@ -140,7 +140,10 @@ impl ScrollPane {
         self.repair_detached();
     }
 
-    pub(crate) fn map_command(&self, key: KeyStroke) -> Option<crate::scroll_command::ScrollCommand> {
+    pub(crate) fn map_command(
+        &self,
+        key: KeyStroke,
+    ) -> Option<crate::scroll_command::ScrollCommand> {
         map_scroll_key(key)
     }
 

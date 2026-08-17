@@ -495,6 +495,17 @@ describe("Iyon public native TUI", () => {
     });
   });
 
+  test("large_tool_result_retains_full_payload", async () => {
+    await withFixture(80, 40, async (fixture) => {
+      const text = Array.from({ length: 30 }, (_, index) => `line-${index}`).join("\n");
+      await sendAll(fixture, [
+        { type: "toolCallStarted", toolCallId: "large-payload", toolName: "bash", arguments: { command: "true" } },
+        { type: "toolResult", toolCallId: "large-payload", toolName: "bash", text, details: {}, isError: false },
+      ]);
+      expect(fixture.app.state.liveTools.get("large-payload")?.text).toBe(text);
+    });
+  });
+
   test("completed_tool_is_frozen_out_of_live_history", async () => {
     await withFixture(40, 8, async (fixture) => {
       const key = draft(13, 0);
@@ -536,6 +547,16 @@ describe("Iyon public native TUI", () => {
       await send(fixture, { type: "assistantDelta", text: "post-compaction tail" });
       advance(fixture, 16, 160);
       expect(transcriptLines(fixture.harness).some((line) => line.includes("post-compaction tail"))).toBe(true);
+    });
+  });
+
+  test("stream_continues_after_native_history_promotion", async () => {
+    await withFixture(40, 8, async (fixture) => {
+      await send(fixture, { type: "assistantDelta", text: `${"history ".repeat(40)}\n\n` });
+      advance(fixture, 16, 160);
+      await send(fixture, { type: "assistantDelta", text: "native history tail" });
+      advance(fixture, 16, 160);
+      expect(transcriptLines(fixture.harness).some((line) => line.includes("native history tail"))).toBe(true);
     });
   });
 

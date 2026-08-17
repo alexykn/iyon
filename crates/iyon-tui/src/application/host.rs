@@ -12,23 +12,27 @@ use std::{
 
 use anyhow::Result;
 
+use crate::controls::text_input::command::TextInputCommand;
+use crate::text::RewriteProjectionError;
+use crate::text::{
+    Alignment, Block, BlockKind, Inline, InlineContent, InlineKind, List, ListItem, LiteralText,
+    Mark, SemanticTag, Table, TableCell, TableColumn, TableRow, TextIrError, TextProjectionError,
+    TextProvenance, TextRewriter, TextRun, validate_text_projection, walk_rewrite_inline,
+};
 use crate::{
-    AppCx, App as TuiApp, BorderEdges, BorderSpec, Component, ComponentCx,
-    ComponentHandle, History, HistoryLayout, HistoryUnitId, InteractionResult, KeyStroke, Output, TextInput,
-    HistoryStreamHandle, IntoView, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
-    StreamSnapshotBuilder, StreamingSource, StyleRef, TextContent, Theme, View,
-    CodeBlockLabelPolicy, MarkdownOptions, MarkdownProjector, Projection, ProjectionBuilder,
-    Projector, Renderer, Smooth, SoftBreakPolicy, TableColumnSizing, TaskListMarkerPolicy,
-    TextRenderPolicy, TextRenderer, WrapMode, ScrollPane,
+    App as TuiApp, AppCx, BorderEdges, BorderSpec, CodeBlockLabelPolicy, Component, ComponentCx,
+    ComponentHandle, History, HistoryLayout, HistoryStreamHandle, HistoryUnitId, InteractionResult,
+    IntoView, KeyStroke, MarkdownOptions, MarkdownProjector, Output, Projection, ProjectionBuilder,
+    Projector, Renderer, ScrollPane, Smooth, SoftBreakPolicy, StreamOffset, StreamRange,
+    StreamRevision, StreamSnapshot, StreamSnapshotBuilder, StreamingSource, StyleRef,
+    TableColumnSizing, TaskListMarkerPolicy, TextContent, TextInput, TextRenderPolicy,
+    TextRenderer, Theme, View, WrapMode,
     backend::NativeHistorySink,
     geometry::Size,
     physical::PhysicalRow,
     scene::PreparedSceneFrame,
-    terminal::{TerminalBackend, TerminalEvent, termwiz::TermwizBackend},
+    terminal::{PresentReceipt, TerminalBackend, TerminalEvent, termwiz::TermwizBackend},
 };
-use crate::controls::text_input::command::TextInputCommand;
-use crate::text::{Alignment, Block, BlockKind, Inline, InlineContent, InlineKind, List, ListItem, LiteralText, Mark, SemanticTag, Table, TableCell, TableColumn, TableRow, TextProjectionError, TextRewriter, TextRun, TextIrError, TextProvenance, validate_text_projection, walk_rewrite_inline};
-use crate::text::RewriteProjectionError;
 
 /// One application-level action produced by native interaction routing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -114,6 +118,7 @@ struct HostInner {
     running: HostRunning,
     backend: HostBackend,
     frame: PreparedSceneFrame,
+    presentation: Option<PresentReceipt>,
     now: Instant,
     headless: bool,
     closed: bool,
@@ -194,7 +199,14 @@ struct ViewSlotState {
 impl HostViewSlot {
     pub fn new(view: View) -> Self {
         Self {
-            state: Arc::new(Mutex::new(ViewSlotState { view, revision: 0, frames: Vec::new(), frame_index: 0, interval: Duration::from_millis(480), last_tick: None })),
+            state: Arc::new(Mutex::new(ViewSlotState {
+                view,
+                revision: 0,
+                frames: Vec::new(),
+                frame_index: 0,
+                interval: Duration::from_millis(480),
+                last_tick: None,
+            })),
             component_id: Arc::new(Mutex::new(None)),
             host: Arc::new(Mutex::new(None)),
         }
@@ -225,7 +237,9 @@ impl HostViewSlot {
 
     pub fn set_animation(&self, frames: Vec<View>, interval: Duration) -> Result<()> {
         if frames.is_empty() {
-            return Err(anyhow::anyhow!("view slot animation requires at least one frame"));
+            return Err(anyhow::anyhow!(
+                "view slot animation requires at least one frame"
+            ));
         }
         {
             let mut state = self
@@ -233,7 +247,11 @@ impl HostViewSlot {
                 .lock()
                 .map_err(|_| anyhow::anyhow!("view slot lock is poisoned"))?;
             let preserve_phase = !state.frames.is_empty() && state.interval == interval;
-            state.frame_index = if preserve_phase { state.frame_index % frames.len() } else { 0 };
+            state.frame_index = if preserve_phase {
+                state.frame_index % frames.len()
+            } else {
+                0
+            };
             state.view = frames[state.frame_index].clone();
             state.frames = frames;
             state.interval = interval;
@@ -395,7 +413,10 @@ impl MountedScrollPane {
         }
     }
 
-    fn map_command(component: &Self, key: KeyStroke) -> Option<crate::scroll_command::ScrollCommand> {
+    fn map_command(
+        component: &Self,
+        key: KeyStroke,
+    ) -> Option<crate::scroll_command::ScrollCommand> {
         component.0.state.lock().ok()?.map_command(key)
     }
 
@@ -485,11 +506,32 @@ impl Component for MountedWorking {
         }
         let index = state.frame % self.0.config.frames.len();
         let frame = if state.pending.is_empty() {
-            self.0.config.frames.get(self.0.config.frames.len().saturating_sub(1).saturating_sub(index)).map(String::as_str).unwrap_or("")
+            self.0
+                .config
+                .frames
+                .get(
+                    self.0
+                        .config
+                        .frames
+                        .len()
+                        .saturating_sub(1)
+                        .saturating_sub(index),
+                )
+                .map(String::as_str)
+                .unwrap_or("")
         } else {
-            self.0.config.frames.get(index).map(String::as_str).unwrap_or("")
+            self.0
+                .config
+                .frames
+                .get(index)
+                .map(String::as_str)
+                .unwrap_or("")
         };
-        let label = if state.pending.is_empty() { &self.0.config.active_label } else { &self.0.config.pending_label };
+        let label = if state.pending.is_empty() {
+            &self.0.config.active_label
+        } else {
+            &self.0.config.pending_label
+        };
         let status = View::text(format!("{frame} {label}")).no_wrap();
         let row = if let Some(first) = state.pending.first() {
             let preview = first.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -498,7 +540,7 @@ impl Component for MountedWorking {
                 row.gap(4);
                 row.child(status);
                 row.flex(
-                        View::text(format!("{}{preview}", self.0.config.queue_prefix))
+                    View::text(format!("{}{preview}", self.0.config.queue_prefix))
                         .no_wrap()
                         .style(self.0.config.muted_style.clone()),
                 );
@@ -513,7 +555,8 @@ impl Component for MountedWorking {
         } else {
             status.into_view()
         };
-        row.fill_width().padding(crate::Insets::horizontal(self.0.config.padding))
+        row.fill_width()
+            .padding(crate::Insets::horizontal(self.0.config.padding))
     }
 
     fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
@@ -572,13 +615,18 @@ impl HostAssistantPipeline {
             .with_code_wrap(WrapMode::NoWrap);
         Self {
             smoother: Smooth::default(),
-            markdown: MarkdownProjector::new(MarkdownOptions::gfm().with_live_table_stabilization(true)),
+            markdown: MarkdownProjector::new(
+                MarkdownOptions::gfm().with_live_table_stabilization(true),
+            ),
             renderer: TextRenderer::with_policy(policy),
         }
     }
 
     fn project(&mut self, input: &Projection<HostPacingAtom>) -> Result<Projection<TextContent>> {
-        let paced = self.smoother.project(input).expect("host stream smoothing is infallible");
+        let paced = self
+            .smoother
+            .project(input)
+            .expect("host stream smoothing is infallible");
         let raw = paced.map_ref(|atom| TextContent::raw(atom.text.clone()));
         let markdown = self
             .markdown
@@ -655,11 +703,13 @@ impl ThinkingRewriter {
                 TextProvenance::Synthetic => return Ok(vec![run]),
                 TextProvenance::Exact(_) => unreachable!(),
             };
-            return Ok(if self.map.kind_for(range) == Some(HostAssistantSegmentKind::Thinking) {
-                vec![run.map_annotations(|annotations| annotations.with_tag(self.tag.clone()))]
-            } else {
-                vec![run]
-            });
+            return Ok(
+                if self.map.kind_for(range) == Some(HostAssistantSegmentKind::Thinking) {
+                    vec![run.map_annotations(|annotations| annotations.with_tag(self.tag.clone()))]
+                } else {
+                    vec![run]
+                },
+            );
         };
         if range.is_empty() {
             return Ok(vec![run]);
@@ -714,7 +764,10 @@ impl TextRewriter for ThinkingRewriter {
             .with_annotations(inline.annotations().clone()))
     }
 
-    fn rewrite_inline_content(&mut self, content: InlineContent) -> Result<InlineContent, Self::Error> {
+    fn rewrite_inline_content(
+        &mut self,
+        content: InlineContent,
+    ) -> Result<InlineContent, Self::Error> {
         let mut items = Vec::new();
         for inline in content.items() {
             let InlineKind::Text(run) = inline.kind() else {
@@ -747,18 +800,32 @@ impl Projector<TextContent> for PipeTableRewriter {
     type Output = TextContent;
     type Error = RewriteProjectionError<TextIrError>;
 
-    fn project(&mut self, input: &Projection<TextContent>) -> Result<Projection<Self::Output>, Self::Error> {
+    fn project(
+        &mut self,
+        input: &Projection<TextContent>,
+    ) -> Result<Projection<Self::Output>, Self::Error> {
         let mut output = input.rebuild();
         let spans = input.spans();
         for (index, span) in spans.iter().enumerate() {
-            let following = input.is_sealed() || spans[index + 1..].iter().any(|later| !later.values().is_empty());
-            let values = span.values().iter().cloned().enumerate().map(|(value_index, value)| {
-                let closed = following || value_index + 1 < span.values().len();
-                rewrite_pipe_content(value, closed).map_err(RewriteProjectionError::Rewrite)
-            }).collect::<Result<Vec<_>, _>>()?;
+            let following = input.is_sealed()
+                || spans[index + 1..]
+                    .iter()
+                    .any(|later| !later.values().is_empty());
+            let values = span
+                .values()
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(value_index, value)| {
+                    let closed = following || value_index + 1 < span.values().len();
+                    rewrite_pipe_content(value, closed).map_err(RewriteProjectionError::Rewrite)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             output = output.emit_many(span.source(), values);
         }
-        let output = output.finish().map_err(|error| RewriteProjectionError::Invalid(TextProjectionError::Projection(error)))?;
+        let output = output.finish().map_err(|error| {
+            RewriteProjectionError::Invalid(TextProjectionError::Projection(error))
+        })?;
         validate_text_projection(&output).map_err(RewriteProjectionError::Invalid)?;
         Ok(output)
     }
@@ -781,44 +848,75 @@ fn rewrite_pipe_block(block: Block, closed: bool) -> Result<Block, TextIrError> 
         }
         BlockKind::BlockQuote { blocks } => {
             let rewritten = rewrite_pipe_blocks(blocks, closed)?;
-            if rewritten.as_slice() == blocks.as_ref() { return Ok(block); }
+            if rewritten.as_slice() == blocks.as_ref() {
+                return Ok(block);
+            }
             Ok(Block::block_quote(rewritten).with_annotations(block.annotations().clone()))
         }
         BlockKind::Container { blocks } => {
             let rewritten = rewrite_pipe_blocks(blocks, closed)?;
-            if rewritten.as_slice() == blocks.as_ref() { return Ok(block); }
+            if rewritten.as_slice() == blocks.as_ref() {
+                return Ok(block);
+            }
             Ok(Block::container(rewritten).with_annotations(block.annotations().clone()))
         }
         BlockKind::List(list) => {
             let mut changed = false;
             let mut items = Vec::with_capacity(list.items().len());
             for (index, item) in list.items().iter().enumerate() {
-                let blocks = rewrite_pipe_blocks(item.blocks(), index + 1 < list.items().len() || closed)?;
+                let blocks =
+                    rewrite_pipe_blocks(item.blocks(), index + 1 < list.items().len() || closed)?;
                 changed |= blocks.as_slice() != item.blocks();
-                items.push(ListItem::new(blocks).with_annotations(item.annotations().clone()).with_checked(item.checked()));
+                items.push(
+                    ListItem::new(blocks)
+                        .with_annotations(item.annotations().clone())
+                        .with_checked(item.checked()),
+                );
             }
-            if !changed { return Ok(block); }
-            Ok(Block::list(List::new(list.marker(), list.tight(), items)).with_annotations(block.annotations().clone()))
+            if !changed {
+                return Ok(block);
+            }
+            Ok(Block::list(List::new(list.marker(), list.tight(), items))
+                .with_annotations(block.annotations().clone()))
         }
         _ => Ok(block),
     }
 }
 
 fn rewrite_pipe_blocks(blocks: &[Block], trailing_closed: bool) -> Result<Vec<Block>, TextIrError> {
-    blocks.iter().enumerate().map(|(index, block)| rewrite_pipe_block(block.clone(), index + 1 < blocks.len() || trailing_closed)).collect()
+    blocks
+        .iter()
+        .enumerate()
+        .map(|(index, block)| {
+            rewrite_pipe_block(block.clone(), index + 1 < blocks.len() || trailing_closed)
+        })
+        .collect()
 }
 
 fn pipe_table_from_paragraph(content: &InlineContent) -> Option<Table> {
     let lines = pipe_lines(content)?;
-    let mut rows: Vec<Vec<String>> = lines.iter().map(|line| split_pipe_cells(line)).collect::<Option<_>>()?;
+    let mut rows: Vec<Vec<String>> = lines
+        .iter()
+        .map(|line| split_pipe_cells(line))
+        .collect::<Option<_>>()?;
     let width = rows.first()?.len();
-    if width < 2 { return None; }
+    if width < 2 {
+        return None;
+    }
     for row in &mut rows {
         row.truncate(width);
-        while row.len() < width { row.push(String::new()); }
+        while row.len() < width {
+            row.push(String::new());
+        }
     }
     let (header_rows, alignments, body) = if rows.len() >= 3 && is_pipe_delimiter_row(&rows[1]) {
-        (1, rows[1].iter().map(pipe_alignment).collect(), std::iter::once(rows[0].clone()).chain(rows[2..].iter().cloned()).collect::<Vec<_>>())
+        (
+            1,
+            rows[1].iter().map(pipe_alignment).collect(),
+            std::iter::once(rows[0].clone())
+                .chain(rows[2..].iter().cloned())
+                .collect::<Vec<_>>(),
+        )
     } else if rows.iter().any(|row| is_pipe_delimiter_row(row)) {
         return None;
     } else if rows.len() >= 2 {
@@ -828,7 +926,14 @@ fn pipe_table_from_paragraph(content: &InlineContent) -> Option<Table> {
     };
     let range = pipe_covering_range(content);
     let columns = alignments.into_iter().map(TableColumn::new);
-    let table_rows = body.into_iter().map(|cells| TableRow::new(cells.into_iter().map(|cell| TableCell::text(pipe_cell_run(cell, range))).collect::<Vec<_>>()));
+    let table_rows = body.into_iter().map(|cells| {
+        TableRow::new(
+            cells
+                .into_iter()
+                .map(|cell| TableCell::text(pipe_cell_run(cell, range)))
+                .collect::<Vec<_>>(),
+        )
+    });
     Table::new(None::<Vec<Block>>, columns, header_rows, table_rows).ok()
 }
 
@@ -837,13 +942,22 @@ fn pipe_lines(content: &InlineContent) -> Option<Vec<String>> {
     let mut last_exact_end = None;
     for inline in content.items() {
         match inline.kind() {
-            InlineKind::Break(_) => { last_exact_end = None; lines.push(String::new()); }
+            InlineKind::Break(_) => {
+                last_exact_end = None;
+                lines.push(String::new());
+            }
             InlineKind::Text(run) => {
-                if inline.marks().contains(&Mark::Code) { return None; }
+                if inline.marks().contains(&Mark::Code) {
+                    return None;
+                }
                 match run.provenance() {
                     TextProvenance::Derived(_) => return None,
                     TextProvenance::Exact(range) => {
-                        if last_exact_end.is_some_and(|end| range.start() > end) && run.text().contains('|') { return None; }
+                        if last_exact_end.is_some_and(|end| range.start() > end)
+                            && run.text().contains('|')
+                        {
+                            return None;
+                        }
                         last_exact_end = Some(range.end());
                     }
                     TextProvenance::Synthetic => last_exact_end = None,
@@ -853,22 +967,39 @@ fn pipe_lines(content: &InlineContent) -> Option<Vec<String>> {
             _ => return None,
         }
     }
-    while lines.first().is_some_and(|line| line.trim().is_empty()) { lines.remove(0); }
-    while lines.last().is_some_and(|line| line.trim().is_empty()) { lines.pop(); }
+    while lines.first().is_some_and(|line| line.trim().is_empty()) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|line| line.trim().is_empty()) {
+        lines.pop();
+    }
     (!lines.is_empty() && !lines.iter().any(|line| line.trim().is_empty())).then_some(lines)
 }
 
 fn split_pipe_cells(line: &str) -> Option<Vec<String>> {
     let line = line.trim();
-    if line.len() < 3 || !line.starts_with('|') || !line.ends_with('|') || line.contains('\\') || line.contains('`') { return None; }
-    Some(line[1..line.len() - 1].split('|').map(|cell| cell.trim().to_owned()).collect())
+    if line.len() < 3
+        || !line.starts_with('|')
+        || !line.ends_with('|')
+        || line.contains('\\')
+        || line.contains('`')
+    {
+        return None;
+    }
+    Some(
+        line[1..line.len() - 1]
+            .split('|')
+            .map(|cell| cell.trim().to_owned())
+            .collect(),
+    )
 }
 
 fn is_pipe_delimiter_row(cells: &[String]) -> bool {
-    !cells.is_empty() && cells.iter().all(|cell| {
-        let core = cell.trim_matches(':');
-        !core.is_empty() && core.chars().all(|character| character == '-')
-    })
+    !cells.is_empty()
+        && cells.iter().all(|cell| {
+            let core = cell.trim_matches(':');
+            !core.is_empty() && core.chars().all(|character| character == '-')
+        })
 }
 
 fn pipe_alignment(cell: &String) -> Alignment {
@@ -883,7 +1014,9 @@ fn pipe_covering_range(content: &InlineContent) -> Option<StreamRange> {
     let mut start: Option<StreamOffset> = None;
     let mut end: Option<StreamOffset> = None;
     for inline in content.items() {
-        let Some(run) = inline.as_text() else { continue; };
+        let Some(run) = inline.as_text() else {
+            continue;
+        };
         let range = match run.provenance() {
             TextProvenance::Exact(range) | TextProvenance::Derived(range) => *range,
             TextProvenance::Synthetic => continue,
@@ -916,9 +1049,14 @@ struct HostStreamState {
 
 impl Default for HostStreamState {
     fn default() -> Self {
-        let pacing_input = ProjectionBuilder::new(StreamOffset::ZERO, StreamOffset::ZERO, StreamOffset::ZERO, false)
-            .finish()
-            .expect("empty host pacing projection is valid");
+        let pacing_input = ProjectionBuilder::new(
+            StreamOffset::ZERO,
+            StreamOffset::ZERO,
+            StreamOffset::ZERO,
+            false,
+        )
+        .finish()
+        .expect("empty host pacing projection is valid");
         Self {
             pacing_atoms: Vec::new(),
             source_base: StreamOffset::ZERO,
@@ -955,7 +1093,9 @@ impl HostTextStream {
         let stream = Self::new();
         if let Ok(mut state) = stream.state.lock() {
             state.pipeline = Some(HostAssistantPipeline::new());
-            state.refresh_semantic().expect("empty host semantic stream is valid");
+            state
+                .refresh_semantic()
+                .expect("empty host semantic stream is valid");
         }
         stream
     }
@@ -996,7 +1136,10 @@ impl HostTextStream {
                 let next = cursor.saturating_add(character.len_utf8() as u64);
                 state.pacing_atoms.push((
                     StreamRange::new(cursor, next),
-                    HostPacingAtom { kind, text: character.to_string() },
+                    HostPacingAtom {
+                        kind,
+                        text: character.to_string(),
+                    },
                 ));
                 cursor = next;
             }
@@ -1027,7 +1170,10 @@ impl HostTextStream {
                 let next = cursor.saturating_add(character.len_utf8() as u64);
                 state.pacing_atoms.push((
                     StreamRange::new(cursor, next),
-                    HostPacingAtom { kind: HostAssistantSegmentKind::Text, text: character.to_string() },
+                    HostPacingAtom {
+                        kind: HostAssistantSegmentKind::Text,
+                        text: character.to_string(),
+                    },
                 ));
                 cursor = next;
             }
@@ -1059,12 +1205,19 @@ impl HostTextStream {
             .lock()
             .map_err(|_| anyhow::anyhow!("stream lock is poisoned"))?;
         let segments = state.segments_json();
-        Ok((state.source_text(), state.revision.as_u64(), state.sealed, segments))
+        Ok((
+            state.source_text(),
+            state.revision.as_u64(),
+            state.sealed,
+            segments,
+        ))
     }
 
     pub fn attach(&self, history: &mut History) -> Result<()> {
         let handle = history
-            .push_stream(HostStreamSource { state: self.state.clone() })
+            .push_stream(HostStreamSource {
+                state: self.state.clone(),
+            })
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
         *self
             .handle
@@ -1129,7 +1282,10 @@ impl HostTextStream {
 
 impl HostStreamState {
     fn source_text(&self) -> String {
-        self.pacing_atoms.iter().map(|(_, atom)| atom.text.as_str()).collect()
+        self.pacing_atoms
+            .iter()
+            .map(|(_, atom)| atom.text.as_str())
+            .collect()
     }
 
     fn segments_json(&self) -> Vec<(String, String)> {
@@ -1186,7 +1342,9 @@ impl HostStreamState {
     }
 
     fn next_wakeup(&self) -> Option<Instant> {
-        self.pipeline.as_ref().and_then(HostAssistantPipeline::next_wakeup)
+        self.pipeline
+            .as_ref()
+            .and_then(HostAssistantPipeline::next_wakeup)
     }
 
     fn snapshot(&self) -> StreamSnapshot {
@@ -1196,16 +1354,31 @@ impl HostStreamState {
             let builder = StreamSnapshotBuilder::new(
                 self.revision,
                 self.source_base,
-                if self.sealed { source_end } else { self.source_base },
+                if self.sealed {
+                    source_end
+                } else {
+                    self.source_base
+                },
                 source_end,
             );
             return if self.source_text().is_empty() {
-                builder.exact_text(range, []).finish().expect("host plain snapshot is valid")
+                builder
+                    .exact_text(range, [])
+                    .finish()
+                    .expect("host plain snapshot is valid")
             } else {
-                builder.atomic(range, View::text(self.source_text()).into_view()).expect("host plain stream coverage is valid").finish().expect("host plain snapshot is valid")
+                builder
+                    .atomic(range, View::text(self.source_text()).into_view())
+                    .expect("host plain stream coverage is valid")
+                    .finish()
+                    .expect("host plain snapshot is valid")
             };
         };
-        let visible: Vec<_> = semantic.spans().iter().filter(|span| !span.values().is_empty()).collect();
+        let visible: Vec<_> = semantic
+            .spans()
+            .iter()
+            .filter(|span| !span.values().is_empty())
+            .collect();
         let mut builder = StreamSnapshotBuilder::new(
             self.revision,
             semantic.source_base(),
@@ -1214,20 +1387,36 @@ impl HostStreamState {
         );
         if visible.is_empty() {
             if semantic.source_base() != semantic.source_end() {
-                builder = builder.atomic(
-                    StreamRange::new(semantic.source_base(), semantic.source_end()),
-                    View::spacer(0).into_view(),
-                ).expect("host empty semantic coverage is valid");
+                builder = builder
+                    .atomic(
+                        StreamRange::new(semantic.source_base(), semantic.source_end()),
+                        View::spacer(0).into_view(),
+                    )
+                    .expect("host empty semantic coverage is valid");
             }
         } else {
             for (index, span) in visible.iter().enumerate() {
-                let start = if index == 0 { semantic.source_base() } else { visible[index - 1].source().end() };
-                let end = if index + 1 == visible.len() { semantic.source_end() } else { span.source().end() };
+                let start = if index == 0 {
+                    semantic.source_base()
+                } else {
+                    visible[index - 1].source().end()
+                };
+                let end = if index + 1 == visible.len() {
+                    semantic.source_end()
+                } else {
+                    span.source().end()
+                };
                 let view = Renderer::render(
-                    &self.pipeline.as_ref().expect("semantic pipeline exists").renderer,
+                    &self
+                        .pipeline
+                        .as_ref()
+                        .expect("semantic pipeline exists")
+                        .renderer,
                     span.values(),
                 );
-                builder = builder.atomic(StreamRange::new(start, end), view.into_view()).expect("host semantic coverage is valid");
+                builder = builder
+                    .atomic(StreamRange::new(start, end), view.into_view())
+                    .expect("host semantic coverage is valid");
             }
         }
         builder.finish().expect("host semantic snapshot is valid")
@@ -1256,10 +1445,14 @@ impl StreamingSource for HostStreamSource {
             .as_ref()
             .map_or(target, |pipeline| pipeline.restart_from(target))
             .max(state.source_base);
-        state.pacing_atoms.retain(|(range, _)| range.end() > restart);
+        state
+            .pacing_atoms
+            .retain(|(range, _)| range.end() > restart);
         state.source_base = restart;
         state.revision = state.revision.next();
-        state.refresh_semantic().expect("host stream compaction must preserve projection coverage");
+        state
+            .refresh_semantic()
+            .expect("host stream compaction must preserve projection coverage");
     }
 
     fn seal(&mut self) {
@@ -1267,16 +1460,15 @@ impl StreamingSource for HostStreamSource {
             if !state.sealed {
                 state.sealed = true;
                 state.revision = state.revision.next();
-                state.refresh_semantic().expect("host stream sealing must preserve projection coverage");
+                state
+                    .refresh_semantic()
+                    .expect("host stream sealing must preserve projection coverage");
             }
         }
     }
 
     fn is_sealed(&self) -> bool {
-        self.state
-            .lock()
-            .map(|state| state.sealed)
-            .unwrap_or(true)
+        self.state.lock().map(|state| state.sealed).unwrap_or(true)
     }
 
     fn next_wakeup(&self) -> Option<Instant> {
@@ -1289,7 +1481,6 @@ impl StreamingSource for HostStreamSource {
             .map(|mut state| state.advance(now))
             .unwrap_or(false)
     }
-
 }
 
 impl HostTextInput {
@@ -1520,20 +1711,22 @@ impl HostHistory {
     pub fn push_stream(&self, stream: &HostTextStream) -> Result<()> {
         let mut inner = self.lock_mut()?;
         stream.attach_host(&self.host)?;
-        stream
-            .attach(
-                inner
-            .running
-            .scene_history_mut()
-            .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?,
-            )?;
+        stream.attach(
+            inner
+                .running
+                .scene_history_mut()
+                .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?,
+        )?;
         inner.render()?;
         Ok(())
     }
 
     pub fn seal_stream(&self, stream: &HostTextStream) -> Result<()> {
         let mut inner = self.lock_mut()?;
-        let history = inner.running.scene_history_mut().ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?;
+        let history = inner
+            .running
+            .scene_history_mut()
+            .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?;
         stream.seal_history(history)?;
         inner.render()?;
         Ok(())
@@ -1578,27 +1771,31 @@ impl TuiHost {
         };
         let app = TuiApp::new(
             host_init as fn(&mut AppCx<'_, HostAction>) -> Result<HostState>,
-            host_update
-                as fn(&mut HostState, HostAction, &mut AppCx<'_, HostAction>) -> Result<()>,
+            host_update as fn(&mut HostState, HostAction, &mut AppCx<'_, HostAction>) -> Result<()>,
             host_view as fn(&HostState) -> View,
         )
         .with_theme(Theme::new())
-        .with_history(History::new().with_layout(HistoryLayout::from_parts(
-            crate::Insets::new(0, 0, 1, 0),
-            1,
-        )));
+        .with_history(
+            History::new()
+                .with_layout(HistoryLayout::from_parts(crate::Insets::new(0, 0, 1, 0), 1)),
+        );
         let now = Instant::now();
-        let mut running = app.start(now).map_err(|error| anyhow::anyhow!("host init failed: {error:?}"))?;
+        let mut running = app
+            .start(now)
+            .map_err(|error| anyhow::anyhow!("host init failed: {error:?}"))?;
         let mut backend = backend;
         let frame = prepare_frame(&mut running, &mut backend, now)?;
-        let inner = Arc::new(Mutex::new(HostInner {
+        let mut inner = HostInner {
             running,
             backend,
             frame,
+            presentation: None,
             now,
             headless,
             closed: false,
-        }));
+        };
+        inner.present_frame()?;
+        let inner = Arc::new(Mutex::new(inner));
         Ok(Self { inner })
     }
 
@@ -1610,12 +1807,12 @@ impl TuiHost {
 
     pub fn create_text_input(&self, multiline: bool) -> Result<HostTextInput> {
         let input = HostTextInput::new(multiline);
-        input.lock()?.set_border(BorderSpec::plain().edges(BorderEdges::TOP_BOTTOM));
+        input
+            .lock()?
+            .set_border(BorderSpec::plain().edges(BorderEdges::TOP_BOTTOM));
         input.attach_host(&self.inner)?;
         let mut inner = self.lock_mut()?;
-        let handle = inner
-            .running
-            .host_register(MountedTextInput(input.clone()));
+        let handle = inner.running.host_register(MountedTextInput(input.clone()));
         input.set_component_id(handle.raw_id())?;
         Ok(input)
     }
@@ -1648,10 +1845,12 @@ impl TuiHost {
 
     pub fn bind_key(&self, key: KeyStroke, action_id: impl Into<String>) -> Result<()> {
         let action_id = action_id.into();
-        self.lock_mut()?.running.host_bind_key(key, move || HostAction::Routed(RoutedAction {
-            action_id: action_id.clone(),
-            payload: None,
-        }));
+        self.lock_mut()?.running.host_bind_key(key, move || {
+            HostAction::Routed(RoutedAction {
+                action_id: action_id.clone(),
+                payload: None,
+            })
+        });
         Ok(())
     }
 
@@ -1663,7 +1862,7 @@ impl TuiHost {
         }
         inner.closed = true;
         if let HostBackend::Real(backend) = &mut inner.backend {
-            backend.restore()?;
+            ignore_terminal_shutdown_error(backend.restore())?;
         }
         Ok(())
     }
@@ -1692,10 +1891,12 @@ impl TuiHost {
         let action_id = action_id.into();
         self.lock_mut()?
             .running
-            .host_route(output, move |text| HostAction::Routed(RoutedAction {
-                action_id: action_id.clone(),
-                payload: Some(text),
-            }))
+            .host_route(output, move |text| {
+                HostAction::Routed(RoutedAction {
+                    action_id: action_id.clone(),
+                    payload: Some(text),
+                })
+            })
             .map_err(|_| anyhow::anyhow!("output route already exists"))?;
         Ok(())
     }
@@ -1708,10 +1909,12 @@ impl TuiHost {
         let action_id = action_id.into();
         self.lock_mut()?
             .running
-            .host_route(output, move |text| HostAction::Routed(RoutedAction {
-                action_id: action_id.clone(),
-                payload: Some(text),
-            }))
+            .host_route(output, move |text| {
+                HostAction::Routed(RoutedAction {
+                    action_id: action_id.clone(),
+                    payload: Some(text),
+                })
+            })
             .map_err(|_| anyhow::anyhow!("output route already exists"))?;
         Ok(())
     }
@@ -1726,12 +1929,14 @@ impl TuiHost {
             .ok_or_else(|| anyhow::anyhow!("text input is not mounted"))?;
         let handle = ComponentHandle::<MountedTextInput>::from_raw_id(id);
         let action_id = action_id.into();
-        self.lock_mut()?.running.host_intercept_paste(handle, move |text| {
-            HostAction::Routed(RoutedAction {
-                action_id: action_id.clone(),
-                payload: Some(text),
-            })
-        });
+        self.lock_mut()?
+            .running
+            .host_intercept_paste(handle, move |text| {
+                HostAction::Routed(RoutedAction {
+                    action_id: action_id.clone(),
+                    payload: Some(text),
+                })
+            });
         Ok(())
     }
 
@@ -1755,13 +1960,19 @@ impl TuiHost {
 
     pub fn dispatch_key(&self, key: KeyStroke) -> Result<()> {
         let mut inner = self.lock_mut()?;
-        inner.running.dispatch_key(key).map_err(|error| anyhow::anyhow!("key dispatch failed: {error:?}"))?;
+        inner
+            .running
+            .dispatch_key(key)
+            .map_err(|error| anyhow::anyhow!("key dispatch failed: {error:?}"))?;
         inner.advance_and_render()
     }
 
     pub fn dispatch_paste(&self, text: &str) -> Result<()> {
         let mut inner = self.lock_mut()?;
-        inner.running.dispatch_paste(text).map_err(|error| anyhow::anyhow!("paste dispatch failed: {error:?}"))?;
+        inner
+            .running
+            .dispatch_paste(text)
+            .map_err(|error| anyhow::anyhow!("paste dispatch failed: {error:?}"))?;
         inner.advance_and_render()
     }
 
@@ -1838,7 +2049,9 @@ impl TuiHost {
     }
 
     pub fn exited(&self) -> bool {
-        self.lock().map(|inner| inner.closed || inner.running.host_exited()).unwrap_or(true)
+        self.lock()
+            .map(|inner| inner.closed || inner.running.host_exited())
+            .unwrap_or(true)
     }
 
     pub fn poll_terminal(&self) -> Result<()> {
@@ -1850,11 +2063,17 @@ impl TuiHost {
         inner.now = Instant::now();
         match event {
             Some(TerminalEvent::Key(key)) => {
-                inner.running.dispatch_key(key).map_err(|error| anyhow::anyhow!("key dispatch failed: {error:?}"))?;
+                inner
+                    .running
+                    .dispatch_key(key)
+                    .map_err(|error| anyhow::anyhow!("key dispatch failed: {error:?}"))?;
                 inner.advance_and_render()
             }
             Some(TerminalEvent::Paste(text)) => {
-                inner.running.dispatch_paste(&text).map_err(|error| anyhow::anyhow!("paste dispatch failed: {error:?}"))?;
+                inner
+                    .running
+                    .dispatch_paste(&text)
+                    .map_err(|error| anyhow::anyhow!("paste dispatch failed: {error:?}"))?;
                 inner.advance_and_render()
             }
             Some(TerminalEvent::Resize) => {
@@ -1880,19 +2099,24 @@ impl TuiHost {
             }
 
             let wait_ms = self.next_wake_ms().min(16).max(1);
-            super::run::wait_for_deadline(Some(Instant::now() + Duration::from_millis(wait_ms))).await;
+            super::run::wait_for_deadline(Some(Instant::now() + Duration::from_millis(wait_ms)))
+                .await;
         }
     }
 
     pub fn screen_rows(&self) -> Vec<String> {
-        self.lock().map(|inner| inner.frame.screen_lines()).unwrap_or_default()
+        self.lock()
+            .map(|inner| inner.frame.screen_lines())
+            .unwrap_or_default()
     }
 
     pub fn native_history_rows(&self) -> Vec<String> {
         self.lock()
             .ok()
             .and_then(|inner| match &inner.backend {
-                HostBackend::Headless(sink) => Some(sink.history.iter().map(PhysicalRow::plain_text).collect()),
+                HostBackend::Headless(sink) => {
+                    Some(sink.history.iter().map(PhysicalRow::plain_text).collect())
+                }
                 HostBackend::Real(_) => Some(Vec::new()),
             })
             .unwrap_or_default()
@@ -1905,7 +2129,7 @@ impl TuiHost {
         }
         inner.closed = true;
         if let HostBackend::Real(backend) = &mut inner.backend {
-            backend.restore()?;
+            ignore_terminal_shutdown_error(backend.restore())?;
         }
         Ok(())
     }
@@ -1934,6 +2158,14 @@ fn physical_color(color: crate::physical::PhysicalColor) -> String {
     }
 }
 
+fn ignore_terminal_shutdown_error(result: Result<()>) -> Result<()> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if error.to_string().contains("terminal worker stopped") => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 impl Drop for TuiHost {
     fn drop(&mut self) {
         let _ = self.close();
@@ -1943,6 +2175,32 @@ impl Drop for TuiHost {
 impl HostInner {
     fn render(&mut self) -> Result<()> {
         self.frame = prepare_frame(&mut self.running, &mut self.backend, self.now)?;
+        self.present_frame()
+    }
+
+    fn present_frame(&mut self) -> Result<()> {
+        if let Some(mut receipt) = self.presentation.take() {
+            match receipt.try_recv() {
+                Ok(result) => result
+                    .map_err(|error| anyhow::anyhow!("terminal presentation failed: {error}"))?,
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    self.presentation = Some(receipt);
+                    return Ok(());
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    return Err(anyhow::anyhow!("terminal presentation reply lost"));
+                }
+            }
+        }
+        if let HostBackend::Real(backend) = &mut self.backend {
+            match backend.begin_frame(&self.frame) {
+                Ok(receipt) => self.presentation = Some(receipt),
+                Err(error) if error.to_string().contains("terminal worker stopped") => {
+                    self.closed = true;
+                }
+                Err(error) => return Err(error),
+            }
+        }
         Ok(())
     }
 
@@ -1956,10 +2214,13 @@ impl HostInner {
         }
         Ok(())
     }
-
 }
 
-fn prepare_frame(running: &mut HostRunning, backend: &mut HostBackend, now: Instant) -> Result<PreparedSceneFrame> {
+fn prepare_frame(
+    running: &mut HostRunning,
+    backend: &mut HostBackend,
+    now: Instant,
+) -> Result<PreparedSceneFrame> {
     match backend {
         HostBackend::Headless(sink) => running
             .prepare_frame(now, sink, |sink| Ok(Size::new(sink.width, sink.height)))
@@ -1968,10 +2229,6 @@ fn prepare_frame(running: &mut HostRunning, backend: &mut HostBackend, now: Inst
             let frame = running
                 .prepare_frame(now, backend, |backend| backend.viewport())
                 .map_err(|error| anyhow::anyhow!("terminal render failed: {error:?}"))?;
-            backend
-                .begin_frame(&frame)?
-                .blocking_recv()
-                .map_err(|error| anyhow::anyhow!("terminal presentation reply lost: {error}"))??;
             Ok(frame)
         }
     }
