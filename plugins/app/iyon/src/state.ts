@@ -38,9 +38,7 @@ function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState 
     case "turnStarted": return { ...state, activeTurn: true, working: true, activityVisible: true };
     case "userMessage": {
       const queueId = event.queueId === undefined ? undefined : String(event.queueId);
-      const index = queueId === undefined
-        ? state.steering.findIndex((text) => text === event.text)
-        : state.steeringQueueIds.indexOf(queueId);
+      const index = queueId === undefined ? -1 : state.steeringQueueIds.indexOf(queueId);
       if (index < 0) return { ...state, userBatches: [...state.userBatches, event.text] };
       return {
         ...state,
@@ -52,7 +50,7 @@ function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState 
     case "assistantDelta": return { ...state, assistantText: state.assistantText + event.text, assistantOpen: true, activityVisible: state.steering.length > 0 };
     case "thinkingDelta": return { ...state, thinkingText: state.thinkingText + event.text, assistantOpen: true, activityVisible: state.steering.length > 0 };
     case "steerQueued": {
-      const queueId = event.queueId === undefined ? `${event.text}:${state.steeringQueueIds.length}` : String(event.queueId);
+      const queueId = event.queueId === undefined ? undefined : String(event.queueId);
       return { ...state, steering: [...state.steering, event.text], steeringQueueIds: [...state.steeringQueueIds, queueId], activityVisible: true };
     }
     case "configChanged": return updateInfo(state, { provider: event.provider, modelId: event.modelId, reasoningEffort: event.reasoningEffort });
