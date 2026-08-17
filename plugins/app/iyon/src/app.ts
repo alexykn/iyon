@@ -197,16 +197,19 @@ class IyonAppImpl implements IyonApp {
     if (event.type === "assistantDelta") {
       await this.openAssistantStream();
       await this.assistantStream?.append("text", event.text);
-      return false;
+      return true;
     }
     if (event.type === "thinkingDelta") {
       await this.openAssistantStream();
       await this.assistantStream?.append("thinking", event.text);
-      return false;
+      return true;
     }
     if (event.type === "userMessage") {
       await this.history.push(userBatchView([event.text], this.theme));
       return false;
+    }
+    if (event.type === "turnStarted" || event.type === "steerQueued") {
+      return true;
     }
     if (event.type === "turnFinished" || event.type === "turnFailed" || event.type === "turnCancelled") {
       await this.sealAssistantStream();
@@ -382,7 +385,7 @@ class IyonAppImpl implements IyonApp {
       if (card.toolCallId !== undefined) this.toolCards.finish(String(card.toolCallId), true);
       await this.updateToolSlot(key, cancelled);
     }
-    this.currentState = { ...this.currentState, activeTurn: false, assistantOpen: false, goodbye: true, liveTools, pendingApproval: undefined, working: false };
+    this.currentState = { ...this.currentState, activeTurn: false, assistantOpen: false, goodbye: true, liveTools, pendingApproval: undefined, working: false, activityVisible: false };
     await this.history.push(View.text("Goodbye.").fillWidth());
     await this.renderCurrentScene();
     await this.tui?.exit?.();
@@ -390,7 +393,7 @@ class IyonAppImpl implements IyonApp {
 
   private async renderCurrentScene(): Promise<void> {
     if (this.tui !== undefined && this.started) {
-      await this.workingHandle?.setActive(hasActiveWork(this.currentState));
+      await this.workingHandle?.setActive(this.currentState.activityVisible);
       await this.workingHandle?.setPending(this.currentState.steering);
       await this.tui.render(new Scene(createIyonView({ composer: this.composer, history: this.history, state: this.currentState, theme: this.theme, working: this.workingHandle }), this.history));
     }
