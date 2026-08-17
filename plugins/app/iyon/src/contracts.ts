@@ -32,8 +32,10 @@ export interface LiveTool {
   readonly toolCallId?: ToolCallId | string;
   readonly toolName?: string;
   readonly arguments?: JsonValue;
+  readonly argumentPreview: string;
+  readonly update?: ToolUpdatePresentation;
+  readonly result?: ToolResult;
   readonly status: LiveToolStatus;
-  readonly text: string;
   readonly progress?: { readonly label: string; readonly current?: number; readonly total?: number };
   readonly details?: JsonValue;
   readonly isError: boolean;
@@ -48,7 +50,7 @@ export interface PendingApproval {
 }
 
 export interface ToolRendererContribution {
-  readonly renderCall?: (call: ToolCall) => View;
+  readonly renderCall?: (call: ToolCall & { readonly argumentPreview?: string }) => View;
   readonly renderResult?: (result: ToolResult) => View;
 }
 

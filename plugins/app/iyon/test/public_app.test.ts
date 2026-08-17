@@ -599,7 +599,7 @@ describe("Iyon public native TUI", () => {
       const lines = transcriptLines(fixture.harness);
       expect(lines.filter((line) => /line-\d+/.test(line))).toHaveLength(16);
       expect(lines.some((line) => line.includes("… more lines"))).toBe(true);
-      expect(fixture.app.state.liveTools.get("large-result")?.text).toBe(text);
+      expect(fixture.app.state.liveTools.get("large-result")?.result?.text).toBe(text);
     });
   });
 
@@ -610,7 +610,7 @@ describe("Iyon public native TUI", () => {
         { type: "toolCallStarted", toolCallId: "large-payload", toolName: "bash", arguments: { command: "true" } },
         { type: "toolResult", toolCallId: "large-payload", toolName: "bash", text, details: {}, isError: false },
       ]);
-      expect(fixture.app.state.liveTools.get("large-payload")?.text).toBe(text);
+      expect(fixture.app.state.liveTools.get("large-payload")?.result?.text).toBe(text);
     });
   });
 
