@@ -87,7 +87,7 @@ describe("generic tool lifecycle", () => {
     });
 
     lifecycle.unshift(...result.execution.events().map((event) => event.state));
-    expect(lifecycle).toEqual(["preparing", "prepared", "pendingApproval", "rejected", "approval"]);
+    expect(lifecycle).toEqual(["preparing", "prepared", "pendingApproval", "failed", "approval"]);
     expect(executed).toBe(false);
     session.close();
   });
