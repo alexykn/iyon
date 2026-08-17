@@ -54,14 +54,14 @@ function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState 
       return { ...state, steering: [...state.steering, event.text], steeringQueueIds: [...state.steeringQueueIds, queueId], activityVisible: true };
     }
     case "configChanged": return updateInfo(state, { provider: event.provider, modelId: event.modelId, reasoningEffort: event.reasoningEffort });
-    case "toolCallPreparing": return withDraft(state, event.key, { draftKey: event.key, toolCallId: event.toolCallId, toolName: event.toolName, argumentPreview: "", status: "preparing", isError: false, frozen: false });
-    case "toolCallArguments": return updateDraft(state, event.key, (tool) => ({ ...tool, argumentPreview: tool.argumentPreview + event.delta, toolCallId: event.toolCallId ?? tool.toolCallId, toolName: event.toolName ?? tool.toolName }));
-    case "toolCallPrepared": return updateDraft(state, event.key, (tool) => ({ ...tool, toolCallId: event.toolCallId, toolName: event.toolName, arguments: event.arguments, status: "prepared" }));
-    case "toolCallStarted": return startTool(state, event.toolCallId, event.toolName, event.arguments);
-    case "toolCallUpdated": return updateTool(state, event.toolCallId, (tool) => applyToolUpdate(tool, event.update));
-    case "toolApprovalRequested": return { ...updateTool(state, event.toolCallId, (tool) => ({ ...tool, status: "pendingApproval" })), pendingApproval: { approvalId: event.approvalId, toolCallId: event.toolCallId, toolName: event.toolName, arguments: event.arguments } };
-    case "toolApprovalResolved": return { ...updateTool(state, event.toolCallId, (tool) => ({ ...tool, status: event.approved ? "running" : "cancelled", frozen: !event.approved })), pendingApproval: undefined };
-    case "toolResult": return updateTool(state, event.toolCallId, (tool) => ({ ...tool, toolName: event.toolName, result: { content: [{ type: "text", text: event.text }], details: event.details, isError: event.isError, toolCallId: event.toolCallId as never, toolName: event.toolName, text: event.text }, status: event.isError ? "failed" : "finished", isError: event.isError, frozen: true }));
+    case "toolCallPreparing": return withDraft(state, event.key, { draftKey: event.key, toolCallId: normalizeToolCallId(event.toolCallId), toolName: event.toolName, argumentPreview: "", status: "preparing", isError: false, frozen: false });
+    case "toolCallArguments": return updateDraft(state, event.key, (tool) => ({ ...tool, argumentPreview: tool.argumentPreview + event.delta, toolCallId: event.toolCallId === undefined ? tool.toolCallId : normalizeToolCallId(event.toolCallId), toolName: event.toolName ?? tool.toolName }));
+    case "toolCallPrepared": return updateDraft(state, event.key, (tool) => ({ ...tool, toolCallId: normalizeToolCallId(event.toolCallId), toolName: event.toolName, arguments: event.arguments, status: "prepared" }));
+    case "toolCallStarted": return startTool(state, normalizeToolCallId(event.toolCallId), event.toolName, event.arguments);
+    case "toolCallUpdated": return updateTool(state, normalizeToolCallId(event.toolCallId), (tool) => applyToolUpdate(tool, event.update));
+    case "toolApprovalRequested": return { ...updateTool(state, normalizeToolCallId(event.toolCallId), (tool) => ({ ...tool, status: "pendingApproval" })), pendingApproval: { approvalId: event.approvalId, toolCallId: normalizeToolCallId(event.toolCallId), toolName: event.toolName, arguments: event.arguments } };
+    case "toolApprovalResolved": return { ...updateTool(state, normalizeToolCallId(event.toolCallId), (tool) => ({ ...tool, status: event.approved ? "running" : "cancelled", frozen: !event.approved })), pendingApproval: undefined };
+    case "toolResult": return updateTool(state, normalizeToolCallId(event.toolCallId), (tool) => ({ ...tool, toolName: event.toolName, result: { content: [{ type: "text", text: event.text }], details: event.details, isError: event.isError, toolCallId: normalizeToolCallId(event.toolCallId) as never, toolName: event.toolName, text: event.text }, status: event.isError ? "failed" : "finished", isError: event.isError, frozen: true }));
     case "toolCallFinished": return state;
     case "turnFinished": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: state.liveTools };
     case "turnFailed": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: state.liveTools, info: { ...state.info, status: event.message } };
@@ -78,7 +78,7 @@ function updateDraft(state: IyonState, key: { readonly messageId: number; readon
   return tool === undefined ? state : { ...state, liveTools: new Map(state.liveTools).set(id, update(tool)) };
 }
 function updateTool(state: IyonState, toolCallId: string, update: (tool: LiveTool) => LiveTool): IyonState {
-  const match = [...state.liveTools.entries()].find(([, tool]) => tool.toolCallId === toolCallId);
+  const match = [...state.liveTools.entries()].find(([, tool]) => tool.toolCallId !== undefined && normalizeToolCallId(tool.toolCallId) === toolCallId);
   return match === undefined ? state : { ...state, liveTools: new Map(state.liveTools).set(match[0], update(match[1])) };
 }
 
@@ -86,6 +86,9 @@ function startTool(state: IyonState, toolCallId: string, toolName: string, argum
   const match = [...state.liveTools.entries()].find(([, tool]) => tool.toolCallId === toolCallId);
   if (match !== undefined) return { ...state, liveTools: new Map(state.liveTools).set(match[0], { ...match[1], toolCallId, toolName, arguments: argumentsValue, status: "running" }) };
   return { ...state, liveTools: new Map(state.liveTools).set(toolCallId, { toolCallId, toolName, arguments: argumentsValue, argumentPreview: "", status: "running", isError: false, frozen: false }) };
+}
+function normalizeToolCallId(toolCallId: string | number | undefined): string | undefined {
+  return toolCallId === undefined ? undefined : String(toolCallId);
 }
 function applyToolUpdate(tool: LiveTool, update: ToolUpdatePresentation): LiveTool {
   if (update.type === "text") return { ...tool, update: tool.update?.type === "text" ? { ...update, text: tool.update.text + update.text } : update };
