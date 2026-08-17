@@ -1,4 +1,4 @@
-import type { KeyEvent, PasteEvent, TuiEvent } from "./types.ts";
+import type { OutputEvent, TuiEvent } from "./types.ts";
 
 export class FocusController {
   private focused = 0;
@@ -8,10 +8,9 @@ export class FocusController {
 
 export class InteractionRouter {
   constructor(private readonly focus = new FocusController()) {}
-  route(event: TuiEvent, key: (event: KeyEvent, focused: number) => boolean, paste: (event: PasteEvent, focused: number) => boolean): boolean {
-    if (event.type === "key") return key(event, this.focus.current());
-    if (event.type === "paste") return paste(event, this.focus.current());
-    return false;
+  route(event: TuiEvent, output: (event: OutputEvent, focused: number) => boolean): boolean {
+    if (event.type !== "output") return false;
+    return output(event, this.focus.current());
   }
   focusController(): FocusController { return this.focus; }
 }

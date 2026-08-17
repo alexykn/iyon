@@ -1195,7 +1195,7 @@ impl<'a> Builder<'a> {
             return true;
         }
         // Generic GFM follows pulldown. A pipe-less line can still be a short
-        // body row (spec Example 202). Iyon's live LLM stabilizer is a separate
+        // body row (spec Example 202). The live table stabilizer is a separate
         // product heuristic, enabled only via MarkdownOptions.
         if !self.stabilize_live_tables {
             return true;
@@ -1347,10 +1347,10 @@ fn empty_gfm_table_cell() -> TableCell {
     TableCell::plain([Block::paragraph(InlineContent::new(Vec::new()))])
 }
 
-/// Iyon live-table closer, not GFM.
+/// Live-table closer, not GFM.
 ///
 /// GFM keeps a table open across a pipe-less body line. This heuristic closes
-/// once the next line is blank or does not start with `|`, so streaming LLM
+/// once the next line is blank or does not start with `|`, so streaming text
 /// tables stay raw until they can align once.
 fn following_line_closes_table(table_source: &str, after: &str) -> bool {
     let next_line = if table_source.ends_with('\n') {

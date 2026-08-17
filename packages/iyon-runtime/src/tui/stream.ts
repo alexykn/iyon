@@ -1,10 +1,12 @@
 import { HandleBase, nativeTui } from "./handles.ts";
-import type { StreamSnapshot, TextStream as TextStreamContract } from "./types.ts";
+import type { StreamAnnotation, StreamSnapshot, TextStream as TextStreamContract, TextStreamOptions } from "./types.ts";
 
 export class TextStream extends HandleBase<ReturnType<typeof nativeTui.textStream>, "text-stream"> implements TextStreamContract {
-  constructor(options: { readonly projector?: "markdown" } = {}) { super("text-stream", nativeTui.textStream(options.projector)); }
+  constructor(options: TextStreamOptions = {}) { super("text-stream", nativeTui.textStream(options)); }
   update(text: string): Promise<void> { return this.call(() => this.nativeHandle.update(text)); }
-  appendSegment(kind: "text" | "thinking", text: string): Promise<void> { return this.call(() => this.nativeHandle.appendSegment(kind, text)); }
+  append(text: string, annotations: readonly StreamAnnotation[] = []): Promise<void> {
+    return this.call(() => this.nativeHandle.append(text, annotations));
+  }
   seal(): Promise<void> { return this.call(() => this.nativeHandle.seal()); }
   snapshot(): Promise<StreamSnapshot> { return this.call(() => this.nativeHandle.snapshot() as StreamSnapshot); }
   nativeObject(): object { this.ensureOpen(); return this.nativeHandle; }

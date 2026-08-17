@@ -9,11 +9,10 @@ use iyon_tui::text::{FormatId, LanguageId, SemanticTag, TextOrigin};
 use iyon_tui::text::{TextRun, TextVisitor};
 use iyon_tui::{
     BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History,
-    HorizontalAlign, HostActivityConfig, HostCellStyle, HostHistory, HostScrollPane,
-    HostStreamSegmentKind, HostTextInput, HostTextStream, HostViewSlot, HostWorking, IntoView, Key,
-    KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output, Projector, StyleRef,
-    StyleSpec, TextContent, TextInput, TextPart, TextRole, TextSelector, TextSpan,
-    TextStreamPresentation, TuiHost, VerticalAlign, View, WrapMode,
+    HorizontalAlign, HostCellStyle, HostHistory, HostScrollPane, HostTextInput, HostTextStream,
+    HostViewSlot, IntoView, Key, KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output,
+    Projector, StyleRef, StyleSpec, TextContent, TextInput, TextPart, TextRole, TextSelector,
+    TextSpan, TuiHost, VerticalAlign, View, WrapMode,
 };
 use serde_json::Map;
 use serde_json::Value;
@@ -260,42 +259,6 @@ pub struct NativeTextInput {
     state: Mutex<TextInput>,
     host: Option<HostTextInput>,
     alive: AtomicBool,
-}
-
-#[napi]
-pub struct NativeWorking {
-    working: HostWorking,
-    alive: AtomicBool,
-}
-
-#[napi]
-impl NativeWorking {
-    #[napi]
-    pub fn dispose(&self) {
-        self.alive.store(false, Ordering::Release);
-    }
-
-    #[napi(js_name = "componentId")]
-    pub fn component_id(&self) -> Result<Option<i64>> {
-        ensure_alive(&self.alive)?;
-        Ok(self.working.component_id().map(|id| id as i64))
-    }
-
-    #[napi(js_name = "setActive")]
-    pub fn set_active(&self, active: bool) -> Result<()> {
-        ensure_alive(&self.alive)?;
-        self.working
-            .set_active(active)
-            .map_err(|error| crate::NativeError::internal(error.to_string()))
-    }
-
-    #[napi(js_name = "setPending")]
-    pub fn set_pending(&self, pending: Vec<String>) -> Result<()> {
-        ensure_alive(&self.alive)?;
-        self.working
-            .set_pending(pending)
-            .map_err(|error| crate::NativeError::internal(error.to_string()))
-    }
 }
 
 #[napi]
@@ -571,19 +534,6 @@ impl NativeTuiHost {
         Ok(NativeTextInput::from_host(input))
     }
 
-    #[napi(js_name = "working")]
-    pub fn working(&self, config: Option<Value>) -> Result<NativeWorking> {
-        ensure_alive(&self.alive)?;
-        let working = self
-            .host
-            .create_working(activity_config(config.as_ref())?)
-            .map_err(|error| crate::NativeError::internal(error.to_string()))?;
-        Ok(NativeWorking {
-            working,
-            alive: AtomicBool::new(true),
-        })
-    }
-
     #[napi(js_name = "createViewSlot")]
     pub fn create_view_slot(&self, initial: &NativeTuiView) -> Result<NativeViewSlot> {
         ensure_alive(&self.alive)?;
@@ -609,31 +559,31 @@ impl NativeTuiHost {
         &self,
         key: String,
         modifiers: Option<Vec<String>>,
-        action_id: String,
+        route_id: String,
     ) -> Result<()> {
         ensure_alive(&self.alive)?;
         self.host
-            .bind_key(parse_key(&key, modifiers.as_deref())?, action_id)
+            .bind_key(parse_key(&key, modifiers.as_deref())?, route_id)
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
     #[napi]
-    pub fn route(&self, output: &NativeTuiOutput, action_id: String) -> Result<()> {
+    pub fn route(&self, output: &NativeTuiOutput, route_id: String) -> Result<()> {
         ensure_alive(&self.alive)?;
         self.host
-            .route_text_input_output(output.output, action_id)
+            .route_text_input_output(output.output, route_id)
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
     #[napi(js_name = "interceptPaste")]
-    pub fn intercept_paste(&self, input: &NativeTextInput, action_id: String) -> Result<()> {
+    pub fn intercept_paste(&self, input: &NativeTextInput, route_id: String) -> Result<()> {
         ensure_alive(&self.alive)?;
         let host_input = input
             .host
             .as_ref()
             .ok_or_else(|| crate::NativeError::invalid_input("text input is not mounted"))?;
         self.host
-            .intercept_paste(host_input, action_id)
+            .intercept_paste(host_input, route_id)
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
@@ -677,11 +627,33 @@ impl NativeTuiHost {
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
+    #[napi(js_name = "nextOutput")]
+    pub fn next_output(&self) -> Result<Option<Value>> {
+        ensure_alive(&self.alive)?;
+        Ok(self.host.next_output().map(
+            |output| serde_json::json!({"route_id": output.route_id, "payload": output.payload}),
+        ))
+    }
+
     #[napi(js_name = "nextAction")]
     pub fn next_action(&self) -> Result<Option<Value>> {
         ensure_alive(&self.alive)?;
         Ok(self.host.next_action().map(
-            |action| serde_json::json!({"action_id": action.action_id, "payload": action.payload}),
+            |action| serde_json::json!({"action_id": action.route_id, "payload": action.payload}),
+        ))
+    }
+
+    /// Wait until native generic key routing produces a routed output.
+    #[napi(js_name = "waitForOutput")]
+    pub async fn wait_for_output(&self) -> Result<Option<Value>> {
+        ensure_alive(&self.alive)?;
+        let host = self.host.clone();
+        let output = host
+            .wait_for_output()
+            .await
+            .map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        Ok(output.map(
+            |output| serde_json::json!({"route_id": output.route_id, "payload": output.payload}),
         ))
     }
 
@@ -696,7 +668,7 @@ impl NativeTuiHost {
             .await
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
         Ok(action.map(
-            |action| serde_json::json!({"action_id": action.action_id, "payload": action.payload}),
+            |action| serde_json::json!({"action_id": action.route_id, "payload": action.payload}),
         ))
     }
 
@@ -790,17 +762,18 @@ pub struct NativeTextStream {
 #[napi]
 impl NativeTextStream {
     #[napi(constructor)]
-    pub fn new(projector: Option<String>) -> Self {
-        Self {
-            stream: if projector.as_deref() == Some("markdown") {
-                HostTextStream::with_markdown_presentation(TextStreamPresentation::new(
-                    iyon_tui::Insets::new(0, 2, 0, 2),
+    pub fn new(options: Option<Value>) -> Result<Self> {
+        let (markdown, insets) = parse_stream_options(options)?;
+        Ok(Self {
+            stream: if markdown {
+                HostTextStream::with_markdown_presentation(iyon_tui::TextStreamPresentation::new(
+                    insets,
                 ))
             } else {
                 HostTextStream::new()
             },
             alive: AtomicBool::new(true),
-        }
+        })
     }
 
     #[napi]
@@ -816,20 +789,16 @@ impl NativeTextStream {
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
-    #[napi(js_name = "appendSegment")]
-    pub fn append_segment(&self, kind: String, text: String) -> Result<()> {
+    #[napi]
+    pub fn append(&self, text: String, annotations: Option<Vec<Value>>) -> Result<()> {
         ensure_alive(&self.alive)?;
-        let kind = match kind.as_str() {
-            "text" => HostStreamSegmentKind::Text,
-            "thinking" => HostStreamSegmentKind::Thinking,
-            _ => {
-                return Err(crate::NativeError::invalid_input(
-                    "segment kind must be text or thinking",
-                ));
-            }
-        };
+        let annotations = annotations
+            .unwrap_or_default()
+            .into_iter()
+            .map(parse_stream_annotation)
+            .collect::<Result<Vec<_>>>()?;
         self.stream
-            .append_segment(kind, text)
+            .append(text, &annotations)
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
@@ -854,12 +823,88 @@ impl NativeTextStream {
             snapshot["segments"] = serde_json::Value::Array(
                 segments
                     .into_iter()
-                    .map(|(kind, text)| serde_json::json!({"kind": kind, "text": text}))
+                    .map(|(annotations, text)| {
+                        let annotations = annotations
+                            .into_iter()
+                            .map(|annotation| {
+                                serde_json::json!({
+                                    "namespace": annotation.namespace,
+                                    "name": annotation.name,
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        serde_json::json!({"annotations": annotations, "text": text})
+                    })
                     .collect(),
             );
         }
         Ok(snapshot)
     }
+}
+
+fn parse_stream_options(value: Option<Value>) -> Result<(bool, iyon_tui::Insets)> {
+    let Some(value) = value else {
+        return Ok((false, iyon_tui::Insets::ZERO));
+    };
+    if let Some(projector) = value.as_str() {
+        return match projector {
+            "markdown" => Ok((true, iyon_tui::Insets::ZERO)),
+            "" => Ok((false, iyon_tui::Insets::ZERO)),
+            _ => Err(crate::NativeError::invalid_input(
+                "stream projector must be markdown",
+            )),
+        };
+    }
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("stream options must be an object"))?;
+    let markdown = match object.get("projector").and_then(Value::as_str) {
+        None | Some("") => false,
+        Some("markdown") => true,
+        Some(_) => {
+            return Err(crate::NativeError::invalid_input(
+                "stream projector must be markdown",
+            ));
+        }
+    };
+    let insets = object
+        .get("presentation")
+        .and_then(Value::as_object)
+        .and_then(|presentation| presentation.get("insets"))
+        .map(|value| -> Result<iyon_tui::Insets> {
+            let insets = value.as_object().ok_or_else(|| {
+                crate::NativeError::invalid_input("stream insets must be an object")
+            })?;
+            Ok(iyon_tui::Insets::new(
+                u16_value(insets, "top")?,
+                u16_value(insets, "right")?,
+                u16_value(insets, "bottom")?,
+                u16_value(insets, "left")?,
+            ))
+        })
+        .transpose()?
+        .unwrap_or(iyon_tui::Insets::ZERO);
+    Ok((markdown, insets))
+}
+
+fn parse_stream_annotation(value: Value) -> Result<iyon_tui::TextStreamAnnotation> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("stream annotation must be an object"))?;
+    let namespace = object
+        .get("namespace")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            crate::NativeError::invalid_input("stream annotation namespace is required")
+        })?;
+    let name = object
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| crate::NativeError::invalid_input("stream annotation name is required"))?;
+    Ok(iyon_tui::TextStreamAnnotation {
+        namespace: namespace.to_owned(),
+        name: name.to_owned(),
+    })
 }
 
 #[napi]
@@ -1527,69 +1572,6 @@ fn u16_value(object: &Map<String, Value>, field: &str) -> Result<u16> {
         .map_err(|_| crate::NativeError::invalid_input(format!("{field} must fit in u16")))
 }
 
-fn activity_config(value: Option<&Value>) -> Result<HostActivityConfig> {
-    let Some(value) = value else {
-        return Ok(HostActivityConfig::default());
-    };
-    let object = value
-        .as_object()
-        .ok_or_else(|| crate::NativeError::invalid_input("activity config must be an object"))?;
-    let mut config = HostActivityConfig::default();
-    if let Some(frames) = object.get("frames") {
-        config.frames = frames
-            .as_array()
-            .ok_or_else(|| crate::NativeError::invalid_input("activity frames must be an array"))?
-            .iter()
-            .map(|frame| {
-                frame.as_str().map(str::to_owned).ok_or_else(|| {
-                    crate::NativeError::invalid_input("activity frames must be strings")
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        if config.frames.is_empty() {
-            return Err(crate::NativeError::invalid_input(
-                "activity frames must not be empty",
-            ));
-        }
-    }
-    if let Some(label) = object.get("activeLabel") {
-        config.active_label = label
-            .as_str()
-            .ok_or_else(|| crate::NativeError::invalid_input("activeLabel must be a string"))?
-            .to_owned();
-    }
-    if let Some(label) = object.get("pendingLabel") {
-        config.pending_label = label
-            .as_str()
-            .ok_or_else(|| crate::NativeError::invalid_input("pendingLabel must be a string"))?
-            .to_owned();
-    }
-    if let Some(prefix) = object.get("queuePrefix") {
-        config.queue_prefix = prefix
-            .as_str()
-            .ok_or_else(|| crate::NativeError::invalid_input("queuePrefix must be a string"))?
-            .to_owned();
-    }
-    if let Some(tick) = object.get("tickMs") {
-        config.tick_ms = tick
-            .as_u64()
-            .ok_or_else(|| crate::NativeError::invalid_input("tickMs must be an integer"))?;
-        if config.tick_ms == 0 {
-            return Err(crate::NativeError::invalid_input("tickMs must be positive"));
-        }
-    }
-    if let Some(padding) = object.get("padding") {
-        config.padding = u16::try_from(padding.as_u64().ok_or_else(|| {
-            crate::NativeError::invalid_input("activity padding must be an integer")
-        })?)
-        .map_err(|_| crate::NativeError::invalid_input("activity padding must fit in u16"))?;
-    }
-    if let Some(style) = object.get("mutedStyle") {
-        config.muted_style = lower_style_ref(style)?;
-    }
-    Ok(config)
-}
-
 fn cell_style_value(style: HostCellStyle) -> Value {
     serde_json::json!({
         "foreground": style.foreground,
@@ -2125,7 +2107,7 @@ mod tests {
 
     #[test]
     fn native_stream_rejects_updates_after_seal() {
-        let stream = NativeTextStream::new(None);
+        let stream = NativeTextStream::new(None).unwrap();
         stream.update("first".into()).unwrap();
         stream.seal().unwrap();
         assert!(stream.update("late".into()).is_err());

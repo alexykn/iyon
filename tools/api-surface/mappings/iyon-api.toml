@@ -2,6 +2,7 @@ schema_version = 1
 crate_id = "iyon-api"
 
 [[records]]
+
 item_id = "iyon-api::client::ModelApi"
 path = "iyon-api::ModelApi"
 strategy = "TraitAdapter"
@@ -14,6 +15,7 @@ note = "explicit public alias projection"
 evidence = ["packages/iyon-sdk/tests/public-surface.test.ts::exports protocol and core contracts"]
 
 [[records]]
+
 item_id = "iyon-api::client::ModelApi::stream"
 path = "iyon-api::client::ModelApi::stream"
 strategy = "NativeAsync"
@@ -25,6 +27,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::client::ModelStream"
 path = "iyon-api::ModelStream"
 strategy = "MirrorValue"
@@ -36,6 +39,7 @@ status = "stub"
 note = "explicit public alias projection"
 
 [[records]]
+
 item_id = "iyon-api::client::ModelStreamFuture"
 path = "iyon-api::ModelStreamFuture"
 strategy = "MirrorValue"
@@ -47,6 +51,7 @@ status = "stub"
 note = "explicit public alias projection"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelError"
 path = "iyon-api::ModelError"
 strategy = "MirrorValue"
@@ -59,6 +64,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::error::ModelError"
 path = "iyon-api::error::ModelError"
 strategy = "MirrorValue"
@@ -70,6 +76,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelError::fmt"
 path = "iyon-api::error::ModelError::fmt"
 strategy = "NativeAsync"
@@ -81,6 +88,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelError::kind"
 path = "iyon-api::error::ModelError::kind"
 strategy = "NativeHandle"
@@ -92,6 +100,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelError::message"
 path = "iyon-api::error::ModelError::message"
 strategy = "NativeHandle"
@@ -103,6 +112,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelError::new"
 path = "iyon-api::error::ModelError::new"
 strategy = "NativeAsync"
@@ -114,6 +124,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelError::unknown"
 path = "iyon-api::error::ModelError::unknown"
 strategy = "NativeAsync"
@@ -125,6 +136,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelErrorKind"
 path = "iyon-api::ModelErrorKind"
 strategy = "MirrorValue"
@@ -137,6 +149,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::error::ModelErrorKind::Authentication"
 path = "iyon-api::error::ModelErrorKind::Authentication"
 strategy = "MirrorValue"
@@ -148,6 +161,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelErrorKind::Cancelled"
 path = "iyon-api::error::ModelErrorKind::Cancelled"
 strategy = "MirrorValue"
@@ -159,6 +173,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelErrorKind::InvalidRequest"
 path = "iyon-api::error::ModelErrorKind::InvalidRequest"
 strategy = "MirrorValue"
@@ -170,6 +185,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelErrorKind::Provider"
 path = "iyon-api::error::ModelErrorKind::Provider"
 strategy = "MirrorValue"
@@ -181,6 +197,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelErrorKind::RateLimited"
 path = "iyon-api::error::ModelErrorKind::RateLimited"
 strategy = "MirrorValue"
@@ -192,6 +209,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelErrorKind::Transport"
 path = "iyon-api::error::ModelErrorKind::Transport"
 strategy = "MirrorValue"
@@ -203,6 +221,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::error::ModelErrorKind::Unknown"
 path = "iyon-api::error::ModelErrorKind::Unknown"
 strategy = "MirrorValue"
@@ -214,6 +233,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::CacheRetention"
 path = "iyon-api::CacheRetention"
 strategy = "MirrorValue"
@@ -226,6 +246,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::model::CacheRetention::Long"
 path = "iyon-api::model::CacheRetention::Long"
 strategy = "MirrorValue"
@@ -237,6 +258,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::CacheRetention::None"
 path = "iyon-api::model::CacheRetention::None"
 strategy = "MirrorValue"
@@ -248,6 +270,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::CacheRetention::Short"
 path = "iyon-api::model::CacheRetention::Short"
 strategy = "MirrorValue"
@@ -259,6 +282,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ContentBlock"
 path = "iyon-api::ContentBlock"
 strategy = "MirrorValue"
@@ -271,6 +295,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::model::ContentBlock::Image"
 path = "iyon-api::model::ContentBlock::Image"
 strategy = "MirrorValue"
@@ -282,6 +307,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ContentBlock::Image::data"
 path = "iyon-api::model::ContentBlock::Image::data"
 strategy = "NativeHandle"
@@ -293,6 +319,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ContentBlock::Image::mime_type"
 path = "iyon-api::model::ContentBlock::Image::mime_type"
 strategy = "NativeHandle"
@@ -304,6 +331,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ContentBlock::Text"
 path = "iyon-api::model::ContentBlock::Text"
 strategy = "MirrorValue"
@@ -315,6 +343,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ContentBlock::Text::text"
 path = "iyon-api::model::ContentBlock::Text::text"
 strategy = "NativeHandle"
@@ -326,6 +355,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ContentBlock::Thinking"
 path = "iyon-api::model::ContentBlock::Thinking"
 strategy = "MirrorValue"
@@ -337,6 +367,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ContentBlock::Thinking::text"
 path = "iyon-api::model::ContentBlock::Thinking::text"
 strategy = "NativeHandle"
@@ -348,6 +379,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ContentBlock::ToolCall"
 path = "iyon-api::model::ContentBlock::ToolCall"
 strategy = "MirrorValue"
@@ -359,6 +391,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ContentBlock::ToolCall::arguments"
 path = "iyon-api::model::ContentBlock::ToolCall::arguments"
 strategy = "NativeHandle"
@@ -370,6 +403,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ContentBlock::ToolCall::id"
 path = "iyon-api::model::ContentBlock::ToolCall::id"
 strategy = "NativeHandle"
@@ -381,6 +415,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ContentBlock::ToolCall::name"
 path = "iyon-api::model::ContentBlock::ToolCall::name"
 strategy = "NativeHandle"
@@ -392,6 +427,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMessage"
 path = "iyon-api::ModelMessage"
 strategy = "MirrorValue"
@@ -404,6 +440,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMessage::Assistant"
 path = "iyon-api::model::ModelMessage::Assistant"
 strategy = "MirrorValue"
@@ -415,6 +452,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMessage::Assistant::content"
 path = "iyon-api::model::ModelMessage::Assistant::content"
 strategy = "NativeHandle"
@@ -426,6 +464,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMessage::ToolResult"
 path = "iyon-api::model::ModelMessage::ToolResult"
 strategy = "MirrorValue"
@@ -437,6 +476,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMessage::ToolResult::content"
 path = "iyon-api::model::ModelMessage::ToolResult::content"
 strategy = "NativeHandle"
@@ -448,6 +488,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMessage::ToolResult::is_error"
 path = "iyon-api::model::ModelMessage::ToolResult::is_error"
 strategy = "NativeHandle"
@@ -459,6 +500,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMessage::ToolResult::tool_call_id"
 path = "iyon-api::model::ModelMessage::ToolResult::tool_call_id"
 strategy = "NativeHandle"
@@ -470,6 +512,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMessage::ToolResult::tool_name"
 path = "iyon-api::model::ModelMessage::ToolResult::tool_name"
 strategy = "NativeHandle"
@@ -481,6 +524,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMessage::User"
 path = "iyon-api::model::ModelMessage::User"
 strategy = "MirrorValue"
@@ -492,6 +536,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMessage::User::content"
 path = "iyon-api::model::ModelMessage::User::content"
 strategy = "NativeHandle"
@@ -503,6 +548,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMetadata"
 path = "iyon-api::ModelMetadata"
 strategy = "MirrorValue"
@@ -515,6 +561,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMetadata::session_id"
 path = "iyon-api::model::ModelMetadata::session_id"
 strategy = "NativeHandle"
@@ -526,6 +573,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelMetadata::user_id"
 path = "iyon-api::model::ModelMetadata::user_id"
 strategy = "NativeHandle"
@@ -537,6 +585,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelParams"
 path = "iyon-api::ModelParams"
 strategy = "MirrorValue"
@@ -549,6 +598,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::model::ModelParams::cache_retention"
 path = "iyon-api::model::ModelParams::cache_retention"
 strategy = "NativeHandle"
@@ -560,6 +610,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelParams::max_tokens"
 path = "iyon-api::model::ModelParams::max_tokens"
 strategy = "NativeHandle"
@@ -571,6 +622,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelParams::reasoning"
 path = "iyon-api::model::ModelParams::reasoning"
 strategy = "NativeHandle"
@@ -582,6 +634,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelParams::temperature"
 path = "iyon-api::model::ModelParams::temperature"
 strategy = "NativeHandle"
@@ -593,6 +646,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelRequest"
 path = "iyon-api::ModelRequest"
 strategy = "MirrorValue"
@@ -605,6 +659,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::model::ModelRequest::messages"
 path = "iyon-api::model::ModelRequest::messages"
 strategy = "NativeHandle"
@@ -616,6 +671,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelRequest::metadata"
 path = "iyon-api::model::ModelRequest::metadata"
 strategy = "NativeHandle"
@@ -627,6 +683,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelRequest::params"
 path = "iyon-api::model::ModelRequest::params"
 strategy = "NativeHandle"
@@ -638,6 +695,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelRequest::system_prompt"
 path = "iyon-api::model::ModelRequest::system_prompt"
 strategy = "NativeHandle"
@@ -649,6 +707,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelRequest::tools"
 path = "iyon-api::model::ModelRequest::tools"
 strategy = "NativeHandle"
@@ -660,6 +719,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelToolSpec"
 path = "iyon-api::ModelToolSpec"
 strategy = "MirrorValue"
@@ -672,6 +732,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::model::ModelToolSpec::description"
 path = "iyon-api::model::ModelToolSpec::description"
 strategy = "NativeHandle"
@@ -683,6 +744,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelToolSpec::input_schema"
 path = "iyon-api::model::ModelToolSpec::input_schema"
 strategy = "NativeHandle"
@@ -694,6 +756,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ModelToolSpec::name"
 path = "iyon-api::model::ModelToolSpec::name"
 strategy = "NativeHandle"
@@ -705,6 +768,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ReasoningLevel"
 path = "iyon-api::ReasoningLevel"
 strategy = "MirrorValue"
@@ -717,6 +781,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::model::ReasoningLevel::ALL"
 path = "iyon-api::model::ReasoningLevel::ALL"
 strategy = "TraitAdapter"
@@ -728,6 +793,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ReasoningLevel::High"
 path = "iyon-api::model::ReasoningLevel::High"
 strategy = "MirrorValue"
@@ -739,6 +805,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ReasoningLevel::Low"
 path = "iyon-api::model::ReasoningLevel::Low"
 strategy = "MirrorValue"
@@ -750,6 +817,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ReasoningLevel::Max"
 path = "iyon-api::model::ReasoningLevel::Max"
 strategy = "MirrorValue"
@@ -761,6 +829,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ReasoningLevel::Medium"
 path = "iyon-api::model::ReasoningLevel::Medium"
 strategy = "MirrorValue"
@@ -772,6 +841,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ReasoningLevel::Minimal"
 path = "iyon-api::model::ReasoningLevel::Minimal"
 strategy = "MirrorValue"
@@ -783,6 +853,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ReasoningLevel::None"
 path = "iyon-api::model::ReasoningLevel::None"
 strategy = "MirrorValue"
@@ -794,6 +865,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ReasoningLevel::XHigh"
 path = "iyon-api::model::ReasoningLevel::XHigh"
 strategy = "MirrorValue"
@@ -805,6 +877,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ReasoningLevel::candidates"
 path = "iyon-api::model::ReasoningLevel::candidates"
 strategy = "NativeAsync"
@@ -816,6 +889,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ReasoningLevel::code"
 path = "iyon-api::model::ReasoningLevel::code"
 strategy = "NativeAsync"
@@ -827,6 +901,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::model::ReasoningLevel::next_for"
 path = "iyon-api::model::ReasoningLevel::next_for"
 strategy = "NativeAsync"
@@ -838,6 +913,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::providers::mock::MockModelApi"
 path = "iyon-api::MockModelApi"
 strategy = "MirrorValue"
@@ -849,6 +925,7 @@ status = "stub"
 note = "explicit public alias projection"
 
 [[records]]
+
 item_id = "iyon-api::providers::mock::MockModelApi"
 path = "iyon-api::providers::mock::MockModelApi"
 strategy = "MirrorValue"
@@ -860,6 +937,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::providers::mock::MockModelApi::stream"
 path = "iyon-api::providers::mock::MockModelApi::stream"
 strategy = "NativeAsync"
@@ -871,6 +949,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::providers::openai_codex::OpenAICodexModelApi"
 path = "iyon-api::OpenAICodexModelApi"
 strategy = "MirrorValue"
@@ -882,6 +961,7 @@ status = "stub"
 note = "explicit public alias projection"
 
 [[records]]
+
 item_id = "iyon-api::providers::openai_codex::OpenAICodexModelApi"
 path = "iyon-api::providers::openai_codex::OpenAICodexModelApi"
 strategy = "MirrorValue"
@@ -893,6 +973,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::providers::openai_codex::OpenAICodexModelApi::new"
 path = "iyon-api::providers::openai_codex::OpenAICodexModelApi::new"
 strategy = "NativeAsync"
@@ -904,6 +985,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::providers::openai_codex::OpenAICodexModelApi::stream"
 path = "iyon-api::providers::openai_codex::OpenAICodexModelApi::stream"
 strategy = "NativeAsync"
@@ -915,6 +997,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::providers::openrouter::OpenRouterModelApi"
 path = "iyon-api::OpenRouterModelApi"
 strategy = "MirrorValue"
@@ -926,6 +1009,7 @@ status = "stub"
 note = "explicit public alias projection"
 
 [[records]]
+
 item_id = "iyon-api::providers::openrouter::OpenRouterModelApi"
 path = "iyon-api::providers::openrouter::OpenRouterModelApi"
 strategy = "MirrorValue"
@@ -937,6 +1021,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::providers::openrouter::OpenRouterModelApi::new"
 path = "iyon-api::providers::openrouter::OpenRouterModelApi::new"
 strategy = "NativeAsync"
@@ -948,6 +1033,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::providers::openrouter::OpenRouterModelApi::stream"
 path = "iyon-api::providers::openrouter::OpenRouterModelApi::stream"
 strategy = "NativeAsync"
@@ -959,6 +1045,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::providers::openrouter::OpenRouterModelApi::with_base_url"
 path = "iyon-api::providers::openrouter::OpenRouterModelApi::with_base_url"
 strategy = "NativeAsync"
@@ -970,6 +1057,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent"
 path = "iyon-api::ModelStreamEvent"
 strategy = "MirrorValue"
@@ -982,6 +1070,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::Done"
 path = "iyon-api::stream::ModelStreamEvent::Done"
 strategy = "MirrorValue"
@@ -993,6 +1082,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::Done::stop_reason"
 path = "iyon-api::stream::ModelStreamEvent::Done::stop_reason"
 strategy = "NativeHandle"
@@ -1004,6 +1094,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::Error"
 path = "iyon-api::stream::ModelStreamEvent::Error"
 strategy = "MirrorValue"
@@ -1015,6 +1106,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::Error::message"
 path = "iyon-api::stream::ModelStreamEvent::Error::message"
 strategy = "NativeHandle"
@@ -1026,6 +1118,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::Started"
 path = "iyon-api::stream::ModelStreamEvent::Started"
 strategy = "MirrorValue"
@@ -1037,6 +1130,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::TextDelta"
 path = "iyon-api::stream::ModelStreamEvent::TextDelta"
 strategy = "MirrorValue"
@@ -1048,6 +1142,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::TextDelta::content_index"
 path = "iyon-api::stream::ModelStreamEvent::TextDelta::content_index"
 strategy = "NativeHandle"
@@ -1059,6 +1154,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::TextDelta::delta"
 path = "iyon-api::stream::ModelStreamEvent::TextDelta::delta"
 strategy = "NativeHandle"
@@ -1070,6 +1166,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::TextEnd"
 path = "iyon-api::stream::ModelStreamEvent::TextEnd"
 strategy = "MirrorValue"
@@ -1081,6 +1178,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::TextEnd::content_index"
 path = "iyon-api::stream::ModelStreamEvent::TextEnd::content_index"
 strategy = "NativeHandle"
@@ -1092,6 +1190,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::TextEnd::text"
 path = "iyon-api::stream::ModelStreamEvent::TextEnd::text"
 strategy = "NativeHandle"
@@ -1103,6 +1202,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::TextStart"
 path = "iyon-api::stream::ModelStreamEvent::TextStart"
 strategy = "MirrorValue"
@@ -1114,6 +1214,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::TextStart::content_index"
 path = "iyon-api::stream::ModelStreamEvent::TextStart::content_index"
 strategy = "NativeHandle"
@@ -1125,6 +1226,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ThinkingDelta"
 path = "iyon-api::stream::ModelStreamEvent::ThinkingDelta"
 strategy = "MirrorValue"
@@ -1136,6 +1238,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ThinkingDelta::content_index"
 path = "iyon-api::stream::ModelStreamEvent::ThinkingDelta::content_index"
 strategy = "NativeHandle"
@@ -1147,6 +1250,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ThinkingDelta::delta"
 path = "iyon-api::stream::ModelStreamEvent::ThinkingDelta::delta"
 strategy = "NativeHandle"
@@ -1158,6 +1262,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ThinkingEnd"
 path = "iyon-api::stream::ModelStreamEvent::ThinkingEnd"
 strategy = "MirrorValue"
@@ -1169,6 +1274,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ThinkingEnd::content_index"
 path = "iyon-api::stream::ModelStreamEvent::ThinkingEnd::content_index"
 strategy = "NativeHandle"
@@ -1180,6 +1286,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ThinkingEnd::text"
 path = "iyon-api::stream::ModelStreamEvent::ThinkingEnd::text"
 strategy = "NativeHandle"
@@ -1191,6 +1298,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ThinkingStart"
 path = "iyon-api::stream::ModelStreamEvent::ThinkingStart"
 strategy = "MirrorValue"
@@ -1202,6 +1310,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ThinkingStart::content_index"
 path = "iyon-api::stream::ModelStreamEvent::ThinkingStart::content_index"
 strategy = "NativeHandle"
@@ -1213,6 +1322,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallDelta"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallDelta"
 strategy = "MirrorValue"
@@ -1224,6 +1334,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallDelta::arguments_delta"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallDelta::arguments_delta"
 strategy = "NativeHandle"
@@ -1235,6 +1346,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallDelta::content_index"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallDelta::content_index"
 strategy = "NativeHandle"
@@ -1246,6 +1358,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallDelta::id"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallDelta::id"
 strategy = "NativeHandle"
@@ -1257,6 +1370,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallDelta::name"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallDelta::name"
 strategy = "NativeHandle"
@@ -1268,6 +1382,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallEnd"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallEnd"
 strategy = "MirrorValue"
@@ -1279,6 +1394,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallEnd::arguments"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallEnd::arguments"
 strategy = "NativeHandle"
@@ -1290,6 +1406,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallEnd::content_index"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallEnd::content_index"
 strategy = "NativeHandle"
@@ -1301,6 +1418,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallEnd::id"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallEnd::id"
 strategy = "NativeHandle"
@@ -1312,6 +1430,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallEnd::name"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallEnd::name"
 strategy = "NativeHandle"
@@ -1323,6 +1442,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallStart"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallStart"
 strategy = "MirrorValue"
@@ -1334,6 +1454,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallStart::content_index"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallStart::content_index"
 strategy = "NativeHandle"
@@ -1345,6 +1466,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallStart::id"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallStart::id"
 strategy = "NativeHandle"
@@ -1356,6 +1478,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::ToolCallStart::name"
 path = "iyon-api::stream::ModelStreamEvent::ToolCallStart::name"
 strategy = "NativeHandle"
@@ -1367,6 +1490,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::Usage"
 path = "iyon-api::stream::ModelStreamEvent::Usage"
 strategy = "MirrorValue"
@@ -1378,6 +1502,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::ModelStreamEvent::Usage::usage"
 path = "iyon-api::stream::ModelStreamEvent::Usage::usage"
 strategy = "NativeHandle"
@@ -1389,6 +1514,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::StopReason"
 path = "iyon-api::StopReason"
 strategy = "MirrorValue"
@@ -1401,6 +1527,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::stream::StopReason::Aborted"
 path = "iyon-api::stream::StopReason::Aborted"
 strategy = "MirrorValue"
@@ -1412,6 +1539,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::StopReason::Error"
 path = "iyon-api::stream::StopReason::Error"
 strategy = "MirrorValue"
@@ -1423,6 +1551,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::StopReason::Length"
 path = "iyon-api::stream::StopReason::Length"
 strategy = "MirrorValue"
@@ -1434,6 +1563,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::StopReason::Stop"
 path = "iyon-api::stream::StopReason::Stop"
 strategy = "MirrorValue"
@@ -1445,6 +1575,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::StopReason::ToolUse"
 path = "iyon-api::stream::StopReason::ToolUse"
 strategy = "MirrorValue"
@@ -1456,6 +1587,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::Usage"
 path = "iyon-api::Usage"
 strategy = "MirrorValue"
@@ -1468,6 +1600,7 @@ note = "explicit public alias projection"
 evidence = ["tools/api-surface/tests/manifest.rs::manifest_is_deterministic_and_round_trips"]
 
 [[records]]
+
 item_id = "iyon-api::stream::Usage::cache_read_tokens"
 path = "iyon-api::stream::Usage::cache_read_tokens"
 strategy = "NativeHandle"
@@ -1479,6 +1612,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::Usage::cache_write_tokens"
 path = "iyon-api::stream::Usage::cache_write_tokens"
 strategy = "NativeHandle"
@@ -1490,6 +1624,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::Usage::input_tokens"
 path = "iyon-api::stream::Usage::input_tokens"
 strategy = "NativeHandle"
@@ -1501,6 +1636,7 @@ status = "stub"
 note = "baseline externally reachable API"
 
 [[records]]
+
 item_id = "iyon-api::stream::Usage::output_tokens"
 path = "iyon-api::stream::Usage::output_tokens"
 strategy = "NativeHandle"

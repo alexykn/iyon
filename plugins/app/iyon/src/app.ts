@@ -3,7 +3,7 @@ import { History, Scene, Style, TextInput, Tui, View } from "iyon:tui";
 import { renderGenericCall, renderGenericResult } from "@iyon/runtime";
 import { collapseResultView } from "@iyon/plugins";
 import { History as RuntimeHistory, TextInput as RuntimeTextInput } from "@iyon/runtime/tui";
-import type { History as HistoryHandle, ScrollPane, TextInput as TextInputHandle, TuiRuntime, ViewSlot, WorkingActivityHandle } from "@iyon/runtime/tui";
+import type { History as HistoryHandle, ScrollPane, TextInput as TextInputHandle, TuiEvent, TuiRuntime, ViewSlot } from "@iyon/runtime/tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
 import type {
   IyonAgent,
@@ -17,7 +17,7 @@ import { ComposerPasteStore } from "./composer.ts";
 import { ApprovalStore } from "./approvals.ts";
 import { createInitialState, hasActiveWork, reduceIyonState } from "./state.ts";
 import { createIyonTheme, type IyonTheme } from "./theme.ts";
-import { createIyonView, footerText, userBatchView } from "./view.ts";
+import { createIyonView, footerText, userBatchView, workingFrames } from "./view.ts";
 import { handleIyonAction } from "./actions.ts";
 import { startCoreEventBridge, type CoreEventBridge, type CoreEventSource } from "./backend.ts";
 import { NativeAssistantStream } from "./streaming.ts";
@@ -45,7 +45,7 @@ export interface IyonApp extends App {
   readonly model: IyonModelMetadata;
   readonly history: HistoryHandle;
   readonly composer: TextInputHandle;
-  readonly working?: WorkingActivityHandle;
+  readonly working?: ViewSlot;
   readonly theme: IyonTheme;
   readonly state: IyonState;
   start(tui?: TuiRuntime): Promise<void>;
@@ -73,7 +73,7 @@ class IyonAppImpl implements IyonApp {
   private started = false;
   private exitAfterRender = false;
   private exiting = false;
-  private workingHandle?: WorkingActivityHandle;
+  private workingHandle?: ViewSlot;
   private assistantStream?: NativeAssistantStream;
   private readonly toolCards = new ToolCardStore();
   private readonly toolSlots = new Map<string, ViewSlot>();
@@ -99,7 +99,7 @@ class IyonAppImpl implements IyonApp {
   get state(): IyonState { return this.currentState; }
   get history(): HistoryHandle { return this.historyHandle; }
   get composer(): TextInputHandle { return this.composerHandle; }
-  get working(): WorkingActivityHandle | undefined { return this.workingHandle; }
+  get working(): ViewSlot | undefined { return this.workingHandle; }
   get agent(): IyonAgent { return this.dependencies.agent; }
   get core(): IyonCoreCommands { return this.dependencies.core; }
   get model(): IyonModelMetadata { return this.dependencies.model; }
@@ -124,8 +124,8 @@ class IyonAppImpl implements IyonApp {
         multiline: true,
         border: { style: "plain", edges: "topBottom", color: this.theme.inputBorder },
       }) as unknown as RuntimeTextInput;
-      if (this.tui.createWorking === undefined) throw new Error("native working activity is unavailable");
-      this.workingHandle = this.tui.createWorking();
+      if (this.tui.createViewSlot === undefined) throw new Error("native view slots are unavailable");
+      this.workingHandle = this.tui.createViewSlot(View.spacer(0));
       this.tui.bindKey("c", "ctrlC", ["control"]);
       this.tui.bindKey("\u0003", "ctrlC");
       this.tui.bindKey("Escape", "escape");
@@ -533,8 +533,7 @@ class IyonAppImpl implements IyonApp {
     this.exiting = true;
     this.agent.cancel?.();
     await this.sealAssistantStream();
-    await this.workingHandle?.setActive(false);
-    await this.workingHandle?.setPending([]);
+    await this.workingHandle?.stopAnimation(View.spacer(0));
     const pendingApproval = this.currentState.pendingApproval;
     if (pendingApproval !== undefined) {
       await this.core.reject?.(pendingApproval.approvalId, "application exiting");
@@ -562,13 +561,22 @@ class IyonAppImpl implements IyonApp {
       state.info.reasoningEffort,
       state.pendingApproval?.approvalId ?? "",
       Number(state.activityVisible),
+      state.steering.join("\u0001"),
+      [...state.liveTools.entries()]
+        .map(([key, tool]) => `${key}:${tool.status}:${Number(tool.frozen)}:${tool.toolName ?? ""}`)
+        .join("\u0001"),
     ].join("|");
   }
 
   private async renderCurrentScene(): Promise<void> {
     if (this.tui === undefined || !this.started) return;
-    await this.workingHandle?.setActive(this.currentState.activityVisible);
-    await this.workingHandle?.setPending(this.currentState.steering);
+    if (this.workingHandle !== undefined) {
+      if (this.currentState.activityVisible) {
+        await this.workingHandle.setAnimation(workingFrames(this.currentState, this.theme), 80);
+      } else {
+        await this.workingHandle.stopAnimation(View.spacer(0));
+      }
+    }
     const key = this.bodyKey(this.currentState);
     if (key === this.renderedBodyKey) {
       (this.tui as { advance?: (ms: number) => void }).advance?.(0);
@@ -581,15 +589,15 @@ class IyonAppImpl implements IyonApp {
   async run(signal?: AbortSignal): Promise<void> {
     await this.start();
     const tui = this.tui;
-    if (tui === undefined || tui.nextAction === undefined) throw new Error("native TUI action driver is unavailable");
+    if (tui === undefined) throw new Error("Iyon app TUI is unavailable after start");
     while (!this.state.goodbye) {
       if (signal?.aborted) {
         await this.shutdown();
         return;
       }
-      let action;
+      let event: TuiEvent;
       try {
-        action = await tui.nextAction(signal);
+        event = await tui.nextEvent(signal);
       } catch (error) {
         if (signal?.aborted) {
           await this.shutdown();
@@ -599,11 +607,11 @@ class IyonAppImpl implements IyonApp {
         await this.shutdown();
         return;
       }
-      if (action === null) {
+      if (event.type === "terminate") {
         await this.shutdown();
         return;
       }
-      await this.handleAction(actionFromNative(action));
+      if (event.type === "output") await this.handleAction(actionFromNative(event));
     }
   }
 
@@ -622,13 +630,13 @@ function toolUpdateText(card: LiveTool): string | undefined {
   return card.details === undefined ? undefined : JSON.stringify(card.details);
 }
 
-function actionFromNative(action: { readonly actionId: string; readonly payload?: string }): import("./contracts.ts").IyonAction {
-  switch (action.actionId) {
+function actionFromNative(action: { readonly routeId: string; readonly payload?: string }): import("./contracts.ts").IyonAction {
+  switch (action.routeId) {
     case "submit": return { type: "submit", text: action.payload ?? "" };
     case "composerPaste": return { type: "composerPaste", text: action.payload ?? "" };
     case "ctrlC": return { type: "ctrlC" };
     case "escape": return { type: "escape" };
     case "cycleReasoningEffort": return { type: "cycleReasoningEffort" };
-    default: throw new Error(`unknown Iyon TUI action: ${action.actionId}`);
+    default: throw new Error(`unknown Iyon TUI route: ${action.routeId}`);
   }
 }

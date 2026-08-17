@@ -7,7 +7,6 @@ import { History } from "./history.ts";
 import { TextInput } from "./text-input.ts";
 import { ViewSlot } from "./component.ts";
 import { NativeScrollPane } from "./scroll-pane.ts";
-import { WorkingActivity } from "./working.ts";
 import type {
   OutputHandle,
   ScrollPane,
@@ -16,7 +15,6 @@ import type {
   TuiEvent,
   TuiOpenOptions,
   TuiRuntime,
-  WorkingActivityOptions,
 } from "./types.ts";
 import type { NativeTuiHostContract } from "../native.ts";
 
@@ -50,19 +48,25 @@ export class Tui implements TuiRuntime {
 
   get size(): Promise<TerminalMetadata> { return Promise.resolve({ width: this.width, height: this.height }); }
 
-  async nextAction(signal?: AbortSignal): Promise<{ actionId: string; payload?: string } | null> {
-    if (signal?.aborted) throw tuiError("cancelled", "TUI action wait was cancelled");
-    if (this.closed) return null;
-    const action = await this.host.waitForAction();
-    if (signal?.aborted) throw tuiError("cancelled", "TUI action wait was cancelled");
-    if (action === null) return null;
-    return { actionId: action.action_id, ...(action.payload === null || action.payload === undefined ? {} : { payload: action.payload }) };
+  async nextEvent(signal?: AbortSignal): Promise<TuiEvent> {
+    if (signal?.aborted) throw tuiError("cancelled", "TUI event wait was cancelled");
+    if (this.closed) return { type: "terminate", reason: "closed" };
+    const output = await this.host.waitForOutput();
+    if (signal?.aborted) throw tuiError("cancelled", "TUI event wait was cancelled");
+    if (output === null) return { type: "terminate", reason: "closed" };
+    return {
+      type: "output",
+      routeId: output.route_id,
+      ...(output.payload === null || output.payload === undefined ? {} : { payload: output.payload }),
+    };
   }
 
-  /** Compatibility surface for callers that only need termination. */
-  async nextEvent(signal?: AbortSignal): Promise<TuiEvent> {
-    const action = await this.nextAction(signal);
-    return { type: "terminate", reason: action === null ? "closed" : "action" };
+  /** Compatibility adapter for the pre-generic application harness. */
+  async nextAction(signal?: AbortSignal): Promise<{ actionId: string; payload?: string } | null> {
+    const event = await this.nextEvent(signal);
+    if (event.type === "terminate") return null;
+    if (event.type !== "output") return this.nextAction(signal);
+    return { actionId: event.routeId, ...(event.payload === undefined ? {} : { payload: event.payload }) };
   }
 
   async render(scene: SceneContract, signal?: AbortSignal): Promise<void> {
@@ -85,19 +89,6 @@ export class Tui implements TuiRuntime {
     return new TextInput(options, this.host.textInput(options.multiline, options.border) as never);
   }
 
-  createWorking(options: WorkingActivityOptions = {}): WorkingActivity {
-    const config = {
-      frames: [...(options.frames ?? ["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"])],
-      activeLabel: options.activeLabel ?? "Working",
-      pendingLabel: options.pendingLabel ?? "waiting",
-      queuePrefix: options.queuePrefix ?? "Queue: ",
-      tickMs: options.tickMs ?? 80,
-      mutedStyle: options.mutedStyle?.value ?? { attributes: { italic: true }, foreground: "#718096" },
-      padding: options.padding ?? 2,
-    };
-    return new WorkingActivity(this.host.working(config) as never);
-  }
-
   createViewSlot(initialView: import("./values/view.ts").View): ViewSlot {
     const lowered = materializeView(initialView);
     if (lowered === undefined) throw tuiError("runtime", "native View materialization is unavailable");
@@ -110,16 +101,16 @@ export class Tui implements TuiRuntime {
     return new NativeScrollPane(this.host.scrollPane(lowered as object));
   }
 
-  bindKey(key: string, actionId: string, modifiers?: readonly string[]): void {
-    this.host.bindKey(key, modifiers, actionId);
+  bindKey(key: string, routeId: string, modifiers?: readonly string[]): void {
+    this.host.bindKey(key, modifiers, routeId);
   }
 
-  route(output: OutputHandle<string>, actionId: string): void {
-    this.host.route((output as unknown as { nativeObject: object }).nativeObject as never, actionId);
+  route(output: OutputHandle<string>, routeId: string): void {
+    this.host.route((output as unknown as { nativeObject: object }).nativeObject as never, routeId);
   }
 
-  interceptPaste(input: TextInput, actionId: string): void {
-    this.host.interceptPaste((input as unknown as { nativeHandle: object }).nativeHandle, actionId);
+  interceptPaste(input: TextInput, routeId: string): void {
+    this.host.interceptPaste((input as unknown as { nativeHandle: object }).nativeHandle, routeId);
   }
 
   forwardPaste(text: string): void { this.host.forwardPaste(text); }
@@ -147,7 +138,7 @@ export class Tui implements TuiRuntime {
     this.host.setTheme(theme.materialize());
   }
 
-  enqueue(event: TuiEvent): void {
+  enqueue(event: { readonly type: "key"; readonly key: string; readonly modifiers?: readonly string[] } | { readonly type: "paste"; readonly text: string } | { readonly type: "resize"; readonly width: number; readonly height: number }): void {
     if (event.type === "key") this.host.dispatchKey(event.key, event.modifiers);
     if (event.type === "paste") this.host.dispatchPaste(event.text);
     if (event.type === "resize") void this.resize(event.width, event.height);

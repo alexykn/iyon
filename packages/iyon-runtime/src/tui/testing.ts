@@ -7,7 +7,6 @@ import type {
   OutputHandle,
   Scene,
   TextInput,
-  WorkingActivityHandle,
   ScrollPane,
   TuiEvent,
   TuiOpenOptions,
@@ -40,7 +39,6 @@ export class AppHarness implements AppHarnessContract {
 
   createHistory(): History { return this.tui.createHistory(); }
   createTextInput(options: { multiline?: boolean; border?: import("./ir.ts").BorderNode } = {}): TextInput { return this.tui.createTextInput(options); }
-  createWorking(): WorkingActivityHandle { return this.tui.createWorking?.() ?? (() => { throw tuiError("runtime", "native working component is unavailable"); })(); }
   createViewSlot(initial: import("./values/view.ts").View) {
     if (this.tui.createViewSlot === undefined) throw tuiError("runtime", "native view slots are unavailable");
     return this.tui.createViewSlot(initial);

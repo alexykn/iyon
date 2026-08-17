@@ -50,15 +50,29 @@ export interface TextInput extends NativeHandle {
   view(): TuiOperation<View>;
 }
 
+export interface TextStreamOptions {
+  readonly projector?: "markdown";
+  readonly presentation?: TextStreamPresentation;
+}
+
+export interface TextStreamPresentation {
+  readonly insets?: { readonly top?: number; readonly right?: number; readonly bottom?: number; readonly left?: number };
+}
+
 export interface TextStream extends NativeHandle {
   readonly kind: "text-stream";
   update(text: string): TuiOperation<void>;
-  appendSegment(kind: "text" | "thinking", text: string): TuiOperation<void>;
+  append(text: string, annotations?: readonly StreamAnnotation[]): TuiOperation<void>;
   seal(): TuiOperation<void>;
   snapshot(): TuiOperation<StreamSnapshot>;
 }
 
 export type StreamPane = TextStream;
+
+export interface StreamAnnotation {
+  readonly namespace: string;
+  readonly name: string;
+}
 
 export interface StreamSnapshot {
   readonly text: string;
@@ -68,7 +82,7 @@ export interface StreamSnapshot {
 }
 
 export interface StreamSegmentSnapshot {
-  readonly kind: "text" | "thinking";
+  readonly annotations: readonly StreamAnnotation[];
   readonly text: string;
 }
 
@@ -88,12 +102,6 @@ export interface ViewSlot extends Component {
 export interface ScrollPane extends Component {
   setContent(view: View): TuiOperation<void>;
   followEnd(): TuiOperation<void>;
-}
-
-export interface WorkingActivityHandle extends NativeHandle {
-  setActive(active: boolean): TuiOperation<void>;
-  setPending(pending: readonly string[]): TuiOperation<void>;
-  nativeComponentId(): NativeHandleId | undefined;
 }
 
 export interface ComponentCapabilities {
@@ -174,7 +182,13 @@ export interface TerminateEvent {
   readonly reason?: string;
 }
 
-export type TuiEvent = KeyEvent | PasteEvent | ResizeEvent | TerminateEvent;
+export interface OutputEvent {
+  readonly type: "output";
+  readonly routeId: string;
+  readonly payload?: string;
+}
+
+export type TuiEvent = OutputEvent | TerminateEvent;
 
 export interface RenderContext {
   readonly width: number;
@@ -194,16 +208,6 @@ export interface TuiOpenOptions {
   readonly theme?: SemanticTheme;
 }
 
-export interface WorkingActivityOptions {
-  readonly frames?: readonly string[];
-  readonly activeLabel?: string;
-  readonly pendingLabel?: string;
-  readonly queuePrefix?: string;
-  readonly tickMs?: number;
-  readonly mutedStyle?: import("./values/style.ts").StyleSpec;
-  readonly padding?: number;
-}
-
 export interface TerminalMetadata {
   readonly width: number;
   readonly height: number;
@@ -218,18 +222,17 @@ export interface TuiRuntime {
   exit(): TuiOperation<void>;
   createHistory?(): History;
   createTextInput?(options?: { multiline?: boolean; border?: import("./ir.ts").BorderNode }): TextInput;
-  createWorking?(): WorkingActivityHandle;
   createViewSlot?(initial: View): ViewSlot;
   createScrollPane?(initial: View): ScrollPane;
-  bindKey(key: string, actionId: string, modifiers?: readonly string[]): void;
-  route(output: OutputHandle<string>, actionId: string): void;
-  interceptPaste?(input: TextInput, actionId: string): void;
+  bindKey(key: string, routeId: string, modifiers?: readonly string[]): void;
+  route(output: OutputHandle<string>, routeId: string): void;
+  interceptPaste?(input: TextInput, routeId: string): void;
   forwardPaste?(text: string): void;
-  nextAction(signal?: AbortSignal): TuiOperation<{ actionId: string; payload?: string } | null>;
   setTheme?(theme: SemanticTheme): TuiOperation<void>;
 }
 
 export interface AppHarness extends TuiRuntime {
+  nextAction(signal?: AbortSignal): TuiOperation<{ actionId: string; payload?: string } | null>;
   createViewSlot(initial: View): ViewSlot;
   createScrollPane(initial: View): ScrollPane;
   pressKey(key: string, modifiers?: readonly string[]): void;

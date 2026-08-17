@@ -1,6 +1,6 @@
 import { native } from "../native.ts";
 import { asTuiError, tuiError } from "./errors.ts";
-import type { NativeHandle, NativeHandleId } from "./types.ts";
+import type { NativeHandle, NativeHandleId, TextStreamOptions } from "./types.ts";
 
 export interface NativeHandleObject {
   dispose(): void;
@@ -48,7 +48,7 @@ export function requireNativeClass<T>(factory: T | undefined, name: string): T {
 export const nativeTui = {
   history: () => new (requireNativeClass(native.NativeHistory, "NativeHistory"))(),
   textInput: (multiline?: boolean) => new (requireNativeClass(native.NativeTextInput, "NativeTextInput"))(multiline),
-  textStream: (projector?: "markdown") => new (requireNativeClass(native.NativeTextStream, "NativeTextStream"))(projector),
+  textStream: (options?: TextStreamOptions) => new (requireNativeClass(native.NativeTextStream, "NativeTextStream"))(options),
   markdownProjector: () => new (requireNativeClass(native.NativeMarkdownProjector, "NativeMarkdownProjector"))(),
   plainProjector: () => new (requireNativeClass(native.NativePlainProjector, "NativePlainProjector"))(),
 };

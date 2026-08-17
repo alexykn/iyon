@@ -23,6 +23,10 @@ if (artifactName === undefined) {
 const cargo = Bun.spawnSync({
   cmd: ["cargo", "build", "--release", "-p", "iyon-native"],
   cwd: repositoryDirectory.pathname,
+  // The native addon links the full TUI dependency graph. Keep the default
+  // staging path reliable on constrained developer/CI machines; callers can
+  // opt into more parallelism explicitly with CARGO_BUILD_JOBS.
+  env: { ...process.env, CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS ?? "1" },
   stdout: "pipe",
   stderr: "pipe",
 });

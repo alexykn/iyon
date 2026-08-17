@@ -80,10 +80,9 @@ export interface NativeAddon {
   NativeTextInput?: new (multiline?: boolean) => { dispose(): void; text(): string; cursorBytes(): number; setText(value: string): void; clear(): void; submitted(): NativeTuiOutputContract; setMultiline(enabled: boolean): void; isMultiline(): boolean; componentId(): number | null };
   NativeTuiHost?: new (width?: number, height?: number, headless?: boolean) => NativeTuiHostContract;
   NativeTuiOutput?: new () => NativeTuiOutputContract;
-  NativeTextStream?: new (projector?: "markdown") => { dispose(): void; update(text: string): void; appendSegment(kind: "text" | "thinking", text: string): void; seal(): void; snapshot(): object };
+  NativeTextStream?: new (options?: "markdown" | { readonly projector?: "markdown"; readonly presentation?: object }) => { dispose(): void; update(text: string): void; append(text: string, annotations?: readonly object[]): void; seal(): void; snapshot(): object };
   NativeMarkdownProjector?: new () => { dispose(): void; project(text: string, sealed?: boolean): object };
   NativePlainProjector?: new () => { dispose(): void; project(text: string): object };
-  NativeWorking?: new () => { dispose(): void; componentId(): number | null; setActive(active: boolean): void; setPending(pending: string[]): void };
   NativeViewSlot?: new (initial: object) => { dispose(): void; revision(): number; componentId(): number | null; setView(view: object): void; setAnimation(frames: object[], intervalMs: number): void; stopAnimation(view: object): void };
   NativeScrollPane?: new (initial: object) => { dispose(): void; componentId(): number | null; setContent(view: object): void; followEnd(): void };
 }
@@ -95,19 +94,20 @@ export interface NativeTuiHostContract {
   exit(): void;
   history(): object;
   textInput(multiline?: boolean, border?: object): object;
-  working(config?: object): object;
   setTheme(theme: object): void;
   setHistory(history: object): void;
   exited(): boolean;
-  bindKey(key: string, modifiers: readonly string[] | undefined, actionId: string): void;
-  route(output: NativeTuiOutputContract, actionId: string): void;
-  interceptPaste(input: object, actionId: string): void;
+  bindKey(key: string, modifiers: readonly string[] | undefined, routeId: string): void;
+  route(output: NativeTuiOutputContract, routeId: string): void;
+  interceptPaste(input: object, routeId: string): void;
   render(view: object): void;
   dispatchKey(key: string, modifiers?: readonly string[]): void;
   dispatchPaste(text: string): void;
   forwardPaste(text: string): void;
   pollTerminal(): void;
   nextWakeMs(): number;
+  nextOutput(): { route_id: string; payload?: string | null } | null;
+  waitForOutput(): Promise<{ route_id: string; payload?: string | null } | null>;
   nextAction(): { action_id: string; payload?: string | null } | null;
   waitForAction(): Promise<{ action_id: string; payload?: string | null } | null>;
   screenRows(): string[];
