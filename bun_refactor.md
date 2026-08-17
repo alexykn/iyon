@@ -1,3 +1,5 @@
+**Approved as implemented** (2026-08-17, `main` / former `bun-refactor`). Remaining leftovers are intentional and listed in `deferred.md`; they are not current blockers.
+
 Yes. Below is the self-contained implementation handoff I would give the new orchestration agent.
 
 The plan is intentionally decisive: tranches are ordered, boundaries are fixed, and the implementation agent should not reopen architectural choices unless a concrete technical blocker disproves an assumption.
