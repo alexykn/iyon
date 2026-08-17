@@ -1291,7 +1291,6 @@ impl HostTextStream {
                     .map_err(|error| anyhow::anyhow!(error.to_string()))?;
             }
             inner.running.invalidate_frame();
-            inner.render()?;
         }
         Ok(())
     }
@@ -1665,7 +1664,7 @@ impl HostTextInput {
             .lock()
             .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
         inner.running.invalidate_frame();
-        inner.render()
+        Ok(())
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, TextInput>> {
@@ -1774,7 +1773,6 @@ impl HostHistory {
             .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?
             .push(view)
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-        inner.render()?;
         Ok(unit)
     }
 
@@ -1788,7 +1786,6 @@ impl HostHistory {
             .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?
             .freeze(unit, view)
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-        inner.render()?;
         Ok(())
     }
 
@@ -1802,7 +1799,6 @@ impl HostHistory {
             .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?
             .discard_live(unit)
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-        inner.render()?;
         Ok(())
     }
 
@@ -1815,7 +1811,6 @@ impl HostHistory {
                 .scene_history_mut()
                 .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?,
         )?;
-        inner.render()?;
         Ok(())
     }
 
@@ -1826,7 +1821,6 @@ impl HostHistory {
             .scene_history_mut()
             .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?;
         stream.seal_history(history)?;
-        inner.render()?;
         Ok(())
     }
 
@@ -2069,19 +2063,19 @@ impl TuiHost {
     pub fn render(&self, body: View) -> Result<()> {
         let mut inner = self.lock_mut()?;
         inner.running.host_set_body(body);
-        inner.render()
+        Ok(())
     }
 
     pub fn set_theme(&self, theme: Theme) -> Result<()> {
         let mut inner = self.lock_mut()?;
         inner.running.host_set_theme(theme);
-        inner.render()
+        Ok(())
     }
 
     pub fn set_history(&self, history: History) -> Result<()> {
         let mut inner = self.lock_mut()?;
         inner.running.host_set_history(history);
-        inner.render()
+        Ok(())
     }
 
     pub fn dispatch_key(&self, key: KeyStroke) -> Result<()> {
