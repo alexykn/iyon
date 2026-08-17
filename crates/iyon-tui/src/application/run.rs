@@ -302,6 +302,17 @@ async fn wait_for_present(pending: &mut Option<PresentReceipt>) -> anyhow::Resul
         .map_err(|error| anyhow::anyhow!("terminal presentation reply lost: {error}"))?
 }
 
+pub(crate) fn wait_for_present_blocking(
+    pending: &mut Option<PresentReceipt>,
+) -> anyhow::Result<()> {
+    let Some(receipt) = pending.take() else {
+        return Ok(());
+    };
+    receipt
+        .blocking_recv()
+        .map_err(|error| anyhow::anyhow!("terminal presentation reply lost: {error}"))?
+}
+
 pub(crate) async fn wait_for_deadline(deadline: Option<Instant>) {
     let Some(deadline) = deadline else {
         pending::<()>().await;

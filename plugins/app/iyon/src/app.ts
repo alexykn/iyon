@@ -15,7 +15,7 @@ import type {
 } from "./contracts.ts";
 import { ComposerPasteStore } from "./composer.ts";
 import { ApprovalStore } from "./approvals.ts";
-import { createInitialState, hasActiveWork, reduceIyonState } from "./state.ts";
+import { createInitialState, reduceIyonState } from "./state.ts";
 import { createIyonTheme, type IyonTheme } from "./theme.ts";
 import { createIyonView, userBatchView } from "./view.ts";
 import { handleIyonAction } from "./actions.ts";
@@ -75,6 +75,8 @@ class IyonAppImpl implements IyonApp {
   private readonly renderedToolResults = new Set<string>();
   private readonly approvals = new ApprovalStore();
   private activeAgentRun?: Promise<void>;
+  private shutdownPromise?: Promise<void>;
+  private shutdownComplete = false;
 
   constructor(
     readonly dependencies: IyonAppDependencies,
@@ -94,6 +96,11 @@ class IyonAppImpl implements IyonApp {
     if (this.started) return;
     this.tui = tui ?? await Tui.open();
     this.ownsTui = tui === undefined;
+    this.shutdownComplete = false;
+    this.shutdownPromise = undefined;
+    if (this.tui.bindKey === undefined || this.tui.route === undefined) {
+      throw new Error("native TUI action bindings are unavailable");
+    }
     await this.tui.setTheme?.(this.theme);
     if (this.tui.createHistory !== undefined && this.tui.createTextInput !== undefined) {
       await this.historyHandle.dispose();
@@ -105,10 +112,11 @@ class IyonAppImpl implements IyonApp {
       }) as unknown as RuntimeTextInput;
       if (this.tui.createWorking === undefined) throw new Error("native working activity is unavailable");
       this.workingHandle = this.tui.createWorking();
-      this.tui.bindKey?.("c", "ctrlC", ["control"]);
-      this.tui.bindKey?.("Escape", "escape");
-      this.tui.bindKey?.("Tab", "cycleReasoningEffort", ["shift"]);
-      this.tui.route?.(await this.composerHandle.submitted(), "submit");
+      this.tui.bindKey("c", "ctrlC", ["control"]);
+      this.tui.bindKey("\u0003", "ctrlC");
+      this.tui.bindKey("Escape", "escape");
+      this.tui.bindKey("Tab", "cycleReasoningEffort", ["shift"]);
+      this.tui.route(await this.composerHandle.submitted(), "submit");
       this.tui.interceptPaste?.(this.composerHandle, "composerPaste");
     }
     this.started = true;
@@ -118,7 +126,7 @@ class IyonAppImpl implements IyonApp {
   async stop(): Promise<void> {
     if (!this.started && this.tui === undefined) return;
     try {
-      if (this.ownsTui) await this.tui?.close();
+      if (this.ownsTui && !this.shutdownComplete) await this.tui?.close();
     } finally {
       await this.composerHandle.dispose();
       await this.historyHandle.dispose();
@@ -140,6 +148,8 @@ class IyonAppImpl implements IyonApp {
       this.started = false;
       this.ownsTui = false;
       this.exiting = false;
+      this.shutdownComplete = false;
+      this.shutdownPromise = undefined;
     }
   }
 
@@ -155,36 +165,57 @@ class IyonAppImpl implements IyonApp {
 
   async handleAction(action: import("./contracts.ts").IyonAction): Promise<void> {
     if (this.exiting) return;
-    const result = await handleIyonAction(this.currentState, action, {
-      core: this.core,
-      agent: this.agent,
-      pasteStore: this.pasteStore,
-      clearComposer: () => this.composer.clear(),
-      composerText: () => this.composer.text(),
-      forwardPaste: (text) => this.tui?.forwardPaste?.(text),
-      runAgent: () => this.startAgentRun(),
-      onExit: () => { this.exitAfterRender = true; },
-    });
-    const previous = this.currentState;
-    this.currentState = result.state;
-    const viewChanged = await this.appendHistory(action, previous, this.currentState);
-    if (viewChanged) await this.renderCurrentScene();
-    if ((result.exited && this.exitAfterRender) || (action.type === "requestExit" && result.state.goodbye)) {
-      this.exitAfterRender = false;
-      await this.shutdown();
+    try {
+      const result = await handleIyonAction(this.currentState, action, {
+        core: this.core,
+        agent: this.agent,
+        pasteStore: this.pasteStore,
+        clearComposer: () => this.composer.clear(),
+        composerText: () => this.composer.text(),
+        forwardPaste: (text) => this.tui?.forwardPaste?.(text),
+        runAgent: () => this.startAgentRun(),
+        onExit: () => { this.exitAfterRender = true; },
+      });
+      const previous = this.currentState;
+      this.currentState = result.state;
+      const viewChanged = await this.appendHistory(action, previous, this.currentState);
+      if (viewChanged) await this.renderCurrentScene();
+      if ((result.exited && this.exitAfterRender) || (action.type === "requestExit" && result.state.goodbye)) {
+        this.exitAfterRender = false;
+        await this.shutdown();
+      }
+    } catch (error) {
+      if (this.exiting) throw error;
+      await this.recordTurnFailure(error);
     }
   }
 
   private startAgentRun(): Promise<void> {
     if (this.activeAgentRun !== undefined) return Promise.resolve();
-    const run = this.agent.run?.();
+    let run: Promise<unknown> | void;
+    try {
+      run = this.agent.run?.();
+    } catch (error) {
+      return Promise.reject(error);
+    }
     if (run === undefined) return Promise.resolve();
     this.activeAgentRun = Promise.resolve(run).then(() => undefined)
       .catch((error: unknown) => {
-        this.dispatch({ type: "backend", event: { type: "turnFailed", message: error instanceof Error ? error.message : String(error) } });
+        return this.recordTurnFailure(error);
       })
       .finally(() => { this.activeAgentRun = undefined; });
     return Promise.resolve();
+  }
+
+  private async recordTurnFailure(error: unknown): Promise<void> {
+    const action = {
+      type: "backend" as const,
+      event: { type: "turnFailed" as const, message: error instanceof Error ? error.message : String(error) },
+    };
+    const previous = this.currentState;
+    this.currentState = reduceIyonState(this.currentState, action);
+    const viewChanged = await this.appendHistory(action, previous, this.currentState);
+    if (viewChanged) await this.renderCurrentScene();
   }
 
   private async appendHistory(
@@ -192,9 +223,6 @@ class IyonAppImpl implements IyonApp {
     previous: IyonState,
     next: IyonState,
   ): Promise<boolean> {
-    if (action.type === "submit" && action.text.length > 0 && !hasActiveWork(previous)) {
-      return false;
-    }
     if (action.type !== "backend") {
       return action.type === "submit" || action.type === "cycleReasoningEffort";
     }
@@ -423,7 +451,13 @@ class IyonAppImpl implements IyonApp {
   }
 
   private async shutdown(): Promise<void> {
-    if (this.exiting) return;
+    if (this.shutdownPromise !== undefined) return this.shutdownPromise;
+    this.shutdownPromise = this.performShutdown();
+    return this.shutdownPromise;
+  }
+
+  private async performShutdown(): Promise<void> {
+    if (this.shutdownComplete) return;
     this.exiting = true;
     await this.sealAssistantStream();
     await this.workingHandle?.setActive(false);
@@ -444,7 +478,8 @@ class IyonAppImpl implements IyonApp {
     this.currentState = { ...this.currentState, activeTurn: false, assistantOpen: false, goodbye: true, liveTools, pendingApproval: undefined, working: false, activityVisible: false };
     await this.history.push(View.text("Goodbye.").fillWidth());
     await this.renderCurrentScene();
-    await this.tui?.exit?.();
+    await this.tui?.exit();
+    this.shutdownComplete = true;
   }
 
   private async renderCurrentScene(): Promise<void> {
@@ -458,12 +493,29 @@ class IyonAppImpl implements IyonApp {
   async run(signal?: AbortSignal): Promise<void> {
     await this.start();
     const tui = this.tui;
-    if (tui?.nextAction === undefined) return;
-    while (!signal?.aborted && !this.state.goodbye) {
-      const action = await tui.nextAction(signal);
-      if (action === null) return;
+    if (tui === undefined || tui.nextAction === undefined) throw new Error("native TUI action driver is unavailable");
+    while (!this.state.goodbye) {
+      if (signal?.aborted) {
+        await this.shutdown();
+        return;
+      }
+      let action;
+      try {
+        action = await tui.nextAction(signal);
+      } catch (error) {
+        if (signal?.aborted) {
+          await this.shutdown();
+          return;
+        }
+        await this.recordTurnFailure(error);
+        await this.shutdown();
+        return;
+      }
+      if (action === null) {
+        await this.shutdown();
+        return;
+      }
       await this.handleAction(actionFromNative(action));
-      if (this.state.goodbye) return;
     }
   }
 

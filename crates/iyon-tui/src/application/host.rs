@@ -1856,15 +1856,43 @@ impl TuiHost {
 
     pub fn exit(&self) -> Result<()> {
         let mut inner = self.lock_mut()?;
-        inner.running.host_exit();
         if inner.closed {
             return Ok(());
         }
+
+        // Complete any earlier render before preparing the final frame.
+        super::run::wait_for_present_blocking(&mut inner.presentation)?;
+        inner.running.host_exit();
+        inner.advance_and_render()?;
+        super::run::wait_for_present_blocking(&mut inner.presentation)?;
+        let final_rows = {
+            let width = usize::from(inner.frame.surface.width());
+            if width == 0 {
+                Vec::new()
+            } else {
+                inner
+                    .frame
+                    .surface
+                    .cells
+                    .chunks(width)
+                    .map(|row| PhysicalRow::from_cells(row.to_vec()))
+                    .filter(|row| !row.plain_text().is_empty())
+                    .collect::<Vec<_>>()
+            }
+        };
+
+        let result = match &mut inner.backend {
+            HostBackend::Headless(sink) => {
+                sink.history.extend(final_rows);
+                Ok(())
+            }
+            HostBackend::Real(backend) => {
+                backend.position_after_final_frame()?;
+                ignore_terminal_shutdown_error(backend.restore())
+            }
+        };
         inner.closed = true;
-        if let HostBackend::Real(backend) = &mut inner.backend {
-            ignore_terminal_shutdown_error(backend.restore())?;
-        }
-        Ok(())
+        result
     }
 
     pub fn next_wake_ms(&self) -> u64 {
@@ -1986,7 +2014,7 @@ impl TuiHost {
             sink.height = height;
         }
         inner.running.invalidate_frame();
-        inner.now = Instant::now();
+        inner.sync_real_time();
         inner.advance_and_render()
     }
 
@@ -2060,7 +2088,7 @@ impl TuiHost {
             HostBackend::Headless(_) => None,
             HostBackend::Real(backend) => backend.try_next_event()?,
         };
-        inner.now = Instant::now();
+        inner.sync_real_time();
         match event {
             Some(TerminalEvent::Key(key)) => {
                 inner
@@ -2127,6 +2155,7 @@ impl TuiHost {
         if inner.closed {
             return Ok(());
         }
+        super::run::wait_for_present_blocking(&mut inner.presentation)?;
         inner.closed = true;
         if let HostBackend::Real(backend) = &mut inner.backend {
             ignore_terminal_shutdown_error(backend.restore())?;
@@ -2168,7 +2197,9 @@ fn ignore_terminal_shutdown_error(result: Result<()>) -> Result<()> {
 
 impl Drop for TuiHost {
     fn drop(&mut self) {
-        let _ = self.close();
+        if Arc::strong_count(&self.inner) == 1 {
+            let _ = self.close();
+        }
     }
 }
 
@@ -2213,6 +2244,12 @@ impl HostInner {
             self.render()?;
         }
         Ok(())
+    }
+
+    fn sync_real_time(&mut self) {
+        if matches!(self.backend, HostBackend::Real(_)) {
+            self.now = Instant::now();
+        }
     }
 }
 
