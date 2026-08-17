@@ -1773,6 +1773,7 @@ impl HostHistory {
             .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?
             .push(view)
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        inner.running.invalidate_frame();
         Ok(unit)
     }
 
@@ -1786,6 +1787,7 @@ impl HostHistory {
             .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?
             .freeze(unit, view)
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        inner.running.invalidate_frame();
         Ok(())
     }
 
@@ -1799,6 +1801,7 @@ impl HostHistory {
             .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?
             .discard_live(unit)
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        inner.running.invalidate_frame();
         Ok(())
     }
 
@@ -1811,6 +1814,7 @@ impl HostHistory {
                 .scene_history_mut()
                 .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?,
         )?;
+        inner.running.invalidate_frame();
         Ok(())
     }
 
@@ -1821,6 +1825,7 @@ impl HostHistory {
             .scene_history_mut()
             .ok_or_else(|| anyhow::anyhow!("host history is unavailable"))?;
         stream.seal_history(history)?;
+        inner.running.invalidate_frame();
         Ok(())
     }
 
