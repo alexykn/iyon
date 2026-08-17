@@ -257,7 +257,7 @@ impl HostViewSlot {
             state.frames = frames;
             state.interval = interval;
             if !preserve_phase {
-                state.last_tick = Some(Instant::now() - interval);
+                state.last_tick = None;
             }
             state.revision = state.revision.saturating_add(1);
         }
@@ -277,7 +277,10 @@ impl HostViewSlot {
         }
         let Some(last) = state.last_tick else {
             state.last_tick = Some(now);
-            return false;
+            state.frame_index = (state.frame_index + 1) % state.frames.len();
+            state.view = state.frames[state.frame_index].clone();
+            state.revision = state.revision.saturating_add(1);
+            return true;
         };
         let due = now.duration_since(last) >= state.interval;
         if !due {
@@ -447,7 +450,7 @@ impl Component for MountedViewSlot {
     }
 
     fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
-        cx.tick(Duration::from_millis(16), Self::tick);
+        cx.tick(Duration::from_millis(480), Self::tick);
     }
 }
 
