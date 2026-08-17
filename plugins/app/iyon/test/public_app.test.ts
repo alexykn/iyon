@@ -145,6 +145,37 @@ describe("Iyon public native TUI", () => {
     }
   });
 
+  test("escape_keeps_composer_visible", async () => {
+    await withFixture(40, 12, async ({ app, harness }) => {
+      expect(harness.screenRows().filter((line) => line.includes("─")).length).toBeGreaterThanOrEqual(2);
+      expect(harness.screenRows().at(-1)).toContain("effort");
+      harness.pressKey("Escape");
+      const action = await harness.nextAction();
+      expect(action).toEqual({ actionId: "escape" });
+      expect(harness.screenRows().filter((line) => line.includes("─")).length).toBeGreaterThanOrEqual(2);
+      expect(harness.screenRows().at(-1)).toContain("effort");
+      expect(harness.exited()).toBe(false);
+      await app.handleAction({ type: "escape" });
+      expect(harness.screenRows().filter((line) => line.includes("─")).length).toBeGreaterThanOrEqual(2);
+      expect(harness.screenRows().at(-1)).toContain("effort");
+      expect(harness.exited()).toBe(false);
+    });
+  });
+
+  test("escape_during_work_cancels_without_hiding_composer", async () => {
+    await withFixture(40, 12, async ({ app, harness }) => {
+      await send({ app, harness }, { type: "turnStarted" });
+      harness.pressKey("Escape");
+      expect(await harness.nextAction()).toEqual({ actionId: "escape" });
+      expect(harness.screenRows().filter((line) => line.includes("─")).length).toBeGreaterThanOrEqual(2);
+      expect(harness.screenRows().at(-1)).toContain("effort");
+      await app.handleAction({ type: "escape" });
+      expect(harness.screenRows().filter((line) => line.includes("─")).length).toBeGreaterThanOrEqual(2);
+      expect(harness.exited()).toBe(false);
+      expect(harness.screenRows().some((line) => line.includes("Goodbye."))).toBe(false);
+    });
+  });
+
   test("run_loop_null_next_action_still_runs_goodbye_shutdown", async () => {
     await withFixture(40, 12, async ({ app, harness }) => {
       const tui = new Proxy(harness, {

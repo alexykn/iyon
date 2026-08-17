@@ -2067,6 +2067,7 @@ impl TuiHost {
 
     pub fn render(&self, body: View) -> Result<()> {
         let mut inner = self.lock_mut()?;
+        inner.running.state.body = body.clone();
         inner.running.host_set_body(body);
         Ok(())
     }
