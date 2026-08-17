@@ -98,6 +98,10 @@ where
     }
 
     pub(crate) fn host_set_body(&mut self, body: View) {
+        if self.scene.body() == &body {
+            self.body_dirty = false;
+            return;
+        }
         self.scene.set_body(body);
         self.body_dirty = false;
         self.dirty = true;
@@ -337,7 +341,9 @@ where
     {
         if self.body_dirty {
             let body = (self.view)(&self.state);
-            self.scene.set_body(body);
+            if self.scene.body() != &body {
+                self.scene.set_body(body);
+            }
             self.body_dirty = false;
         }
         let frame = self.scene_host.render_at(

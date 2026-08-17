@@ -502,6 +502,23 @@ describe("Iyon public native TUI", () => {
     });
   });
 
+  test("thinking_deltas_do_not_rebuild_composer_chrome", async () => {
+    await withFixture(40, 12, async (fixture) => {
+      await fixture.app.handleAction({ type: "submit", text: "hello" });
+      const before = fixture.harness.screenRows();
+      const composerRows = before.filter((line) => line.includes("─")).length;
+      expect(composerRows).toBeGreaterThanOrEqual(2);
+      expect(before.at(-1)).toContain("effort: Medium");
+      for (const chunk of ["alpha ", "beta ", "gamma ", "delta ", "epsilon"]) {
+        await send(fixture, { type: "thinkingDelta", text: chunk });
+      }
+      const after = fixture.harness.screenRows();
+      expect(after.filter((line) => line.includes("─")).length).toBe(composerRows);
+      expect(after.at(-1)).toContain("effort: Medium");
+      expect(fixture.harness.exited()).toBe(false);
+    });
+  });
+
   test("reasoning_effort_changes_focused_composer_border_color", async () => {
     await withFixture(40, 12, async (fixture) => {
       const medium = fixture.harness.styleAt(8, 0);

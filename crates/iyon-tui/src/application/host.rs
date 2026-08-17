@@ -171,6 +171,7 @@ pub struct HostWorking {
     state: Arc<Mutex<WorkingState>>,
     component_id: Arc<Mutex<Option<u64>>>,
     config: HostActivityConfig,
+    host: Arc<Mutex<Option<Weak<Mutex<HostInner>>>>>,
 }
 
 #[derive(Clone)]
@@ -461,6 +462,7 @@ impl HostWorking {
             state: Arc::new(Mutex::new(WorkingState::default())),
             component_id: Arc::new(Mutex::new(None)),
             config,
+            host: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -469,7 +471,7 @@ impl HostWorking {
             .lock()
             .map_err(|_| anyhow::anyhow!("working component lock is poisoned"))?
             .active = active;
-        Ok(())
+        self.invalidate_host()
     }
 
     pub fn set_pending(&self, pending: Vec<String>) -> Result<()> {
@@ -477,7 +479,7 @@ impl HostWorking {
             .lock()
             .map_err(|_| anyhow::anyhow!("working component lock is poisoned"))?
             .pending = pending;
-        Ok(())
+        self.invalidate_host()
     }
 
     pub fn component_id(&self) -> Option<u64> {
@@ -489,6 +491,32 @@ impl HostWorking {
             .component_id
             .lock()
             .map_err(|_| anyhow::anyhow!("working component id lock is poisoned"))? = Some(id);
+        Ok(())
+    }
+
+    fn attach_host(&self, host: &Arc<Mutex<HostInner>>) -> Result<()> {
+        *self
+            .host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("working host lock is poisoned"))? =
+            Some(Arc::downgrade(host));
+        Ok(())
+    }
+
+    fn invalidate_host(&self) -> Result<()> {
+        let host = self
+            .host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("working host lock is poisoned"))?
+            .clone()
+            .and_then(|host| host.upgrade());
+        let Some(host) = host else {
+            return Ok(());
+        };
+        let mut inner = host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
+        inner.running.invalidate_frame();
         Ok(())
     }
 }
@@ -1916,6 +1944,7 @@ impl TuiHost {
 
     pub fn create_working(&self, config: HostActivityConfig) -> Result<HostWorking> {
         let working = HostWorking::new(config);
+        working.attach_host(&self.inner)?;
         let mut inner = self.lock_mut()?;
         let handle = inner.running.host_register(MountedWorking(working.clone()));
         working.set_component_id(handle.raw_id())?;

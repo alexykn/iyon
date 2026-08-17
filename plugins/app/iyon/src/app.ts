@@ -17,7 +17,7 @@ import { ComposerPasteStore } from "./composer.ts";
 import { ApprovalStore } from "./approvals.ts";
 import { createInitialState, hasActiveWork, reduceIyonState } from "./state.ts";
 import { createIyonTheme, type IyonTheme } from "./theme.ts";
-import { createIyonView, userBatchView } from "./view.ts";
+import { createIyonView, footerText, userBatchView } from "./view.ts";
 import { handleIyonAction } from "./actions.ts";
 import { startCoreEventBridge, type CoreEventBridge, type CoreEventSource } from "./backend.ts";
 import { NativeAssistantStream } from "./streaming.ts";
@@ -87,6 +87,7 @@ class IyonAppImpl implements IyonApp {
   private shutdownComplete = false;
   private liveUserBatch?: LiveUserBatch;
   private historyMutation: Promise<void> = Promise.resolve();
+  private renderedBodyKey?: string;
 
   constructor(
     readonly dependencies: IyonAppDependencies,
@@ -542,12 +543,27 @@ class IyonAppImpl implements IyonApp {
     this.shutdownComplete = true;
   }
 
+  private bodyKey(state: IyonState): string {
+    return [
+      Number(state.goodbye),
+      footerText(state),
+      state.info.reasoningEffort,
+      state.pendingApproval?.approvalId ?? "",
+      Number(state.activityVisible),
+    ].join("|");
+  }
+
   private async renderCurrentScene(): Promise<void> {
-    if (this.tui !== undefined && this.started) {
-      await this.workingHandle?.setActive(this.currentState.activityVisible);
-      await this.workingHandle?.setPending(this.currentState.steering);
-      await this.tui.render(new Scene(createIyonView({ composer: this.composer, history: this.history, state: this.currentState, theme: this.theme, working: this.workingHandle }), this.history));
+    if (this.tui === undefined || !this.started) return;
+    await this.workingHandle?.setActive(this.currentState.activityVisible);
+    await this.workingHandle?.setPending(this.currentState.steering);
+    const key = this.bodyKey(this.currentState);
+    if (key === this.renderedBodyKey) {
+      (this.tui as { advance?: (ms: number) => void }).advance?.(0);
+      return;
     }
+    this.renderedBodyKey = key;
+    await this.tui.render(new Scene(createIyonView({ composer: this.composer, history: this.history, state: this.currentState, theme: this.theme, working: this.workingHandle }), this.history));
   }
 
   async run(signal?: AbortSignal): Promise<void> {
