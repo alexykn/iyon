@@ -346,7 +346,7 @@ class IyonAppImpl implements IyonApp {
       await this.freezeToolSlot(key, view);
       return;
     }
-    const pulsing = card.status === "preparing" || card.status === "running";
+    const pulsing = card.status !== "finished" && card.status !== "failed" && card.status !== "cancelled";
     const slot = this.toolSlots.get(key);
     if (slot !== undefined) {
       await this.updateToolContent(key, card);
