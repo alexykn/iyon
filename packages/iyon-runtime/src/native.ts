@@ -83,7 +83,7 @@ export interface NativeAddon {
   NativeMarkdownProjector?: new () => { dispose(): void; project(text: string, sealed?: boolean): object };
   NativePlainProjector?: new () => { dispose(): void; project(text: string): object };
   NativeWorking?: new () => { dispose(): void; componentId(): number | null; setActive(active: boolean): void; setPending(pending: string[]): void };
-  NativeViewSlot?: new (initial: object) => { dispose(): void; revision(): number; componentId(): number | null; setView(view: object): void };
+  NativeViewSlot?: new (initial: object) => { dispose(): void; revision(): number; componentId(): number | null; setView(view: object): void; setAnimation(frames: object[], intervalMs: number): void; stopAnimation(view: object): void };
 }
 
 export interface NativeTuiOutputContract { readonly output?: unknown; }

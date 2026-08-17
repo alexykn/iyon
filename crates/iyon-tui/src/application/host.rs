@@ -177,12 +177,16 @@ pub struct HostViewSlot {
 struct ViewSlotState {
     view: View,
     revision: u64,
+    frames: Vec<View>,
+    frame_index: usize,
+    interval: Duration,
+    last_tick: Option<Instant>,
 }
 
 impl HostViewSlot {
     pub fn new(view: View) -> Self {
         Self {
-            state: Arc::new(Mutex::new(ViewSlotState { view, revision: 0 })),
+            state: Arc::new(Mutex::new(ViewSlotState { view, revision: 0, frames: Vec::new(), frame_index: 0, interval: Duration::from_millis(480), last_tick: None })),
             component_id: Arc::new(Mutex::new(None)),
             host: Arc::new(Mutex::new(None)),
         }
@@ -195,6 +199,9 @@ impl HostViewSlot {
                 .lock()
                 .map_err(|_| anyhow::anyhow!("view slot lock is poisoned"))?;
             state.view = view;
+            state.frames.clear();
+            state.frame_index = 0;
+            state.last_tick = None;
             state.revision = state.revision.saturating_add(1);
         }
         self.render_host()
@@ -206,6 +213,54 @@ impl HostViewSlot {
 
     pub fn revision(&self) -> u64 {
         self.state.lock().map(|state| state.revision).unwrap_or(0)
+    }
+
+    pub fn set_animation(&self, frames: Vec<View>, interval: Duration) -> Result<()> {
+        if frames.is_empty() {
+            return Err(anyhow::anyhow!("view slot animation requires at least one frame"));
+        }
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("view slot lock is poisoned"))?;
+            let preserve_phase = !state.frames.is_empty() && state.interval == interval;
+            state.frame_index = if preserve_phase { state.frame_index % frames.len() } else { 0 };
+            state.view = frames[state.frame_index].clone();
+            state.frames = frames;
+            state.interval = interval;
+            if !preserve_phase {
+                state.last_tick = Some(Instant::now() - interval);
+            }
+            state.revision = state.revision.saturating_add(1);
+        }
+        self.render_host()
+    }
+
+    pub fn stop_animation(&self, view: View) -> Result<()> {
+        self.set_view(view)
+    }
+
+    fn tick(&self, now: Instant) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        if state.frames.len() < 2 {
+            return false;
+        }
+        let Some(last) = state.last_tick else {
+            state.last_tick = Some(now);
+            return false;
+        };
+        let due = now.duration_since(last) >= state.interval;
+        if !due {
+            return false;
+        }
+        state.last_tick = Some(now);
+        state.frame_index = (state.frame_index + 1) % state.frames.len();
+        state.view = state.frames[state.frame_index].clone();
+        state.revision = state.revision.saturating_add(1);
+        true
     }
 
     fn attach_host(&self, host: &Arc<Mutex<HostInner>>) -> Result<()> {
@@ -252,6 +307,16 @@ impl Component for MountedViewSlot {
             .lock()
             .map(|state| state.view.clone())
             .unwrap_or_else(|_| View::spacer(0))
+    }
+
+    fn capabilities(&self, cx: &mut ComponentCx<'_, Self>) {
+        cx.tick(Duration::from_millis(16), Self::tick);
+    }
+}
+
+impl MountedViewSlot {
+    fn tick(component: &mut Self, now: Instant, _cx: &mut crate::EventCx<'_>) -> bool {
+        component.0.tick(now)
     }
 }
 

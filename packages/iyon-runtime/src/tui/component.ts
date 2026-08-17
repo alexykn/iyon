@@ -9,6 +9,8 @@ type NativeViewSlotHandle = {
   revision(): number;
   componentId(): number | null;
   setView(view: object): void;
+  setAnimation(frames: object[], intervalMs: number): void;
+  stopAnimation(view: object): void;
 };
 
 export class ViewSlot extends HandleBase<NativeViewSlotHandle, "component"> implements ViewSlotContract {
@@ -25,6 +27,21 @@ export class ViewSlot extends HandleBase<NativeViewSlotHandle, "component"> impl
       const lowered = materializeView(view);
       if (lowered === undefined) throw new Error("native view materialization is unavailable");
       this.nativeHandle.setView(lowered as object);
+    });
+  }
+  setAnimation(frames: readonly View[], intervalMs: number): Promise<void> {
+    return this.call(() => {
+      if (frames.length === 0) throw new Error("native view slot animation requires at least one frame");
+      const lowered = frames.map(materializeView);
+      if (lowered.some((frame) => frame === undefined)) throw new Error("native view materialization is unavailable");
+      this.nativeHandle.setAnimation(lowered as object[], intervalMs);
+    });
+  }
+  stopAnimation(view: View): Promise<void> {
+    return this.call(() => {
+      const lowered = materializeView(view);
+      if (lowered === undefined) throw new Error("native view materialization is unavailable");
+      this.nativeHandle.stopAnimation(lowered as object);
     });
   }
   nativeComponentId(): number | undefined {
