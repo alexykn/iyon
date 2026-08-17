@@ -1,6 +1,7 @@
 import type { App } from "iyon:plugins";
 import { History, Scene, Style, TextInput, Tui, View } from "iyon:tui";
 import { renderGenericCall, renderGenericResult } from "@iyon/runtime";
+import { collapseResultView } from "@iyon/plugins";
 import { History as RuntimeHistory, TextInput as RuntimeTextInput } from "@iyon/runtime/tui";
 import type { History as HistoryHandle, ScrollPane, TextInput as TextInputHandle, TuiRuntime, ViewSlot, WorkingActivityHandle } from "@iyon/runtime/tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
@@ -357,8 +358,13 @@ class IyonAppImpl implements IyonApp {
 
   private async updateToolSlotResult(key: string, result: ToolResult): Promise<void> {
     const slot = this.toolSlots.get(key);
-    const view = this.renderToolResult(result);
+    const card = this.toolCards.getByKey(key);
+    const call = card === undefined ? undefined : this.renderToolCall(card, key, false);
+    const resultView = this.renderToolResult(result);
+    const view = call === undefined ? resultView : View.vertical([call, resultView]).fillWidth();
     if (slot !== undefined) {
+      const pane = this.toolPanes.get(key);
+      if (pane !== undefined) await pane.setContent(View.spacer(0));
       await slot.stopAnimation(view as never);
       return;
     }
@@ -395,7 +401,8 @@ class IyonAppImpl implements IyonApp {
 
   private renderToolResult(result: ToolResult) {
     const contribution = result.toolName === undefined ? undefined : this.dependencies.tools?.get(result.toolName);
-    return contribution?.renderResult?.(result) ?? renderGenericResult(result);
+    const view = contribution?.renderResult?.(result) ?? renderGenericResult(result);
+    return collapseResultView(view);
   }
 
   private async shutdown(): Promise<void> {

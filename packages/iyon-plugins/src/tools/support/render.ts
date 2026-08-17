@@ -3,13 +3,25 @@ import type { DiffHunk } from "./diff.ts";
 import { Style, View } from "@iyon/runtime/tui";
 import type { ToolCall, ToolLifecycleState, ToolResult } from "@iyon/sdk";
 
+export const MAX_COLLAPSED_TOOL_ROWS = 16;
+
+export function collapseResultView(view: View): View {
+  // Result renderers include a one-row summary and the footer consumes one
+  // row of the bounded view; the product body remains capped at 16 rows.
+  return view.clampRows(MAX_COLLAPSED_TOOL_ROWS + 2, {
+    kind: "footer",
+    prefix: "… more lines (full result retained)",
+    style: Style.new().foreground("theme:truncation_footer").italic().dim(),
+  });
+}
+
 export function toolStyle(state: ToolLifecycleState) {
   const key = state === "preparing" || state === "running" ? "tool.running" : state === "pendingApproval" ? "text.warning" : state === "failed" || state === "cancelled" ? "tool.error" : "tool.finished";
   return Style.new().theme(key);
 }
 
 export function resultStyle(isError: boolean) {
-  return Style.new().theme(isError ? "tool.error" : "text.muted");
+  return Style.new().foreground(`theme:${isError ? "tool.error" : "text.muted"}`);
 }
 
 export function toolText(value: string, style: ReturnType<typeof Style.new>): View {
@@ -27,7 +39,7 @@ export function toolResultLine(value: string, style: ReturnType<typeof Style.new
 }
 
 export function resultLines(value: string, style: ReturnType<typeof Style.new>): View[] {
-  return value.split("\n").map((line) => toolResultLine(line, style));
+  return value.split(/\r?\n/u).map((line) => toolResultLine(line, style));
 }
 
 export function resultBlock(body: View): View {

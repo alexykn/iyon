@@ -988,10 +988,7 @@ fn lower_view(value: &Value) -> Result<View> {
             lower_grid(object)?
         }
         "container" => lower_required(object, "child")?.container(),
-        "clamp" => lower_required(object, "child")?.clamp_rows(
-            u16_value(object, "maxRows")?,
-            iyon_tui::OverflowIndicator::None,
-        ),
+        "clamp" => lower_required(object, "child")?.clamp_rows(u16_value(object, "maxRows")?, lower_overflow(object.get("overflow"))?),
         "decorated" => {
             apply_decoration(lower_required(object, "child")?, object.get("decoration"))?
         }
@@ -1144,6 +1141,32 @@ fn lower_grid_track(value: &Value) -> Result<GridTrack> {
         "flex" => Ok(GridTrack::flex()),
         "flexMax" => Ok(GridTrack::flex_max(u16_value(object, "max")?)),
         other => Err(crate::NativeError::invalid_input(format!("unknown grid track kind `{other}`"))),
+    }
+}
+
+fn lower_overflow(value: Option<&Value>) -> Result<iyon_tui::OverflowIndicator> {
+    let Some(value) = value else {
+        return Ok(iyon_tui::OverflowIndicator::None);
+    };
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("overflow indicator must be an object"))?;
+    let kind = object
+        .get("kind")
+        .and_then(Value::as_str)
+        .ok_or_else(|| crate::NativeError::invalid_input("overflow indicator kind must be a string"))?;
+    match kind {
+        "none" => Ok(iyon_tui::OverflowIndicator::None),
+        "ellipsis" => Ok(iyon_tui::OverflowIndicator::Ellipsis { style: lower_style_ref(object.get("style").ok_or_else(|| crate::NativeError::invalid_input("ellipsis style is required"))?)? }),
+        "footer" => Ok(iyon_tui::OverflowIndicator::Footer {
+            prefix: object
+                .get("prefix")
+                .and_then(Value::as_str)
+                .ok_or_else(|| crate::NativeError::invalid_input("footer prefix must be a string"))?
+                .to_owned(),
+            style: lower_style_ref(object.get("style").ok_or_else(|| crate::NativeError::invalid_input("footer style is required"))?)?,
+        }),
+        other => Err(crate::NativeError::invalid_input(format!("unknown overflow indicator `{other}`"))),
     }
 }
 

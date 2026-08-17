@@ -16,13 +16,18 @@ export interface StyleNode {
   readonly attributes: Readonly<Record<string, boolean>>;
 }
 
+export type OverflowIndicatorNode =
+  | { readonly kind: "none" }
+  | { readonly kind: "ellipsis"; readonly style: StyleNode }
+  | { readonly kind: "footer"; readonly prefix: string; readonly style: StyleNode };
+
 export type ViewNode =
   | { readonly type: "text"; readonly spans: readonly TextSpanNode[]; readonly wrap: string; readonly align: string }
   | { readonly type: "spacer"; readonly rows: number }
   | { readonly type: "row" | "column"; readonly children: readonly LayoutChild[]; readonly gap: number }
   | { readonly type: "hanging"; readonly prefix: ViewNode; readonly continuation: ViewNode; readonly body: ViewNode }
   | { readonly type: "grid"; readonly columns: readonly GridTrackNode[]; readonly rows: readonly GridRowNode[]; readonly columnGap: number; readonly rowGap: number }
-  | { readonly type: "container" | "clamp"; readonly child: ViewNode; readonly maxRows?: number }
+  | { readonly type: "container" | "clamp"; readonly child: ViewNode; readonly maxRows?: number; readonly overflow?: OverflowIndicatorNode }
   | { readonly type: "contentMax"; readonly child: ViewNode; readonly maxRows: number }
   | { readonly type: "component"; readonly handle: NativeHandleId }
   | { readonly type: "decorated"; readonly child: ViewNode; readonly decoration: DecorationNode };
