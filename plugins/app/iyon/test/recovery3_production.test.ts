@@ -262,6 +262,17 @@ describe("Recovery Round 3 geometry and lifecycle contracts", () => {
     } finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
   });
 
+  test("native_assistant_chunks_keep_gutter_after_promotion", async () => {
+    const fixture = await (await import("./public_app_fixtures.ts")).openFixture(40, 8);
+    try {
+      await send(fixture, { type: "assistantDelta", text: "first paragraph\n\nsecond paragraph" });
+      advance(fixture, 16, 160);
+      const row = fixture.harness.screenRows().findIndex((line) => line.includes("second"));
+      expect(fixture.harness.cellXOfText(row, "second")).toBe(2);
+      expect(fixture.harness.nativeHistoryRows().length).toBeGreaterThan(0);
+    } finally { await (await import("./public_app_fixtures.ts")).closeFixture(fixture); }
+  });
+
   test("collapsed_tool_result_matches_oracle_row_count", async () => {
     const fixture = await (await import("./public_app_fixtures.ts")).openFixture(80, 40);
     try {
