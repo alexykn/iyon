@@ -77,6 +77,7 @@ class IyonAppImpl implements IyonApp {
   private activeAgentRun?: Promise<void>;
   private shutdownPromise?: Promise<void>;
   private shutdownComplete = false;
+  private pendingLocalUserMessages = 0;
 
   constructor(
     readonly dependencies: IyonAppDependencies,
@@ -150,6 +151,7 @@ class IyonAppImpl implements IyonApp {
       this.exiting = false;
       this.shutdownComplete = false;
       this.shutdownPromise = undefined;
+      this.pendingLocalUserMessages = 0;
     }
   }
 
@@ -224,7 +226,12 @@ class IyonAppImpl implements IyonApp {
     next: IyonState,
   ): Promise<boolean> {
     if (action.type !== "backend") {
-      return action.type === "submit" || action.type === "cycleReasoningEffort";
+      if (action.type === "submit") {
+        await this.history.push(userBatchView([action.text], this.theme));
+        this.pendingLocalUserMessages += 1;
+        return true;
+      }
+      return action.type === "cycleReasoningEffort";
     }
     const event = action.event;
     if (event.type === "assistantDelta") {
@@ -238,6 +245,10 @@ class IyonAppImpl implements IyonApp {
       return true;
     }
     if (event.type === "userMessage") {
+      if (this.pendingLocalUserMessages > 0) {
+        this.pendingLocalUserMessages -= 1;
+        return true;
+      }
       await this.history.push(userBatchView([event.text], this.theme));
       return true;
     }
