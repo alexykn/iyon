@@ -22,7 +22,7 @@ pub use crate::agent::tool_call::{AssembledToolCall, InvalidToolCall, ToolCallRe
 pub use approval::{ApprovalDecision, ApprovalRequirement, ApprovalState, ApprovalStatus};
 pub use kernel::{Kernel, KernelConfig};
 pub use model_turn::{ModelTurn, ModelTurnError, ModelTurnResult, ModelTurnState};
-pub use queue::{KernelQueues, QueueFull, QueueKind, QueueOperation};
+pub use queue::{KernelQueues, QueueFull, QueueIdAllocator, QueueKind, QueueOperation};
 pub use tool::{
     ToolLifecycleError, ToolLifecycleEvent, ToolLifecycleHandle, ToolLifecycleResult,
     ToolLifecycleState,
