@@ -29,7 +29,7 @@ export interface NativeKernelSessionContract {
   nextEvent(): Promise<JsonValue | null>;
   beginModelTurn(options: JsonValue): NativeModelTurnContract;
   prepareToolExecution(request: JsonValue): NativeToolExecutionContract;
-  enqueue(kind: string, text: string): void;
+  enqueue(kind: string, text: string): number;
   dequeue(kind: string): string | null;
   queueSnapshot(): JsonValue;
   abort(): void;

@@ -1207,6 +1207,7 @@ async fn pending_steer_shows_muted_queue_beside_working() {
             arguments: serde_json::json!({"command":"true"}),
         },
         FrontendEvent::SteerQueued {
+            queue_id: 1,
             text: "look at iyon-tui".into(),
         },
     ] {

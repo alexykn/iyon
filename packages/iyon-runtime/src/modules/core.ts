@@ -140,9 +140,8 @@ export class KernelSession implements KernelSessionContract {
     return new ToolExecution(this.handle.prepareToolExecution(jsonValue(request)));
   }
 
-  enqueue(kind: "prompt" | "steer" | "followUp", text: string): Promise<void> {
-    this.handle.enqueue(kind, text);
-    return Promise.resolve();
+  enqueue(kind: "prompt" | "steer" | "followUp", text: string): Promise<number> {
+    return Promise.resolve(this.handle.enqueue(kind, text));
   }
 
   dequeue(kind: "prompt" | "steer" | "followUp"): string | null {
@@ -184,11 +183,11 @@ export class AgentSession extends KernelSession implements AgentSessionContract 
     });
   }
 
-  steer(text: string): Promise<void> {
+  steer(text: string): Promise<number> {
     return this.enqueue("steer", text);
   }
 
-  followUp(text: string): Promise<void> {
+  followUp(text: string): Promise<number> {
     return this.enqueue("followUp", text);
   }
 

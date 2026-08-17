@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
+use crate::ids::QueueItemId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueueKind {
@@ -27,13 +28,20 @@ pub struct QueueFull {
 #[derive(Debug, Clone)]
 pub struct KernelQueues {
     capacity: usize,
-    prompts: VecDeque<String>,
-    steers: VecDeque<String>,
-    follow_ups: VecDeque<String>,
+    prompts: VecDeque<QueueItem>,
+    steers: VecDeque<QueueItem>,
+    follow_ups: VecDeque<QueueItem>,
+    next_id: u64,
     active: bool,
     steerable: bool,
     abort_requested: bool,
     cancellation: CancellationToken,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueueItem {
+    pub id: QueueItemId,
+    pub text: String,
 }
 
 impl KernelQueues {
@@ -43,6 +51,7 @@ impl KernelQueues {
             prompts: VecDeque::new(),
             steers: VecDeque::new(),
             follow_ups: VecDeque::new(),
+            next_id: 1,
             active: false,
             steerable: false,
             abort_requested: false,
@@ -54,19 +63,17 @@ impl KernelQueues {
         self.steerable = active && steerable;
     }
     pub fn prompt(&mut self, text: String) -> Result<(), QueueFull> {
-        push_bounded(&mut self.prompts, text, self.capacity, QueueKind::Prompt)
+        self.prompt_with_id(text).map(|_| ())
     }
+    pub fn prompt_with_id(&mut self, text: String) -> Result<QueueItemId, QueueFull> { Self::push(&mut self.prompts, text, QueueKind::Prompt, self.capacity, &mut self.next_id) }
     pub fn steer(&mut self, text: String) -> Result<(), QueueFull> {
-        push_bounded(&mut self.steers, text, self.capacity, QueueKind::Steer)
+        self.steer_with_id(text).map(|_| ())
     }
+    pub fn steer_with_id(&mut self, text: String) -> Result<QueueItemId, QueueFull> { Self::push(&mut self.steers, text, QueueKind::Steer, self.capacity, &mut self.next_id) }
     pub fn follow_up(&mut self, text: String) -> Result<(), QueueFull> {
-        push_bounded(
-            &mut self.follow_ups,
-            text,
-            self.capacity,
-            QueueKind::FollowUp,
-        )
+        self.follow_up_with_id(text).map(|_| ())
     }
+    pub fn follow_up_with_id(&mut self, text: String) -> Result<QueueItemId, QueueFull> { Self::push(&mut self.follow_ups, text, QueueKind::FollowUp, self.capacity, &mut self.next_id) }
     pub fn submit_turn_compat(&mut self, text: String) -> Result<QueueKind, QueueFull> {
         if self.active && self.steerable {
             self.steer(text)?;
@@ -80,15 +87,22 @@ impl KernelQueues {
         self.cancellation.cancel();
     }
     pub fn take_prompt(&mut self) -> Option<String> {
-        self.prompts.pop_front()
+        self.take_prompt_with_id().map(|item| item.text)
     }
+    pub fn take_prompt_with_id(&mut self) -> Option<QueueItem> { self.prompts.pop_front() }
     pub fn drain_steers_at_boundary(&mut self) -> Vec<String> {
+        self.drain_steers_at_boundary_with_id().into_iter().map(|item| item.text).collect()
+    }
+    pub fn drain_steers_at_boundary_with_id(&mut self) -> Vec<QueueItem> {
         if self.active && self.steerable {
             return Vec::new();
         }
         self.steers.drain(..).collect()
     }
     pub fn drain_follow_ups_after_settle(&mut self) -> Vec<String> {
+        self.drain_follow_ups_after_settle_with_id().into_iter().map(|item| item.text).collect()
+    }
+    pub fn drain_follow_ups_after_settle_with_id(&mut self) -> Vec<QueueItem> {
         if self.active {
             return Vec::new();
         }
@@ -117,19 +131,16 @@ impl KernelQueues {
             }
         }
     }
-}
 
-fn push_bounded(
-    queue: &mut VecDeque<String>,
-    text: String,
-    capacity: usize,
-    kind: QueueKind,
-) -> Result<(), QueueFull> {
-    if queue.len() >= capacity {
-        return Err(QueueFull { kind });
+    fn push(queue: &mut VecDeque<QueueItem>, text: String, kind: QueueKind, capacity: usize, next_id: &mut u64) -> Result<QueueItemId, QueueFull> {
+        if queue.len() >= capacity {
+            return Err(QueueFull { kind });
+        }
+        let id = QueueItemId(*next_id);
+        *next_id = (*next_id).saturating_add(1);
+        queue.push_back(QueueItem { id, text });
+        Ok(id)
     }
-    queue.push_back(text);
-    Ok(())
 }
 
 #[cfg(test)]
