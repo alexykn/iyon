@@ -13,13 +13,13 @@ export class ToolCardStore {
       const updated = { ...existing, toolCallId: toolCallId ?? existing.toolCallId, toolName: toolName ?? existing.toolName };
       this.cards.set(id, updated); if (toolCallId) this.ids.set(toolCallId, id); return updated;
     }
-    const card: LiveTool = { draftKey: key, toolCallId, toolName, status: "preparing", text: "", isError: false, frozen: false };
+    const card: LiveTool = { draftKey: key, toolCallId, toolName, argumentPreview: "", status: "preparing", isError: false, frozen: false };
     this.cards.set(id, card); if (toolCallId) this.ids.set(toolCallId, id); return card;
   }
 
   arguments(key: ToolDraftKey, delta: string, toolCallId?: string, toolName?: string): LiveTool {
     const card = this.preparing(key, toolCallId, toolName);
-    const updated = { ...card, text: card.text + delta, toolCallId: toolCallId ?? card.toolCallId, toolName: toolName ?? card.toolName };
+    const updated = { ...card, argumentPreview: card.argumentPreview + delta, toolCallId: toolCallId ?? card.toolCallId, toolName: toolName ?? card.toolName };
     const id = draftIdFor(key); this.cards.set(id, updated); if (updated.toolCallId) this.ids.set(updated.toolCallId, id); return updated;
   }
 
@@ -35,18 +35,18 @@ export class ToolCardStore {
       const card = this.cards.get(existingId)!; const updated = { ...card, toolCallId, toolName, arguments: argumentsValue, status: "running" as const };
       this.cards.set(existingId, updated); return updated;
     }
-    const card: LiveTool = { toolCallId, toolName, arguments: argumentsValue, status: "running", text: "", isError: false, frozen: false };
+    const card: LiveTool = { toolCallId, toolName, arguments: argumentsValue, argumentPreview: "", status: "running", isError: false, frozen: false };
     this.cards.set(toolCallId, card); this.ids.set(toolCallId, toolCallId); return card;
   }
 
   update(toolCallId: string, update: ToolUpdatePresentation): LiveTool | undefined {
-    return this.map(toolCallId, (card) => update.type === "text" ? { ...card, text: card.text + update.text } : update.type === "progress" ? { ...card, progress: update } : { ...card, details: update.details });
+    return this.map(toolCallId, (card) => update.type === "text" ? { ...card, update: card.update?.type === "text" ? { ...update, text: card.update.text + update.text } : update } : update.type === "progress" ? { ...card, update, progress: update } : { ...card, update, details: update.details });
   }
   approval(toolCallId: string): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, status: "pendingApproval" as const })); }
   resolveApproval(toolCallId: string, approved: boolean): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, status: approved ? "running" as const : "cancelled" as const, frozen: !approved })); }
   cancel(toolCallId: string): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, status: "cancelled" as const, frozen: true, isError: true })); }
   finish(toolCallId: string, isError: boolean): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, status: isError ? "failed" as const : "finished" as const, isError, frozen: true })); }
-  result(toolCallId: string, toolName: string, text: string, details: JsonValue, isError: boolean): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, toolName, text, details, status: isError ? "failed" as const : "finished" as const, isError, frozen: true })); }
+  result(toolCallId: string, toolName: string, text: string, details: JsonValue, isError: boolean): LiveTool | undefined { return this.map(toolCallId, (card) => ({ ...card, toolName, result: { content: [{ type: "text", text }], details, isError, toolCallId: toolCallId as never, toolName, text }, status: isError ? "failed" as const : "finished" as const, isError, frozen: true })); }
   get(toolCallId: string): LiveTool | undefined { const id = this.ids.get(toolCallId); return id === undefined ? undefined : this.cards.get(id); }
   keyFor(toolCallId: string): string | undefined { return this.ids.get(toolCallId); }
   keyForDraft(key: ToolDraftKey): string { return draftIdFor(key); }

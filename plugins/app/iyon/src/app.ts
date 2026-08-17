@@ -523,7 +523,7 @@ class IyonAppImpl implements IyonApp {
 }
 
 function toolUpdateText(card: LiveTool): string | undefined {
-  if (card.text.length > 0) return card.text;
+  if (card.update?.type === "text" && card.update.text.length > 0) return card.update.text;
   if (card.progress !== undefined) {
     const { label, current, total } = card.progress;
     if (current !== undefined && total !== undefined) return `${label}: ${current}/${total}`;
