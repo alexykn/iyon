@@ -1,5 +1,7 @@
 //! Bounded allocation over measured semantic facts.
 
+use std::sync::Arc;
+
 use crate::{
     geometry::Size,
     perf::{self, Counter},
@@ -7,50 +9,74 @@ use crate::{
 };
 
 use super::{
+    cache::{LayoutCache, PrepareKey},
     grid::{FlexMode, SpanRequirement, allocate_grid_tracks, span_extent, track_offset},
     measure::{MeasuredKind, MeasuredNode},
     tracks::allocate_tracks,
 };
 
 #[derive(Debug)]
-pub(super) struct PreparedNode<'m, 'v> {
-    pub(super) measured: &'m MeasuredNode<'v>,
+pub(super) struct PreparedNode {
+    pub(super) measured: Arc<MeasuredNode>,
     pub(super) size: Size,
     pub(super) core_size: Size,
     pub(super) content_offset_x: u16,
     pub(super) content_offset_y: u16,
     pub(super) complete: bool,
-    pub(super) kind: PreparedKind<'m, 'v>,
+    pub(super) kind: PreparedKind,
 }
 
 #[derive(Debug)]
-pub(super) struct PreparedChild<'m, 'v> {
+pub(super) struct PreparedChild {
     pub(super) x: u16,
     pub(super) y: u16,
-    pub(super) node: PreparedNode<'m, 'v>,
+    pub(super) node: Arc<PreparedNode>,
 }
 
 #[derive(Debug)]
-pub(super) enum PreparedKind<'m, 'v> {
+pub(super) enum PreparedKind {
     Leaf,
-    Children(Vec<PreparedChild<'m, 'v>>),
+    Children(Vec<PreparedChild>),
     Clamp {
-        child: Box<PreparedChild<'m, 'v>>,
+        child: Arc<PreparedChild>,
     },
     RowViewport {
-        child: Box<PreparedChild<'m, 'v>>,
+        child: Arc<PreparedChild>,
         skip_rows: u16,
     },
 }
 
-pub(super) fn prepare_node<'m, 'v>(
-    measured: &'m MeasuredNode<'v>,
+pub(super) fn prepare_node(
+    measured: &Arc<MeasuredNode>,
     height_bound: Option<u16>,
-) -> PreparedNode<'m, 'v> {
+    cache: &mut LayoutCache,
+) -> Arc<PreparedNode> {
+    let key = PrepareKey {
+        measured: measured.key,
+        height_bound,
+    };
+    if measured.cacheable
+        && let Some(prepared) = cache.prepared(key)
+    {
+        return prepared;
+    }
+
+    let prepared = Arc::new(prepare_node_uncached(measured, height_bound, cache));
+    if measured.cacheable {
+        cache.store_prepared(key, Arc::clone(&prepared));
+    }
+    prepared
+}
+
+fn prepare_node_uncached(
+    measured: &Arc<MeasuredNode>,
+    height_bound: Option<u16>,
+    cache: &mut LayoutCache,
+) -> PreparedNode {
     perf::inc(Counter::PrepareNodeCalls);
     #[cfg(test)]
     super::record_prepare_node();
-    let view = measured.view;
+    let view = &measured.view;
     let decoration = measured.decoration;
     let height_capacity = height_bound
         .unwrap_or(u16::MAX)
@@ -68,14 +94,15 @@ pub(super) fn prepare_node<'m, 'v>(
         _ => measured.core_size.height.min(core_height_capacity),
     }
     .max(minimum_core_height);
-    let (kind, kind_size, complete) = prepare_kind(measured, requested_core_height, height_bound);
+    let (kind, kind_size, complete) =
+        prepare_kind(measured, requested_core_height, height_bound, cache);
     let core_width = measured.size.width.saturating_sub(decoration.horizontal);
     let core_height = match view.height() {
         HeightRule::Fill => requested_core_height,
         HeightRule::Fit => kind_size.height.min(requested_core_height),
     };
     PreparedNode {
-        measured,
+        measured: Arc::clone(measured),
         size: Size::new(
             core_width
                 .saturating_add(decoration.horizontal)
@@ -96,11 +123,12 @@ pub(super) fn prepare_node<'m, 'v>(
     }
 }
 
-fn prepare_kind<'m, 'v>(
-    measured: &'m MeasuredNode<'v>,
+fn prepare_kind(
+    measured: &Arc<MeasuredNode>,
     requested_core_height: u16,
     height_bound: Option<u16>,
-) -> (PreparedKind<'m, 'v>, Size, bool) {
+    cache: &mut LayoutCache,
+) -> (PreparedKind, Size, bool) {
     match &measured.kind {
         MeasuredKind::Text { metrics, .. } => (
             PreparedKind::Leaf,
@@ -113,7 +141,7 @@ fn prepare_kind<'m, 'v>(
             true,
         ),
         MeasuredKind::Container { child } => {
-            let prepared = prepare_node(child, Some(requested_core_height));
+            let prepared = prepare_node(child, Some(requested_core_height), cache);
             let size = prepared.size;
             let complete = prepared.complete;
             (
@@ -129,12 +157,12 @@ fn prepare_kind<'m, 'v>(
         MeasuredKind::ClampRows {
             child, max_rows, ..
         } => {
-            let prepared = prepare_node(child, None);
+            let prepared = prepare_node(child, None, cache);
             let size = Size::new(prepared.size.width, prepared.size.height.min(*max_rows));
             let complete = prepared.complete;
             (
                 PreparedKind::Clamp {
-                    child: Box::new(PreparedChild {
+                    child: Arc::new(PreparedChild {
                         x: 0,
                         y: 0,
                         node: prepared,
@@ -152,7 +180,7 @@ fn prepare_kind<'m, 'v>(
             layout_height,
             intrinsic_content_height,
         } => {
-            let prepared = prepare_node(child, *layout_height);
+            let prepared = prepare_node(child, *layout_height, cache);
             let child_height = prepared.size.height;
             let height = if *intrinsic_content_height {
                 let remaining = child_height.saturating_sub(*skip_rows);
@@ -167,7 +195,7 @@ fn prepare_kind<'m, 'v>(
             let complete = prepared.complete;
             (
                 PreparedKind::RowViewport {
-                    child: Box::new(PreparedChild {
+                    child: Arc::new(PreparedChild {
                         x: 0,
                         y: 0,
                         node: prepared,
@@ -188,7 +216,7 @@ fn prepare_kind<'m, 'v>(
             let mut complete = true;
             for (index, child) in children.iter().enumerate() {
                 let track = allocation.tracks[index];
-                let prepared = prepare_node(&child.node, Some(track));
+                let prepared = prepare_node(&child.node, Some(track), cache);
                 if child.node.size.height > track && !child.node.kind.is_clamp() {
                     complete = false;
                 }
@@ -240,7 +268,7 @@ fn prepare_kind<'m, 'v>(
                         row_height.saturating_sub(child_height)
                     }
                 };
-                let prepared = prepare_node(&child.node, Some(row_height));
+                let prepared = prepare_node(&child.node, Some(row_height), cache);
                 complete &= prepared.complete;
                 prepared_children.push(PreparedChild {
                     x,
@@ -268,9 +296,9 @@ fn prepare_kind<'m, 'v>(
                     true,
                 );
             }
-            let body = prepare_node(body, Some(requested_core_height));
+            let body = prepare_node(body, Some(requested_core_height), cache);
             let row_height = body.size.height.max(1).min(requested_core_height);
-            let prefix_node = prepare_node(prefix, Some(1));
+            let prefix_node = prepare_node(prefix, Some(1), cache);
             let prefix_complete = prefix_node.complete;
             let mut children = vec![PreparedChild {
                 x: 0,
@@ -280,7 +308,7 @@ fn prepare_kind<'m, 'v>(
             let mut complete =
                 body.complete && prefix_complete && *prefix_width < measured.decoration.inner_width;
             for row in 1..row_height {
-                let continuation = prepare_node(continuation_prefix, Some(1));
+                let continuation = prepare_node(continuation_prefix, Some(1), cache);
                 complete &= continuation.complete;
                 children.push(PreparedChild {
                     x: 0,
@@ -338,7 +366,7 @@ fn prepare_kind<'m, 'v>(
                 if cell.node.size.height > area_height && !cell.node.kind.is_clamp() {
                     complete = false;
                 }
-                let prepared = prepare_node(&cell.node, Some(area_height));
+                let prepared = prepare_node(&cell.node, Some(area_height), cache);
                 complete &= prepared.complete;
                 let extra_x = area_width.saturating_sub(prepared.size.width);
                 let extra_y = area_height.saturating_sub(prepared.size.height);

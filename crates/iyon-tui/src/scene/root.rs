@@ -21,29 +21,49 @@ use crate::{History, IntoView, View};
 pub struct Scene {
     history: Option<History>,
     body: View,
+    layout_body: View,
+    layout_root: View,
 }
 
 impl Scene {
     /// Creates a body-only semantic root.
     pub fn new(body: impl IntoView) -> Self {
+        let body = body.into_view();
+        let layout_body = body.clone().fill_width().fill_height();
+        let layout_root = root_view(None, layout_body.clone());
         Self {
             history: None,
-            body: body.into_view(),
+            layout_body,
+            layout_root,
+            body,
         }
     }
 
     /// Creates a semantic root with one root-level History and an ordinary
     /// body below it.
     pub fn with_history(history: History, body: impl IntoView) -> Self {
+        let body = body.into_view();
+        let layout_body = body.clone().fill_width().fill_height();
+        let layout_root = root_view(None, layout_body.clone());
         Self {
             history: Some(history),
-            body: body.into_view(),
+            layout_body,
+            layout_root,
+            body,
         }
     }
 
     /// Returns the optional root-level History.
     pub fn history(&self) -> Option<&History> {
         self.history.as_ref()
+    }
+
+    pub(crate) fn layout_body(&self) -> &View {
+        &self.layout_body
+    }
+
+    pub(crate) fn layout_root(&self) -> &View {
+        &self.layout_root
     }
 
     /// Returns mutable access to the optional root-level History.
@@ -58,7 +78,10 @@ impl Scene {
 
     /// Replaces the ordinary body View.
     pub fn set_body(&mut self, body: impl IntoView) {
-        self.body = body.into_view();
+        let body = body.into_view();
+        self.layout_body = body.clone().fill_width().fill_height();
+        self.layout_root = root_view(None, self.layout_body.clone());
+        self.body = body;
     }
 
     pub(crate) fn set_history(&mut self, history: History) {
@@ -85,7 +108,7 @@ use crate::{
     history::{HistoryPhysicalOverlay, HistoryViewportAnchor, project_into_session_for_host},
     presentation::{
         ir::{ColumnChild, ColumnView, HeightRule, TrackSize, ViewKind, ViewNodeParts, WidthRule},
-        layout::measure_view_with_overlay,
+        layout::{LayoutCache, measure_view_with_overlay_and_cache},
     },
 };
 
@@ -118,10 +141,26 @@ pub(crate) fn resolve_root_scene_with_anchor(
     size: Size,
     anchor: HistoryViewportAnchor,
 ) -> Result<ResolvedRootScene, ResolveError> {
-    let body_scene = resolve_branch(root.body(), registry)?;
-    let body_height = measure_view_with_overlay(&body_scene.view, size.width, &body_scene.overlay)
-        .height
-        .min(size.height);
+    let mut cache = LayoutCache::default();
+    resolve_root_scene_with_anchor_and_cache(root, registry, size, anchor, &mut cache)
+}
+
+pub(crate) fn resolve_root_scene_with_anchor_and_cache(
+    root: &Scene,
+    registry: &ComponentRegistry,
+    size: Size,
+    anchor: HistoryViewportAnchor,
+    cache: &mut LayoutCache,
+) -> Result<ResolvedRootScene, ResolveError> {
+    let body_scene = resolve_branch(root.layout_body(), registry)?;
+    let body_height = measure_view_with_overlay_and_cache(
+        &body_scene.view,
+        size.width,
+        &body_scene.overlay,
+        cache,
+    )
+    .height
+    .min(size.height);
     let history_height = root
         .history
         .as_ref()
@@ -144,7 +183,7 @@ pub(crate) fn resolve_root_scene_with_anchor(
         }
         None => (None, None, 0),
     };
-    let scene = merge_root_scene(history_scene, body_scene)?;
+    let scene = merge_root_scene(history_scene, body_scene, root.layout_root())?;
 
     Ok(ResolvedRootScene {
         scene,
@@ -167,11 +206,11 @@ fn resolve_branch(
 fn merge_root_scene(
     history: Option<ResolvedScene>,
     body: ResolvedScene,
+    layout_root: &View,
 ) -> Result<ResolvedScene, ResolveError> {
     let Some(history) = history else {
-        let body_view = body.view.fill_width().fill_height();
         return Ok(ResolvedScene {
-            view: root_view(None, body_view),
+            view: layout_root.clone(),
             mounts: body.mounts,
             capabilities: body.capabilities,
             overlay: body.overlay,
@@ -180,7 +219,7 @@ fn merge_root_scene(
 
     ensure_disjoint_mounts(&history, &body)?;
     let history_view = history.view;
-    let body_view = body.view.fill_width().fill_height();
+    let body_view = body.view;
     let mut mounts = history.mounts.nodes;
     mounts.extend(body.mounts.nodes);
     let mut capabilities = history.capabilities;
