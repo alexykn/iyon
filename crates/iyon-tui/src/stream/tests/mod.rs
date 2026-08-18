@@ -180,8 +180,9 @@ fn atomic_wide_grapheme_at_width_two_is_committable() {
 
 #[test]
 fn atomic_view_uses_the_ordinary_view_style_compiler() {
-    let mut view = View::text("atomic").into_view();
-    view.decoration.text_style = StyleSpec::new().bold().into();
+    let view = View::text("atomic")
+        .style(StyleSpec::new().bold())
+        .into_view();
     let stream = StreamView::atomic(
         StreamRange::new(StreamOffset::ZERO, StreamOffset::new(6)),
         view.clone(),

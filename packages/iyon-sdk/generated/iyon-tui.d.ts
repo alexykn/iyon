@@ -2270,6 +2270,8 @@ declare module "iyon:tui" {
   export function presentation__ir__View__container(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::presentation::ir::View::dim [NativeAsync / T5]
   export function presentation__ir__View__dim(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::presentation::ir::View::downgrade [NativeHandle / T5]
+  export interface presentation__ir__View__downgrade { readonly __nativeHandle: unique symbol; }
   // iyon-tui::presentation::ir::View::fill_height [NativeAsync / T5]
   export function presentation__ir__View__fill_height(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::presentation::ir::View::fill_width [NativeAsync / T5]

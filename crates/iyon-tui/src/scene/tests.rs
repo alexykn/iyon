@@ -128,18 +128,7 @@ struct CycleNode {
 impl Component for CycleNode {
     fn view(&self) -> View {
         self.target
-            .map(|id| View {
-                component: None,
-                width: crate::presentation::WidthRule::Fit,
-                height: crate::presentation::ir::HeightRule::Fit,
-                decoration: Default::default(),
-                style_states: Default::default(),
-                style_facts: Default::default(),
-                component_scope: None,
-                kind: crate::presentation::ir::ViewKind::ComponentSlot(
-                    crate::presentation::ir::ComponentSlotNode { id },
-                ),
-            })
+            .map(|id| View::native_component(id.value()))
             .unwrap_or_else(|| View::text("cycle").into_view())
     }
 }
@@ -307,7 +296,7 @@ fn one_slot_becomes_an_owned_component_root() {
     assert_eq!(resolved.mounts.nodes.len(), 1);
     assert_eq!(resolved.mounts.nodes[0].id, handle.id());
     assert_eq!(resolved.mounts.nodes[0].parent, None);
-    assert_eq!(resolved.view.component, Some(handle.id()));
+    assert_eq!(resolved.view.view_component(), Some(handle.id()));
     assert_eq!(count_slots(&resolved.view), 0);
 }
 
@@ -345,10 +334,10 @@ fn slot_properties_become_the_component_ownership_shell() {
     let slot = View::component(handle).padding(1).fill_width();
     let resolved = resolve_scene(&slot, &registry).unwrap().view;
 
-    assert_eq!(resolved.component, Some(handle.id()));
-    assert_eq!(resolved.width, crate::presentation::WidthRule::Fill);
+    assert_eq!(resolved.view_component(), Some(handle.id()));
+    assert_eq!(resolved.width(), crate::presentation::WidthRule::Fill);
     assert_eq!(
-        resolved.decoration.padding,
+        resolved.decoration().padding,
         crate::presentation::Insets::all(1)
     );
     assert_eq!(count_slots(&resolved), 0);
@@ -365,11 +354,11 @@ fn explicit_outer_structure_stays_outside_component_ownership() {
         .unwrap()
         .view;
 
-    assert_eq!(resolved.component, None);
-    let crate::presentation::ir::ViewKind::Container(container) = &resolved.kind else {
+    assert_eq!(resolved.view_component(), None);
+    let crate::presentation::ir::ViewKind::Container(container) = resolved.kind() else {
         panic!("expected outer container")
     };
-    assert_eq!(container.child.component, Some(handle.id()));
+    assert_eq!(container.child.view_component(), Some(handle.id()));
 }
 
 #[test]
@@ -676,7 +665,7 @@ fn clipped_component_remains_semantically_mounted() {
 }
 
 fn count_slots(view: &View) -> usize {
-    match &view.kind {
+    match view.kind() {
         crate::presentation::ir::ViewKind::ComponentSlot(_) => 1,
         crate::presentation::ir::ViewKind::Column(column) => column
             .children
@@ -716,7 +705,7 @@ impl PlainText for crate::presentation::ir::ColumnChild {
 
 impl PlainText for View {
     fn view_plain_text(&self) -> String {
-        match &self.kind {
+        match self.kind() {
             crate::presentation::ir::ViewKind::Text(text) => {
                 text.spans.iter().map(|span| span.text.as_str()).collect()
             }

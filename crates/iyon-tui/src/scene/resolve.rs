@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt};
+use std::{collections::HashSet, fmt, sync::Arc};
 
 use crate::{
     component::{ComponentId, ComponentRegistry, MountGraph, MountNode},
@@ -8,7 +8,7 @@ use crate::{
         View,
         ir::{
             ClampRowsView, ColumnChild, ColumnView, ContainerNode, HangingView, RowChild, RowView,
-            ViewKind,
+            ViewKind, ViewNodeParts,
         },
     },
 };
@@ -89,10 +89,10 @@ impl Resolver<'_> {
         parent: Option<ComponentId>,
     ) -> Result<View, ResolveError> {
         perf::inc(Counter::ResolverNodesVisited);
-        let kind = match &view.kind {
-            ViewKind::Text(text) => ViewKind::Text(text.clone()),
+        let kind = match view.kind() {
+            ViewKind::Text(text) => ViewKind::Text(Arc::clone(text)),
             ViewKind::Spacer { rows } => ViewKind::Spacer { rows: *rows },
-            ViewKind::Column(column) => ViewKind::Column(ColumnView {
+            ViewKind::Column(column) => ViewKind::Column(Arc::new(ColumnView {
                 children: column
                     .children
                     .iter()
@@ -102,10 +102,11 @@ impl Resolver<'_> {
                             view: self.resolve_view(&child.view, parent)?,
                         })
                     })
-                    .collect::<Result<_, ResolveError>>()?,
+                    .collect::<Result<Vec<_>, ResolveError>>()?
+                    .into(),
                 gap: column.gap,
-            }),
-            ViewKind::Row(row) => ViewKind::Row(RowView {
+            })),
+            ViewKind::Row(row) => ViewKind::Row(Arc::new(RowView {
                 children: row
                     .children
                     .iter()
@@ -115,13 +116,14 @@ impl Resolver<'_> {
                             view: self.resolve_view(&child.view, parent)?,
                         })
                     })
-                    .collect::<Result<_, ResolveError>>()?,
+                    .collect::<Result<Vec<_>, ResolveError>>()?
+                    .into(),
                 gap: row.gap,
                 vertical_align: row.vertical_align,
-            }),
-            ViewKind::Grid(grid) => ViewKind::Grid(crate::presentation::ir::GridView {
-                columns: grid.columns.clone(),
-                rows: grid.rows.clone(),
+            })),
+            ViewKind::Grid(grid) => ViewKind::Grid(Arc::new(crate::presentation::ir::GridView {
+                columns: Arc::clone(&grid.columns),
+                rows: Arc::clone(&grid.rows),
                 column_gap: grid.column_gap,
                 row_gap: grid.row_gap,
                 cells: grid
@@ -138,31 +140,30 @@ impl Resolver<'_> {
                             view: self.resolve_view(&cell.view, parent)?,
                         })
                     })
-                    .collect::<Result<_, ResolveError>>()?,
-            }),
-            ViewKind::Hanging(hanging) => ViewKind::Hanging(HangingView {
-                prefix: Box::new(self.resolve_view(&hanging.prefix, parent)?),
-                continuation_prefix: Box::new(
-                    self.resolve_view(&hanging.continuation_prefix, parent)?,
-                ),
-                body: Box::new(self.resolve_view(&hanging.body, parent)?),
-            }),
-            ViewKind::Container(container) => ViewKind::Container(ContainerNode {
-                child: Box::new(self.resolve_view(&container.child, parent)?),
-            }),
-            ViewKind::ClampRows(clamp) => ViewKind::ClampRows(ClampRowsView {
-                child: Box::new(self.resolve_view(&clamp.child, parent)?),
+                    .collect::<Result<Vec<_>, ResolveError>>()?
+                    .into(),
+            })),
+            ViewKind::Hanging(hanging) => ViewKind::Hanging(Arc::new(HangingView {
+                prefix: self.resolve_view(&hanging.prefix, parent)?,
+                continuation_prefix: self.resolve_view(&hanging.continuation_prefix, parent)?,
+                body: self.resolve_view(&hanging.body, parent)?,
+            })),
+            ViewKind::Container(container) => ViewKind::Container(Arc::new(ContainerNode {
+                child: self.resolve_view(&container.child, parent)?,
+            })),
+            ViewKind::ClampRows(clamp) => ViewKind::ClampRows(Arc::new(ClampRowsView {
+                child: self.resolve_view(&clamp.child, parent)?,
                 max_rows: clamp.max_rows,
                 overflow: clamp.overflow.clone(),
-            }),
+            })),
             ViewKind::RowViewport(viewport) => {
-                ViewKind::RowViewport(crate::presentation::ir::RowViewportView {
-                    child: Box::new(self.resolve_view(&viewport.child, parent)?),
+                ViewKind::RowViewport(Arc::new(crate::presentation::ir::RowViewportView {
+                    child: self.resolve_view(&viewport.child, parent)?,
                     skip_rows: viewport.skip_rows,
                     visible_height: viewport.visible_height,
                     layout_height: viewport.layout_height,
                     intrinsic_content_height: viewport.intrinsic_content_height,
-                })
+                }))
             }
             ViewKind::ComponentSlot(slot) => return self.resolve_slot(view, slot.id, parent),
         };
@@ -198,18 +199,15 @@ impl Resolver<'_> {
         self.active.pop();
         let resolved = resolved?;
 
-        perf::inc(Counter::ViewNodesConstructedRust);
-        Ok(View {
+        Ok(View::from_node(ViewNodeParts {
             component: Some(id),
-            width: slot.width,
-            height: slot.height,
-            decoration: slot.decoration.clone(),
-            style_states: slot.style_states.clone(),
-            style_facts: slot.style_facts.clone(),
+            width: slot.width(),
+            height: slot.height(),
+            decoration: slot.decoration().clone(),
+            style_states: slot.view_style_states().clone(),
+            style_facts: slot.view_style_facts().clone(),
             component_scope: Some(id),
-            kind: ViewKind::Container(ContainerNode {
-                child: Box::new(resolved),
-            }),
-        })
+            kind: ViewKind::Container(Arc::new(ContainerNode { child: resolved })),
+        }))
     }
 }

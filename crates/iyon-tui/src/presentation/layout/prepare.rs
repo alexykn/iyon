@@ -54,23 +54,23 @@ pub(super) fn prepare_node<'m, 'v>(
     let decoration = measured.decoration;
     let height_capacity = height_bound
         .unwrap_or(u16::MAX)
-        .min(view.decoration.bounds.height.normalized_max());
+        .min(view.decoration().bounds.height.normalized_max());
     let core_height_capacity = height_capacity.saturating_sub(decoration.vertical);
     let minimum_core_height = view
-        .decoration
+        .decoration()
         .bounds
         .height
         .min
         .saturating_sub(decoration.vertical)
         .min(core_height_capacity);
-    let requested_core_height = match (view.height, height_bound) {
+    let requested_core_height = match (view.height(), height_bound) {
         (HeightRule::Fill, Some(_)) => core_height_capacity,
         _ => measured.core_size.height.min(core_height_capacity),
     }
     .max(minimum_core_height);
     let (kind, kind_size, complete) = prepare_kind(measured, requested_core_height, height_bound);
     let core_width = measured.size.width.saturating_sub(decoration.horizontal);
-    let core_height = match view.height {
+    let core_height = match view.height() {
         HeightRule::Fill => requested_core_height,
         HeightRule::Fit => kind_size.height.min(requested_core_height),
     };
@@ -79,11 +79,11 @@ pub(super) fn prepare_node<'m, 'v>(
         size: Size::new(
             core_width
                 .saturating_add(decoration.horizontal)
-                .max(view.decoration.bounds.width.min)
+                .max(view.decoration().bounds.width.min)
                 .min(measured.width_capacity),
             core_height
                 .saturating_add(decoration.vertical)
-                .max(view.decoration.bounds.height.min)
+                .max(view.decoration().bounds.height.min)
                 .min(height_capacity),
         ),
         core_size: Size::new(core_width, core_height),
@@ -221,7 +221,7 @@ fn prepare_kind<'m, 'v>(
             gap,
             vertical_align,
         } => {
-            let row_height = if measured.view.height == HeightRule::Fill {
+            let row_height = if measured.view.height() == HeightRule::Fill {
                 requested_core_height
             } else {
                 measured.core_size.height.min(requested_core_height)
@@ -297,7 +297,7 @@ fn prepare_kind<'m, 'v>(
                 PreparedKind::Children(children),
                 Size::new(
                     measured.decoration.inner_width,
-                    if measured.view.height == HeightRule::Fill {
+                    if measured.view.height() == HeightRule::Fill {
                         requested_core_height
                     } else {
                         row_height

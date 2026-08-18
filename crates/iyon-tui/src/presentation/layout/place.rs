@@ -55,13 +55,13 @@ pub(super) fn emit_prepared(
         rect,
         content_rect,
         clip_rect: node_clip,
-        component: prepared.measured.view.component,
+        component: prepared.measured.view.view_component(),
         children: Vec::new(),
         style: LayoutStyle {
-            component_scope: prepared.measured.view.component_scope,
-            style_states: prepared.measured.view.style_states.clone(),
-            style_facts: prepared.measured.view.style_facts.clone(),
-            decoration: prepared.measured.view.decoration.clone(),
+            component_scope: prepared.measured.view.component_scope(),
+            style_states: prepared.measured.view.view_style_states().clone(),
+            style_facts: prepared.measured.view.view_style_facts().clone(),
+            decoration: prepared.measured.view.decoration().clone(),
         },
         content,
     });
@@ -122,7 +122,7 @@ fn layout_content(prepared: &PreparedNode<'_, '_>) -> LayoutContent {
     match (&prepared.measured.kind, &prepared.kind) {
         (MeasuredKind::Text { text, .. }, _) => LayoutContent::Text {
             text: (*text).clone(),
-            width_rule: prepared.measured.view.width,
+            width_rule: prepared.measured.view.width(),
         },
         (MeasuredKind::Spacer { rows }, _) => LayoutContent::Spacer { rows: *rows },
         (MeasuredKind::ClampRows { overflow, .. }, PreparedKind::Clamp { .. }) => {

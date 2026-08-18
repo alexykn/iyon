@@ -1,5 +1,7 @@
 //! Retained layout and text compiler regressions.
 
+use std::sync::Arc;
+
 use super::*;
 use crate::geometry::{LayoutConstraints, Size};
 use crate::physical::{PhysicalColor, PhysicalRow, PhysicalStyle};
@@ -7,7 +9,7 @@ use crate::presentation::api::style::{
     AnsiColor, BorderEdges, BorderGlyphs, BorderSpec, BorderStyle, OverflowIndicator, TextAttribute,
 };
 use crate::presentation::ir::ViewKind;
-use crate::presentation::ir::{Decoration, RowChild};
+use crate::presentation::ir::{Decoration, RowChild, ViewNodeParts};
 use crate::presentation::{
     ColorSpec, HorizontalAlign, Insets, IntoView, StyleRef, StyleSpec, TextSpan, ThemeKey,
     VerticalAlign, View, WidthRule, WrapMode,
@@ -25,7 +27,7 @@ fn layout_view(view: &View, width: u16, inherited: PhysicalStyle) -> Surface {
 }
 
 fn row_view(children: Vec<RowChild>, gap: u16) -> View {
-    View {
+    View::from_node(ViewNodeParts {
         component: None,
         width: WidthRule::Fill,
         height: crate::presentation::ir::HeightRule::Fit,
@@ -33,20 +35,19 @@ fn row_view(children: Vec<RowChild>, gap: u16) -> View {
         style_states: Default::default(),
         style_facts: Default::default(),
         component_scope: None,
-        kind: crate::presentation::ir::ViewKind::Row(crate::presentation::ir::RowView {
-            children,
+        kind: crate::presentation::ir::ViewKind::Row(Arc::new(crate::presentation::ir::RowView {
+            children: children.into(),
             gap,
             vertical_align: VerticalAlign::Top,
-        }),
-    }
+        })),
+    })
 }
 
 fn box_view(child: View, decoration: Decoration) -> View {
-    let mut child = child;
-    let component = child.component.take();
-    let width = child.width;
-    let height = child.height;
-    View {
+    let component = child.view_component();
+    let width = child.width();
+    let height = child.height();
+    View::from_node(ViewNodeParts {
         component,
         width,
         height,
@@ -54,12 +55,10 @@ fn box_view(child: View, decoration: Decoration) -> View {
         style_states: Default::default(),
         style_facts: Default::default(),
         component_scope: None,
-        kind: crate::presentation::ir::ViewKind::Container(
-            crate::presentation::ir::ContainerNode {
-                child: Box::new(child),
-            },
-        ),
-    }
+        kind: crate::presentation::ir::ViewKind::Container(Arc::new(
+            crate::presentation::ir::ContainerNode { child },
+        )),
+    })
 }
 
 fn background_decoration(color: ColorSpec) -> Decoration {

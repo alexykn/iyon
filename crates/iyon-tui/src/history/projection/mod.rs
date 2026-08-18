@@ -624,10 +624,10 @@ fn take_bounded(
 }
 
 fn flexible_height(view: &View) -> bool {
-    if view.height == crate::presentation::ir::HeightRule::Fill {
+    if view.height() == crate::presentation::ir::HeightRule::Fill {
         return true;
     }
-    match &view.kind {
+    match view.kind() {
         crate::presentation::ir::ViewKind::Column(column) => column.children.iter().any(|child| {
             matches!(
                 child.track,
