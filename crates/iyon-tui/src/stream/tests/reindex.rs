@@ -1,0 +1,117 @@
+//! Incremental atomic-row reflow must equal a cold full recompile.
+
+use crate::{
+    View,
+    presentation::IntoView,
+    stream::{
+        StreamModel, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
+        StreamSnapshotBuilder, StreamingSource, build_index_from, reindex_from,
+    },
+};
+
+/// A tiny append-only source whose semantic units are indivisible atomic views
+/// (the same shape the Markdown/smoother stream pipeline produces).
+#[derive(Default)]
+struct AtomicBlocks {
+    blocks: Vec<(StreamRange, View)>,
+    base: StreamOffset,
+    end: StreamOffset,
+    revision: StreamRevision,
+    sealed: bool,
+}
+
+impl AtomicBlocks {
+    fn push(&mut self, text: &str) {
+        let start = self.end;
+        let end = start.saturating_add(text.len() as u64);
+        self.blocks
+            .push((StreamRange::new(start, end), View::text(text).into_view()));
+        self.end = end;
+        self.revision = self.revision.next();
+    }
+}
+
+impl StreamingSource for AtomicBlocks {
+    fn snapshot(&self) -> StreamSnapshot {
+        let mut builder = StreamSnapshotBuilder::new(self.revision, self.base, self.end, self.end);
+        for (range, view) in &self.blocks {
+            builder = builder
+                .atomic(*range, view.clone())
+                .expect("test atomic block must be component-free");
+        }
+        builder
+            .finish()
+            .expect("test atomic snapshot must be valid")
+    }
+
+    fn compact_before(&mut self, offset: StreamOffset) {
+        self.blocks.retain(|(range, _)| range.end() > offset);
+        self.base = self.base.max(offset.min(self.end));
+        self.revision = self.revision.next();
+    }
+
+    fn seal(&mut self) {
+        self.sealed = true;
+        self.revision = self.revision.next();
+    }
+
+    fn is_sealed(&self) -> bool {
+        self.sealed
+    }
+}
+
+#[test]
+fn atomic_reindex_reuses_stable_rows_and_equals_cold() {
+    for width in [6u16, 16, 40] {
+        let mut model = StreamModel::new(AtomicBlocks::default()).unwrap();
+        let mut previous = None;
+        for index in 0..12 {
+            let changed_from = model.snapshot().stable_through();
+            model
+                .source_mut()
+                .push(&format!("block {index} that wraps over the terminal width"));
+            model.refresh().unwrap();
+
+            let cold = build_index_from(&model, StreamOffset::ZERO, width);
+            let reindexed = match &previous {
+                Some(prev) => reindex_from(&model, prev, StreamOffset::ZERO, changed_from, width),
+                None => build_index_from(&model, StreamOffset::ZERO, width),
+            };
+            assert_eq!(
+                cold.anchors, reindexed.anchors,
+                "atomic reindex drifted at width={width} block={index}"
+            );
+            previous = Some(cold);
+        }
+    }
+
+    #[cfg(feature = "perf-counters")]
+    {
+        let _lock = crate::perf::test_lock();
+        let mut model = StreamModel::new(AtomicBlocks::default()).unwrap();
+        let mut previous = None;
+        for index in 0..40 {
+            let changed_from = model.snapshot().stable_through();
+            model.source_mut().push(&format!("block {index}"));
+            model.refresh().unwrap();
+            crate::perf::reset();
+            let reindexed = match &previous {
+                Some(prev) => reindex_from(&model, prev, StreamOffset::ZERO, changed_from, 20),
+                None => build_index_from(&model, StreamOffset::ZERO, 20),
+            };
+            if index > 0 {
+                let counters = crate::perf::snapshot();
+                assert!(
+                    counters.value(crate::perf::Counter::StreamStableRowsReused) > 0,
+                    "atomic appends must reuse stable rows (block {index})"
+                );
+                assert!(
+                    counters.value(crate::perf::Counter::StreamRowsReindexed)
+                        < reindexed.anchors.len() as u64,
+                    "atomic appends must reflow only a suffix (block {index})"
+                );
+            }
+            previous = Some(reindexed);
+        }
+    }
+}

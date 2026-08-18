@@ -1,7 +1,7 @@
 //! Generic semantic stream model and resident/source coordination.
 
 use super::{
-    StreamOffset, StreamRange, StreamSnapshot, StreamView, StreamingSource,
+    StreamOffset, StreamRange, StreamRowAnchor, StreamSnapshot, StreamView, StreamingSource,
     compile::{CompiledStream, compile_stream_with_theme},
     node::{StreamSliceError, semantic_slice_nodes},
     resident::ResidentPrefix,
@@ -147,6 +147,62 @@ impl<S: StreamingSource> StreamModel<S> {
 
     pub(crate) fn semantic_view_from(&self, offset: StreamOffset) -> StreamView {
         self.combined_view().suffix_from(offset)
+    }
+
+    /// Source offset of the hard line that contains `offset`, or the stream
+    /// base when `offset` is at or before the first tracked break.
+    pub(crate) fn hard_line_start_before(&self, offset: StreamOffset) -> StreamOffset {
+        self.hard_line_breaks()
+            .into_iter()
+            .take_while(|start| *start <= offset)
+            .last()
+            .unwrap_or(self.semantic_base())
+    }
+
+    /// Hard-line starts for a sequence of row anchors, sharing one break scan.
+    pub(crate) fn hard_line_starts_for(&self, anchors: &[StreamRowAnchor]) -> Vec<StreamOffset> {
+        let breaks = self.hard_line_breaks();
+        anchors
+            .iter()
+            .map(|anchor| {
+                let offset = match anchor {
+                    StreamRowAnchor::Checkpoint(offset) => *offset,
+                    StreamRowAnchor::Atomic { range, .. } => range.start,
+                };
+                breaks
+                    .iter()
+                    .copied()
+                    .take_while(|start| *start <= offset)
+                    .last()
+                    .unwrap_or(self.semantic_base())
+            })
+            .collect()
+    }
+
+    /// Monotonic ascending hard-line start offsets (including the semantic
+    /// base). Newline atoms and hard-newline terminators advance the break;
+    /// atomic node starts are breaks to avoid reflowing them.
+    fn hard_line_breaks(&self) -> Vec<StreamOffset> {
+        let mut breaks = vec![self.semantic_base()];
+        for node in self.combined_view().nodes {
+            match node {
+                super::StreamNode::Text(text) => {
+                    for atom in super::projected::projected_atoms(&text) {
+                        if atom.display == "\n" {
+                            breaks.push(atom.owned.end);
+                        }
+                    }
+                    let owned_end = text.owned_range().end;
+                    if owned_end > text.content_range.end {
+                        breaks.push(owned_end);
+                    }
+                }
+                super::StreamNode::Atomic { range, .. } => breaks.push(range.start),
+            }
+        }
+        breaks.sort_unstable();
+        breaks.dedup();
+        breaks
     }
 
     pub(crate) fn semantic_slice(

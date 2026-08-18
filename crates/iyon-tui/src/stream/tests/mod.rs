@@ -7,6 +7,7 @@ mod compile;
 mod coord;
 mod model;
 mod projected;
+mod reindex;
 
 mod snapshot;
 #[cfg(test)]
