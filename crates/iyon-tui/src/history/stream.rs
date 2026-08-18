@@ -1,12 +1,13 @@
 //! Type-erased semantic stream units for ordered History.
 
-use std::{any::Any, marker::PhantomData, time::Instant};
+use std::{any::Any, cell::RefCell, marker::PhantomData, time::Instant};
 
 use crate::{
     View,
     stream::{
-        CompiledStream, StreamModel, StreamModelError, StreamOffset, StreamRowIndex,
-        StreamSnapshot, StreamingSource, build_index_from, window_view,
+        CompiledStream, StreamModel, StreamModelError, StreamOffset, StreamRevision,
+        StreamRowIndex, StreamSnapshot, StreamingSource, build_index_from, reindex_from,
+        window_view,
     },
 };
 
@@ -70,6 +71,14 @@ impl ErasedHistoryStream {
         self.state.source_end()
     }
 
+    pub(crate) fn layout_key(&self) -> (StreamRevision, StreamOffset, StreamOffset) {
+        (
+            self.state.revision(),
+            self.state.semantic_base(),
+            self.state.source_end(),
+        )
+    }
+
     #[allow(dead_code)]
     pub(crate) fn refresh<S: StreamingSource>(
         &mut self,
@@ -128,12 +137,23 @@ trait ErasedHistoryStreamState: Any {
     fn release_resident_through(&mut self, offset: StreamOffset);
     fn semantic_base(&self) -> StreamOffset;
     fn source_end(&self) -> StreamOffset;
+    fn revision(&self) -> StreamRevision;
+}
+
+struct StreamLayoutCache {
+    width: u16,
+    indexed_from: StreamOffset,
+    revision: StreamRevision,
+    stable_through: StreamOffset,
+    source_end: StreamOffset,
+    index: StreamRowIndex,
 }
 
 struct TypedHistoryStream<S: StreamingSource> {
     model: StreamModel<S>,
     sealed: bool,
     published: Option<StreamSnapshot>,
+    layout: RefCell<Option<StreamLayoutCache>>,
 }
 
 impl<S: StreamingSource> TypedHistoryStream<S> {
@@ -148,6 +168,7 @@ impl<S: StreamingSource> TypedHistoryStream<S> {
             model,
             sealed,
             published,
+            layout: RefCell::new(None),
         })
     }
 }
@@ -227,7 +248,46 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
     }
 
     fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex {
-        build_index_from(&self.model, start, width)
+        let snapshot = self.model.snapshot();
+        let mut cache = self.layout.borrow_mut();
+        let Some(previous) = cache.as_ref() else {
+            let index = build_index_from(&self.model, start, width);
+            *cache = Some(StreamLayoutCache {
+                width,
+                indexed_from: start,
+                revision: snapshot.revision,
+                stable_through: snapshot.stable_through,
+                source_end: snapshot.source_end,
+                index: index.clone(),
+            });
+            return index;
+        };
+        if previous.width == width
+            && previous.indexed_from == start
+            && previous.revision == snapshot.revision
+        {
+            return previous.index.clone();
+        }
+
+        // The damage begins at the previous semantic stable frontier, not the
+        // previous source end. This matters for Markdown/smoother streams: a
+        // partially published block may have shifted while its source end was
+        // already known, so only content before `stable_through` is immutable.
+        let changed_from = if previous.width == width && previous.indexed_from == start {
+            previous.stable_through.max(start)
+        } else {
+            start
+        };
+        let index = reindex_from(&self.model, &previous.index, start, changed_from, width);
+        *cache = Some(StreamLayoutCache {
+            width,
+            indexed_from: start,
+            revision: snapshot.revision,
+            stable_through: snapshot.stable_through,
+            source_end: snapshot.source_end,
+            index: index.clone(),
+        });
+        index
     }
 
     fn window_view(&self, index: &StreamRowIndex, top_row: usize, height: u16) -> View {
@@ -245,6 +305,10 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
 
     fn release_resident_through(&mut self, offset: StreamOffset) {
         self.model.release_resident_through(offset);
+        if let Some(cache) = self.layout.get_mut().as_mut() {
+            cache.index.retain_from(offset);
+            cache.indexed_from = cache.indexed_from.max(offset);
+        }
     }
 
     fn semantic_base(&self) -> StreamOffset {
@@ -253,6 +317,10 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
 
     fn source_end(&self) -> StreamOffset {
         self.model.snapshot().source_end()
+    }
+
+    fn revision(&self) -> StreamRevision {
+        self.model.snapshot().revision()
     }
 }
 
