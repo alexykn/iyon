@@ -202,6 +202,10 @@ impl HostViewSlot {
                 "view slot animation requires at least one frame"
             ));
         }
+        // Read host time before taking the slot lock. Rendering holds the host
+        // lock while resolving mounted components, which takes the slot lock;
+        // acquiring them in the opposite order here can deadlock the runtime.
+        let host_now = self.host_time();
         {
             let mut state = self
                 .state
@@ -217,7 +221,7 @@ impl HostViewSlot {
             state.frames = frames;
             state.interval = interval;
             if !preserve_phase {
-                state.last_tick = self.host_time();
+                state.last_tick = host_now;
             }
             state.revision = state.revision.saturating_add(1);
         }
