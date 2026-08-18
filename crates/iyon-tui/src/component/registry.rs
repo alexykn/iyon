@@ -144,6 +144,16 @@ impl ComponentRegistry {
             .map(|entry| entry.component.capabilities())
     }
 
+    #[cfg(feature = "native-host")]
+    pub(crate) fn invalidate(&mut self, id: ComponentId) -> bool {
+        let Some(entry) = self.slots.get_mut(&id) else {
+            return false;
+        };
+        entry.revision = entry.revision.increment();
+        entry.snapshot.get_mut().take();
+        true
+    }
+
     pub(crate) fn resolution(&self, id: ComponentId) -> Option<ComponentSnapshot> {
         let entry = self.slots.get(&id)?;
         {
