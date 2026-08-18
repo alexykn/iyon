@@ -11,7 +11,7 @@ use crate::{
 };
 
 pub(super) fn emit_prepared(
-    prepared: &PreparedNode<'_, '_>,
+    prepared: &PreparedNode,
     origin: Point,
     inherited_clip: Rect,
     nodes: &mut Vec<LayoutNode>,
@@ -80,7 +80,7 @@ pub(super) fn emit_prepared(
 }
 
 fn emit_children(
-    children: &[PreparedChild<'_, '_>],
+    children: &[PreparedChild],
     origin: Point,
     clip: Rect,
     nodes: &mut Vec<LayoutNode>,
@@ -102,7 +102,7 @@ fn emit_children(
 }
 
 fn emit_child(
-    child: &PreparedChild<'_, '_>,
+    child: &PreparedChild,
     origin: Point,
     clip: Rect,
     nodes: &mut Vec<LayoutNode>,
@@ -118,10 +118,10 @@ fn emit_child(
     )]
 }
 
-fn layout_content(prepared: &PreparedNode<'_, '_>) -> LayoutContent {
+fn layout_content(prepared: &PreparedNode) -> LayoutContent {
     match (&prepared.measured.kind, &prepared.kind) {
         (MeasuredKind::Text { text, .. }, _) => LayoutContent::Text {
-            text: (*text).clone(),
+            text: (**text).clone(),
             width_rule: prepared.measured.view.width(),
         },
         (MeasuredKind::Spacer { rows }, _) => LayoutContent::Spacer { rows: *rows },

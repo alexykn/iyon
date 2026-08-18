@@ -4,7 +4,12 @@ use crate::geometry::{AxisConstraint, LayoutConstraints, Point, Rect, Size};
 use crate::presentation::ir::View;
 use crate::scene::ResolutionOverlay;
 
-use super::{measure::measure_node, place::emit_prepared, prepare::prepare_node};
+use super::{
+    cache::LayoutCache,
+    measure::{WidthIntent, measure_node},
+    place::emit_prepared,
+    prepare::prepare_node,
+};
 
 pub(crate) fn layout_view(view: &View, constraints: LayoutConstraints) -> super::tree::LayoutTree {
     layout_view_with_overlay(view, constraints, &ResolutionOverlay::default())
@@ -15,25 +20,23 @@ pub(crate) fn layout_view_with_overlay(
     constraints: LayoutConstraints,
     overlay: &ResolutionOverlay,
 ) -> super::tree::LayoutTree {
+    let mut cache = LayoutCache::default();
+    layout_view_with_overlay_and_cache(view, constraints, overlay, &mut cache)
+}
+
+pub(crate) fn layout_view_with_overlay_and_cache(
+    view: &View,
+    constraints: LayoutConstraints,
+    overlay: &ResolutionOverlay,
+    cache: &mut LayoutCache,
+) -> super::tree::LayoutTree {
     let width = constraints.width.definite().unwrap_or_else(|| {
-        measure_node(
-            view,
-            u16::MAX,
-            super::measure::WidthIntent::Semantic,
-            overlay,
-            None,
-        )
-        .size
-        .width
+        measure_node(view, u16::MAX, WidthIntent::Semantic, overlay, None, cache)
+            .size
+            .width
     });
-    let measured = measure_node(
-        view,
-        width,
-        super::measure::WidthIntent::Semantic,
-        overlay,
-        None,
-    );
-    let prepared = prepare_node(&measured, constraints.height.definite());
+    let measured = measure_node(view, width, WidthIntent::Semantic, overlay, None, cache);
+    let prepared = prepare_node(&measured, constraints.height.definite(), cache);
     let root_clip = Rect::new(
         0,
         0,
@@ -67,12 +70,15 @@ pub(crate) fn measure_view_with_overlay(
     width: u16,
     overlay: &ResolutionOverlay,
 ) -> Size {
-    measure_node(
-        view,
-        width,
-        super::measure::WidthIntent::Semantic,
-        overlay,
-        None,
-    )
-    .size
+    let mut cache = LayoutCache::default();
+    measure_view_with_overlay_and_cache(view, width, overlay, &mut cache)
+}
+
+pub(crate) fn measure_view_with_overlay_and_cache(
+    view: &View,
+    width: u16,
+    overlay: &ResolutionOverlay,
+    cache: &mut LayoutCache,
+) -> Size {
+    measure_node(view, width, WidthIntent::Semantic, overlay, None, cache).size
 }

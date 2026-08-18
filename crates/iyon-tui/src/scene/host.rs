@@ -19,12 +19,15 @@ use crate::{
     },
     output::{OutputQueue, OutputRouter},
     physical::Surface,
-    presentation::{layout::ViewCompiler, paint::ViewPainter},
+    presentation::{
+        layout::{LayoutCache, ViewCompiler},
+        paint::ViewPainter,
+    },
 };
 
 use super::{
     LayoutSynchronizer, ResolveError, ResolvedRootScene, ResolvedSceneLayout, Scene,
-    layout_resolved_scene, resolve_root_scene_with_anchor,
+    layout_resolved_scene_with_cache, resolve_root_scene_with_anchor_and_cache,
 };
 use crate::history::HistoryViewportAnchor;
 
@@ -153,6 +156,7 @@ pub(crate) struct SceneHost {
     outputs: OutputQueue,
     graph: MountGraph,
     capabilities: MountedCapabilities,
+    layout_cache: LayoutCache,
     /// Counts calls to `resolve_stable_at_with_anchor` for structural test
     /// assertions. Not compiled into production builds.
     #[cfg(test)]
@@ -169,6 +173,7 @@ impl Default for SceneHost {
             outputs: OutputQueue::new(),
             graph: MountGraph::default(),
             capabilities: MountedCapabilities::default(),
+            layout_cache: LayoutCache::default(),
             #[cfg(test)]
             resolve_count: 0,
         }
@@ -284,6 +289,7 @@ impl SceneHost {
         S: NativeHistorySink,
         F: FnMut(&mut S) -> Result<Size>,
     {
+        self.layout_cache.begin_epoch();
         let mut resolves = 0usize;
         let mut transfer_calls = 0usize;
         loop {
@@ -358,6 +364,7 @@ impl SceneHost {
         size: Size,
         now: Instant,
     ) -> Result<StableScene, SceneHostError<E>> {
+        self.layout_cache.begin_epoch();
         self.resolve_stable_at_with_anchor(
             scene,
             registry,
@@ -376,9 +383,16 @@ impl SceneHost {
         anchor: HistoryViewportAnchor,
     ) -> Result<StableScene, SceneHostError<E>> {
         for _ in 0..MAX_LAYOUT_PASSES {
-            let resolved = resolve_root_scene_with_anchor(scene, registry, size, anchor)
-                .map_err(SceneHostError::Resolve)?;
-            let layout = layout_resolved_scene(&resolved.scene, size);
+            let resolved = resolve_root_scene_with_anchor_and_cache(
+                scene,
+                registry,
+                size,
+                anchor,
+                &mut self.layout_cache,
+            )
+            .map_err(SceneHostError::Resolve)?;
+            let layout =
+                layout_resolved_scene_with_cache(&resolved.scene, size, &mut self.layout_cache);
             let sync = self.synchronizer.synchronize(
                 &resolved.scene.mounts,
                 &resolved.scene.capabilities,
@@ -727,6 +741,21 @@ mod tests {
                 crate::physical::AnsiColor::Cyan,
             ))
         );
+
+        #[cfg(feature = "perf-counters")]
+        {
+            let _lock = crate::perf::test_lock();
+            crate::perf::reset();
+            let _ = host
+                .resolve_stable::<()>(&scene, &mut registry, Size::new(20, 4))
+                .unwrap();
+            let counters = crate::perf::snapshot();
+            assert_eq!(
+                counters.value(crate::perf::Counter::TextFlowMeasureCalls),
+                0
+            );
+            assert!(counters.value(crate::perf::Counter::PrepareNodeCalls) <= 1);
+        }
     }
 
     #[test]

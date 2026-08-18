@@ -119,7 +119,7 @@ fn layout_stage_counters_match_semantic_nodes() {
     reset_layout_counters();
     let tree = super::layout_view(&view, LayoutConstraints::width_only(20));
     let counters = layout_counters();
-    assert_eq!(counters.0, counters.1);
+    assert!(counters.0 <= counters.1);
     assert_eq!(counters.1, counters.2);
     assert_eq!(counters.2, tree.nodes.len());
 
@@ -132,9 +132,137 @@ fn layout_stage_counters_match_semantic_nodes() {
     reset_layout_counters();
     let hanging_tree = super::layout_view(&hanging, LayoutConstraints::width_only(8));
     let hanging_counters = layout_counters();
-    assert!(hanging_counters.0 < hanging_counters.1);
-    assert_eq!(hanging_counters.1, hanging_counters.2);
+    assert!(hanging_counters.0 <= hanging_counters.1);
+    assert!(hanging_counters.1 <= hanging_counters.2);
     assert_eq!(hanging_counters.2, hanging_tree.nodes.len());
+}
+
+#[cfg(feature = "perf-counters")]
+#[test]
+fn retained_layout_cache_reuses_warm_measurement_and_prepare() {
+    let _lock = crate::perf::test_lock();
+    let view = View::vertical(|column| {
+        for index in 0..10_000 {
+            column.child(View::text(format!("stable-{index}")));
+        }
+    });
+    let overlay = crate::scene::ResolutionOverlay::default();
+    let mut cache = LayoutCache::default();
+
+    cache.begin_epoch();
+    crate::perf::reset();
+    let first = layout_view_with_overlay_and_cache(
+        &view,
+        LayoutConstraints::width_only(80),
+        &overlay,
+        &mut cache,
+    );
+    let first_counters = crate::perf::snapshot();
+
+    cache.begin_epoch();
+    crate::perf::reset();
+    let second = layout_view_with_overlay_and_cache(
+        &view,
+        LayoutConstraints::width_only(80),
+        &overlay,
+        &mut cache,
+    );
+    let second_counters = crate::perf::snapshot();
+
+    assert_eq!(first, second);
+    assert!(first_counters.value(crate::perf::Counter::TextFlowMeasureCalls) > 0);
+    assert_eq!(
+        second_counters.value(crate::perf::Counter::TextFlowMeasureCalls),
+        0
+    );
+    assert!(
+        second_counters.value(crate::perf::Counter::MeasureNodeCalls)
+            < first_counters.value(crate::perf::Counter::MeasureNodeCalls)
+    );
+    assert_eq!(
+        second_counters.value(crate::perf::Counter::PrepareNodeCalls),
+        0
+    );
+    assert!(cache.retained_entries() > 0);
+}
+
+#[cfg(feature = "perf-counters")]
+#[test]
+fn retained_layout_cache_reuses_unaffected_shared_path() {
+    let _lock = crate::perf::test_lock();
+    let shared = View::vertical(|column| {
+        for index in 0..1_000 {
+            column.child(View::text(format!("shared-{index}")));
+        }
+    });
+    let original = View::vertical(|column| {
+        column.child(shared.clone());
+    });
+    let changed = View::vertical(|column| {
+        column.child(shared.clone());
+        column.child(View::text("changed"));
+    });
+    let overlay = crate::scene::ResolutionOverlay::default();
+    let mut cache = LayoutCache::default();
+
+    cache.begin_epoch();
+    crate::perf::reset();
+    let original_tree = layout_view_with_overlay_and_cache(
+        &original,
+        LayoutConstraints::width_only(80),
+        &overlay,
+        &mut cache,
+    );
+    let original_counters = crate::perf::snapshot();
+
+    cache.begin_epoch();
+    crate::perf::reset();
+    let changed_tree = layout_view_with_overlay_and_cache(
+        &changed,
+        LayoutConstraints::width_only(80),
+        &overlay,
+        &mut cache,
+    );
+    let changed_counters = crate::perf::snapshot();
+
+    assert!(changed_tree.nodes.len() > original_tree.nodes.len());
+    assert!(
+        changed_counters.value(crate::perf::Counter::TextFlowMeasureCalls)
+            < original_counters.value(crate::perf::Counter::TextFlowMeasureCalls)
+    );
+    assert!(
+        changed_counters.value(crate::perf::Counter::MeasureNodeCalls)
+            < original_counters.value(crate::perf::Counter::MeasureNodeCalls) / 10
+    );
+    assert!(changed_counters.value(crate::perf::Counter::LayoutNodesEmitted) > 1_000);
+}
+
+#[cfg(feature = "perf-counters")]
+#[test]
+fn retained_layout_cache_rotates_out_old_view_id_working_sets() {
+    let _lock = crate::perf::test_lock();
+    let overlay = crate::scene::ResolutionOverlay::default();
+    let mut cache = LayoutCache::default();
+    let mut first_entries = None;
+
+    for generation in 0..6 {
+        cache.begin_epoch();
+        let view = View::vertical(|column| {
+            for index in 0..100 {
+                column.child(View::text(format!("{generation}-{index}")));
+            }
+        });
+        let _ = layout_view_with_overlay_and_cache(
+            &view,
+            LayoutConstraints::width_only(80),
+            &overlay,
+            &mut cache,
+        );
+        first_entries.get_or_insert(cache.retained_entries());
+    }
+
+    let working_set = first_entries.expect("at least one cache generation");
+    assert!(cache.retained_entries() <= working_set.saturating_mul(2));
 }
 
 #[test]

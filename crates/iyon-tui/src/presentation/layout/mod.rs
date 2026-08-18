@@ -14,6 +14,7 @@
 //! needs geometry, and LayoutTree must not retain recursive clones of semantic
 //! View subtrees.
 
+mod cache;
 mod engine;
 mod grid;
 mod measure;
@@ -33,8 +34,12 @@ use crate::{
     presentation::View,
 };
 
+pub(crate) use cache::LayoutCache;
+#[cfg(test)]
+pub(crate) use engine::layout_view_with_overlay;
 pub(crate) use engine::{
-    layout_view, layout_view_with_overlay, measure_view, measure_view_with_overlay,
+    layout_view, layout_view_with_overlay_and_cache, measure_view, measure_view_with_overlay,
+    measure_view_with_overlay_and_cache,
 };
 pub(crate) use tree::{ComponentGeometryMap, LayoutContent, LayoutNode, LayoutNodeId, LayoutTree};
 

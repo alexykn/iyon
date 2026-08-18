@@ -113866,7 +113866,7 @@
               ]
             },
             "kind": "Struct",
-            "signature": "\"struct Scene Fields::Named { brace_token: Brace, named: [Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(history)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(History), arguments: PathArguments::None }] } })], gt_token: Gt } }] } } }, Comma, Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(body)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } } }, Comma] }\"",
+            "signature": "\"struct Scene Fields::Named { brace_token: Brace, named: [Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(history)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(History), arguments: PathArguments::None }] } })], gt_token: Gt } }] } } }, Comma, Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(body)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } } }, Comma, Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(layout_body)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } } }, Comma, Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(layout_root)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } } }, Comma] }\"",
             "visibility": "Public",
             "source": {
               "path": "crates/iyon-tui/src/scene/root.rs",
@@ -148085,5 +148085,5 @@
       }
     }
   ],
-  "content_hash": "48a7b71fb1125fa9"
+  "content_hash": "14563d5501bc99ed"
 }

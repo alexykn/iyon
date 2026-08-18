@@ -10,11 +10,14 @@ use std::{process::Command, time::Instant};
 use crate::{
     Component, History, IntoView, TextSpan, TextStream, Theme, View,
     component::ComponentRegistry,
-    geometry::Size,
+    geometry::{LayoutConstraints, Size},
     history::{HistoryViewportAnchor, project_into_session_for_host},
     perf::{self, PerfSnapshot},
-    presentation::{layout, paint::ViewPainter},
-    scene::{ResolveSession, layout_resolved_scene},
+    presentation::{
+        layout::{self, LayoutCache},
+        paint::ViewPainter,
+    },
+    scene::{ResolveSession, layout_resolved_scene, layout_resolved_scene_with_cache},
 };
 
 const VIEW_SIZES: [(&str, usize); 4] = [
@@ -159,6 +162,7 @@ fn render_view(
     registry: Option<&ComponentRegistry>,
     width: u16,
     height: u16,
+    cache: &mut LayoutCache,
 ) -> usize {
     if let Some(registry) = registry {
         let mut session = ResolveSession::new(registry);
@@ -166,7 +170,7 @@ fn render_view(
             .resolve_root(view)
             .expect("deterministic component fixture must resolve");
         let scene = session.finish(resolved);
-        let geometry = layout_resolved_scene(&scene, Size::new(width, height));
+        let geometry = layout_resolved_scene_with_cache(&scene, Size::new(width, height), cache);
         let compiler = crate::presentation::layout::ViewCompiler::with_interaction(
             &Theme::default(),
             None,
@@ -175,9 +179,14 @@ fn render_view(
         return usize::from(ViewPainter.paint_tree(&compiler, &geometry.tree).height());
     }
 
-    layout::compile_view_with_theme(view, width, &Theme::default())
-        .rows
-        .len()
+    let tree = layout::layout_view_with_overlay_and_cache(
+        view,
+        LayoutConstraints::width_only(width),
+        &crate::scene::ResolutionOverlay::default(),
+        cache,
+    );
+    let compiler = crate::presentation::layout::ViewCompiler::new(&Theme::default());
+    usize::from(ViewPainter.paint_tree(&compiler, &tree).height())
 }
 
 fn iterations_for(nodes: usize) -> usize {
@@ -279,9 +288,11 @@ fn run_view_case(
     let iterations = iterations_for(nodes);
     let base = build_fixture(workload, nodes);
     let shared = base.view.clone();
+    let mut cache = LayoutCache::default();
     let mut samples = Vec::with_capacity(iterations);
     perf::reset();
     for index in 0..iterations {
+        cache.begin_epoch();
         let start = Instant::now();
         match pattern {
             "COLD" => {
@@ -291,10 +302,17 @@ fn run_view_case(
                     fixture.registry.as_ref(),
                     80,
                     24,
+                    &mut cache,
                 ));
             }
             "IDENTICAL_IDENTITY" => {
-                std::hint::black_box(render_view(&base.view, base.registry.as_ref(), 80, 24));
+                std::hint::black_box(render_view(
+                    &base.view,
+                    base.registry.as_ref(),
+                    80,
+                    24,
+                    &mut cache,
+                ));
             }
             "SHARED_PATH" => {
                 let changed = View::text(format!("changed-{index}"));
@@ -302,7 +320,13 @@ fn run_view_case(
                     column.child(shared.clone());
                     column.child(changed);
                 });
-                std::hint::black_box(render_view(&view, base.registry.as_ref(), 80, 24));
+                std::hint::black_box(render_view(
+                    &view,
+                    base.registry.as_ref(),
+                    80,
+                    24,
+                    &mut cache,
+                ));
             }
             "REBUILT_EQUIVALENT" => {
                 let fixture = build_fixture(workload, nodes);
@@ -311,6 +335,7 @@ fn run_view_case(
                     fixture.registry.as_ref(),
                     80,
                     24,
+                    &mut cache,
                 ));
             }
             _ => unreachable!("unknown View benchmark pattern"),

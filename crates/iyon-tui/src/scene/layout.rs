@@ -4,7 +4,9 @@ use crate::{
     component::{ComponentId, ComponentRegistry, MountGraph},
     geometry::{LayoutConstraints, Size},
     interaction::MountedCapabilities,
-    presentation::layout::{ComponentGeometryMap, LayoutTree, layout_view_with_overlay},
+    presentation::layout::{
+        ComponentGeometryMap, LayoutCache, LayoutTree, layout_view_with_overlay_and_cache,
+    },
 };
 
 use super::ResolvedScene;
@@ -16,11 +18,22 @@ pub(crate) struct ResolvedSceneLayout {
     pub(crate) components: ComponentGeometryMap,
 }
 
+#[cfg(any(test, feature = "perf-counters"))]
 pub(crate) fn layout_resolved_scene(scene: &ResolvedScene, size: Size) -> ResolvedSceneLayout {
-    let tree = layout_view_with_overlay(
+    let mut cache = LayoutCache::default();
+    layout_resolved_scene_with_cache(scene, size, &mut cache)
+}
+
+pub(crate) fn layout_resolved_scene_with_cache(
+    scene: &ResolvedScene,
+    size: Size,
+    cache: &mut LayoutCache,
+) -> ResolvedSceneLayout {
+    let tree = layout_view_with_overlay_and_cache(
         &scene.view,
         LayoutConstraints::bounded(size),
         &scene.overlay,
+        cache,
     );
     let components = tree.component_geometry();
     ResolvedSceneLayout { tree, components }

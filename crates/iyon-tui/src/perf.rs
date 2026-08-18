@@ -77,6 +77,14 @@ const NAMES: [&str; Counter::COUNT] = [
 #[cfg(feature = "perf-counters")]
 static VALUES: [AtomicU64; Counter::COUNT] = [const { AtomicU64::new(0) }; Counter::COUNT];
 
+#[cfg(all(test, feature = "perf-counters"))]
+static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(all(test, feature = "perf-counters"))]
+pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    TEST_LOCK.lock().expect("performance test lock poisoned")
+}
+
 /// A point-in-time copy of every performance counter.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PerfSnapshot {
