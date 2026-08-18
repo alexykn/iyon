@@ -244,6 +244,7 @@ fn retained_layout_cache_rotates_out_old_view_id_working_sets() {
     let overlay = crate::scene::ResolutionOverlay::default();
     let mut cache = LayoutCache::default();
     let mut first_entries = None;
+    let mut first_view_id = None;
 
     for generation in 0..6 {
         cache.begin_epoch();
@@ -252,6 +253,9 @@ fn retained_layout_cache_rotates_out_old_view_id_working_sets() {
                 column.child(View::text(format!("{generation}-{index}")));
             }
         });
+        if generation == 0 {
+            first_view_id = Some(view.id());
+        }
         let _ = layout_view_with_overlay_and_cache(
             &view,
             LayoutConstraints::width_only(80),
@@ -263,6 +267,7 @@ fn retained_layout_cache_rotates_out_old_view_id_working_sets() {
 
     let working_set = first_entries.expect("at least one cache generation");
     assert!(cache.retained_entries() <= working_set.saturating_mul(2));
+    assert!(!cache.contains_view_id(first_view_id.expect("first view generation")));
 }
 
 #[test]
