@@ -23,11 +23,13 @@ pub(super) enum HistoryUnitLayoutKey {
         view: ViewId,
         dependencies: Vec<(ComponentId, ComponentRevision)>,
     },
-    /// Streaming unit: revision plus the semantic/source coordinates it indexes.
+    /// Streaming unit: semantic revision and source coordinates for its row index.
     Stream {
         revision: StreamRevision,
         base: StreamOffset,
         source_end: StreamOffset,
+        indexed_from: StreamOffset,
+        prefix_rows: usize,
     },
 }
 

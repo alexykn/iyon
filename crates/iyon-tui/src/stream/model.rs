@@ -146,22 +146,51 @@ impl<S: StreamingSource> StreamModel<S> {
     }
 
     pub(crate) fn semantic_view_from(&self, offset: StreamOffset) -> StreamView {
-        self.combined_view().suffix_from(offset)
-    }
+        let frontier = self.resident.end();
+        let source_end = self.current.source_end;
+        let mut nodes = Vec::new();
 
-    /// Source offset of the hard line that contains `offset`, or the stream
-    /// base when `offset` is at or before the first tracked break.
-    pub(crate) fn hard_line_start_before(&self, offset: StreamOffset) -> StreamOffset {
-        self.hard_line_breaks()
-            .into_iter()
-            .take_while(|start| *start <= offset)
-            .last()
-            .unwrap_or(self.semantic_base())
+        if offset < frontier {
+            let end = frontier.min(source_end);
+            if offset < end {
+                nodes.extend(
+                    semantic_slice_nodes(self.resident.nodes(), StreamRange::new(offset, end))
+                        .expect("resident stream suffix must be sliceable")
+                        .nodes,
+                );
+            }
+        }
+
+        let current_start = offset.max(frontier);
+        if current_start < source_end {
+            nodes.extend(
+                semantic_slice_nodes(
+                    self.current.view.nodes.iter(),
+                    StreamRange::new(current_start, source_end),
+                )
+                .expect("current stream suffix must be sliceable")
+                .nodes,
+            );
+        }
+        StreamView::new(nodes)
     }
 
     /// Hard-line starts for a sequence of row anchors, sharing one break scan.
-    pub(crate) fn hard_line_starts_for(&self, anchors: &[StreamRowAnchor]) -> Vec<StreamOffset> {
-        let breaks = self.hard_line_breaks();
+    pub(crate) fn hard_line_starts_for(
+        &self,
+        anchors: &[StreamRowAnchor],
+        indexed_from: StreamOffset,
+    ) -> Vec<StreamOffset> {
+        self.hard_line_starts_for_from(anchors, indexed_from, indexed_from)
+    }
+
+    pub(crate) fn hard_line_starts_for_from(
+        &self,
+        anchors: &[StreamRowAnchor],
+        indexed_from: StreamOffset,
+        scan_from: StreamOffset,
+    ) -> Vec<StreamOffset> {
+        let breaks = self.hard_line_breaks(scan_from);
         anchors
             .iter()
             .map(|anchor| {
@@ -174,30 +203,33 @@ impl<S: StreamingSource> StreamModel<S> {
                     .copied()
                     .take_while(|start| *start <= offset)
                     .last()
-                    .unwrap_or(self.semantic_base())
+                    .unwrap_or(indexed_from)
             })
             .collect()
     }
 
-    /// Monotonic ascending hard-line start offsets (including the semantic
-    /// base). Newline atoms and hard-newline terminators advance the break;
-    /// atomic node starts are breaks to avoid reflowing them.
-    fn hard_line_breaks(&self) -> Vec<StreamOffset> {
-        let mut breaks = vec![self.semantic_base()];
-        for node in self.combined_view().nodes {
+    /// Monotonic ascending hard-line start offsets (including the indexed
+    /// source coordinate). Newline atoms and hard-newline terminators advance
+    /// the break; atomic node starts are breaks to avoid reflowing them.
+    fn hard_line_breaks(&self, indexed_from: StreamOffset) -> Vec<StreamOffset> {
+        let mut breaks = vec![indexed_from];
+        for node in self.semantic_view_from(indexed_from).nodes {
             match node {
-                super::StreamNode::Text(text) => {
+                super::StreamNode::Text(text) | super::StreamNode::ContinuousText(text) => {
                     for atom in super::projected::projected_atoms(&text) {
-                        if atom.display == "\n" {
+                        if atom.display == "\n" && atom.owned.end >= indexed_from {
                             breaks.push(atom.owned.end);
                         }
                     }
                     let owned_end = text.owned_range().end;
-                    if owned_end > text.content_range.end {
+                    if owned_end > text.content_range.end && owned_end >= indexed_from {
                         breaks.push(owned_end);
                     }
                 }
-                super::StreamNode::Atomic { range, .. } => breaks.push(range.start),
+                super::StreamNode::Atomic { range, .. } if range.start >= indexed_from => {
+                    breaks.push(range.start)
+                }
+                super::StreamNode::Atomic { .. } => {}
             }
         }
         breaks.sort_unstable();

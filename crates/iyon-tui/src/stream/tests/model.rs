@@ -190,7 +190,7 @@ fn semantic_text(model: &StreamModel<FakeSource>) -> String {
         .nodes
         .iter()
         .filter_map(|node| match node {
-            StreamNode::Text(text) => Some(
+            StreamNode::Text(text) | StreamNode::ContinuousText(text) => Some(
                 text.runs
                     .iter()
                     .map(|run| run.display.as_str())
@@ -361,7 +361,7 @@ fn text_stream_model_seal_captures_and_compacts_without_losing_content() {
             .nodes
             .iter()
             .filter_map(|node| match node {
-                StreamNode::Text(text) => Some(
+                StreamNode::Text(text) | StreamNode::ContinuousText(text) => Some(
                     text.runs
                         .iter()
                         .map(|run| run.display.as_str())

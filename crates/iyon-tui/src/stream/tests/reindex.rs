@@ -5,7 +5,7 @@ use crate::{
     presentation::IntoView,
     stream::{
         StreamModel, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
-        StreamSnapshotBuilder, StreamingSource, build_index_from, reindex_from,
+        StreamSnapshotBuilder, StreamingSource, TextStream, build_index_from, reindex_from,
     },
 };
 
@@ -57,6 +57,29 @@ impl StreamingSource for AtomicBlocks {
 
     fn is_sealed(&self) -> bool {
         self.sealed
+    }
+}
+
+#[test]
+fn text_reindex_matches_cold_across_stable_prefix_compaction() {
+    let mut model = StreamModel::new(TextStream::new()).unwrap();
+    let mut previous = None;
+    for index in 0..12 {
+        let changed_from = model.snapshot().stable_through();
+        let chunk = format!("row {index} {}\n", "x".repeat(220));
+        model.source_mut().push(chunk);
+        model.refresh().unwrap();
+
+        let cold = build_index_from(&model, StreamOffset::ZERO, 32);
+        let reindexed = match &previous {
+            Some(prev) => reindex_from(&model, prev, StreamOffset::ZERO, changed_from, 32),
+            None => build_index_from(&model, StreamOffset::ZERO, 32),
+        };
+        assert_eq!(
+            cold.anchors, reindexed.anchors,
+            "text reindex drifted at chunk {index}"
+        );
+        previous = Some(cold);
     }
 }
 

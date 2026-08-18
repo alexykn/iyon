@@ -20,8 +20,14 @@ use super::{
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum StreamNode {
     Text(ProjectedText),
+    /// Text chunks from one append-only source may be joined for visual
+    /// compilation even when retention splits their semantic ownership.
+    ContinuousText(ProjectedText),
 
-    Atomic { range: StreamRange, view: View },
+    Atomic {
+        range: StreamRange,
+        view: View,
+    },
 }
 
 impl StreamNode {
@@ -31,6 +37,14 @@ impl StreamNode {
 
     pub(crate) fn exact_text(text_range: StreamRange, spans: Vec<TextSpan>) -> Self {
         Self::Text(ProjectedText::identity_with_terminator(
+            text_range,
+            ExactTerminator::None,
+            spans,
+        ))
+    }
+
+    pub(crate) fn continuous_exact_text(text_range: StreamRange, spans: Vec<TextSpan>) -> Self {
+        Self::ContinuousText(ProjectedText::identity_with_terminator(
             text_range,
             ExactTerminator::None,
             spans,
@@ -64,7 +78,7 @@ impl StreamNode {
     /// The full monotonic source range owned by this node (including any typed structural terminator).
     pub(crate) fn owned_range(&self) -> StreamRange {
         match self {
-            Self::Text(text) => text.owned_range(),
+            Self::Text(text) | Self::ContinuousText(text) => text.owned_range(),
             Self::Atomic { range, .. } => *range,
         }
     }
@@ -96,7 +110,7 @@ impl StreamView {
             .nodes
             .into_iter()
             .map(|node| match node {
-                StreamNode::Text(text) => {
+                StreamNode::Text(text) | StreamNode::ContinuousText(text) => {
                     let body = View::styled_text(
                         text.runs
                             .iter()
@@ -169,6 +183,11 @@ impl StreamView {
                 StreamNode::Text(text) => {
                     nodes.push(StreamNode::Text(slice_projected_text(text, offset)));
                 }
+                StreamNode::ContinuousText(text) => {
+                    nodes.push(StreamNode::ContinuousText(slice_projected_text(
+                        text, offset,
+                    )));
+                }
                 StreamNode::Atomic { .. } => {
                     panic!("stream suffix cuts an indivisible atomic node")
                 }
@@ -216,8 +235,10 @@ pub(crate) fn semantic_slice_nodes<'a>(
             sliced_nodes.push(node.clone());
             continue;
         }
-        let StreamNode::Text(text) = node else {
-            return Err(StreamSliceError::AtomicBoundary);
+        let continuous = matches!(node, StreamNode::ContinuousText(_));
+        let text = match node {
+            StreamNode::Text(text) | StreamNode::ContinuousText(text) => text,
+            StreamNode::Atomic { .. } => return Err(StreamSliceError::AtomicBoundary),
         };
         let start = range.start.max(owned.start);
         let end = range.end.min(owned.end);
@@ -237,7 +258,11 @@ pub(crate) fn semantic_slice_nodes<'a>(
         } else {
             sliced
         };
-        sliced_nodes.push(StreamNode::Text(sliced));
+        sliced_nodes.push(if continuous {
+            StreamNode::ContinuousText(sliced)
+        } else {
+            StreamNode::Text(sliced)
+        });
     }
     Ok(StreamView::new(sliced_nodes))
 }

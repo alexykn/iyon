@@ -71,12 +71,8 @@ impl ErasedHistoryStream {
         self.state.source_end()
     }
 
-    pub(crate) fn layout_key(&self) -> (StreamRevision, StreamOffset, StreamOffset) {
-        (
-            self.state.revision(),
-            self.state.semantic_base(),
-            self.state.source_end(),
-        )
+    pub(crate) fn revision(&self) -> StreamRevision {
+        self.state.revision()
     }
 
     #[allow(dead_code)]
@@ -145,7 +141,6 @@ struct StreamLayoutCache {
     indexed_from: StreamOffset,
     revision: StreamRevision,
     stable_through: StreamOffset,
-    source_end: StreamOffset,
     index: StreamRowIndex,
 }
 
@@ -257,7 +252,6 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
                 indexed_from: start,
                 revision: snapshot.revision,
                 stable_through: snapshot.stable_through,
-                source_end: snapshot.source_end,
                 index: index.clone(),
             });
             return index;
@@ -284,7 +278,6 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
             indexed_from: start,
             revision: snapshot.revision,
             stable_through: snapshot.stable_through,
-            source_end: snapshot.source_end,
             index: index.clone(),
         });
         index
