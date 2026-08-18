@@ -85,6 +85,19 @@ impl LayoutCache {
             + self.current_prepare.len()
             + self.previous_prepare.len()
     }
+
+    #[cfg(test)]
+    pub(super) fn contains_view_id(&self, view: ViewId) -> bool {
+        self.current_measure
+            .keys()
+            .chain(self.previous_measure.keys())
+            .any(|key| key.view == view)
+            || self
+                .current_prepare
+                .keys()
+                .chain(self.previous_prepare.keys())
+                .any(|key| key.measured.view == view)
+    }
 }
 
 impl MeasureKey {
