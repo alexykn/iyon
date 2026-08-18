@@ -5,8 +5,8 @@ use crate::{
     perf::{self, Counter},
     presentation::{
         ir::{
-            ColumnView, ContainerNode, GridView, HangingView, RowView, RowViewportView, TrackSize,
-            View, ViewKind, WidthRule,
+            ColumnView, GridView, HangingView, RowView, RowViewportView, TrackSize, View, ViewKind,
+            WidthRule,
         },
         wrap::{TextFlowMetrics, text_flow_metrics},
     },
@@ -32,7 +32,7 @@ pub(super) struct DecorationMetrics {
 
 pub(super) fn decoration_metrics(view: &View, width: u16) -> DecorationMetrics {
     let (left_border, right_border, top_border, bottom_border) = view
-        .decoration
+        .decoration()
         .border
         .as_ref()
         .map_or((0, 0, 0, 0), |border| {
@@ -46,20 +46,20 @@ pub(super) fn decoration_metrics(view: &View, width: u16) -> DecorationMetrics {
     let border_width = left_border.saturating_add(right_border);
     let padding_capacity = width.saturating_sub(border_width);
     let left_padding = view
-        .decoration
+        .decoration()
         .padding
         .left
         .min(padding_capacity.saturating_sub(1));
     let right_padding = view
-        .decoration
+        .decoration()
         .padding
         .right
         .min(padding_capacity.saturating_sub(left_padding.saturating_add(1)));
     let horizontal = border_width
         .saturating_add(left_padding)
         .saturating_add(right_padding);
-    let top_padding = view.decoration.padding.top;
-    let bottom_padding = view.decoration.padding.bottom;
+    let top_padding = view.decoration().padding.top;
+    let bottom_padding = view.decoration().padding.bottom;
     let vertical = top_border
         .saturating_add(bottom_border)
         .saturating_add(top_padding)
@@ -176,12 +176,12 @@ pub(super) fn measure_node<'a>(
     perf::inc(Counter::MeasureNodeCalls);
     #[cfg(test)]
     super::record_measure_node();
-    let bounds = view.decoration.bounds;
+    let bounds = view.decoration().bounds;
     let width_capacity = width.min(bounds.width.normalized_max());
     let decoration = decoration_metrics(view, width_capacity);
     let kind = measure_kind(view, decoration.inner_width);
     let core_size = kind.intrinsic_size();
-    let core_width = match (intent, view.width) {
+    let core_width = match (intent, view.width()) {
         (WidthIntent::ForceFit, _) | (_, WidthRule::Fit) => core_size.width,
         (_, WidthRule::Fill) => decoration.inner_width,
     };
@@ -207,14 +207,14 @@ pub(super) fn measure_node<'a>(
 }
 
 fn measure_kind<'a>(view: &'a View, width: u16) -> MeasuredKind<'a> {
-    match &view.kind {
+    match view.kind() {
         ViewKind::Text(text) => {
             let metrics = text_flow_metrics(text, width);
             MeasuredKind::Text { text, metrics }
         }
         ViewKind::Spacer { rows } => MeasuredKind::Spacer { rows: *rows },
-        ViewKind::Container(ContainerNode { child }) => MeasuredKind::Container {
-            child: Box::new(measure_node(child, width, WidthIntent::Semantic)),
+        ViewKind::Container(container) => MeasuredKind::Container {
+            child: Box::new(measure_node(&container.child, width, WidthIntent::Semantic)),
         },
         ViewKind::Hanging(hanging) => measure_hanging(hanging, width),
         ViewKind::ClampRows(clamp) => {
@@ -357,7 +357,7 @@ fn measure_grid<'a>(grid: &'a GridView, width: u16) -> MeasuredKind<'a> {
     );
     MeasuredKind::Grid {
         columns,
-        row_tracks: grid.rows.clone(),
+        row_tracks: grid.rows.to_vec(),
         intrinsic_rows,
         cells,
         row_gap: grid.row_gap,

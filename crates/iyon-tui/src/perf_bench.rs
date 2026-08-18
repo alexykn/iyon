@@ -237,6 +237,38 @@ fn print_record(
     );
 }
 
+fn run_view_clone_case(sha: &str) {
+    let iterations = std::env::var("PERF_CLONE_ITERATIONS")
+        .ok()
+        .map(|value| {
+            value
+                .parse()
+                .expect("PERF_CLONE_ITERATIONS must be an integer")
+        })
+        .unwrap_or(100);
+
+    for nodes in [100, 10_000] {
+        let fixture = build_fixture(Workload::ColumnHeavy, nodes);
+        let mut samples = Vec::with_capacity(iterations);
+        perf::reset();
+        for _ in 0..iterations {
+            let start = Instant::now();
+            std::hint::black_box(fixture.view.clone());
+            samples.push(start.elapsed().as_nanos());
+        }
+        print_record(
+            &format!("view_clone/{nodes}"),
+            "persistent",
+            nodes,
+            0,
+            iterations,
+            &samples,
+            perf::snapshot(),
+            sha,
+        );
+    }
+}
+
 fn run_view_case(
     size_name: &str,
     workload: Workload,
@@ -488,6 +520,7 @@ fn run_stream_case(target: usize, sha: &str) {
 /// Runs the complete first-tranche oracle and emits one JSON object per line.
 pub fn run() {
     let sha = git_sha();
+    run_view_clone_case(&sha);
     for workload in Workload::ALL {
         for (size_name, node_count) in VIEW_SIZES {
             for pattern in [

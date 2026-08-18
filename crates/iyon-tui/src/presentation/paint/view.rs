@@ -202,7 +202,7 @@ impl ViewPainter {
             .fill_width()
             .no_wrap()
             .into_view();
-        let crate::presentation::ir::ViewKind::Text(indicator_text) = &indicator_view.kind else {
+        let crate::presentation::ir::ViewKind::Text(indicator_text) = indicator_view.kind() else {
             unreachable!("overflow indicator must be text")
         };
         let indicator = compiler.paint_text(

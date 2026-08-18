@@ -1,8 +1,7 @@
 //! Public semantic terminal-root composition.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
-use crate::perf::{self, Counter};
 use crate::presentation::{StyleFacts, StyleStates};
 use crate::{History, IntoView, View};
 
@@ -85,7 +84,7 @@ use crate::{
     geometry::Size,
     history::{HistoryPhysicalOverlay, HistoryViewportAnchor, project_into_session_for_host},
     presentation::{
-        ir::{ColumnChild, ColumnView, HeightRule, TrackSize, ViewKind, WidthRule},
+        ir::{ColumnChild, ColumnView, HeightRule, TrackSize, ViewKind, ViewNodeParts, WidthRule},
         layout::measure_view,
     },
 };
@@ -207,7 +206,6 @@ fn ensure_disjoint_mounts(
 }
 
 fn root_view(history: Option<View>, body: View) -> View {
-    perf::inc(Counter::ViewNodesConstructedRust);
     let mut children = Vec::with_capacity(usize::from(history.is_some()) + 1);
     if let Some(history) = history {
         children.push(ColumnChild {
@@ -219,7 +217,7 @@ fn root_view(history: Option<View>, body: View) -> View {
         track: TrackSize::Content { max: None },
         view: body,
     });
-    View {
+    View::from_node(ViewNodeParts {
         component: None,
         width: WidthRule::Fill,
         height: HeightRule::Fill,
@@ -227,6 +225,9 @@ fn root_view(history: Option<View>, body: View) -> View {
         style_states: StyleStates::default(),
         style_facts: StyleFacts::default(),
         component_scope: None,
-        kind: ViewKind::Column(ColumnView { children, gap: 0 }),
-    }
+        kind: ViewKind::Column(Arc::new(ColumnView {
+            children: children.into(),
+            gap: 0,
+        })),
+    })
 }

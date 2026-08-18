@@ -216,6 +216,9 @@ pub use presentation::api::{
     TextAttribute, TextAttributeSpec, TextSpan, ThemeColor, ThemeKey, Vertical, VerticalAlign,
     View, WrapMode,
 };
+
+#[cfg(feature = "native-host")]
+pub use presentation::ir::WeakView;
 pub use stream::{StreamPane, TextStream};
 
 // Internal modules and unit tests may use the short names without making

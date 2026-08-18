@@ -139,9 +139,9 @@ fn nested_component_attachment_wraps_without_overwriting_the_child() {
     let view = crate::scene::resolve_scene(&View::component(parent), &registry)
         .unwrap()
         .view;
-    assert_eq!(view.component, Some(parent.id()));
+    assert_eq!(view.view_component(), Some(parent.id()));
     let child_view = child(&view);
-    assert_eq!(child_view.component, Some(child_handle.id()));
+    assert_eq!(child_view.view_component(), Some(child_handle.id()));
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn component_metadata_is_physically_invisible() {
 }
 
 fn child(view: &View) -> &View {
-    let crate::presentation::ir::ViewKind::Container(container) = &view.kind else {
+    let crate::presentation::ir::ViewKind::Container(container) = view.kind() else {
         panic!("expected container")
     };
     &container.child

@@ -269,11 +269,11 @@ fn lower_grid(grid: Grid) -> GridView {
     debug_assert_grid_non_overlapping(&columns, &rows, &cells);
 
     GridView {
-        columns,
-        rows,
+        columns: columns.into(),
+        rows: rows.into(),
         column_gap: grid.column_gap,
         row_gap: grid.row_gap,
-        cells,
+        cells: cells.into(),
     }
 }
 
@@ -335,7 +335,7 @@ mod tests {
     use crate::presentation::{IntoView, View};
 
     fn grid_ir(view: &View) -> &GridView {
-        let ViewKind::Grid(grid) = &view.kind else {
+        let ViewKind::Grid(grid) = view.kind() else {
             panic!("expected grid view");
         };
         grid
@@ -344,8 +344,8 @@ mod tests {
     #[test]
     fn default_grid_is_empty_fit() {
         let view = View::grid(|_| {});
-        assert_eq!(view.width, WidthRule::Fit);
-        assert_eq!(view.height, HeightRule::Fit);
+        assert_eq!(view.width(), WidthRule::Fit);
+        assert_eq!(view.height(), HeightRule::Fit);
         let grid = grid_ir(&view);
         assert!(grid.columns.is_empty());
         assert!(grid.rows.is_empty());
@@ -363,16 +363,16 @@ mod tests {
         });
         let grid = grid_ir(&view);
         assert_eq!(
-            grid.columns,
-            [
+            grid.columns.as_ref(),
+            &[
                 TrackSize::Content { max: None },
                 TrackSize::Fixed(4),
                 TrackSize::Flex { min: 1 },
             ]
         );
         assert_eq!(
-            grid.rows,
-            [TrackSize::Content { max: None }, TrackSize::Fixed(3),]
+            grid.rows.as_ref(),
+            &[TrackSize::Content { max: None }, TrackSize::Fixed(3),]
         );
     }
 
@@ -383,8 +383,8 @@ mod tests {
             grid.columns([GridTrack::content(), GridTrack::flex()]);
         });
         assert_eq!(
-            grid_ir(&view).columns,
-            [TrackSize::Content { max: None }, TrackSize::Flex { min: 1 }]
+            grid_ir(&view).columns.as_ref(),
+            &[TrackSize::Content { max: None }, TrackSize::Flex { min: 1 }]
         );
     }
 
@@ -520,8 +520,9 @@ mod tests {
 
     #[test]
     fn component_identity_is_owned_once_by_the_cell() {
-        let mut child = View::text("x").into_view();
-        child.component = Some(ComponentId::allocate());
+        let child = View::text("x")
+            .into_view()
+            .map_node_with_flags(|node| node.component = Some(ComponentId::allocate()));
         let view = View::grid(|grid| {
             grid.row(|row| {
                 row.cell(child);
@@ -529,17 +530,17 @@ mod tests {
         });
         assert!(view.contains_component_identity());
         let cloned = view.clone();
-        let ViewKind::Grid(original) = &view.kind else {
+        let ViewKind::Grid(original) = view.kind() else {
             panic!("expected grid");
         };
-        let ViewKind::Grid(clone) = &cloned.kind else {
+        let ViewKind::Grid(clone) = cloned.kind() else {
             panic!("expected grid");
         };
         assert_eq!(original.cells.len(), 1);
         assert_eq!(clone.cells.len(), 1);
         assert_eq!(
-            original.cells[0].view.component,
-            clone.cells[0].view.component
+            original.cells[0].view.view_component(),
+            clone.cells[0].view.view_component()
         );
     }
 
@@ -575,7 +576,7 @@ mod tests {
     }
 
     fn text(view: &View) -> &str {
-        let ViewKind::Text(text) = &view.kind else {
+        let ViewKind::Text(text) = view.kind() else {
             panic!("expected text");
         };
         &text.spans[0].text
