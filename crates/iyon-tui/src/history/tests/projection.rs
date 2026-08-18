@@ -82,11 +82,15 @@ impl Component for LabelComponent {
 
 fn rows(history: &History, registry: &ComponentRegistry, size: Size) -> Vec<String> {
     let scene = project(history, registry, size).unwrap();
-    crate::presentation::layout::compile_bounded_view(&scene.scene.view, size)
-        .rows
-        .into_iter()
-        .map(|row| row.plain_text())
-        .collect()
+    crate::presentation::layout::compile_bounded_view_with_overlay(
+        &scene.scene.view,
+        size,
+        &scene.scene.overlay,
+    )
+    .rows
+    .into_iter()
+    .map(|row| row.plain_text())
+    .collect()
 }
 
 #[test]
@@ -374,11 +378,15 @@ fn partial_live_viewport_translates_component_geometry_with_painted_rows() {
     assert_eq!(child_geometry.visible.map(|rect| rect.y), Some(0));
     assert_eq!(child_geometry.visible.map(|rect| rect.height), Some(1));
     assert_eq!(
-        crate::presentation::layout::compile_bounded_view(&scene.scene.view, Size::new(12, 3))
-            .rows
-            .into_iter()
-            .map(|row| row.plain_text())
-            .collect::<Vec<_>>(),
+        crate::presentation::layout::compile_bounded_view_with_overlay(
+            &scene.scene.view,
+            Size::new(12, 3),
+            &scene.scene.overlay,
+        )
+        .rows
+        .into_iter()
+        .map(|row| row.plain_text())
+        .collect::<Vec<_>>(),
         ["three", "child-tail", "bottom"]
     );
 }
@@ -763,12 +771,15 @@ fn frozen_overlay_underflow_is_not_shifted_by_bottom_slack() {
     assert_eq!(overlay.rows[0].plain_text(), "A3");
     assert_eq!(overlay.rows[1].plain_text(), "A4");
 
-    let rendered =
-        crate::presentation::layout::compile_bounded_view(&projection.scene.view, Size::new(10, 6))
-            .rows
-            .into_iter()
-            .map(|row| row.plain_text())
-            .collect::<Vec<_>>();
+    let rendered = crate::presentation::layout::compile_bounded_view_with_overlay(
+        &projection.scene.view,
+        Size::new(10, 6),
+        &projection.scene.overlay,
+    )
+    .rows
+    .into_iter()
+    .map(|row| row.plain_text())
+    .collect::<Vec<_>>();
     assert_eq!(rendered, ["", "", "B", "", "", ""]);
 }
 
@@ -793,11 +804,14 @@ fn native_frontier_anchor_pins_front_items() {
         HistoryViewportAnchor::NativeFrontier,
     )
     .unwrap();
-    let rendered =
-        crate::presentation::layout::compile_bounded_view(&pinned.scene.view, Size::new(10, 3))
-            .rows
-            .into_iter()
-            .map(|row| row.plain_text())
-            .collect::<Vec<_>>();
+    let rendered = crate::presentation::layout::compile_bounded_view_with_overlay(
+        &pinned.scene.view,
+        Size::new(10, 3),
+        &pinned.scene.overlay,
+    )
+    .rows
+    .into_iter()
+    .map(|row| row.plain_text())
+    .collect::<Vec<_>>();
     assert_eq!(rendered, ["A1", "A2", "A3"]);
 }

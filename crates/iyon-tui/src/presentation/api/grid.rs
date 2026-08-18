@@ -330,9 +330,8 @@ fn debug_assert_grid_non_overlapping(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::component::ComponentId;
+    use crate::presentation::View;
     use crate::presentation::ir::{HeightRule, ViewKind, WidthRule};
-    use crate::presentation::{IntoView, View};
 
     fn grid_ir(view: &View) -> &GridView {
         let ViewKind::Grid(grid) = view.kind() else {
@@ -520,9 +519,7 @@ mod tests {
 
     #[test]
     fn component_identity_is_owned_once_by_the_cell() {
-        let child = View::text("x")
-            .into_view()
-            .map_node_with_flags(|node| node.component = Some(ComponentId::allocate()));
+        let child = View::native_component(1);
         let view = View::grid(|grid| {
             grid.row(|row| {
                 row.cell(child);
@@ -538,10 +535,7 @@ mod tests {
         };
         assert_eq!(original.cells.len(), 1);
         assert_eq!(clone.cells.len(), 1);
-        assert_eq!(
-            original.cells[0].view.view_component(),
-            clone.cells[0].view.view_component()
-        );
+        assert_eq!(original.cells[0].view, clone.cells[0].view);
     }
 
     #[test]

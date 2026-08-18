@@ -85,7 +85,7 @@ use crate::{
     history::{HistoryPhysicalOverlay, HistoryViewportAnchor, project_into_session_for_host},
     presentation::{
         ir::{ColumnChild, ColumnView, HeightRule, TrackSize, ViewKind, ViewNodeParts, WidthRule},
-        layout::measure_view,
+        layout::measure_view_with_overlay,
     },
 };
 
@@ -119,7 +119,7 @@ pub(crate) fn resolve_root_scene_with_anchor(
     anchor: HistoryViewportAnchor,
 ) -> Result<ResolvedRootScene, ResolveError> {
     let body_scene = resolve_branch(root.body(), registry)?;
-    let body_height = measure_view(&body_scene.view, size.width)
+    let body_height = measure_view_with_overlay(&body_scene.view, size.width, &body_scene.overlay)
         .height
         .min(size.height);
     let history_height = root
@@ -174,6 +174,7 @@ fn merge_root_scene(
             view: root_view(None, body_view),
             mounts: body.mounts,
             capabilities: body.capabilities,
+            overlay: body.overlay,
         });
     };
 
@@ -184,11 +185,14 @@ fn merge_root_scene(
     mounts.extend(body.mounts.nodes);
     let mut capabilities = history.capabilities;
     capabilities.entries.extend(body.capabilities.entries);
+    let mut overlay = history.overlay;
+    overlay.components.extend(body.overlay.components);
 
     Ok(ResolvedScene {
         view: root_view(Some(history_view), body_view),
         mounts: crate::component::MountGraph::new(mounts),
         capabilities,
+        overlay,
     })
 }
 
@@ -218,13 +222,11 @@ fn root_view(history: Option<View>, body: View) -> View {
         view: body,
     });
     View::from_node(ViewNodeParts {
-        component: None,
         width: WidthRule::Fill,
         height: HeightRule::Fill,
         decoration: Default::default(),
         style_states: StyleStates::default(),
         style_facts: StyleFacts::default(),
-        component_scope: None,
         kind: ViewKind::Column(Arc::new(ColumnView {
             children: children.into(),
             gap: 0,

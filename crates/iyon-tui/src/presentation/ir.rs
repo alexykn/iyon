@@ -69,13 +69,11 @@ pub struct View {
 pub(crate) struct ViewNode {
     id: ViewId,
     flags: ViewFlags,
-    pub(crate) component: Option<ComponentId>,
     pub(crate) width: WidthRule,
     pub(crate) height: HeightRule,
     pub(crate) decoration: Decoration,
     pub(crate) style_states: StyleStates,
     pub(crate) style_facts: StyleFacts,
-    pub(crate) component_scope: Option<ComponentId>,
     pub(crate) kind: ViewKind,
 }
 
@@ -89,13 +87,11 @@ impl Clone for View {
 }
 
 pub(crate) struct ViewNodeParts {
-    pub(crate) component: Option<ComponentId>,
     pub(crate) width: WidthRule,
     pub(crate) height: HeightRule,
     pub(crate) decoration: Decoration,
     pub(crate) style_states: StyleStates,
     pub(crate) style_facts: StyleFacts,
-    pub(crate) component_scope: Option<ComponentId>,
     pub(crate) kind: ViewKind,
 }
 
@@ -105,14 +101,12 @@ impl View {
         Self {
             inner: Arc::new(ViewNode {
                 id: next_view_id(),
-                flags: ViewNode::compute_flags(parts.component, &parts.kind),
-                component: parts.component,
+                flags: ViewNode::compute_flags(&parts.kind),
                 width: parts.width,
                 height: parts.height,
                 decoration: parts.decoration,
                 style_states: parts.style_states,
                 style_facts: parts.style_facts,
-                component_scope: parts.component_scope,
                 kind: parts.kind,
             }),
         }
@@ -120,10 +114,6 @@ impl View {
 
     pub(crate) fn id(&self) -> ViewId {
         self.inner.id
-    }
-
-    pub(crate) fn view_component(&self) -> Option<ComponentId> {
-        self.inner.component
     }
 
     pub(crate) fn width(&self) -> WidthRule {
@@ -144,10 +134,6 @@ impl View {
 
     pub(crate) fn view_style_facts(&self) -> &StyleFacts {
         &self.inner.style_facts
-    }
-
-    pub(crate) fn component_scope(&self) -> Option<ComponentId> {
-        self.inner.component_scope
     }
 
     pub(crate) fn kind(&self) -> &ViewKind {
@@ -172,17 +158,6 @@ impl View {
         }
     }
 
-    /// Recomputes recursive component facts for a structural/internal update.
-    pub(crate) fn map_node_with_flags(self, update: impl FnOnce(&mut ViewNode)) -> Self {
-        let mut next = self.inner.shallow_clone();
-        update(&mut next);
-        next.id = next_view_id();
-        next.flags = ViewNode::compute_flags(next.component, &next.kind);
-        Self {
-            inner: Arc::new(next),
-        }
-    }
-
     /// Applies a text-local semantic update without copying its span storage.
     pub(crate) fn map_text(self, update: impl FnOnce(&mut TextView)) -> Self {
         self.map_node(|node| {
@@ -190,23 +165,6 @@ impl View {
                 unreachable!("text wrapper must always contain ViewKind::Text")
             };
             update(Arc::make_mut(text));
-        })
-    }
-
-    pub(crate) fn clone_shell_with(
-        &self,
-        kind: ViewKind,
-        component_scope: Option<ComponentId>,
-    ) -> Self {
-        Self::from_node(ViewNodeParts {
-            component: self.inner.component,
-            width: self.inner.width,
-            height: self.inner.height,
-            decoration: self.inner.decoration.clone(),
-            style_states: self.inner.style_states.clone(),
-            style_facts: self.inner.style_facts.clone(),
-            component_scope,
-            kind,
         })
     }
 
@@ -227,10 +185,7 @@ impl PartialEq for ViewNode {
 }
 
 impl ViewNode {
-    fn compute_flags(component: Option<ComponentId>, kind: &ViewKind) -> ViewFlags {
-        if component.is_some() {
-            return ViewFlags::with_component_slot();
-        }
+    fn compute_flags(kind: &ViewKind) -> ViewFlags {
         match kind {
             ViewKind::ComponentSlot(_) => ViewFlags::with_component_slot(),
             ViewKind::Text(_) | ViewKind::Spacer { .. } => ViewFlags::default(),
@@ -265,25 +220,21 @@ impl ViewNode {
         Self {
             id: self.id,
             flags: self.flags,
-            component: self.component,
             width: self.width,
             height: self.height,
             decoration: self.decoration.clone(),
             style_states: self.style_states.clone(),
             style_facts: self.style_facts.clone(),
-            component_scope: self.component_scope,
             kind: self.kind.clone(),
         }
     }
 
     fn semantic_eq(&self, other: &Self) -> bool {
-        self.component == other.component
-            && self.width == other.width
+        self.width == other.width
             && self.height == other.height
             && self.decoration == other.decoration
             && self.style_states == other.style_states
             && self.style_facts == other.style_facts
-            && self.component_scope == other.component_scope
             && self.kind == other.kind
     }
 }

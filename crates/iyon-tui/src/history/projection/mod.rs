@@ -4,8 +4,8 @@ use crate::{
     geometry::Size,
     perf::{self, Counter},
     physical::PhysicalRow,
-    presentation::{Insets, View, layout::measure_view},
-    scene::{ResolveError, ResolveSession},
+    presentation::{Insets, View, layout::measure_view_with_overlay},
+    scene::{ResolutionOverlay, ResolveError, ResolveSession},
     stream::StreamRowIndex,
 };
 
@@ -170,6 +170,7 @@ fn project_into_session_with_mode(
             }
         })
         .collect::<Result<Vec<_>, ResolveError>>()?;
+    let overlay = session.overlay();
 
     let mut selected_units = vec![None; plans.len()];
     let mut selected_items = Vec::new();
@@ -196,6 +197,7 @@ fn project_into_session_with_mode(
                 content_width,
                 top_padding,
                 eager_stream_overflow,
+                overlay,
             )
         })
         .fold(
@@ -224,6 +226,7 @@ fn project_into_session_with_mode(
                     blocker,
                     stream,
                     content_width,
+                    overlay,
                 );
                 if protected_height <= remaining {
                     for item in items
@@ -240,6 +243,7 @@ fn project_into_session_with_mode(
                                 item,
                                 content_width,
                                 top_padding,
+                                overlay,
                             ),
                             &mut remaining,
                             &mut selected_units,
@@ -259,6 +263,7 @@ fn project_into_session_with_mode(
                             item,
                             content_width,
                             top_padding,
+                            overlay,
                         );
                         take_selected(
                             item,
@@ -284,6 +289,7 @@ fn project_into_session_with_mode(
                             item,
                             content_width,
                             top_padding,
+                            overlay,
                         );
                         take_selected(
                             item,
@@ -307,6 +313,7 @@ fn project_into_session_with_mode(
                         &mut remaining,
                         &mut selected_units,
                         &mut selected_items,
+                        overlay,
                     );
                 }
             } else {
@@ -320,6 +327,7 @@ fn project_into_session_with_mode(
                     &mut remaining,
                     &mut selected_units,
                     &mut selected_items,
+                    overlay,
                 );
             }
         }
@@ -334,6 +342,7 @@ fn project_into_session_with_mode(
                 &mut remaining,
                 &mut selected_units,
                 &mut selected_items,
+                overlay,
             );
         }
     }
@@ -362,7 +371,7 @@ fn project_into_session_with_mode(
                             });
                         }
                     }
-                    children.push(unit_view(&plans[index], units[index], selected));
+                    children.push(unit_view(&plans[index], units[index], selected, overlay));
                     rendered_row = rendered_row.saturating_add(selected.height);
                 } else if let PlannedContent::Live(view) = &plans[index].content {
                     children.push(View::row_viewport_with_height(view.clone(), 0, Some(0)));
@@ -465,12 +474,13 @@ fn protected_band_height(
     blocker: usize,
     stream: usize,
     width: u16,
+    overlay: &ResolutionOverlay,
 ) -> usize {
     items
         .iter()
         .copied()
         .filter(|item| protected_band_item(*item, blocker, stream))
-        .map(|item| item_height(history, plans, units, item, width, 0))
+        .map(|item| item_height(history, plans, units, item, width, 0, overlay))
         .sum()
 }
 
@@ -482,6 +492,7 @@ fn item_height_for_overflow(
     width: u16,
     top_padding: usize,
     eager_stream_overflow: bool,
+    overlay: &ResolutionOverlay,
 ) -> (usize, bool) {
     match item {
         FlowItem::TopPadding => (top_padding, false),
@@ -491,14 +502,17 @@ fn item_height_for_overflow(
             perf::inc(Counter::HistoryUnitsExamined);
             match (&plans[index].content, &units[index].content) {
                 (PlannedContent::Static, HistoryUnitContent::Static(view)) => {
-                    (view_height(view, width), false)
+                    (view_height(view, width, overlay), false)
                 }
                 (PlannedContent::Frozen(rows), _) => (rows.len(), false),
-                (PlannedContent::Live(view), _) => (view_height(view, width), false),
+                (PlannedContent::Live(view), _) => (view_height(view, width, overlay), false),
                 (PlannedContent::Stream { .. }, HistoryUnitContent::Stream(stream))
                     if eager_stream_overflow || !stream.is_sealed() =>
                 {
-                    (ensure_height(&mut plans[index], units[index], width), false)
+                    (
+                        ensure_height(&mut plans[index], units[index], width, overlay),
+                        false,
+                    )
                 }
                 (PlannedContent::Stream { index, prefix, .. }, _) => {
                     let prefix_height = prefix.as_ref().map_or(0, |rows| rows.as_slice().len());
@@ -518,6 +532,7 @@ fn item_height(
     item: FlowItem,
     width: u16,
     top_padding: usize,
+    overlay: &ResolutionOverlay,
 ) -> usize {
     match item {
         FlowItem::TopPadding => top_padding,
@@ -525,7 +540,7 @@ fn item_height(
         FlowItem::Gap(index) => resident_gap(history, index, &plans[index]),
         FlowItem::Unit(index) => {
             perf::inc(Counter::HistoryUnitsExamined);
-            ensure_height(&mut plans[index], units[index], width)
+            ensure_height(&mut plans[index], units[index], width, overlay)
         }
     }
 }
@@ -559,12 +574,13 @@ fn select_end_following(
     remaining: &mut usize,
     selected_units: &mut [Option<Selected>],
     selected_items: &mut Vec<(FlowItem, Selected)>,
+    overlay: &ResolutionOverlay,
 ) {
     for item in items.iter().rev().copied() {
-        let height = item_height(history, plans, units, item, width, top_padding);
+        let height = item_height(history, plans, units, item, width, top_padding, overlay);
         if let FlowItem::Unit(index) = item
             && let PlannedContent::Live(view) = &plans[index].content
-            && flexible_height(view)
+            && flexible_height(view, overlay)
             && *remaining > 0
             && height > *remaining
         {
@@ -588,12 +604,13 @@ fn select_native_frontier(
     remaining: &mut usize,
     selected_units: &mut [Option<Selected>],
     selected_items: &mut Vec<(FlowItem, Selected)>,
+    overlay: &ResolutionOverlay,
 ) {
     for item in items.iter().copied() {
         if *remaining == 0 {
             break;
         }
-        let height = item_height(history, plans, units, item, width, top_padding);
+        let height = item_height(history, plans, units, item, width, top_padding, overlay);
         if height == 0 {
             continue;
         }
@@ -623,7 +640,7 @@ fn take_bounded(
     *remaining = 0;
 }
 
-fn flexible_height(view: &View) -> bool {
+fn flexible_height(view: &View, overlay: &ResolutionOverlay) -> bool {
     if view.height() == crate::presentation::ir::HeightRule::Fill {
         return true;
     }
@@ -643,8 +660,11 @@ fn flexible_height(view: &View) -> bool {
             )
         }),
         crate::presentation::ir::ViewKind::Container(container) => {
-            flexible_height(&container.child)
+            flexible_height(&container.child, overlay)
         }
+        crate::presentation::ir::ViewKind::ComponentSlot(slot) => overlay
+            .component(slot.id)
+            .is_some_and(|snapshot| flexible_height(&snapshot.view, overlay)),
         _ => false,
     }
 }
@@ -760,15 +780,22 @@ fn flow_items(history: &History, plans: &[UnitPlan]) -> Vec<FlowItem> {
     items
 }
 
-fn ensure_height(plan: &mut UnitPlan, unit: &super::HistoryUnit, width: u16) -> usize {
+fn ensure_height(
+    plan: &mut UnitPlan,
+    unit: &super::HistoryUnit,
+    width: u16,
+    overlay: &ResolutionOverlay,
+) -> usize {
     if let Some(height) = plan.height {
         perf::inc(Counter::HistoryCachedHeightHits);
         return height;
     }
     let height = match (&mut plan.content, &unit.content) {
-        (PlannedContent::Static, HistoryUnitContent::Static(view)) => view_height(view, width),
+        (PlannedContent::Static, HistoryUnitContent::Static(view)) => {
+            view_height(view, width, overlay)
+        }
         (PlannedContent::Frozen(rows), _) => rows.len(),
-        (PlannedContent::Live(view), _) => view_height(view, width),
+        (PlannedContent::Live(view), _) => view_height(view, width, overlay),
         (
             PlannedContent::Stream {
                 index,
@@ -811,7 +838,12 @@ fn take_selected(
     *remaining = (*remaining).saturating_sub(visible);
 }
 
-fn unit_view(plan: &UnitPlan, unit: &super::HistoryUnit, selected: Selected) -> View {
+fn unit_view(
+    plan: &UnitPlan,
+    unit: &super::HistoryUnit,
+    selected: Selected,
+    overlay: &ResolutionOverlay,
+) -> View {
     match &plan.content {
         PlannedContent::Static => {
             let HistoryUnitContent::Static(view) = &unit.content else {
@@ -829,7 +861,7 @@ fn unit_view(plan: &UnitPlan, unit: &super::HistoryUnit, selected: Selected) -> 
         PlannedContent::Live(view) => {
             if selected.offset == 0
                 && selected.height < plan.height.unwrap_or(selected.height)
-                && flexible_height(view)
+                && flexible_height(view, overlay)
             {
                 View::bounded_row_viewport(
                     view.clone(),
@@ -880,7 +912,7 @@ fn push_spacer(children: &mut Vec<View>, rows: usize) {
     children.push(View::spacer(rows.min(usize::from(u16::MAX)) as u16));
 }
 
-fn view_height(view: &View, width: u16) -> usize {
+fn view_height(view: &View, width: u16, overlay: &ResolutionOverlay) -> usize {
     perf::inc(Counter::HistoryUnitsMeasured);
-    usize::from(measure_view(view, width).height)
+    usize::from(measure_view_with_overlay(view, width, overlay).height)
 }

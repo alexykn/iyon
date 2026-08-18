@@ -11,7 +11,7 @@ pub(crate) use layout::{
 #[cfg(test)]
 pub(crate) use resolve::resolve_scene;
 pub(crate) use resolve::{ResolveError, ResolveSession};
-pub(crate) use resolved::ResolvedScene;
+pub(crate) use resolved::{ResolutionOverlay, ResolvedScene};
 pub use root::Scene;
 #[cfg(test)]
 pub(crate) use root::resolve_root_scene;

@@ -33,7 +33,9 @@ use crate::{
     presentation::View,
 };
 
-pub(crate) use engine::{layout_view, measure_view};
+pub(crate) use engine::{
+    layout_view, layout_view_with_overlay, measure_view, measure_view_with_overlay,
+};
 pub(crate) use tree::{ComponentGeometryMap, LayoutContent, LayoutNode, LayoutNodeId, LayoutTree};
 
 #[cfg(test)]
@@ -152,14 +154,40 @@ pub(crate) fn compile_view(view: &View, width: u16) -> LayoutBlock {
     compile_view_with_theme(view, width, &Theme::default())
 }
 
+#[cfg(test)]
+pub(crate) fn compile_view_with_overlay(
+    view: &View,
+    width: u16,
+    overlay: &crate::scene::ResolutionOverlay,
+) -> LayoutBlock {
+    let compiler = ViewCompiler::default();
+    let tree = layout_view_with_overlay(view, LayoutConstraints::width_only(width), overlay);
+    let surface = ViewPainter.paint_tree(&compiler, &tree);
+    let physically_complete = surface.physically_complete;
+    LayoutBlock {
+        width: surface.width(),
+        rows: lower_surface(surface),
+        physically_complete,
+    }
+}
+
 pub(crate) fn compile_view_with_theme(view: &View, width: u16, theme: &Theme) -> LayoutBlock {
     ViewCompiler::new(theme).compile(view, width)
 }
 
 #[cfg(test)]
 pub(crate) fn compile_bounded_view(view: &View, size: Size) -> LayoutBlock {
+    compile_bounded_view_with_overlay(view, size, &crate::scene::ResolutionOverlay::default())
+}
+
+#[cfg(test)]
+pub(crate) fn compile_bounded_view_with_overlay(
+    view: &View,
+    size: Size,
+    overlay: &crate::scene::ResolutionOverlay,
+) -> LayoutBlock {
     let compiler = ViewCompiler::default();
-    let tree = compiler.layout_tree(view, LayoutConstraints::bounded(size));
+    let tree = layout_view_with_overlay(view, LayoutConstraints::bounded(size), overlay);
     let surface = ViewPainter.paint_tree(&compiler, &tree);
     let height = surface.height().min(size.height);
     let cropped = surface.crop_to(surface.width().min(size.width), height);
