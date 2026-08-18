@@ -28,13 +28,11 @@ fn layout_view(view: &View, width: u16, inherited: PhysicalStyle) -> Surface {
 
 fn row_view(children: Vec<RowChild>, gap: u16) -> View {
     View::from_node(ViewNodeParts {
-        component: None,
         width: WidthRule::Fill,
         height: crate::presentation::ir::HeightRule::Fit,
         decoration: Decoration::default(),
         style_states: Default::default(),
         style_facts: Default::default(),
-        component_scope: None,
         kind: crate::presentation::ir::ViewKind::Row(Arc::new(crate::presentation::ir::RowView {
             children: children.into(),
             gap,
@@ -44,17 +42,14 @@ fn row_view(children: Vec<RowChild>, gap: u16) -> View {
 }
 
 fn box_view(child: View, decoration: Decoration) -> View {
-    let component = child.view_component();
     let width = child.width();
     let height = child.height();
     View::from_node(ViewNodeParts {
-        component,
         width,
         height,
         decoration,
         style_states: Default::default(),
         style_facts: Default::default(),
-        component_scope: None,
         kind: crate::presentation::ir::ViewKind::Container(Arc::new(
             crate::presentation::ir::ContainerNode { child },
         )),

@@ -1,19 +1,13 @@
-use std::{collections::HashSet, fmt, sync::Arc};
+use std::{collections::HashSet, fmt};
 
 use crate::{
     component::{ComponentId, ComponentRegistry, MountGraph, MountNode},
     interaction::MountedCapabilities,
     perf::{self, Counter},
-    presentation::{
-        View,
-        ir::{
-            ClampRowsView, ColumnChild, ColumnView, ContainerNode, HangingView, RowChild, RowView,
-            ViewKind, ViewNodeParts,
-        },
-    },
+    presentation::{View, ir::ViewKind},
 };
 
-use super::ResolvedScene;
+use super::{ResolutionOverlay, ResolvedScene};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ResolveError {
@@ -55,6 +49,9 @@ impl<'a> ResolveSession<'a> {
                 registry,
                 mounts: Vec::new(),
                 capabilities: MountedCapabilities::default(),
+                overlay: ResolutionOverlay::default(),
+                #[cfg(test)]
+                nodes_visited: 0,
                 seen: HashSet::new(),
                 active: Vec::new(),
             },
@@ -62,7 +59,17 @@ impl<'a> ResolveSession<'a> {
     }
 
     pub(crate) fn resolve_root(&mut self, view: &View) -> Result<View, ResolveError> {
-        self.resolver.resolve_view(view, None)
+        self.resolver.scan_view(view, None)?;
+        Ok(view.clone())
+    }
+
+    pub(crate) fn overlay(&self) -> &ResolutionOverlay {
+        &self.resolver.overlay
+    }
+
+    #[cfg(test)]
+    pub(crate) fn nodes_visited(&self) -> usize {
+        self.resolver.nodes_visited
     }
 
     pub(crate) fn finish(self, view: View) -> ResolvedScene {
@@ -70,6 +77,7 @@ impl<'a> ResolveSession<'a> {
             view,
             mounts: MountGraph::new(self.resolver.mounts),
             capabilities: self.resolver.capabilities,
+            overlay: self.resolver.overlay,
         }
     }
 }
@@ -78,105 +86,64 @@ struct Resolver<'a> {
     registry: &'a ComponentRegistry,
     mounts: Vec<MountNode>,
     capabilities: MountedCapabilities,
+    overlay: ResolutionOverlay,
+    #[cfg(test)]
+    nodes_visited: usize,
     seen: HashSet<ComponentId>,
     active: Vec<ComponentId>,
 }
 
 impl Resolver<'_> {
-    fn resolve_view(
-        &mut self,
-        view: &View,
-        parent: Option<ComponentId>,
-    ) -> Result<View, ResolveError> {
+    /// Scans only semantic nodes that can contain a component slot. Ordinary
+    /// component-free branches are represented by their cached ViewFlags and
+    /// require no recursive topology walk.
+    fn scan_view(&mut self, view: &View, parent: Option<ComponentId>) -> Result<(), ResolveError> {
         perf::inc(Counter::ResolverNodesVisited);
-        let kind = match view.kind() {
-            ViewKind::Text(text) => ViewKind::Text(Arc::clone(text)),
-            ViewKind::Spacer { rows } => ViewKind::Spacer { rows: *rows },
-            ViewKind::Column(column) => ViewKind::Column(Arc::new(ColumnView {
-                children: column
-                    .children
-                    .iter()
-                    .map(|child| {
-                        Ok(ColumnChild {
-                            track: child.track,
-                            view: self.resolve_view(&child.view, parent)?,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, ResolveError>>()?
-                    .into(),
-                gap: column.gap,
-            })),
-            ViewKind::Row(row) => ViewKind::Row(Arc::new(RowView {
-                children: row
-                    .children
-                    .iter()
-                    .map(|child| {
-                        Ok(RowChild {
-                            track: child.track,
-                            view: self.resolve_view(&child.view, parent)?,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, ResolveError>>()?
-                    .into(),
-                gap: row.gap,
-                vertical_align: row.vertical_align,
-            })),
-            ViewKind::Grid(grid) => ViewKind::Grid(Arc::new(crate::presentation::ir::GridView {
-                columns: Arc::clone(&grid.columns),
-                rows: Arc::clone(&grid.rows),
-                column_gap: grid.column_gap,
-                row_gap: grid.row_gap,
-                cells: grid
-                    .cells
-                    .iter()
-                    .map(|cell| {
-                        Ok(crate::presentation::ir::GridCellView {
-                            row: cell.row,
-                            column: cell.column,
-                            row_span: cell.row_span,
-                            column_span: cell.column_span,
-                            horizontal_align: cell.horizontal_align,
-                            vertical_align: cell.vertical_align,
-                            view: self.resolve_view(&cell.view, parent)?,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, ResolveError>>()?
-                    .into(),
-            })),
-            ViewKind::Hanging(hanging) => ViewKind::Hanging(Arc::new(HangingView {
-                prefix: self.resolve_view(&hanging.prefix, parent)?,
-                continuation_prefix: self.resolve_view(&hanging.continuation_prefix, parent)?,
-                body: self.resolve_view(&hanging.body, parent)?,
-            })),
-            ViewKind::Container(container) => ViewKind::Container(Arc::new(ContainerNode {
-                child: self.resolve_view(&container.child, parent)?,
-            })),
-            ViewKind::ClampRows(clamp) => ViewKind::ClampRows(Arc::new(ClampRowsView {
-                child: self.resolve_view(&clamp.child, parent)?,
-                max_rows: clamp.max_rows,
-                overflow: clamp.overflow.clone(),
-            })),
-            ViewKind::RowViewport(viewport) => {
-                ViewKind::RowViewport(Arc::new(crate::presentation::ir::RowViewportView {
-                    child: self.resolve_view(&viewport.child, parent)?,
-                    skip_rows: viewport.skip_rows,
-                    visible_height: viewport.visible_height,
-                    layout_height: viewport.layout_height,
-                    intrinsic_content_height: viewport.intrinsic_content_height,
-                }))
-            }
-            ViewKind::ComponentSlot(slot) => return self.resolve_slot(view, slot.id, parent),
-        };
+        #[cfg(test)]
+        {
+            self.nodes_visited += 1;
+        }
+        if !view.contains_component_identity() {
+            return Ok(());
+        }
 
-        Ok(view.clone_shell_with(kind, parent))
+        match view.kind() {
+            ViewKind::Text(_) | ViewKind::Spacer { .. } => Ok(()),
+            ViewKind::ComponentSlot(slot) => self.resolve_slot(slot.id, parent),
+            ViewKind::Container(container) => self.scan_view(&container.child, parent),
+            ViewKind::ClampRows(clamp) => self.scan_view(&clamp.child, parent),
+            ViewKind::RowViewport(viewport) => self.scan_view(&viewport.child, parent),
+            ViewKind::Hanging(hanging) => {
+                self.scan_view(&hanging.prefix, parent)?;
+                self.scan_view(&hanging.continuation_prefix, parent)?;
+                self.scan_view(&hanging.body, parent)
+            }
+            ViewKind::Column(column) => {
+                for child in column.children.iter() {
+                    self.scan_view(&child.view, parent)?;
+                }
+                Ok(())
+            }
+            ViewKind::Row(row) => {
+                for child in row.children.iter() {
+                    self.scan_view(&child.view, parent)?;
+                }
+                Ok(())
+            }
+            ViewKind::Grid(grid) => {
+                for cell in grid.cells.iter() {
+                    self.scan_view(&cell.view, parent)?;
+                }
+                Ok(())
+            }
+        }
     }
 
     fn resolve_slot(
         &mut self,
-        slot: &View,
         id: ComponentId,
         parent: Option<ComponentId>,
-    ) -> Result<View, ResolveError> {
+    ) -> Result<(), ResolveError> {
         let Some(snapshot) = self.registry.resolution(id) else {
             return Err(ResolveError::MissingComponent { id });
         };
@@ -188,26 +155,17 @@ impl Resolver<'_> {
         if !self.seen.insert(id) {
             return Err(ResolveError::DuplicateComponent { id });
         }
+
         self.mounts.push(MountNode {
             id,
             parent,
             revision: snapshot.revision,
         });
-        self.capabilities.insert(id, snapshot.capabilities);
+        self.capabilities.insert(id, snapshot.capabilities.clone());
+        self.overlay.components.insert(id, snapshot.clone());
         self.active.push(id);
-        let resolved = self.resolve_view(&snapshot.view, Some(id));
+        let result = self.scan_view(&snapshot.view, Some(id));
         self.active.pop();
-        let resolved = resolved?;
-
-        Ok(View::from_node(ViewNodeParts {
-            component: Some(id),
-            width: slot.width(),
-            height: slot.height(),
-            decoration: slot.decoration().clone(),
-            style_states: slot.view_style_states().clone(),
-            style_facts: slot.view_style_facts().clone(),
-            component_scope: Some(id),
-            kind: ViewKind::Container(Arc::new(ContainerNode { child: resolved })),
-        }))
+        result
     }
 }

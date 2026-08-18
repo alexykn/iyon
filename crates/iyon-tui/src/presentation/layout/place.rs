@@ -55,10 +55,10 @@ pub(super) fn emit_prepared(
         rect,
         content_rect,
         clip_rect: node_clip,
-        component: prepared.measured.view.view_component(),
+        component: prepared.measured.component,
         children: Vec::new(),
         style: LayoutStyle {
-            component_scope: prepared.measured.view.component_scope(),
+            component_scope: prepared.measured.component_scope,
             style_states: prepared.measured.view.view_style_states().clone(),
             style_facts: prepared.measured.view.view_style_facts().clone(),
             decoration: prepared.measured.view.decoration().clone(),

@@ -444,13 +444,11 @@ mod tests {
     #[test]
     fn legacy_and_new_composition_compile_identically() {
         let old_row = View::from_node(ViewNodeParts {
-            component: None,
             width: WidthRule::Fit,
             height: HeightRule::Fit,
             decoration: Default::default(),
             style_states: Default::default(),
             style_facts: Default::default(),
-            component_scope: None,
             kind: ViewKind::Row(Arc::new(RowView {
                 children: vec![
                     RowChild::content(View::text("a").into_view()),

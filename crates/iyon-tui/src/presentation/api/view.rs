@@ -19,29 +19,24 @@ use crate::presentation::ir::{
 impl View {
     pub(crate) fn new_kind(kind: ViewKind) -> Self {
         Self::from_node(ViewNodeParts {
-            component: None,
             width: WidthRule::Fit,
             height: HeightRule::Fit,
             decoration: Decoration::default(),
             style_states: StyleStates::default(),
             style_facts: StyleFacts::default(),
-            component_scope: None,
             kind,
         })
     }
 
     fn wrap_structural(self, make_kind: impl FnOnce(View) -> ViewKind) -> Self {
-        let component = self.view_component();
         let width = self.width();
         let height = self.height();
         Self::from_node(ViewNodeParts {
-            component,
             width,
             height,
             decoration: Decoration::default(),
             style_states: StyleStates::default(),
             style_facts: StyleFacts::default(),
-            component_scope: None,
             kind: make_kind(self),
         })
     }
@@ -147,13 +142,11 @@ impl View {
     /// Creates a private vertical viewport around a semantic view.
     pub(crate) fn row_viewport(child: View, skip_rows: u16) -> Self {
         Self::from_node(ViewNodeParts {
-            component: None,
             width: WidthRule::Fill,
             height: HeightRule::Fill,
             decoration: Decoration::default(),
             style_states: StyleStates::default(),
             style_facts: StyleFacts::default(),
-            component_scope: None,
             kind: ViewKind::RowViewport(Arc::new(crate::presentation::ir::RowViewportView {
                 child,
                 skip_rows,
@@ -173,13 +166,11 @@ impl View {
         visible_height: Option<u16>,
     ) -> Self {
         Self::from_node(ViewNodeParts {
-            component: None,
             width: WidthRule::Fill,
             height: HeightRule::Fill,
             decoration: Decoration::default(),
             style_states: StyleStates::default(),
             style_facts: StyleFacts::default(),
-            component_scope: None,
             kind: ViewKind::RowViewport(Arc::new(crate::presentation::ir::RowViewportView {
                 child,
                 skip_rows,
@@ -192,13 +183,11 @@ impl View {
 
     pub(crate) fn bounded_row_viewport(child: View, height: u16) -> Self {
         Self::from_node(ViewNodeParts {
-            component: None,
             width: WidthRule::Fill,
             height: HeightRule::Fill,
             decoration: Decoration::default(),
             style_states: StyleStates::default(),
             style_facts: StyleFacts::default(),
-            component_scope: None,
             kind: ViewKind::RowViewport(Arc::new(crate::presentation::ir::RowViewportView {
                 child,
                 skip_rows: 0,
