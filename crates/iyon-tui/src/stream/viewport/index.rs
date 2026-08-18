@@ -68,7 +68,7 @@ pub(crate) fn build_index_from<S: StreamingSource>(
         .into_iter()
         .map(|row| row.anchor)
         .collect::<Vec<_>>();
-    let hard_line_starts = model.hard_line_starts_for(&anchors);
+    let hard_line_starts = model.hard_line_starts_for(&anchors, start);
     crate::perf::add(
         crate::perf::Counter::StreamRowsReindexed,
         anchors.len() as u64,
@@ -96,19 +96,29 @@ pub(crate) fn reindex_from<S: StreamingSource>(
     if previous.width != width || previous.indexed_from != start {
         return build_index_from(model, start, width);
     }
-    // Incremental reflow is only safe for indivisible atomic rows (e.g. Markdown
-    // blocks). Plain text rows use checkpoint anchors whose empty-hard-line rows
-    // can collide with the following line's checkpoint when the stable frontier
-    // re-partitions nodes; those streams rebuild the index in full.
-    if previous
+    let all_atomic = previous
         .anchors
         .iter()
-        .any(|anchor| matches!(anchor, StreamRowAnchor::Checkpoint(_)))
-    {
-        return build_index_from(model, start, width);
-    }
-
-    let mut visual_restart = model.hard_line_start_before(semantic_changed_from);
+        .all(|anchor| matches!(anchor, StreamRowAnchor::Atomic { .. }));
+    let last_atomic_is_stable = all_atomic
+        && previous.anchors.last().is_some_and(|anchor| {
+            matches!(
+                anchor,
+                StreamRowAnchor::Atomic { range, .. }
+                    if range.end <= semantic_changed_from
+            )
+        });
+    let mut visual_restart = if last_atomic_is_stable {
+        semantic_changed_from
+    } else {
+        previous
+            .hard_line_starts
+            .iter()
+            .copied()
+            .take_while(|line_start| *line_start <= semantic_changed_from)
+            .last()
+            .unwrap_or(start)
+    };
     if visual_restart < start {
         visual_restart = start;
     }
@@ -121,6 +131,7 @@ pub(crate) fn reindex_from<S: StreamingSource>(
         visual_restart.as_u64(),
     );
 
+    let visual_suffix = model.semantic_view_from(visual_restart);
     let mut retained = Vec::with_capacity(previous.anchors.len());
     for (anchor, hard_line_start) in previous
         .anchors
@@ -135,13 +146,14 @@ pub(crate) fn reindex_from<S: StreamingSource>(
     }
     let retained_len = retained.len();
 
-    let compiled = compile_stream(
-        &model.semantic_view_from(visual_restart),
-        width,
-        model.snapshot().stable_through,
-    );
+    let compiled = compile_stream(&visual_suffix, width, model.snapshot().stable_through);
     retained.extend(compiled.rows.into_iter().map(|row| row.anchor));
-    let hard_line_starts = model.hard_line_starts_for(&retained);
+    let mut hard_line_starts = previous.hard_line_starts[..retained_len].to_vec();
+    hard_line_starts.extend(model.hard_line_starts_for_from(
+        &retained[retained_len..],
+        start,
+        visual_restart,
+    ));
 
     crate::perf::add(
         crate::perf::Counter::StreamStableRowsReused,

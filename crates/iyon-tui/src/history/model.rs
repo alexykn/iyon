@@ -1,6 +1,10 @@
 //! Ordered semantic History model.
 
-use std::{cell::RefCell, collections::VecDeque, time::Instant};
+use std::{
+    cell::{Cell, RefCell},
+    collections::VecDeque,
+    time::Instant,
+};
 
 use crate::{
     perf::{self, Counter},
@@ -33,6 +37,8 @@ use super::{
 pub struct History {
     pub(super) units: VecDeque<HistoryUnit>,
     layout: HistoryLayout,
+    cached_total_height: Cell<Option<usize>>,
+    stale_cached_heights: Cell<usize>,
     pub(super) native: super::native::NativeFrontier,
 }
 
@@ -47,6 +53,8 @@ impl History {
         Self {
             units: VecDeque::new(),
             layout: HistoryLayout::default(),
+            cached_total_height: Cell::new(None),
+            stale_cached_heights: Cell::new(0),
             native: super::native::NativeFrontier::default(),
         }
     }
@@ -68,6 +76,8 @@ impl History {
             HistoryUnitContent::Static(view)
         };
         let id = HistoryUnitId::allocate();
+        self.cached_total_height.set(None);
+        self.stale_cached_heights.set(0);
         self.units.push_back(HistoryUnit {
             id,
             boundary,
@@ -108,6 +118,8 @@ impl History {
             return Err(HistoryError::UnitNotLive { unit });
         }
         self.units.remove(index);
+        self.cached_total_height.set(None);
+        self.stale_cached_heights.set(0);
         Ok(())
     }
 
@@ -152,6 +164,8 @@ impl History {
         self.ensure_append_allowed()?;
         let stream = ErasedHistoryStream::new(source).map_err(HistoryError::Stream)?;
         let id = HistoryUnitId::allocate();
+        self.cached_total_height.set(None);
+        self.stale_cached_heights.set(0);
         self.units.push_back(HistoryUnit {
             id,
             boundary,
@@ -264,6 +278,16 @@ impl History {
             }
             return None;
         }
+        if cached.height.is_some() && self.cached_total_height.get().is_some() {
+            let total = self
+                .cached_total_height
+                .get()
+                .expect("checked cached total")
+                .saturating_sub(cached.height.expect("checked cached height"));
+            self.cached_total_height.set(Some(total));
+            self.stale_cached_heights
+                .set(self.stale_cached_heights.get().saturating_add(1));
+        }
         cached.width = Some(width);
         cached.key = Some(key);
         cached.height = None;
@@ -272,7 +296,20 @@ impl History {
 
     pub(super) fn record_unit_height(&self, index: usize, height: usize) {
         if let Some(cached) = self.units.get(index) {
-            cached.layout.borrow_mut().height = Some(height);
+            let mut layout = cached.layout.borrow_mut();
+            if layout.height.is_none() {
+                if let Some(total) = self.cached_total_height.get() {
+                    if self.stale_cached_heights.get() == 0 {
+                        self.cached_total_height.set(None);
+                    } else {
+                        self.cached_total_height
+                            .set(Some(total.saturating_add(height)));
+                        self.stale_cached_heights
+                            .set(self.stale_cached_heights.get().saturating_sub(1));
+                    }
+                }
+            }
+            layout.height = Some(height);
         }
     }
 
@@ -283,21 +320,41 @@ impl History {
     }
 
     pub(super) fn cached_total_flow_height(&self) -> Option<usize> {
+        if self.stale_cached_heights.get() == 0 {
+            if let Some(total) = self.cached_total_height.get() {
+                return Some(total);
+            }
+        }
         let mut total = 0usize;
         for unit in &self.units {
             let height = unit.layout.borrow().height?;
             total = total.saturating_add(height);
         }
+        self.cached_total_height.set(Some(total));
+        self.stale_cached_heights.set(0);
         Some(total)
     }
 
     pub(super) fn invalidate_unit_layout(&self, index: usize) {
         if let Some(unit) = self.units.get(index) {
-            *unit.layout.borrow_mut() = HistoryUnitLayout::default();
+            let mut layout = unit.layout.borrow_mut();
+            if layout.height.is_some() && self.cached_total_height.get().is_some() {
+                let total = self
+                    .cached_total_height
+                    .get()
+                    .expect("checked cached total")
+                    .saturating_sub(layout.height.expect("checked cached height"));
+                self.cached_total_height.set(Some(total));
+                self.stale_cached_heights
+                    .set(self.stale_cached_heights.get().saturating_add(1));
+            }
+            *layout = HistoryUnitLayout::default();
         }
     }
 
     pub(super) fn invalidate_all_layout(&self) {
+        self.cached_total_height.set(None);
+        self.stale_cached_heights.set(0);
         for unit in &self.units {
             *unit.layout.borrow_mut() = HistoryUnitLayout::default();
         }

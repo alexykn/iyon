@@ -621,6 +621,55 @@ fn retained_history_tail_updates_do_not_remeasure_the_static_prefix() {
     );
 }
 
+#[cfg(feature = "perf-counters")]
+#[test]
+fn stream_height_cache_reuses_history_geometry_and_rebuilds_only_stream_suffix() {
+    let _lock = crate::perf::test_lock();
+    let registry = ComponentRegistry::new();
+    let mut history = History::new();
+    for index in 0..1_000 {
+        history.push(format!("static-{index}")).unwrap();
+    }
+    let stream = history.push_stream(crate::TextStream::new()).unwrap();
+    let size = Size::new(32, 8);
+
+    history
+        .update_stream(stream, |source| source.push("first line\npending"))
+        .unwrap();
+    rows(&history, &registry, size);
+    crate::perf::reset();
+
+    rows(&history, &registry, size);
+    let warm = crate::perf::snapshot();
+    assert_eq!(
+        warm.value(crate::perf::Counter::HistoryUnitsMeasured),
+        0,
+        "a stable stream revision must reuse its retained History height"
+    );
+    assert!(
+        warm.value(crate::perf::Counter::HistoryCachedHeightHits) >= 1_001,
+        "static units and the stream must all hit retained height metadata"
+    );
+
+    history
+        .update_stream(stream, |source| source.push(" second line\n"))
+        .unwrap();
+    rows(&history, &registry, size);
+    let updated = crate::perf::snapshot();
+    assert!(
+        updated.value(crate::perf::Counter::HistoryUnitsMeasured) <= 10,
+        "stream updates may prepare only a bounded tail, not the static prefix"
+    );
+    assert!(
+        updated.value(crate::perf::Counter::HistoryCachedHeightHits) >= 1_000,
+        "the static prefix must remain cached when the stream advances"
+    );
+    assert!(
+        updated.value(crate::perf::Counter::StreamStableRowsReused) > 0,
+        "stream row work must reuse the stable prefix"
+    );
+}
+
 #[test]
 fn zero_size_projection_still_resolves_live_units() {
     let mut registry = ComponentRegistry::new();

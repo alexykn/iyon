@@ -170,12 +170,20 @@ fn project_into_session_with_mode(
                     content: PlannedContent::Live(resolved),
                 })
             }
-            HistoryUnitContent::Stream(_) => {
+            HistoryUnitContent::Stream(stream) => {
                 let (start, prefix) = stream_projection_state(history, unit.id);
+                let cache_key = HistoryUnitLayoutKey::Stream {
+                    revision: stream.revision(),
+                    base: stream.semantic_base(),
+                    source_end: stream.source_end(),
+                    indexed_from: start,
+                    prefix_rows: prefix.as_ref().map_or(0, |rows| rows.as_slice().len()),
+                };
+                let height = history.prepare_unit_layout(index, content_width, cache_key.clone());
                 Ok(UnitPlan {
                     boundary: unit.boundary,
-                    height: None,
-                    cache_key: None,
+                    height,
+                    cache_key: Some(cache_key),
                     content: PlannedContent::Stream {
                         index: None,
                         start,
@@ -201,54 +209,60 @@ fn project_into_session_with_mode(
         }
     }
 
-    // Static/live-only histories are the common, high-unit-count case and can
-    // use retained heights for both the overflow total and viewport selection.
-    // Histories containing a stream (or a frozen native remainder) keep the
-    // original item-walk path, which is where open-stream protected bands and
-    // partial native transfer geometry live.
-    let no_streams = frozen_static.is_none()
-        && plans
-            .iter()
-            .all(|plan| !matches!(&plan.content, PlannedContent::Stream { .. }));
-    if no_streams {
+    // Histories without a frozen native remainder can retain every unit's
+    // presentation height, including stream revisions. Selection still uses
+    // the protected-band/native paths below, but overflow geometry no longer
+    // walks and prepares the entire stream-bearing flow on every update.
+    let retained_geometry = frozen_static.is_none() && !history.native.has_physical_rows();
+    if retained_geometry {
         for (index, plan) in plans.iter_mut().enumerate() {
-            if plan.height.is_none() {
+            let lazy_sealed_stream = matches!(
+                &units[index].content,
+                HistoryUnitContent::Stream(stream)
+                    if stream.is_sealed() && !eager_stream_overflow
+            );
+            if plan.height.is_none() && !lazy_sealed_stream {
                 ensure_height(history, index, plan, units[index], content_width, overlay);
             }
         }
     }
 
     let retained_total = history.cached_total_flow_height();
-    let (total_flow_height, has_unmeasured_stream) = if no_streams && retained_total.is_some() {
-        (
-            retained_total
-                .expect("retained total checked above")
-                .saturating_add(flow_overhead(history, &plans, top_padding)),
-            false,
-        )
-    } else {
-        items
-            .iter()
-            .copied()
-            .map(|item| {
-                item_height_for_overflow(
-                    history,
-                    &mut plans,
-                    &units,
-                    item,
-                    content_width,
-                    top_padding,
-                    eager_stream_overflow,
-                    overlay,
-                )
-            })
-            .fold(
-                (0usize, false),
-                |(height, unknown), (item_height, item_unknown)| {
-                    (height.saturating_add(item_height), unknown || item_unknown)
-                },
+    let (total_flow_height, has_unmeasured_stream) =
+        if retained_geometry && retained_total.is_some() {
+            (
+                retained_total
+                    .expect("retained total checked above")
+                    .saturating_add(flow_overhead(history, &plans, top_padding)),
+                false,
             )
-    };
+        } else {
+            items
+                .iter()
+                .copied()
+                .map(|item| {
+                    item_height_for_overflow(
+                        history,
+                        &mut plans,
+                        &units,
+                        item,
+                        content_width,
+                        top_padding,
+                        eager_stream_overflow,
+                        overlay,
+                    )
+                })
+                .fold(
+                    (0usize, false),
+                    |(height, unknown), (item_height, item_unknown)| {
+                        (height.saturating_add(item_height), unknown || item_unknown)
+                    },
+                )
+        };
+    let no_streams = retained_geometry
+        && plans
+            .iter()
+            .all(|plan| !matches!(&plan.content, PlannedContent::Stream { .. }));
     let capacity = usize::from(size.height);
     let overflow_rows = total_flow_height.saturating_sub(capacity).max(usize::from(
         has_unmeasured_stream && total_flow_height >= capacity,
@@ -424,6 +438,7 @@ fn project_into_session_with_mode(
         match item {
             FlowItem::Unit(index) => {
                 if let Some(selected) = selected_units[index] {
+                    ensure_stream_index(&mut plans[index], units[index], content_width);
                     if let Some((visible, row_offset)) =
                         frozen_visible_rows(&plans[index], selected)
                     {
@@ -605,10 +620,20 @@ fn item_height_for_overflow(
                         false,
                     )
                 }
-                (PlannedContent::Stream { index, prefix, .. }, _) => {
+                (
+                    PlannedContent::Stream {
+                        index: row_index,
+                        prefix,
+                        ..
+                    },
+                    _,
+                ) => {
+                    if let Some(height) = plans[index].height {
+                        return (height, false);
+                    }
                     let prefix_height = prefix.as_ref().map_or(0, |rows| rows.as_slice().len());
-                    let known = index.as_ref().map_or(0, |index| index.anchors.len());
-                    (prefix_height.saturating_add(known), index.is_none())
+                    let known = row_index.as_ref().map_or(0, |index| index.anchors.len());
+                    (prefix_height.saturating_add(known), row_index.is_none())
                 }
                 _ => unreachable!("History overflow plan does not match its unit"),
             }
@@ -1027,6 +1052,19 @@ fn flow_items(history: &History, plans: &[UnitPlan]) -> Vec<FlowItem> {
     }
     items.push(FlowItem::BottomPadding);
     items
+}
+
+fn ensure_stream_index(plan: &mut UnitPlan, unit: &super::HistoryUnit, width: u16) {
+    let PlannedContent::Stream { index, start, .. } = &mut plan.content else {
+        return;
+    };
+    if index.is_some() {
+        return;
+    }
+    let HistoryUnitContent::Stream(stream) = &unit.content else {
+        unreachable!("stream plan does not match its unit");
+    };
+    *index = Some(stream.prepare_from(*start, width));
 }
 
 fn ensure_height(
