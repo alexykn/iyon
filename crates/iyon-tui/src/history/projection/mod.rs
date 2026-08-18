@@ -9,6 +9,7 @@ use crate::{
     stream::StreamRowIndex,
 };
 
+use super::unit::HistoryUnitLayoutKey;
 use super::{FlowBoundary, History, HistoryUnitContent, native::frontier::SpacingTransferState};
 use crate::stream::FrozenPhysicalRows;
 #[cfg(test)]
@@ -36,6 +37,7 @@ pub(crate) struct HistoryPhysicalOverlay {
 struct UnitPlan {
     boundary: FlowBoundary,
     height: Option<usize>,
+    cache_key: Option<HistoryUnitLayoutKey>,
     content: PlannedContent,
 }
 
@@ -142,17 +144,29 @@ fn project_into_session_with_mode(
     let units = history.units().collect::<Vec<_>>();
     let mut plans = units
         .iter()
-        .map(|unit| match &unit.content {
-            HistoryUnitContent::Static(_) => Ok(UnitPlan {
-                boundary: unit.boundary,
-                height: None,
-                content: PlannedContent::Static,
-            }),
-            HistoryUnitContent::Live(view) => {
-                let resolved = session.resolve_root(&view)?;
+        .enumerate()
+        .map(|(index, unit)| match &unit.content {
+            HistoryUnitContent::Static(view) => {
+                let cache_key = HistoryUnitLayoutKey::Static(view.id());
+                let height = history.prepare_unit_layout(index, content_width, cache_key.clone());
                 Ok(UnitPlan {
                     boundary: unit.boundary,
-                    height: None,
+                    height,
+                    cache_key: Some(cache_key),
+                    content: PlannedContent::Static,
+                })
+            }
+            HistoryUnitContent::Live(view) => {
+                let (resolved, dependencies) = session.resolve_root_with_dependencies(view)?;
+                let cache_key = HistoryUnitLayoutKey::Live {
+                    view: view.id(),
+                    dependencies,
+                };
+                let height = history.prepare_unit_layout(index, content_width, cache_key.clone());
+                Ok(UnitPlan {
+                    boundary: unit.boundary,
+                    height,
+                    cache_key: Some(cache_key),
                     content: PlannedContent::Live(resolved),
                 })
             }
@@ -161,6 +175,7 @@ fn project_into_session_with_mode(
                 Ok(UnitPlan {
                     boundary: unit.boundary,
                     height: None,
+                    cache_key: None,
                     content: PlannedContent::Stream {
                         index: None,
                         start,
@@ -178,34 +193,62 @@ fn project_into_session_with_mode(
     let top_padding = resident_top_padding(history);
     let items = flow_items(history, &plans);
 
-    if let Some(rows) = frozen_static_rows(history) {
+    let frozen_static = frozen_static_rows(history);
+    if let Some(rows) = frozen_static.clone() {
         if let Some(plan) = plans.first_mut() {
             plan.height = Some(rows.len());
             plan.content = PlannedContent::Frozen(rows);
         }
     }
 
-    let (total_flow_height, has_unmeasured_stream) = items
-        .iter()
-        .copied()
-        .map(|item| {
-            item_height_for_overflow(
-                history,
-                &mut plans,
-                &units,
-                item,
-                content_width,
-                top_padding,
-                eager_stream_overflow,
-                overlay,
+    // Static/live-only histories are the common, high-unit-count case and can
+    // use retained heights for both the overflow total and viewport selection.
+    // Histories containing a stream (or a frozen native remainder) keep the
+    // original item-walk path, which is where open-stream protected bands and
+    // partial native transfer geometry live.
+    let no_streams = frozen_static.is_none()
+        && plans
+            .iter()
+            .all(|plan| !matches!(&plan.content, PlannedContent::Stream { .. }));
+    if no_streams {
+        for (index, plan) in plans.iter_mut().enumerate() {
+            if plan.height.is_none() {
+                ensure_height(history, index, plan, units[index], content_width, overlay);
+            }
+        }
+    }
+
+    let retained_total = history.cached_total_flow_height();
+    let (total_flow_height, has_unmeasured_stream) = if no_streams && retained_total.is_some() {
+        (
+            retained_total
+                .expect("retained total checked above")
+                .saturating_add(flow_overhead(history, &plans, top_padding)),
+            false,
+        )
+    } else {
+        items
+            .iter()
+            .copied()
+            .map(|item| {
+                item_height_for_overflow(
+                    history,
+                    &mut plans,
+                    &units,
+                    item,
+                    content_width,
+                    top_padding,
+                    eager_stream_overflow,
+                    overlay,
+                )
+            })
+            .fold(
+                (0usize, false),
+                |(height, unknown), (item_height, item_unknown)| {
+                    (height.saturating_add(item_height), unknown || item_unknown)
+                },
             )
-        })
-        .fold(
-            (0usize, false),
-            |(height, unknown), (item_height, item_unknown)| {
-                (height.saturating_add(item_height), unknown || item_unknown)
-            },
-        );
+    };
     let capacity = usize::from(size.height);
     let overflow_rows = total_flow_height.saturating_sub(capacity).max(usize::from(
         has_unmeasured_stream && total_flow_height >= capacity,
@@ -213,11 +256,22 @@ fn project_into_session_with_mode(
 
     match anchor {
         HistoryViewportAnchor::FollowEnd => {
-            // An open Stream tail follows its semantic end, but resident blockers
-            // before it form a protected band. Reserve that real flow geometry first;
-            // only the remaining capacity belongs to the Stream suffix. If the band
-            // itself does not fit, retain the ordinary end-follow overflow behavior.
-            if let Some((blocker, stream)) = protected_stream_bounds(&units) {
+            if no_streams {
+                select_end_following_cached(
+                    history,
+                    &plans,
+                    &units,
+                    top_padding,
+                    &mut remaining,
+                    &mut selected_units,
+                    &mut selected_items,
+                    overlay,
+                );
+            } else if let Some((blocker, stream)) = protected_stream_bounds(&units) {
+                // An open Stream tail follows its semantic end, but resident blockers
+                // before it form a protected band. Reserve that real flow geometry first;
+                // only the remaining capacity belongs to the Stream suffix. If the band
+                // itself does not fit, retain the ordinary end-follow overflow behavior.
                 let protected_height = protected_band_height(
                     history,
                     &mut plans,
@@ -332,18 +386,30 @@ fn project_into_session_with_mode(
             }
         }
         HistoryViewportAnchor::NativeFrontier => {
-            select_native_frontier(
-                history,
-                &mut plans,
-                &units,
-                &items,
-                content_width,
-                top_padding,
-                &mut remaining,
-                &mut selected_units,
-                &mut selected_items,
-                overlay,
-            );
+            if no_streams {
+                select_native_frontier_cached(
+                    history,
+                    &plans,
+                    &units,
+                    top_padding,
+                    &mut remaining,
+                    &mut selected_units,
+                    &mut selected_items,
+                );
+            } else {
+                select_native_frontier(
+                    history,
+                    &mut plans,
+                    &units,
+                    &items,
+                    content_width,
+                    top_padding,
+                    &mut remaining,
+                    &mut selected_units,
+                    &mut selected_items,
+                    overlay,
+                );
+            }
         }
     }
     let mut children = Vec::new();
@@ -501,16 +567,41 @@ fn item_height_for_overflow(
         FlowItem::Unit(index) => {
             perf::inc(Counter::HistoryUnitsExamined);
             match (&plans[index].content, &units[index].content) {
-                (PlannedContent::Static, HistoryUnitContent::Static(view)) => {
-                    (view_height(view, width, overlay), false)
-                }
+                (PlannedContent::Static, HistoryUnitContent::Static(_)) => (
+                    ensure_height(
+                        history,
+                        index,
+                        &mut plans[index],
+                        units[index],
+                        width,
+                        overlay,
+                    ),
+                    false,
+                ),
                 (PlannedContent::Frozen(rows), _) => (rows.len(), false),
-                (PlannedContent::Live(view), _) => (view_height(view, width, overlay), false),
+                (PlannedContent::Live(_), _) => (
+                    ensure_height(
+                        history,
+                        index,
+                        &mut plans[index],
+                        units[index],
+                        width,
+                        overlay,
+                    ),
+                    false,
+                ),
                 (PlannedContent::Stream { .. }, HistoryUnitContent::Stream(stream))
                     if eager_stream_overflow || !stream.is_sealed() =>
                 {
                     (
-                        ensure_height(&mut plans[index], units[index], width, overlay),
+                        ensure_height(
+                            history,
+                            index,
+                            &mut plans[index],
+                            units[index],
+                            width,
+                            overlay,
+                        ),
                         false,
                     )
                 }
@@ -540,7 +631,14 @@ fn item_height(
         FlowItem::Gap(index) => resident_gap(history, index, &plans[index]),
         FlowItem::Unit(index) => {
             perf::inc(Counter::HistoryUnitsExamined);
-            ensure_height(&mut plans[index], units[index], width, overlay)
+            ensure_height(
+                history,
+                index,
+                &mut plans[index],
+                units[index],
+                width,
+                overlay,
+            )
         }
     }
 }
@@ -562,6 +660,157 @@ fn take_full(
         _ => selected_items.push((item, selected)),
     }
     *remaining = (*remaining).saturating_sub(height);
+}
+
+fn flow_overhead(history: &History, plans: &[UnitPlan], top_padding: usize) -> usize {
+    let mut overhead = top_padding.saturating_add(usize::from(history.layout().padding.bottom));
+    for (index, plan) in plans.iter().enumerate() {
+        if has_predecessor_gap(history, index, plan) {
+            overhead = overhead.saturating_add(resident_gap(history, index, plan));
+        }
+    }
+    overhead
+}
+
+fn select_end_following_cached(
+    history: &History,
+    plans: &[UnitPlan],
+    units: &[&super::HistoryUnit],
+    top_padding: usize,
+    remaining: &mut usize,
+    selected_units: &mut [Option<Selected>],
+    selected_items: &mut Vec<(FlowItem, Selected)>,
+    overlay: &ResolutionOverlay,
+) {
+    take_selected(
+        FlowItem::BottomPadding,
+        usize::from(history.layout().padding.bottom),
+        remaining,
+        selected_units,
+        selected_items,
+    );
+    for index in (0..units.len()).rev() {
+        let height = history
+            .unit_height(index)
+            .expect("retained static/live unit must have a cached height");
+        perf::inc(Counter::HistoryUnitsExamined);
+        if let PlannedContent::Live(view) = &plans[index].content
+            && flexible_height(view, overlay)
+            && *remaining > 0
+            && height > *remaining
+        {
+            take_bounded(index, *remaining, remaining, selected_units);
+        } else {
+            take_selected(
+                FlowItem::Unit(index),
+                height,
+                remaining,
+                selected_units,
+                selected_items,
+            );
+        }
+        if *remaining == 0 {
+            break;
+        }
+        if has_predecessor_gap(history, index, &plans[index]) {
+            take_selected(
+                FlowItem::Gap(index),
+                resident_gap(history, index, &plans[index]),
+                remaining,
+                selected_units,
+                selected_items,
+            );
+        }
+        if *remaining == 0 {
+            break;
+        }
+    }
+    if *remaining > 0 {
+        take_selected(
+            FlowItem::TopPadding,
+            top_padding,
+            remaining,
+            selected_units,
+            selected_items,
+        );
+    }
+}
+
+fn select_native_frontier_cached(
+    history: &History,
+    plans: &[UnitPlan],
+    units: &[&super::HistoryUnit],
+    top_padding: usize,
+    remaining: &mut usize,
+    selected_units: &mut [Option<Selected>],
+    selected_items: &mut Vec<(FlowItem, Selected)>,
+) {
+    take_front_selected(
+        FlowItem::TopPadding,
+        top_padding,
+        remaining,
+        selected_units,
+        selected_items,
+    );
+    for index in 0..units.len() {
+        if *remaining == 0 {
+            return;
+        }
+        if has_predecessor_gap(history, index, &plans[index]) {
+            take_front_selected(
+                FlowItem::Gap(index),
+                resident_gap(history, index, &plans[index]),
+                remaining,
+                selected_units,
+                selected_items,
+            );
+        }
+        if *remaining == 0 {
+            return;
+        }
+        let height = history
+            .unit_height(index)
+            .expect("retained static/live unit must have a cached height");
+        perf::inc(Counter::HistoryUnitsExamined);
+        take_front_selected(
+            FlowItem::Unit(index),
+            height,
+            remaining,
+            selected_units,
+            selected_items,
+        );
+    }
+    if *remaining > 0 {
+        take_front_selected(
+            FlowItem::BottomPadding,
+            usize::from(history.layout().padding.bottom),
+            remaining,
+            selected_units,
+            selected_items,
+        );
+    }
+}
+
+fn take_front_selected(
+    item: FlowItem,
+    height: usize,
+    remaining: &mut usize,
+    selected_units: &mut [Option<Selected>],
+    selected_items: &mut Vec<(FlowItem, Selected)>,
+) {
+    if height == 0 || *remaining == 0 {
+        return;
+    }
+    let visible = (*remaining).min(height);
+    let selected = Selected {
+        offset: 0,
+        height: visible,
+    };
+    match item {
+        FlowItem::Unit(index) => selected_units[index] = Some(selected),
+        _ => selected_items.push((item, selected)),
+    }
+    *remaining = (*remaining).saturating_sub(visible);
 }
 
 fn select_end_following(
@@ -781,6 +1030,8 @@ fn flow_items(history: &History, plans: &[UnitPlan]) -> Vec<FlowItem> {
 }
 
 fn ensure_height(
+    history: &History,
+    index: usize,
     plan: &mut UnitPlan,
     unit: &super::HistoryUnit,
     width: u16,
@@ -813,6 +1064,9 @@ fn ensure_height(
         _ => unreachable!("History projection plan does not match its unit"),
     };
     plan.height = Some(height);
+    if plan.cache_key.is_some() {
+        history.record_unit_height(index, height);
+    }
     height
 }
 

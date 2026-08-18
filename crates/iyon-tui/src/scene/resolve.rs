@@ -1,7 +1,7 @@
 use std::{collections::HashSet, fmt};
 
 use crate::{
-    component::{ComponentId, ComponentRegistry, MountGraph, MountNode},
+    component::{ComponentId, ComponentRegistry, ComponentRevision, MountGraph, MountNode},
     interaction::MountedCapabilities,
     perf::{self, Counter},
     presentation::{View, ir::ViewKind},
@@ -61,6 +61,23 @@ impl<'a> ResolveSession<'a> {
     pub(crate) fn resolve_root(&mut self, view: &View) -> Result<View, ResolveError> {
         self.resolver.scan_view(view, None)?;
         Ok(view.clone())
+    }
+
+    /// Resolves a root and collects the exact reachable (component, revision)
+    /// set mounted below it, sorted by component id so two semantically equal
+    /// trees with the same component revisions produce an equal key.
+    pub(crate) fn resolve_root_with_dependencies(
+        &mut self,
+        view: &View,
+    ) -> Result<(View, Vec<(ComponentId, ComponentRevision)>), ResolveError> {
+        let start = self.resolver.mounts.len();
+        let resolved = self.resolve_root(view)?;
+        let mut dependencies = self.resolver.mounts[start..]
+            .iter()
+            .map(|mount| (mount.id, mount.revision))
+            .collect::<Vec<_>>();
+        dependencies.sort_unstable_by_key(|(id, _)| *id);
+        Ok((resolved, dependencies))
     }
 
     pub(crate) fn overlay(&self) -> &ResolutionOverlay {

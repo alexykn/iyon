@@ -578,6 +578,49 @@ impl Component for MutableLabel {
     }
 }
 
+#[cfg(feature = "perf-counters")]
+#[test]
+fn retained_history_tail_updates_do_not_remeasure_the_static_prefix() {
+    let _lock = crate::perf::test_lock();
+    let mut registry = ComponentRegistry::new();
+    let handle = registry.register(MutableLabel {
+        label: "tail-0".to_owned(),
+    });
+    let mut history = History::new();
+    for index in 0..1_000 {
+        history.push(format!("static-{index}")).unwrap();
+    }
+    history.push(View::component(handle)).unwrap();
+    let size = Size::new(32, 8);
+
+    rows(&history, &registry, size);
+    registry
+        .with_mut(handle, |component| component.label = "tail-1".to_owned())
+        .unwrap();
+    rows(&history, &registry, size);
+    crate::perf::reset();
+
+    registry
+        .with_mut(handle, |component| component.label = "tail-2".to_owned())
+        .unwrap();
+    rows(&history, &registry, size);
+    let counters = crate::perf::snapshot();
+
+    assert_eq!(
+        counters.value(crate::perf::Counter::HistoryUnitsMeasured),
+        1,
+        "only the mutated live tail may be remeasured"
+    );
+    assert!(
+        counters.value(crate::perf::Counter::HistoryCachedHeightHits) >= 999,
+        "the static prefix must be served from the retained height cache"
+    );
+    assert!(
+        counters.value(crate::perf::Counter::HistoryUnitsExamined) <= 10,
+        "tail selection should inspect only a viewport-sized suffix"
+    );
+}
+
 #[test]
 fn zero_size_projection_still_resolves_live_units() {
     let mut registry = ComponentRegistry::new();
