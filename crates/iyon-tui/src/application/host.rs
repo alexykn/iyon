@@ -282,13 +282,23 @@ impl HostViewSlot {
             .map_err(|_| anyhow::anyhow!("view slot host lock is poisoned"))?
             .clone()
             .and_then(|host| host.upgrade());
-        if let Some(host) = host {
-            let mut inner = host
-                .lock()
-                .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
+        let Some(host) = host else {
+            return Ok(());
+        };
+        let component_id = self
+            .component_id
+            .lock()
+            .map_err(|_| anyhow::anyhow!("view slot component lock is poisoned"))?
+            .to_owned();
+        let mut inner = host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
+        if let Some(component_id) = component_id {
+            inner.running.host_invalidate_component(component_id);
+        } else {
             inner.running.invalidate_frame();
-            inner.advance_and_render()?;
         }
+        inner.advance_and_render()?;
         Ok(())
     }
 }
@@ -346,13 +356,23 @@ impl HostScrollPane {
             .map_err(|_| anyhow::anyhow!("scroll pane host lock is poisoned"))?
             .clone()
             .and_then(|host| host.upgrade());
-        if let Some(host) = host {
-            let mut inner = host
-                .lock()
-                .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
+        let Some(host) = host else {
+            return Ok(());
+        };
+        let component_id = self
+            .component_id
+            .lock()
+            .map_err(|_| anyhow::anyhow!("scroll pane component lock is poisoned"))?
+            .to_owned();
+        let mut inner = host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
+        if let Some(component_id) = component_id {
+            inner.running.host_invalidate_component(component_id);
+        } else {
             inner.running.invalidate_frame();
-            inner.advance_and_render()?;
         }
+        inner.advance_and_render()?;
         Ok(())
     }
 }
@@ -1519,10 +1539,19 @@ impl HostTextInput {
         let Some(host) = host else {
             return Ok(());
         };
+        let component_id = self
+            .component_id
+            .lock()
+            .map_err(|_| anyhow::anyhow!("text input component lock is poisoned"))?
+            .to_owned();
         let mut inner = host
             .lock()
             .map_err(|_| anyhow::anyhow!("host lock is poisoned"))?;
-        inner.running.invalidate_frame();
+        if let Some(component_id) = component_id {
+            inner.running.host_invalidate_component(component_id);
+        } else {
+            inner.running.invalidate_frame();
+        }
         inner.advance_and_render()?;
         Ok(())
     }

@@ -102,6 +102,13 @@ where
         self.drain_deferred_pastes()
     }
 
+    #[cfg(feature = "native-host")]
+    pub(crate) fn host_invalidate_component(&mut self, id: u64) {
+        self.components
+            .invalidate(crate::component::ComponentId::from_raw(id));
+        self.invalidate_frame();
+    }
+
     pub(crate) fn host_set_body(&mut self, body: View) {
         if self.scene.body() == &body {
             self.body_dirty = false;
