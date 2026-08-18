@@ -1,12 +1,17 @@
 //! Ordered semantic History model.
 
-use std::{collections::VecDeque, time::Instant};
+use std::{cell::RefCell, collections::VecDeque, time::Instant};
 
-use crate::{presentation::IntoView, stream::StreamingSource};
+use crate::{
+    perf::{self, Counter},
+    presentation::IntoView,
+    stream::StreamingSource,
+};
 
 use super::{
     ErasedHistoryStream, FlowBoundary, HistoryError, HistoryLayout, HistoryStreamHandle,
     HistoryUnit, HistoryUnitContent, HistoryUnitId,
+    unit::{HistoryUnitLayout, HistoryUnitLayoutKey},
 };
 
 /// An ordered root-level historical, live, or streaming semantic flow.
@@ -67,6 +72,7 @@ impl History {
             id,
             boundary,
             content,
+            layout: RefCell::new(HistoryUnitLayout::default()),
         });
         Ok(id)
     }
@@ -87,6 +93,7 @@ impl History {
         }
         let stream = ErasedHistoryStream::new(source).map_err(HistoryError::Stream)?;
         self.units[index].content = HistoryUnitContent::Stream(stream);
+        self.invalidate_unit_layout(index);
         Ok(HistoryStreamHandle::new(unit))
     }
 
@@ -118,6 +125,7 @@ impl History {
             return Err(HistoryError::FinalViewContainsComponent { unit });
         }
         self.units[index].content = HistoryUnitContent::Static(final_view);
+        self.invalidate_unit_layout(index);
         Ok(())
     }
 
@@ -148,6 +156,7 @@ impl History {
             id,
             boundary,
             content: HistoryUnitContent::Stream(stream),
+            layout: RefCell::new(HistoryUnitLayout::default()),
         });
         Ok(HistoryStreamHandle::new(id))
     }
@@ -229,12 +238,69 @@ impl History {
     }
 
     pub fn set_layout(&mut self, layout: HistoryLayout) {
+        if self.layout == layout {
+            return;
+        }
         self.layout = layout;
+        self.invalidate_all_layout();
     }
 
     pub fn with_layout(mut self, layout: HistoryLayout) -> Self {
-        self.layout = layout;
+        self.set_layout(layout);
         self
+    }
+
+    pub(super) fn prepare_unit_layout(
+        &self,
+        index: usize,
+        width: u16,
+        key: HistoryUnitLayoutKey,
+    ) -> Option<usize> {
+        let mut cached = self.units[index].layout.borrow_mut();
+        if cached.width == Some(width) && cached.key.as_ref() == Some(&key) {
+            if let Some(height) = cached.height {
+                perf::inc(Counter::HistoryCachedHeightHits);
+                return Some(height);
+            }
+            return None;
+        }
+        cached.width = Some(width);
+        cached.key = Some(key);
+        cached.height = None;
+        None
+    }
+
+    pub(super) fn record_unit_height(&self, index: usize, height: usize) {
+        if let Some(cached) = self.units.get(index) {
+            cached.layout.borrow_mut().height = Some(height);
+        }
+    }
+
+    pub(super) fn unit_height(&self, index: usize) -> Option<usize> {
+        self.units
+            .get(index)
+            .and_then(|unit| unit.layout.borrow().height)
+    }
+
+    pub(super) fn cached_total_flow_height(&self) -> Option<usize> {
+        let mut total = 0usize;
+        for unit in &self.units {
+            let height = unit.layout.borrow().height?;
+            total = total.saturating_add(height);
+        }
+        Some(total)
+    }
+
+    pub(super) fn invalidate_unit_layout(&self, index: usize) {
+        if let Some(unit) = self.units.get(index) {
+            *unit.layout.borrow_mut() = HistoryUnitLayout::default();
+        }
+    }
+
+    pub(super) fn invalidate_all_layout(&self) {
+        for unit in &self.units {
+            *unit.layout.borrow_mut() = HistoryUnitLayout::default();
+        }
     }
 
     fn ensure_append_allowed(&self) -> Result<(), HistoryError> {
