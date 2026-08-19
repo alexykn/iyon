@@ -42,6 +42,45 @@ type BridgeSchema = {
   readonly diffDeletion: 3;
   readonly terminationTerminated: 1;
   readonly terminationUnterminated: 2;
+  readonly packedMagic: number;
+  readonly packedProtocolVersion: 1;
+  readonly packedRef: 0;
+  readonly packedDef: 1;
+  readonly packedColorNone: 0;
+  readonly packedColorString: 1;
+  readonly packedColorAnsi: 2;
+  readonly packedOverflowNone: 1;
+  readonly packedOverflowEllipsis: 2;
+  readonly packedOverflowFooter: 3;
+  readonly packedRuleAbsent: 0;
+  readonly packedRuleFit: 1;
+  readonly packedRuleFill: 2;
+  readonly packedBorderStyleAbsent: 0;
+  readonly packedBorderStylePlain: 1;
+  readonly packedBorderStyleRounded: 2;
+  readonly packedBorderStyleDouble: 3;
+  readonly packedBorderEdgesAbsent: 0;
+  readonly packedBorderEdgesAll: 1;
+  readonly packedBorderEdgesTopBottom: 2;
+  readonly packedStyleTheme: 1;
+  readonly packedStyleForeground: 2;
+  readonly packedStyleBackground: 4;
+  readonly packedDecorationPadding: 1;
+  readonly packedDecorationBackground: 2;
+  readonly packedDecorationForeground: 4;
+  readonly packedDecorationBorder: 8;
+  readonly packedDecorationStyle: 16;
+  readonly packedDecorationStates: 32;
+  readonly packedDecorationWidth: 64;
+  readonly packedDecorationHeight: 128;
+  readonly packedDecorationMinWidth: 256;
+  readonly packedDecorationMaxWidth: 512;
+  readonly packedDecorationMinHeight: 1024;
+  readonly packedDecorationMaxHeight: 2048;
+  readonly packedBorderGlyphs: 1;
+  readonly packedBorderColor: 2;
+  readonly packedBorderStyle: 4;
+  readonly packedBorderEdges: 8;
 };
 
 const schema = bridgeSchema as BridgeSchema;
@@ -113,6 +152,49 @@ export const BRIDGE_DIFF_LINE_KIND = {
 export const BRIDGE_DIFF_LINE_TERMINATION = {
   terminated: schema.terminationTerminated,
   unterminated: schema.terminationUnterminated,
+} as const;
+
+/** Canonical constants for the benchmark-only packed View transaction. */
+export const PACKED_VIEW = {
+  magic: schema.packedMagic,
+  version: schema.packedProtocolVersion,
+  ref: schema.packedRef,
+  def: schema.packedDef,
+  colorNone: schema.packedColorNone,
+  colorString: schema.packedColorString,
+  colorAnsi: schema.packedColorAnsi,
+  overflowNone: schema.packedOverflowNone,
+  overflowEllipsis: schema.packedOverflowEllipsis,
+  overflowFooter: schema.packedOverflowFooter,
+  ruleAbsent: schema.packedRuleAbsent,
+  ruleFit: schema.packedRuleFit,
+  ruleFill: schema.packedRuleFill,
+  borderStyleAbsent: schema.packedBorderStyleAbsent,
+  borderStylePlain: schema.packedBorderStylePlain,
+  borderStyleRounded: schema.packedBorderStyleRounded,
+  borderStyleDouble: schema.packedBorderStyleDouble,
+  borderEdgesAbsent: schema.packedBorderEdgesAbsent,
+  borderEdgesAll: schema.packedBorderEdgesAll,
+  borderEdgesTopBottom: schema.packedBorderEdgesTopBottom,
+  styleTheme: schema.packedStyleTheme,
+  styleForeground: schema.packedStyleForeground,
+  styleBackground: schema.packedStyleBackground,
+  decorationPadding: schema.packedDecorationPadding,
+  decorationBackground: schema.packedDecorationBackground,
+  decorationForeground: schema.packedDecorationForeground,
+  decorationBorder: schema.packedDecorationBorder,
+  decorationStyle: schema.packedDecorationStyle,
+  decorationStates: schema.packedDecorationStates,
+  decorationWidth: schema.packedDecorationWidth,
+  decorationHeight: schema.packedDecorationHeight,
+  decorationMinWidth: schema.packedDecorationMinWidth,
+  decorationMaxWidth: schema.packedDecorationMaxWidth,
+  decorationMinHeight: schema.packedDecorationMinHeight,
+  decorationMaxHeight: schema.packedDecorationMaxHeight,
+  borderGlyphs: schema.packedBorderGlyphs,
+  borderColor: schema.packedBorderColor,
+  borderStyle: schema.packedBorderStyle,
+  borderEdges: schema.packedBorderEdges,
 } as const;
 
 export type ColorNode = string | { readonly type: "ansi"; readonly value: number };
