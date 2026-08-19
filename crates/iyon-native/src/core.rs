@@ -24,8 +24,8 @@ const DEFAULT_EVENT_CAPACITY: usize = 128;
 pub(crate) struct SessionState {
     pub(crate) session: StdMutex<NativeSession>,
     pub(crate) queues: StdMutex<KernelQueues>,
-    pub(crate) sender: StdMutex<Option<mpsc::Sender<Value>>>,
-    pub(crate) receiver: Mutex<mpsc::Receiver<Value>>,
+    pub(crate) sender: StdMutex<Option<mpsc::Sender<CoreEvent>>>,
+    pub(crate) receiver: Mutex<mpsc::Receiver<CoreEvent>>,
     pub(crate) closed: AtomicBool,
     pub(crate) close_notify: Notify,
     pub(crate) cancellation: CancellationToken,
@@ -73,10 +73,7 @@ impl SessionState {
             .map_err(|_| NativeError::internal("event sender lock is poisoned"))?
             .clone()
             .ok_or_else(NativeError::closed)?;
-        sender
-            .send(events::core_event(&event))
-            .await
-            .map_err(|_| NativeError::closed())
+        sender.send(event).await.map_err(|_| NativeError::closed())
     }
 
     pub(crate) fn try_emit(&self, event: CoreEvent) -> Result<()> {
@@ -88,7 +85,7 @@ impl SessionState {
             .clone()
             .ok_or_else(NativeError::closed)?;
         sender
-            .try_send(events::core_event(&event))
+            .try_send(event)
             .map_err(|_| NativeError::internal("session event queue is full"))
     }
 }
@@ -262,7 +259,7 @@ impl KernelSession {
         let mut receiver = self.state.receiver.lock().await;
         loop {
             if let Ok(event) = receiver.try_recv() {
-                return Ok(Some(event));
+                return Ok(Some(events::core_event(&event)));
             }
             if self.state.closed.load(Ordering::Acquire) {
                 return Ok(None);
@@ -274,10 +271,52 @@ impl KernelSession {
                 continue;
             }
             tokio::select! {
-                event = receiver.recv() => return Ok(event),
+                event = receiver.recv() => return Ok(event.map(|event| events::core_event(&event))),
                 _ = &mut notified => {}
             }
         }
+    }
+
+    #[napi(js_name = "nextEvents")]
+    pub async fn next_events(&self, max: Option<i64>) -> Result<Vec<Value>> {
+        const MAX_EVENT_BATCH: usize = 256;
+        let max = max.unwrap_or(64);
+        let max = usize::try_from(max)
+            .ok()
+            .filter(|max| (1..=MAX_EVENT_BATCH).contains(max))
+            .ok_or_else(|| {
+                NativeError::invalid_input("event batch size must be between 1 and 256")
+            })?;
+        let mut receiver = self.state.receiver.lock().await;
+        let first = loop {
+            if let Ok(event) = receiver.try_recv() {
+                break Some(event);
+            }
+            if self.state.closed.load(Ordering::Acquire) {
+                break None;
+            }
+            let notified = self.state.close_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.state.closed.load(Ordering::Acquire) {
+                continue;
+            }
+            break tokio::select! {
+                event = receiver.recv() => event,
+                _ = &mut notified => continue,
+            };
+        };
+        let Some(first) = first else {
+            return Ok(Vec::new());
+        };
+        let mut events = vec![first];
+        while events.len() < max {
+            match receiver.try_recv() {
+                Ok(event) => events.push(event),
+                Err(_) => break,
+            }
+        }
+        Ok(events.iter().map(events::core_event).collect())
     }
 
     #[napi]

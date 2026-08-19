@@ -28,6 +28,7 @@ export interface NativeKernelSessionContract {
   deliverUserMessage(text: string): number;
   appendEntry(entry: JsonValue): void;
   nextEvent(): Promise<JsonValue | null>;
+  nextEvents(max?: number): Promise<JsonValue[]>;
   beginModelTurn(options: JsonValue): NativeModelTurnContract;
   prepareToolExecution(request: JsonValue): NativeToolExecutionContract;
   enqueue(kind: string, text: string): number;
