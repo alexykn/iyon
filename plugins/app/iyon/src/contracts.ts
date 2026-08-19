@@ -34,6 +34,7 @@ export interface LiveTool {
   readonly arguments?: JsonValue;
   readonly argumentPreview: string;
   readonly update?: ToolUpdatePresentation;
+  readonly text?: string;
   readonly result?: ToolResult;
   readonly status: LiveToolStatus;
   readonly progress?: { readonly label: string; readonly current?: number; readonly total?: number };
