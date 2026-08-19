@@ -184,7 +184,7 @@ fn semantic_slice_respects_resident_source_frontier_overlap() {
     );
 }
 
-fn semantic_text(model: &StreamModel<FakeSource>) -> String {
+fn semantic_text<S: StreamingSource>(model: &StreamModel<S>) -> String {
     model
         .semantic_view()
         .nodes
@@ -346,6 +346,37 @@ fn sealing_captures_every_whole_node() {
     model.seal().unwrap();
     assert_eq!(model.snapshot().stable_through, model.snapshot().source_end);
     assert_eq!(model.resident().end(), model.snapshot().source_end);
+}
+
+#[test]
+fn text_stream_preserves_graphemes_across_appends_before_promotion() {
+    let mut model = StreamModel::new(TextStream::new()).unwrap();
+    model.source_mut().push("e");
+    model.refresh().unwrap();
+    model.source_mut().push("\u{301}");
+    model.refresh().unwrap();
+    assert_eq!(model.resident().end(), StreamOffset::ZERO);
+
+    model.source_mut().push("x");
+    model.refresh().unwrap();
+    assert_eq!(model.resident().end(), StreamOffset::new(3));
+    assert_eq!(model.source().retained_text(), "x");
+    assert_eq!(semantic_text(&model), "e\u{301}x");
+}
+
+#[test]
+fn text_stream_promotes_completed_lines_and_releases_source_bytes() {
+    let mut model = StreamModel::new(TextStream::new()).unwrap();
+    model.source_mut().push("first line\n");
+    model.refresh().unwrap();
+
+    assert_eq!(model.resident().end(), StreamOffset::new(11));
+    assert_eq!(model.source().retained_text(), "");
+
+    model.source_mut().push("open tail");
+    model.refresh().unwrap();
+    assert_eq!(model.source().source_base(), StreamOffset::new(19));
+    assert_eq!(model.source().retained_text(), "l");
 }
 
 #[test]

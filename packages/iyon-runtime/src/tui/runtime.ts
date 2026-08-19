@@ -51,7 +51,9 @@ export class Tui implements TuiRuntime {
   async nextEvent(signal?: AbortSignal): Promise<TuiEvent> {
     if (signal?.aborted) throw tuiError("cancelled", "TUI event wait was cancelled");
     if (this.closed) return { type: "terminate", reason: "closed" };
-    const output = await this.host.waitForOutput();
+    const output = signal === undefined
+      ? await this.host.waitForOutput()
+      : await this.pollOutput(signal);
     if (signal?.aborted) throw tuiError("cancelled", "TUI event wait was cancelled");
     if (output === null) return { type: "terminate", reason: "closed" };
     return {
@@ -59,6 +61,17 @@ export class Tui implements TuiRuntime {
       routeId: output.route_id,
       ...(output.payload === null || output.payload === undefined ? {} : { payload: output.payload }),
     };
+  }
+
+  private async pollOutput(signal: AbortSignal): Promise<{ route_id: string; payload?: string | null } | null> {
+    while (!this.closed) {
+      if (signal.aborted) throw tuiError("cancelled", "TUI event wait was cancelled");
+      this.host.pollTerminal();
+      const output = this.host.nextOutput();
+      if (output !== null) return output;
+      await waitForAbortableDelay(Math.min(Math.max(this.host.nextWakeMs(), 1), 16), signal);
+    }
+    return null;
   }
 
   /** Compatibility adapter for the pre-generic application harness. */
@@ -155,6 +168,20 @@ export class Tui implements TuiRuntime {
   exited(): boolean { return this.host.exited(); }
   advance(ms: number): void { this.host.advanceTime(ms); }
   current(): Scene | undefined { return this.currentScene; }
+}
+
+function waitForAbortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(tuiError("cancelled", "TUI event wait was cancelled"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function ensureSignal(signal: AbortSignal | undefined): void {

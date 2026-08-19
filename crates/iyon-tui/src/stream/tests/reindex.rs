@@ -4,10 +4,24 @@ use crate::{
     View,
     presentation::IntoView,
     stream::{
-        StreamModel, StreamOffset, StreamRange, StreamRevision, StreamSnapshot,
-        StreamSnapshotBuilder, StreamingSource, TextStream, build_index_from, reindex_from,
+        StreamModel, StreamOffset, StreamRange, StreamRevision, StreamRowIndex, StreamSnapshot,
+        StreamSnapshotBuilder, StreamingSource, TextStream, build_index_from, reindex_in_place,
     },
 };
+
+/// Reuses the production in-place suffix reindexer while keeping the test's
+/// previous index immutable for the cold-vs-incremental comparison.
+fn reindex<S: StreamingSource>(
+    model: &StreamModel<S>,
+    previous: &StreamRowIndex,
+    start: StreamOffset,
+    changed_from: StreamOffset,
+    width: u16,
+) -> StreamRowIndex {
+    let mut index = previous.clone();
+    reindex_in_place(model, &mut index, start, changed_from, width);
+    index
+}
 
 /// A tiny append-only source whose semantic units are indivisible atomic views
 /// (the same shape the Markdown/smoother stream pipeline produces).
@@ -72,7 +86,7 @@ fn text_reindex_matches_cold_across_stable_prefix_compaction() {
 
         let cold = build_index_from(&model, StreamOffset::ZERO, 32);
         let reindexed = match &previous {
-            Some(prev) => reindex_from(&model, prev, StreamOffset::ZERO, changed_from, 32),
+            Some(prev) => reindex(&model, prev, StreamOffset::ZERO, changed_from, 32),
             None => build_index_from(&model, StreamOffset::ZERO, 32),
         };
         assert_eq!(
@@ -97,7 +111,7 @@ fn atomic_reindex_reuses_stable_rows_and_equals_cold() {
 
             let cold = build_index_from(&model, StreamOffset::ZERO, width);
             let reindexed = match &previous {
-                Some(prev) => reindex_from(&model, prev, StreamOffset::ZERO, changed_from, width),
+                Some(prev) => reindex(&model, prev, StreamOffset::ZERO, changed_from, width),
                 None => build_index_from(&model, StreamOffset::ZERO, width),
             };
             assert_eq!(
@@ -119,7 +133,7 @@ fn atomic_reindex_reuses_stable_rows_and_equals_cold() {
             model.refresh().unwrap();
             crate::perf::reset();
             let reindexed = match &previous {
-                Some(prev) => reindex_from(&model, prev, StreamOffset::ZERO, changed_from, 20),
+                Some(prev) => reindex(&model, prev, StreamOffset::ZERO, changed_from, 20),
                 None => build_index_from(&model, StreamOffset::ZERO, 20),
             };
             if index > 0 {
@@ -132,6 +146,39 @@ fn atomic_reindex_reuses_stable_rows_and_equals_cold() {
                     counters.value(crate::perf::Counter::StreamRowsReindexed)
                         < reindexed.anchors.len() as u64,
                     "atomic appends must reflow only a suffix (block {index})"
+                );
+            }
+            previous = Some(reindexed);
+        }
+
+        let mut model = StreamModel::new(TextStream::new()).unwrap();
+        let mut previous = None;
+        for index in 0..40 {
+            let changed_from = model.snapshot().stable_through();
+            model
+                .source_mut()
+                .push(&format!("line {index}: stable append\n"));
+            model.refresh().unwrap();
+            crate::perf::reset();
+            let reindexed = match &previous {
+                Some(prev) => reindex(&model, prev, StreamOffset::ZERO, changed_from, 20),
+                None => build_index_from(&model, StreamOffset::ZERO, 20),
+            };
+            if index > 0 {
+                let counters = crate::perf::snapshot();
+                assert!(
+                    counters.value(crate::perf::Counter::StreamStableRowsReused) > 0,
+                    "text appends must reuse stable rows (line {index})"
+                );
+                assert!(
+                    counters.value(crate::perf::Counter::StreamRowsReindexed)
+                        < reindexed.anchors.len() as u64,
+                    "text appends must reflow only a suffix (line {index})"
+                );
+                assert!(
+                    counters.value(crate::perf::Counter::StreamSemanticRestartOffset)
+                        >= counters.value(crate::perf::Counter::StreamVisualRestartOffset),
+                    "visual restart must not follow the semantic append offset"
                 );
             }
             previous = Some(reindexed);

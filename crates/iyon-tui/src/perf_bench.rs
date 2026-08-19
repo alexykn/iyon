@@ -1,9 +1,8 @@
 //! Deterministic, opt-in performance oracle for the TUI refactor.
 //!
 //! The executable target prints JSONL to stdout. It deliberately keeps the
-//! fixtures framework-generic: no assistant, provider, tool, or agent data is
-//! used. Result files are not written by the benchmark and should not be
-//! committed.
+//! fixtures are framework-generic and contain no product-specific data. Result
+//! files are not written by the benchmark and should not be committed.
 
 use std::{process::Command, time::Instant};
 
@@ -472,6 +471,22 @@ fn stream_source(target: usize, chunk: &str) -> String {
     source
 }
 
+fn stream_targets() -> Vec<usize> {
+    std::env::var("PERF_STREAM_TARGETS")
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .map(|target| {
+                    target
+                        .parse()
+                        .expect("PERF_STREAM_TARGETS must be integers")
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| vec![1_024, 10_240, 51_200, 102_400, 512_000])
+}
+
 fn run_stream_case(target: usize, sha: &str) {
     let chunk = stream_chunk();
     let mut history = History::new();
@@ -508,7 +523,7 @@ fn run_stream_case(target: usize, sha: &str) {
         sha,
     );
 
-    if target == 1_024 {
+    {
         let registry = ComponentRegistry::new();
         let _ = render_history(&history, &registry);
         let layout_iterations = std::env::var("PERF_STREAM_LAYOUT_ITERATIONS")
@@ -530,7 +545,7 @@ fn run_stream_case(target: usize, sha: &str) {
             layout_samples.push(start.elapsed().as_nanos());
         }
         print_record(
-            "stream_layout_1024B_next_256B",
+            &format!("stream_layout_{target}B_next_256B"),
             "baseline",
             0,
             target,
@@ -545,6 +560,12 @@ fn run_stream_case(target: usize, sha: &str) {
 /// Runs the complete first-tranche oracle and emits one JSON object per line.
 pub fn run() {
     let sha = git_sha();
+    if std::env::var_os("PERF_ONLY_STREAM").is_some() {
+        for target in stream_targets() {
+            run_stream_case(target, &sha);
+        }
+        return;
+    }
     run_view_clone_case(&sha);
     for workload in Workload::ALL {
         for (size_name, node_count) in VIEW_SIZES {
@@ -559,7 +580,7 @@ pub fn run() {
         }
     }
     run_history_case(&sha);
-    for target in [1_024, 10_240, 51_200, 102_400, 512_000] {
+    for target in stream_targets() {
         run_stream_case(target, &sha);
     }
 }

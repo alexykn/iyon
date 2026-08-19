@@ -36,6 +36,7 @@ pub(crate) struct StreamModel<S: StreamingSource> {
     source: S,
     resident: ResidentPrefix,
     current: StreamSnapshot,
+    semantic_changed_from: StreamOffset,
 }
 
 impl<S: StreamingSource> StreamModel<S> {
@@ -45,6 +46,7 @@ impl<S: StreamingSource> StreamModel<S> {
         Ok(Self {
             resident: ResidentPrefix::new(current.source_base),
             source,
+            semantic_changed_from: current.source_base,
             current,
         })
     }
@@ -70,6 +72,10 @@ impl<S: StreamingSource> StreamModel<S> {
         self.resident.base()
     }
 
+    pub(crate) fn semantic_changed_from(&self) -> StreamOffset {
+        self.semantic_changed_from
+    }
+
     pub(crate) fn refresh(&mut self) -> Result<(), StreamModelError> {
         let observed = self.source.snapshot();
         Self::validate_transition(&self.current, &observed)?;
@@ -77,6 +83,18 @@ impl<S: StreamingSource> StreamModel<S> {
             return Err(StreamModelError::SourceBeforeResident);
         }
 
+        // Append-only sources may expose a newly stable partition of the same
+        // semantic prefix. A source-end increase therefore damages only the
+        // prior unstable frontier. If the prior snapshot was fully stable,
+        // same-length replacement is treated conservatively as damage from the
+        // source base; this keeps generic sources correct as well.
+        let semantic_changed_from = if observed.source_end > self.current.source_end
+            || self.current.stable_through < self.current.source_end
+        {
+            self.current.stable_through.max(self.current.source_base)
+        } else {
+            self.current.source_base
+        };
         let resident_end = self.resident.end();
         let mut staged_nodes = Vec::new();
         let mut captured_end = resident_end;
@@ -117,6 +135,7 @@ impl<S: StreamingSource> StreamModel<S> {
             self.resident.push(node);
         }
         self.current = next;
+        self.semantic_changed_from = semantic_changed_from;
         Ok(())
     }
 
@@ -154,9 +173,12 @@ impl<S: StreamingSource> StreamModel<S> {
             let end = frontier.min(source_end);
             if offset < end {
                 nodes.extend(
-                    semantic_slice_nodes(self.resident.nodes(), StreamRange::new(offset, end))
-                        .expect("resident stream suffix must be sliceable")
-                        .nodes,
+                    semantic_slice_nodes(
+                        self.resident.nodes_from(offset),
+                        StreamRange::new(offset, end),
+                    )
+                    .expect("resident stream suffix must be sliceable")
+                    .nodes,
                 );
             }
         }
@@ -249,7 +271,7 @@ impl<S: StreamingSource> StreamModel<S> {
             if range.start() < end {
                 nodes.extend(
                     semantic_slice_nodes(
-                        self.resident.nodes(),
+                        self.resident.nodes_from(range.start()),
                         StreamRange::new(range.start(), end),
                     )?
                     .nodes,
@@ -273,7 +295,6 @@ impl<S: StreamingSource> StreamModel<S> {
         Ok(StreamView::new(nodes))
     }
 
-    #[cfg(test)]
     #[cfg(test)]
     pub(crate) fn compile(&self, width: u16) -> CompiledStream {
         compile_stream_with_theme(
