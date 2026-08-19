@@ -132,6 +132,10 @@ export class KernelSession implements KernelSessionContract {
     return this.handle.nextEvent() as Promise<CoreEvent | null>;
   }
 
+  nextEvents(max = 64): Promise<CoreEvent[]> {
+    return this.handle.nextEvents(max) as Promise<CoreEvent[]>;
+  }
+
   events(): AsyncIterable<CoreEvent> {
     return eventsFromNextEvent(() => this.nextEvent());
   }

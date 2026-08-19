@@ -62,7 +62,7 @@ impl ModelTurn {
             .map_err(|_| NativeError::internal("event sender lock is poisoned"))?
             .clone()
             .ok_or_else(NativeError::closed)?;
-        let send = sender.send(crate::events::core_event(&event));
+        let send = sender.send(event);
         tokio::pin!(send);
         if observe_turn_cancel {
             tokio::select! {
@@ -182,10 +182,23 @@ impl ModelTurn {
                 "pushMany accepts at most {MAX_BATCH_SIZE} events"
             )));
         }
-        for value in values {
-            self.push(value).await?;
+        self.state.ensure_open()?;
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(NativeError::cancelled());
         }
-        Ok(())
+        let values = values
+            .into_iter()
+            .map(api::stream_event)
+            .collect::<Result<Vec<_>>>()?;
+        let events = {
+            let mut turn = self.take_turn()?;
+            let turn = turn.as_mut().ok_or_else(NativeError::closed)?;
+            for value in values {
+                turn.push(value).map_err(Self::turn_error)?;
+            }
+            turn.take_events()
+        };
+        self.emit_interruptible(events).await
     }
 
     #[napi]

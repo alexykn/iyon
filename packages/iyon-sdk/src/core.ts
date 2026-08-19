@@ -232,6 +232,7 @@ export interface NativeKernelSession {
   deliverUserMessage(text: string): MessageId;
   appendEntry(entry: SessionEntry): void;
   nextEvent(): Promise<CoreEvent | null>;
+  nextEvents(max?: number): Promise<CoreEvent[]>;
   beginModelTurn(options: ModelTurnOptions): ModelTurn;
   prepareToolExecution(request: ToolExecutionRequest): ToolExecution;
   enqueue(kind: "prompt" | "steer" | "followUp", text: string): Promise<number>;
