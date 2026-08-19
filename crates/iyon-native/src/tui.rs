@@ -1,5 +1,7 @@
-use napi::bindgen_prelude::{Array, JsObjectValue, JsValue, Object, Result, Uint32Array, Unknown, ValueType};
 use napi::Env;
+use napi::bindgen_prelude::{
+    Array, JsObjectValue, JsValue, Object, Result, Uint32Array, Unknown, ValueType,
+};
 use napi_derive::napi;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -77,6 +79,18 @@ pub fn tui_perf_reset_view_bridge_cache(env: Env) -> Result<()> {
         .nodes
         .clear();
     Ok(())
+}
+
+#[cfg(feature = "perf-packed-benchmark")]
+#[napi(js_name = "tuiPerfViewBridgeCacheSize")]
+pub fn tui_perf_view_bridge_cache_size(env: Env) -> Result<i64> {
+    let cache = view_bridge_cache_for_env(&env)?;
+    let size = cache
+        .lock()
+        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?
+        .nodes
+        .len();
+    i64::try_from(size).map_err(|_| crate::NativeError::internal("view bridge cache size overflow"))
 }
 
 mod tui_bridge_schema {

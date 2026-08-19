@@ -1,37 +1,36 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use napi::bindgen_prelude::Result;
 use napi::Status;
+use napi::bindgen_prelude::Result;
 
 use iyon_tui::{
     BorderEdges, BorderGlyphs, BorderSpec, ColorSpec, DiffHunk, DiffLine, DiffLineNumber,
-    DiffLineTermination, DiffRange, DiffLineOffset, GridCellSpec, GridTrack, HorizontalAlign,
+    DiffLineOffset, DiffLineTermination, DiffRange, GridCellSpec, GridTrack, HorizontalAlign,
     Insets, IntoView, Renderer, StyleRef, StyleSpec, TextAttribute, TextSpan, VerticalAlign, View,
     WrapMode,
 };
 
 use super::{
-    ViewBridgeCache, ALIGN_CENTER, ALIGN_END, ALIGN_START, DIFF_ADDITION, DIFF_CONTEXT,
-    DIFF_DELETION, DIFF_TERMINATED, DIFF_UNTERMINATED, GRID_TRACK_CONTENT, GRID_TRACK_CONTENT_MAX,
+    ALIGN_CENTER, ALIGN_END, ALIGN_START, DIFF_ADDITION, DIFF_CONTEXT, DIFF_DELETION,
+    DIFF_TERMINATED, DIFF_UNTERMINATED, GRID_TRACK_CONTENT, GRID_TRACK_CONTENT_MAX,
     GRID_TRACK_FIXED, GRID_TRACK_FLEX, GRID_TRACK_FLEX_MAX, LAYOUT_CHILD_CONTENT_MAX,
     LAYOUT_CHILD_FIXED, LAYOUT_CHILD_FLEX, LAYOUT_CHILD_FLEX_MAX, LAYOUT_CHILD_NORMAL,
-    OVERFLOW_ELLIPSIS, OVERFLOW_FOOTER, OVERFLOW_NONE, PACKED_BORDER_EDGES, PACKED_BORDER_EDGES_ALL,
-    PACKED_BORDER_EDGES_TOP_BOTTOM, PACKED_BORDER_EDGES_ABSENT, PACKED_BORDER_GLYPHS,
-    PACKED_BORDER_COLOR,
-    PACKED_BORDER_STYLE, PACKED_BORDER_STYLE_ABSENT, PACKED_BORDER_STYLE_DOUBLE,
-    PACKED_BORDER_STYLE_PLAIN, PACKED_BORDER_STYLE_ROUNDED, PACKED_COLOR_ANSI, PACKED_COLOR_NONE,
-    PACKED_COLOR_STRING, PACKED_DECORATION_BACKGROUND, PACKED_DECORATION_BORDER,
-    PACKED_DECORATION_FOREGROUND, PACKED_DECORATION_HEIGHT, PACKED_DECORATION_MAX_HEIGHT,
-    PACKED_DECORATION_MAX_WIDTH, PACKED_DECORATION_MIN_HEIGHT, PACKED_DECORATION_MIN_WIDTH,
-    PACKED_DECORATION_PADDING, PACKED_DECORATION_STATES, PACKED_DECORATION_STYLE,
-    PACKED_DECORATION_WIDTH, PACKED_RULE_FILL, PACKED_RULE_FIT,
+    OVERFLOW_ELLIPSIS, OVERFLOW_FOOTER, OVERFLOW_NONE, PACKED_BORDER_COLOR, PACKED_BORDER_EDGES,
+    PACKED_BORDER_EDGES_ABSENT, PACKED_BORDER_EDGES_ALL, PACKED_BORDER_EDGES_TOP_BOTTOM,
+    PACKED_BORDER_GLYPHS, PACKED_BORDER_STYLE, PACKED_BORDER_STYLE_ABSENT,
+    PACKED_BORDER_STYLE_DOUBLE, PACKED_BORDER_STYLE_PLAIN, PACKED_BORDER_STYLE_ROUNDED,
+    PACKED_COLOR_ANSI, PACKED_COLOR_NONE, PACKED_COLOR_STRING, PACKED_DECORATION_BACKGROUND,
+    PACKED_DECORATION_BORDER, PACKED_DECORATION_FOREGROUND, PACKED_DECORATION_HEIGHT,
+    PACKED_DECORATION_MAX_HEIGHT, PACKED_DECORATION_MAX_WIDTH, PACKED_DECORATION_MIN_HEIGHT,
+    PACKED_DECORATION_MIN_WIDTH, PACKED_DECORATION_PADDING, PACKED_DECORATION_STATES,
+    PACKED_DECORATION_STYLE, PACKED_DECORATION_WIDTH, PACKED_RULE_FILL, PACKED_RULE_FIT,
     PACKED_STYLE_BACKGROUND, PACKED_STYLE_FOREGROUND, PACKED_STYLE_THEME, PACKED_VIEW_DEF,
-    PACKED_VIEW_MAGIC, PACKED_VIEW_PROTOCOL_VERSION, PACKED_VIEW_REF, VIEW_BRIDGE_SCHEMA_VERSION,
-    VIEW_KIND_CLAMP, VIEW_KIND_COLUMN, VIEW_KIND_COMPONENT, VIEW_KIND_CONTAINER,
-    VIEW_KIND_CONTENT_MAX, VIEW_KIND_DECORATED, VIEW_KIND_DIFF, VIEW_KIND_GRID, VIEW_KIND_HANGING,
-    VIEW_KIND_ROW, VIEW_KIND_SPACER, VIEW_KIND_TEXT, VERTICAL_BOTTOM, VERTICAL_CENTER, VERTICAL_TOP,
-    WRAP_GRAPHEME, WRAP_NO_WRAP, WRAP_WORD_THEN_GRAPHEME,
+    PACKED_VIEW_MAGIC, PACKED_VIEW_PROTOCOL_VERSION, PACKED_VIEW_REF, VERTICAL_BOTTOM,
+    VERTICAL_CENTER, VERTICAL_TOP, VIEW_BRIDGE_SCHEMA_VERSION, VIEW_KIND_CLAMP, VIEW_KIND_COLUMN,
+    VIEW_KIND_COMPONENT, VIEW_KIND_CONTAINER, VIEW_KIND_CONTENT_MAX, VIEW_KIND_DECORATED,
+    VIEW_KIND_DIFF, VIEW_KIND_GRID, VIEW_KIND_HANGING, VIEW_KIND_ROW, VIEW_KIND_SPACER,
+    VIEW_KIND_TEXT, ViewBridgeCache, WRAP_GRAPHEME, WRAP_NO_WRAP, WRAP_WORD_THEN_GRAPHEME,
 };
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
@@ -41,7 +40,8 @@ const STYLE_ITALIC: u32 = 4;
 const STYLE_UNDERLINE: u32 = 8;
 const STYLE_REVERSED: u32 = 16;
 const STYLE_STRIKETHROUGH: u32 = 32;
-const STYLE_ALL: u32 = STYLE_BOLD | STYLE_DIM | STYLE_ITALIC | STYLE_UNDERLINE | STYLE_REVERSED | STYLE_STRIKETHROUGH;
+const STYLE_ALL: u32 =
+    STYLE_BOLD | STYLE_DIM | STYLE_ITALIC | STYLE_UNDERLINE | STYLE_REVERSED | STYLE_STRIKETHROUGH;
 
 fn invalid(message: impl Into<String>) -> napi::Error {
     crate::NativeError::invalid_input(message)
@@ -106,12 +106,16 @@ impl<'a> PackedTransaction<'a> {
             return Err(invalid("unsupported packed View transaction version"));
         }
         if words[2] != VIEW_BRIDGE_SCHEMA_VERSION {
-            return Err(invalid("packed View schema version does not match the direct bridge"));
+            return Err(invalid(
+                "packed View schema version does not match the direct bridge",
+            ));
         }
         let used_words = usize::try_from(words[3])
             .map_err(|_| invalid("packed transaction used word count is invalid"))?;
         if used_words < 5 || used_words > words.len() {
-            return Err(invalid("packed transaction used word count is out of bounds"));
+            return Err(invalid(
+                "packed transaction used word count is out of bounds",
+            ));
         }
         let root_count = usize::try_from(words[4])
             .map_err(|_| invalid("packed transaction root count is invalid"))?;
@@ -170,13 +174,17 @@ impl<'a> PackedTransaction<'a> {
             return Err(invalid(format!("unknown packed View opcode {opcode}")));
         }
         if !self.active.insert(id) {
-            return Err(invalid(format!("packed cyclic definition for node id {id}")));
+            return Err(invalid(format!(
+                "packed cyclic definition for node id {id}"
+            )));
         }
         let result = self.decode_definition(end);
         self.active.remove(&id);
         let candidate = result?;
         if self.cursor != end {
-            return Err(invalid("packed DEF record length does not match its payload"));
+            return Err(invalid(
+                "packed DEF record length does not match its payload",
+            ));
         }
 
         let existing = {
@@ -188,7 +196,9 @@ impl<'a> PackedTransaction<'a> {
         };
         let view = if let Some(existing) = existing {
             if existing != candidate {
-                return Err(invalid(format!("packed NodeId {id} changed semantic identity")));
+                return Err(invalid(format!(
+                    "packed NodeId {id} changed semantic identity"
+                )));
             }
             existing
         } else {
@@ -228,9 +238,13 @@ impl<'a> PackedTransaction<'a> {
             }
             VIEW_KIND_CONTENT_MAX => {
                 let max_rows = self.u16("contentMax maxRows")?;
-                Ok(self.decode_node()?.clamp_rows(max_rows, iyon_tui::OverflowIndicator::None))
+                Ok(self
+                    .decode_node()?
+                    .clamp_rows(max_rows, iyon_tui::OverflowIndicator::None))
             }
-            VIEW_KIND_COMPONENT => Ok(View::native_component(self.positive_safe("component handle")?)),
+            VIEW_KIND_COMPONENT => Ok(View::native_component(
+                self.positive_safe("component handle")?,
+            )),
             VIEW_KIND_DECORATED => {
                 let view = self.decode_node()?;
                 self.decode_decoration(view)
@@ -281,14 +295,18 @@ impl<'a> PackedTransaction<'a> {
                     other => return Err(invalid(format!("unknown diff termination {other}"))),
                 };
                 let line = match kind {
-                    DIFF_CONTEXT => DiffLine::context(self.diff_line_number()?, self.diff_line_number()?, text),
+                    DIFF_CONTEXT => {
+                        DiffLine::context(self.diff_line_number()?, self.diff_line_number()?, text)
+                    }
                     DIFF_ADDITION => DiffLine::addition(self.diff_line_number()?, text),
                     DIFF_DELETION => DiffLine::deletion(self.diff_line_number()?, text),
                     other => return Err(invalid(format!("unknown diff line kind {other}"))),
                 };
                 lines.push(line.with_termination(termination));
             }
-            hunks.push(DiffHunk::new(old_range, new_range, lines).map_err(|e| invalid(e.to_string()))?);
+            hunks.push(
+                DiffHunk::new(old_range, new_range, lines).map_err(|e| invalid(e.to_string()))?,
+            );
         }
         Ok(iyon_tui::DiffRenderer::new().render(hunks.as_slice()))
     }
@@ -359,8 +377,12 @@ impl<'a> PackedTransaction<'a> {
                 let spec = GridCellSpec::new()
                     .column_span(self.positive_u16("grid columnSpan")?)
                     .row_span(self.positive_u16("grid rowSpan")?)
-                    .horizontal_align(decode_horizontal_align(self.word("grid horizontal alignment")?)?)
-                    .vertical_align(decode_vertical_align(self.word("grid vertical alignment")?)?);
+                    .horizontal_align(decode_horizontal_align(
+                        self.word("grid horizontal alignment")?,
+                    )?)
+                    .vertical_align(decode_vertical_align(
+                        self.word("grid vertical alignment")?,
+                    )?);
                 cells.push((spec, self.decode_node()?));
             }
             rows.push((track, cells));
@@ -384,12 +406,17 @@ impl<'a> PackedTransaction<'a> {
     fn decode_overflow(&mut self) -> Result<iyon_tui::OverflowIndicator> {
         match self.word("overflow kind")? {
             OVERFLOW_NONE => Ok(iyon_tui::OverflowIndicator::None),
-            OVERFLOW_ELLIPSIS => Ok(iyon_tui::OverflowIndicator::Ellipsis { style: self.decode_style_ref()? }),
+            OVERFLOW_ELLIPSIS => Ok(iyon_tui::OverflowIndicator::Ellipsis {
+                style: self.decode_style_ref()?,
+            }),
             OVERFLOW_FOOTER => {
                 let prefix_index = self.word("overflow footer prefix")?;
                 let prefix = self.string(prefix_index)?.to_owned();
-                Ok(iyon_tui::OverflowIndicator::Footer { prefix, style: self.decode_style_ref()? })
-            },
+                Ok(iyon_tui::OverflowIndicator::Footer {
+                    prefix,
+                    style: self.decode_style_ref()?,
+                })
+            }
             other => Err(invalid(format!("unknown overflow kind {other}"))),
         }
     }
@@ -412,11 +439,22 @@ impl<'a> PackedTransaction<'a> {
             return Err(invalid("packed decoration flags are invalid"));
         }
         if flags & PACKED_DECORATION_PADDING != 0 {
-            view = view.padding(Insets::new(self.u16("padding top")?, self.u16("padding right")?, self.u16("padding bottom")?, self.u16("padding left")?));
+            view = view.padding(Insets::new(
+                self.u16("padding top")?,
+                self.u16("padding right")?,
+                self.u16("padding bottom")?,
+                self.u16("padding left")?,
+            ));
         }
-        if flags & PACKED_DECORATION_BACKGROUND != 0 { view = view.background(self.color()?); }
-        if flags & PACKED_DECORATION_FOREGROUND != 0 { view = view.foreground(self.color()?); }
-        if flags & PACKED_DECORATION_BORDER != 0 { view = view.border(self.border()?); }
+        if flags & PACKED_DECORATION_BACKGROUND != 0 {
+            view = view.background(self.color()?);
+        }
+        if flags & PACKED_DECORATION_FOREGROUND != 0 {
+            view = view.foreground(self.color()?);
+        }
+        if flags & PACKED_DECORATION_BORDER != 0 {
+            view = view.border(self.border()?);
+        }
         view = view.style(self.decode_style_ref()?);
         if flags & PACKED_DECORATION_STATES != 0 {
             for _ in 0..self.count("style state count")? {
@@ -427,31 +465,61 @@ impl<'a> PackedTransaction<'a> {
                 view = view.style_state(key, value);
             }
         }
-        if flags & PACKED_DECORATION_WIDTH != 0 { view = apply_width(view, self.rule("width rule")?, true)?; }
-        if flags & PACKED_DECORATION_HEIGHT != 0 { view = apply_width(view, self.rule("height rule")?, false)?; }
-        if flags & PACKED_DECORATION_MIN_WIDTH != 0 { view = view.min_width(self.u16("minWidth")?); }
-        if flags & PACKED_DECORATION_MAX_WIDTH != 0 { view = view.max_width(self.u16("maxWidth")?); }
-        if flags & PACKED_DECORATION_MIN_HEIGHT != 0 { view = view.min_height(self.u16("minHeight")?); }
-        if flags & PACKED_DECORATION_MAX_HEIGHT != 0 { view = view.max_height(self.u16("maxHeight")?); }
+        if flags & PACKED_DECORATION_WIDTH != 0 {
+            view = apply_width(view, self.rule("width rule")?, true)?;
+        }
+        if flags & PACKED_DECORATION_HEIGHT != 0 {
+            view = apply_width(view, self.rule("height rule")?, false)?;
+        }
+        if flags & PACKED_DECORATION_MIN_WIDTH != 0 {
+            view = view.min_width(self.u16("minWidth")?);
+        }
+        if flags & PACKED_DECORATION_MAX_WIDTH != 0 {
+            view = view.max_width(self.u16("maxWidth")?);
+        }
+        if flags & PACKED_DECORATION_MIN_HEIGHT != 0 {
+            view = view.min_height(self.u16("minHeight")?);
+        }
+        if flags & PACKED_DECORATION_MAX_HEIGHT != 0 {
+            view = view.max_height(self.u16("maxHeight")?);
+        }
         Ok(view)
     }
 
     fn decode_style_ref(&mut self) -> Result<StyleRef> {
         let flags = self.word("style flags")?;
         let known = PACKED_STYLE_THEME | PACKED_STYLE_FOREGROUND | PACKED_STYLE_BACKGROUND;
-        if flags & !known != 0 { return Err(invalid("packed style flags are invalid")); }
+        if flags & !known != 0 {
+            return Err(invalid("packed style flags are invalid"));
+        }
         let theme = if flags & PACKED_STYLE_THEME != 0 {
             let index = self.word("theme string index")?;
             Some(self.string(index)?.to_owned())
-        } else { None };
-        let foreground = if flags & PACKED_STYLE_FOREGROUND != 0 { Some(self.color()?) } else { None };
-        let background = if flags & PACKED_STYLE_BACKGROUND != 0 { Some(self.color()?) } else { None };
+        } else {
+            None
+        };
+        let foreground = if flags & PACKED_STYLE_FOREGROUND != 0 {
+            Some(self.color()?)
+        } else {
+            None
+        };
+        let background = if flags & PACKED_STYLE_BACKGROUND != 0 {
+            Some(self.color()?)
+        } else {
+            None
+        };
         let present = self.word("style attribute presence")?;
         let truth = self.word("style attribute truth")?;
-        if present & !STYLE_ALL != 0 || truth & !present != 0 { return Err(invalid("packed style attribute masks are invalid")); }
+        if present & !STYLE_ALL != 0 || truth & !present != 0 {
+            return Err(invalid("packed style attribute masks are invalid"));
+        }
         let mut style = StyleSpec::new();
-        if let Some(color) = foreground { style = style.foreground(color); }
-        if let Some(color) = background { style = style.background(color); }
+        if let Some(color) = foreground {
+            style = style.foreground(color);
+        }
+        if let Some(color) = background {
+            style = style.background(color);
+        }
         for (bit, attribute) in [
             (STYLE_BOLD, TextAttribute::Bold),
             (STYLE_DIM, TextAttribute::Dim),
@@ -460,7 +528,9 @@ impl<'a> PackedTransaction<'a> {
             (STYLE_REVERSED, TextAttribute::Reversed),
             (STYLE_STRIKETHROUGH, TextAttribute::Strikethrough),
         ] {
-            if present & bit != 0 { style = style.attribute(attribute, truth & bit != 0); }
+            if present & bit != 0 {
+                style = style.attribute(attribute, truth & bit != 0);
+            }
         }
         Ok(match theme {
             Some(name) => StyleRef::themed(name, style),
@@ -473,8 +543,11 @@ impl<'a> PackedTransaction<'a> {
             PACKED_COLOR_STRING => {
                 let index = self.word("color string index")?;
                 super::decode_color_string(self.string(index)?)
-            },
-            PACKED_COLOR_ANSI => Ok(ColorSpec::ansi(u8::try_from(self.word("ANSI color")?).map_err(|_| invalid("ANSI color must fit in u8"))?)),
+            }
+            PACKED_COLOR_ANSI => Ok(ColorSpec::ansi(
+                u8::try_from(self.word("ANSI color")?)
+                    .map_err(|_| invalid("ANSI color must fit in u8"))?,
+            )),
             PACKED_COLOR_NONE => Err(invalid("packed required color cannot be none")),
             other => Err(invalid(format!("unknown packed color tag {other}"))),
         }
@@ -482,8 +555,11 @@ impl<'a> PackedTransaction<'a> {
 
     fn border(&mut self) -> Result<BorderSpec> {
         let flags = self.word("border flags")?;
-        let known = PACKED_BORDER_GLYPHS | PACKED_BORDER_COLOR | PACKED_BORDER_STYLE | PACKED_BORDER_EDGES;
-        if flags & !known != 0 { return Err(invalid("packed border flags are invalid")); }
+        let known =
+            PACKED_BORDER_GLYPHS | PACKED_BORDER_COLOR | PACKED_BORDER_STYLE | PACKED_BORDER_EDGES;
+        if flags & !known != 0 {
+            return Err(invalid("packed border flags are invalid"));
+        }
         let glyphs = if flags & PACKED_BORDER_GLYPHS != 0 {
             let mut values = Vec::with_capacity(8);
             for _ in 0..8 {
@@ -491,10 +567,24 @@ impl<'a> PackedTransaction<'a> {
                 values.push(self.string(index)?.to_owned());
             }
             Some(values)
-        } else { None };
-        let color = if flags & PACKED_BORDER_COLOR != 0 { Some(self.color()?) } else { None };
-        let style = if flags & PACKED_BORDER_STYLE != 0 { Some(self.word("border style")?) } else { None };
-        let edges = if flags & PACKED_BORDER_EDGES != 0 { Some(self.word("border edges")?) } else { None };
+        } else {
+            None
+        };
+        let color = if flags & PACKED_BORDER_COLOR != 0 {
+            Some(self.color()?)
+        } else {
+            None
+        };
+        let style = if flags & PACKED_BORDER_STYLE != 0 {
+            Some(self.word("border style")?)
+        } else {
+            None
+        };
+        let edges = if flags & PACKED_BORDER_EDGES != 0 {
+            Some(self.word("border edges")?)
+        } else {
+            None
+        };
         let mut spec = match style.unwrap_or(PACKED_BORDER_STYLE_PLAIN) {
             PACKED_BORDER_STYLE_PLAIN => BorderSpec::plain(),
             PACKED_BORDER_STYLE_ROUNDED => BorderSpec::rounded(),
@@ -503,10 +593,13 @@ impl<'a> PackedTransaction<'a> {
             other => return Err(invalid(format!("unknown packed border style {other}"))),
         };
         if let Some(values) = glyphs {
-            spec = BorderSpec::custom(BorderGlyphs::new(
-                &values[0], &values[1], &values[2], &values[3],
-                &values[4], &values[5], &values[6], &values[7],
-            ).map_err(|e| invalid(e.to_string()))?);
+            spec = BorderSpec::custom(
+                BorderGlyphs::new(
+                    &values[0], &values[1], &values[2], &values[3], &values[4], &values[5],
+                    &values[6], &values[7],
+                )
+                .map_err(|e| invalid(e.to_string()))?,
+            );
         }
         match edges.unwrap_or(PACKED_BORDER_EDGES_ALL) {
             PACKED_BORDER_EDGES_ALL => {}
@@ -514,7 +607,9 @@ impl<'a> PackedTransaction<'a> {
             PACKED_BORDER_EDGES_ABSENT => {}
             other => return Err(invalid(format!("unknown packed border edges {other}"))),
         }
-        if let Some(color) = color { spec = spec.color(color); }
+        if let Some(color) = color {
+            spec = spec.color(color);
+        }
         Ok(spec)
     }
 
@@ -569,13 +664,17 @@ impl<'a> PackedTransaction<'a> {
         let low = u64::from(self.word("node id low")?);
         let high = u64::from(self.word("node id high")?);
         let value = (high << 32) | low;
-        if value == 0 || value > MAX_SAFE_INTEGER { return Err(invalid("packed node id must be a positive safe integer")); }
+        if value == 0 || value > MAX_SAFE_INTEGER {
+            return Err(invalid("packed node id must be a positive safe integer"));
+        }
         Ok(value)
     }
 
     fn positive_safe(&mut self, name: &str) -> Result<u64> {
         let value = self.safe_nonnegative(name)?;
-        if value == 0 { return Err(invalid(format!("{name} must be positive"))); }
+        if value == 0 {
+            return Err(invalid(format!("{name} must be positive")));
+        }
         Ok(value)
     }
 
@@ -583,19 +682,29 @@ impl<'a> PackedTransaction<'a> {
         let low = u64::from(self.word(&format!("{name} low"))?);
         let high = u64::from(self.word(&format!("{name} high"))?);
         let value = (high << 32) | low;
-        if value > MAX_SAFE_INTEGER { return Err(invalid(format!("{name} must be a safe integer"))); }
+        if value > MAX_SAFE_INTEGER {
+            return Err(invalid(format!("{name} must be a safe integer")));
+        }
         Ok(value)
     }
 
     fn string(&mut self, index: u32) -> Result<&'a str> {
-        let value = self.strings.get(index as usize).ok_or_else(|| invalid("packed string index is out of range"))?;
-        add(iyon_tui::perf::Counter::NapiPackedStringBytesCopied, value.len());
+        let value = self
+            .strings
+            .get(index as usize)
+            .ok_or_else(|| invalid("packed string index is out of range"))?;
+        add(
+            iyon_tui::perf::Counter::NapiPackedStringBytesCopied,
+            value.len(),
+        );
         Ok(value)
     }
 
     fn count(&mut self, name: &str) -> Result<usize> {
         let value = self.word(name)? as usize;
-        if value > 1_000_000 { return Err(invalid(format!("{name} is unreasonably large"))); }
+        if value > 1_000_000 {
+            return Err(invalid(format!("{name} is unreasonably large")));
+        }
         Ok(value)
     }
 
@@ -605,17 +714,26 @@ impl<'a> PackedTransaction<'a> {
 
     fn positive_u16(&mut self, name: &str) -> Result<u16> {
         let value = self.u16(name)?;
-        if value == 0 { return Err(invalid(format!("{name} must be positive"))); }
+        if value == 0 {
+            return Err(invalid(format!("{name} must be positive")));
+        }
         Ok(value)
     }
 
     fn rule(&mut self, name: &str) -> Result<u32> {
         let value = self.word(name)?;
-        if value == PACKED_RULE_FIT || value == PACKED_RULE_FILL { Ok(value) } else { Err(invalid(format!("invalid {name}"))) }
+        if value == PACKED_RULE_FIT || value == PACKED_RULE_FILL {
+            Ok(value)
+        } else {
+            Err(invalid(format!("invalid {name}")))
+        }
     }
 
     fn word(&mut self, name: &str) -> Result<u32> {
-        let value = *self.words.get(self.cursor).ok_or_else(|| invalid(format!("packed transaction is missing {name}")))?;
+        let value = *self
+            .words
+            .get(self.cursor)
+            .ok_or_else(|| invalid(format!("packed transaction is missing {name}")))?;
         self.cursor += 1;
         inc(iyon_tui::perf::Counter::NapiPackedWordsRead);
         Ok(value)
@@ -646,7 +764,9 @@ fn decode_horizontal_align(value: u32) -> Result<HorizontalAlign> {
         ALIGN_START => Ok(HorizontalAlign::Start),
         ALIGN_CENTER => Ok(HorizontalAlign::Center),
         ALIGN_END => Ok(HorizontalAlign::End),
-        other => Err(invalid(format!("unknown packed horizontal alignment {other}"))),
+        other => Err(invalid(format!(
+            "unknown packed horizontal alignment {other}"
+        ))),
     }
 }
 
@@ -655,6 +775,8 @@ fn decode_vertical_align(value: u32) -> Result<VerticalAlign> {
         VERTICAL_TOP => Ok(VerticalAlign::Top),
         VERTICAL_CENTER => Ok(VerticalAlign::Center),
         VERTICAL_BOTTOM => Ok(VerticalAlign::Bottom),
-        other => Err(invalid(format!("unknown packed vertical alignment {other}"))),
+        other => Err(invalid(format!(
+            "unknown packed vertical alignment {other}"
+        ))),
     }
 }

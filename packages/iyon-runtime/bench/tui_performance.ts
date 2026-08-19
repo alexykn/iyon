@@ -32,6 +32,7 @@ type PerfNative = typeof native & {
   tuiPerfReset?: () => void;
   tuiPerfSnapshot?: () => Record<string, number>;
   tuiPerfResetViewBridgeCache?: () => void;
+  tuiPerfViewBridgeCacheSize?: () => number;
 };
 
 type Sample = {
@@ -45,6 +46,9 @@ type Sample = {
   readonly cpuUserUs: number;
   readonly cpuSystemUs: number;
   readonly heapDelta: number;
+  readonly rssDelta: number;
+  readonly scratchCapacity: number;
+  readonly nativeCacheSize: number;
 };
 
 type Stats = {
@@ -376,6 +380,7 @@ function runSample(
   const packedBefore = packedEncoderSnapshot();
   const cpuBefore = process.cpuUsage();
   const heapBefore = process.memoryUsage().heapUsed;
+  const rssBefore = process.memoryUsage().rss;
   const commitStarted = now();
   let encoding = 0;
   let native = 0;
@@ -398,13 +403,15 @@ function runSample(
   const forcedFrame = now() - forcedStarted;
   const cpu = process.cpuUsage(cpuBefore);
   const heapDelta = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  const rssDelta = Math.max(0, process.memoryUsage().rss - rssBefore);
+  const nativeCacheSize = perfNative.tuiPerfViewBridgeCacheSize?.() ?? 0;
   const nativeAfter = nativeCounters();
   const packedAfter = packedEncoderSnapshot();
   addCounters(candidate === "direct" ? state.directCounters : state.packedCounters, diffCounters(nativeBefore, nativeAfter));
   if (candidate === "packed") addCounters(state.packedCounters, diffCounters(packedBefore, packedAfter));
   if (firstUse) host.dispose();
-  if (warmup) return { nodeCount: 0, total: 0, commit: 0, forcedFrame: 0, construction: 0, encoding: 0, native: 0, cpuUserUs: 0, cpuSystemUs: 0, heapDelta: 0 };
-  return { nodeCount: uniqueNodeCount(view), total: construction + commit, commit, forcedFrame: construction + forcedFrame, construction, encoding, native: native || commit, cpuUserUs: cpu.user, cpuSystemUs: cpu.system, heapDelta };
+  if (warmup) return { nodeCount: 0, total: 0, commit: 0, forcedFrame: 0, construction: 0, encoding: 0, native: 0, cpuUserUs: 0, cpuSystemUs: 0, heapDelta: 0, rssDelta: 0, scratchCapacity: 0, nativeCacheSize: 0 };
+  return { nodeCount: uniqueNodeCount(view), total: construction + commit, commit, forcedFrame: construction + forcedFrame, construction, encoding, native: native || commit, cpuUserUs: cpu.user, cpuSystemUs: cpu.system, heapDelta, rssDelta, scratchCapacity: encoder?.scratchCapacity() ?? 0, nativeCacheSize };
 }
 
 type CaseState = {
@@ -432,8 +439,8 @@ function makeCaseState(workload: Workload, size: number, pattern: Pattern): Case
     packedEncoder: createPackedViewEncoder(),
     directCounters: {},
     packedCounters: {},
-    directBase: pattern === "IDENTICAL_IDENTITY" ? workloadView(workload, size, directComponentId) : undefined,
-    packedBase: pattern === "IDENTICAL_IDENTITY" ? workloadView(workload, size, packedComponentId) : undefined,
+    directBase: workloadView(workload, size, directComponentId),
+    packedBase: workloadView(workload, size, packedComponentId),
     directShared: pattern === "SHARED_PATH" || pattern === "SHARED_WIDE" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-direct") : undefined,
     packedShared: pattern === "SHARED_PATH" || pattern === "SHARED_WIDE" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-packed") : undefined,
     directComponentId,
@@ -476,6 +483,9 @@ function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern:
     cpu_user_us: samples.reduce((sum, sample) => sum + sample.cpuUserUs, 0),
     cpu_system_us: samples.reduce((sum, sample) => sum + sample.cpuSystemUs, 0),
     heap_peak_delta_bytes: samples.reduce((peak, sample) => Math.max(peak, sample.heapDelta), 0),
+    rss_peak_delta_bytes: samples.reduce((peak, sample) => Math.max(peak, sample.rssDelta), 0),
+    scratch_word_capacity: samples.reduce((peak, sample) => Math.max(peak, sample.scratchCapacity), 0),
+    native_bridge_cache_entries: samples.length === 0 ? 0 : samples[samples.length - 1]!.nativeCacheSize,
     counters: candidate === "direct" ? state.directCounters : state.packedCounters,
     bun_version: Bun.version,
     rustc_version: runtimeVersion("rustc --version"),

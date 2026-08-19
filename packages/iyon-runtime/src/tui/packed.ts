@@ -102,6 +102,10 @@ class WordWriter {
     return this.cursor;
   }
 
+  get capacity(): number {
+    return this.buffer.length;
+  }
+
   push(value: number): void {
     if (!Number.isInteger(value) || value < 0 || value >= U32) throw new RangeError("packed word must be a uint32");
     this.ensure(1);
@@ -155,6 +159,10 @@ export class PackedViewEncoder {
   resetKnownNativeState(): void {
     this.knownNodes = new WeakSet<object>();
     this.refPackets = new WeakMap<object, Uint32Array>();
+  }
+
+  scratchCapacity(): number {
+    return this.writer.capacity;
   }
 
   encodeRoots(roots: readonly BridgeViewNode[], forceCold = false): PackedTransaction {
