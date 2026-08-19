@@ -21,7 +21,7 @@ use crate::{
     physical::Surface,
     presentation::{
         layout::{LayoutCache, ViewCompiler},
-        paint::ViewPainter,
+        paint::{PaintCache, ViewPainter},
     },
 };
 
@@ -157,6 +157,7 @@ pub(crate) struct SceneHost {
     graph: MountGraph,
     capabilities: MountedCapabilities,
     layout_cache: LayoutCache,
+    paint_cache: PaintCache,
     /// Counts calls to `resolve_stable_at_with_anchor` for structural test
     /// assertions. Not compiled into production builds.
     #[cfg(test)]
@@ -174,6 +175,7 @@ impl Default for SceneHost {
             graph: MountGraph::default(),
             capabilities: MountedCapabilities::default(),
             layout_cache: LayoutCache::default(),
+            paint_cache: PaintCache::default(),
             #[cfg(test)]
             resolve_count: 0,
         }
@@ -429,9 +431,14 @@ impl SceneHost {
         Err(SceneHostError::DidNotConverge)
     }
 
-    fn paint(&self, resolved: StableScene, theme: &Theme) -> PreparedSceneFrame {
+    fn paint(&mut self, resolved: StableScene, theme: &Theme) -> PreparedSceneFrame {
+        self.paint_cache.begin_epoch(theme);
         let compiler = ViewCompiler::with_interaction(theme, self.focus.focused(), &self.graph);
-        let surface = ViewPainter.paint_tree(&compiler, &resolved.layout.tree);
+        let surface = ViewPainter.paint_tree_with_cache(
+            &compiler,
+            &resolved.layout.tree,
+            &mut self.paint_cache,
+        );
         PreparedSceneFrame {
             surface,
             history_overlay: resolved.root.history_overlay,

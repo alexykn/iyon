@@ -52,6 +52,12 @@ pub(super) fn emit_prepared(
     };
     let id = LayoutNodeId(nodes.len());
     nodes.push(LayoutNode {
+        view_id: prepared
+            .measured
+            .key
+            .component_view
+            .unwrap_or_else(|| prepared.measured.view.id()),
+        paint_cacheable: prepared.measured.cacheable,
         rect,
         content_rect,
         clip_rect: node_clip,

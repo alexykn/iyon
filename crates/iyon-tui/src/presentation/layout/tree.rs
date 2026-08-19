@@ -4,7 +4,7 @@ use crate::{
     component::ComponentId,
     geometry::{Rect, Size},
     presentation::api::style::{StyleFacts, StyleStates},
-    presentation::ir::{Decoration, TextView},
+    presentation::ir::{Decoration, TextView, ViewId},
     presentation::{OverflowIndicator, WidthRule},
 };
 
@@ -39,6 +39,8 @@ pub(crate) enum LayoutContent {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct LayoutNode {
+    pub(crate) view_id: ViewId,
+    pub(crate) paint_cacheable: bool,
     pub(crate) rect: Rect,
     pub(crate) content_rect: Rect,
     pub(crate) clip_rect: Rect,

@@ -14,7 +14,7 @@ use crate::{
     perf::{self, PerfSnapshot},
     presentation::{
         layout::{self, LayoutCache},
-        paint::ViewPainter,
+        paint::{PaintCache, ViewPainter},
     },
     scene::{ResolveSession, layout_resolved_scene, layout_resolved_scene_with_cache},
 };
@@ -62,6 +62,11 @@ impl Workload {
 struct ViewFixture {
     view: View,
     registry: Option<ComponentRegistry>,
+}
+
+struct RenderTiming {
+    height: usize,
+    paint_ns: u128,
 }
 
 struct PerfComponent {
@@ -156,14 +161,15 @@ fn build_fixture(workload: Workload, nodes: usize) -> ViewFixture {
     }
 }
 
-fn render_view(
+fn render_view_timed(
     view: &View,
     registry: Option<&ComponentRegistry>,
     width: u16,
     height: u16,
     cache: &mut LayoutCache,
-) -> usize {
-    if let Some(registry) = registry {
+    paint_cache: Option<&mut PaintCache>,
+) -> RenderTiming {
+    let (tree, compiler) = if let Some(registry) = registry {
         let mut session = ResolveSession::new(registry);
         let resolved = session
             .resolve_root(view)
@@ -175,17 +181,37 @@ fn render_view(
             None,
             &scene.mounts,
         );
-        return usize::from(ViewPainter.paint_tree(&compiler, &geometry.tree).height());
-    }
+        (geometry.tree, compiler)
+    } else {
+        let tree = layout::layout_view_with_overlay_and_cache(
+            view,
+            LayoutConstraints::width_only(width),
+            &crate::scene::ResolutionOverlay::default(),
+            cache,
+        );
+        let compiler = crate::presentation::layout::ViewCompiler::new(&Theme::default());
+        (tree, compiler)
+    };
 
-    let tree = layout::layout_view_with_overlay_and_cache(
-        view,
-        LayoutConstraints::width_only(width),
-        &crate::scene::ResolutionOverlay::default(),
-        cache,
-    );
-    let compiler = crate::presentation::layout::ViewCompiler::new(&Theme::default());
-    usize::from(ViewPainter.paint_tree(&compiler, &tree).height())
+    let paint_start = Instant::now();
+    let surface = match paint_cache {
+        Some(cache) => ViewPainter.paint_tree_with_cache(&compiler, &tree, cache),
+        None => ViewPainter.paint_tree(&compiler, &tree),
+    };
+    RenderTiming {
+        height: usize::from(surface.height()),
+        paint_ns: paint_start.elapsed().as_nanos(),
+    }
+}
+
+fn render_view(
+    view: &View,
+    registry: Option<&ComponentRegistry>,
+    width: u16,
+    height: u16,
+    cache: &mut LayoutCache,
+) -> usize {
+    render_view_timed(view, registry, width, height, cache, None).height
 }
 
 fn iterations_for(nodes: usize) -> usize {
@@ -370,6 +396,93 @@ fn render_history(history: &History, registry: &ComponentRegistry) -> usize {
         &scene.mounts,
     );
     usize::from(ViewPainter.paint_tree(&compiler, &geometry.tree).height())
+}
+
+fn run_paint_gate_case(workload: Workload, nodes: usize, sha: &str) {
+    let iterations = std::env::var("PERF_PAINT_ITERATIONS")
+        .ok()
+        .map(|value| {
+            value
+                .parse()
+                .expect("PERF_PAINT_ITERATIONS must be an integer")
+        })
+        .unwrap_or(30);
+    let base = build_fixture(workload, nodes);
+    let shared = base.view.clone();
+    let mut cache = LayoutCache::default();
+    let mut paint_cache = PaintCache::default();
+    paint_cache.begin_epoch(&Theme::default());
+
+    for index in 0..3 {
+        cache.begin_epoch();
+        let view = View::vertical(|column| {
+            column.child(shared.clone());
+            column.child(View::text(format!("warmup-{index}")));
+        });
+        let _ = render_view_timed(
+            &view,
+            base.registry.as_ref(),
+            80,
+            24,
+            &mut cache,
+            Some(&mut paint_cache),
+        );
+    }
+
+    let mut total_samples = Vec::with_capacity(iterations);
+    let mut paint_samples = Vec::with_capacity(iterations);
+    perf::reset();
+    for index in 0..iterations {
+        cache.begin_epoch();
+        let view = View::vertical(|column| {
+            column.child(shared.clone());
+            column.child(View::text(format!("changed-{index}")));
+        });
+        let started = Instant::now();
+        paint_cache.begin_epoch(&Theme::default());
+        let timing = render_view_timed(
+            &view,
+            base.registry.as_ref(),
+            80,
+            24,
+            &mut cache,
+            Some(&mut paint_cache),
+        );
+        total_samples.push(started.elapsed().as_nanos());
+        paint_samples.push(timing.paint_ns);
+    }
+
+    let total_p95 = percentile(&total_samples, 95);
+    let paint_p95 = percentile(&paint_samples, 95);
+    let paint_share = if total_p95 == 0 {
+        0.0
+    } else {
+        paint_p95 as f64 / total_p95 as f64
+    };
+    let counters_json = perf::snapshot()
+        .iter()
+        .map(|(name, value)| format!("\"{name}\":{value}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    println!(
+        "{{\"benchmark\":\"paint_gate/{}/{nodes}/SHARED_PATH\",\"implementation\":\"after_perf9\",\"node_count\":{nodes},\"source_bytes\":0,\"iterations\":{iterations},\"dirty_frame_median_ns\":{},\"dirty_frame_p95_ns\":{total_p95},\"paint_median_ns\":{},\"paint_p95_ns\":{paint_p95},\"paint_p95_share\":{paint_share:.6},\"counters\":{{{counters_json}}},\"git_sha\":\"{sha}\"}}",
+        workload.name(),
+        percentile(&total_samples, 50),
+        percentile(&paint_samples, 50),
+    );
+}
+
+fn run_paint_gate(sha: &str) {
+    for (workload, nodes) in [
+        (Workload::TextHeavy, 2_000),
+        (Workload::TextHeavy, 10_000),
+        (Workload::ColumnHeavy, 2_000),
+        (Workload::ColumnHeavy, 10_000),
+        (Workload::StyledSpanHeavy, 2_000),
+        (Workload::StyledSpanHeavy, 10_000),
+    ] {
+        run_paint_gate_case(workload, nodes, sha);
+    }
 }
 
 fn run_history_case(sha: &str) {
@@ -560,6 +673,10 @@ fn run_stream_case(target: usize, sha: &str) {
 /// Runs the complete first-tranche oracle and emits one JSON object per line.
 pub fn run() {
     let sha = git_sha();
+    if std::env::var_os("PERF_ONLY_PAINT_GATE").is_some() {
+        run_paint_gate(&sha);
+        return;
+    }
     if std::env::var_os("PERF_ONLY_STREAM").is_some() {
         for target in stream_targets() {
             run_stream_case(target, &sha);
