@@ -1,26 +1,74 @@
 import { View } from "./view.ts";
+import type { DiffHunkNode } from "../ir.ts";
 
 export type DiffLineKind = "context" | "addition" | "deletion";
 export type DiffLineTermination = "lf" | "crlf" | "none";
 
 export class DiffRange {
   readonly kind = "diff-range" as const;
-  constructor(readonly start: number, readonly end: number) { if (start < 0 || end < start) throw new RangeError("invalid diff range"); }
+
+  constructor(readonly start: number, readonly end: number) {
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) {
+      throw new RangeError("invalid diff range");
+    }
+  }
 }
 
 export class DiffLine {
   readonly kind = "diff-line" as const;
-  constructor(readonly lineKind: DiffLineKind, readonly text: string, readonly termination: DiffLineTermination = "lf") {}
+
+  constructor(
+    readonly lineKind: DiffLineKind,
+    readonly text: string,
+    readonly termination: DiffLineTermination = "lf",
+  ) {}
 }
 
 export class DiffHunk {
   readonly kind = "diff-hunk" as const;
-  constructor(readonly oldRange: DiffRange, readonly newRange: DiffRange, readonly lines: readonly DiffLine[] = []) {}
-  render(): View { return View.vertical(this.lines.map((line) => View.text(`${prefix(line.lineKind)}${line.text}`))); }
+
+  constructor(
+    readonly oldRange: DiffRange,
+    readonly newRange: DiffRange,
+    readonly lines: readonly DiffLine[] = [],
+  ) {}
+
+  render(): View {
+    return new DiffRenderer().render(this);
+  }
 }
 
+/** Semantic diff renderer. Rust lowers the diff node into the themed View. */
 export class DiffRenderer {
-  render(hunk: DiffHunk): View { return hunk.render(); }
+  render(hunks: DiffHunk | readonly DiffHunk[]): View {
+    const values = Array.isArray(hunks) ? hunks : [hunks];
+    return View.diff(values.map(toNode));
+  }
+
+  renderHunk(hunk: DiffHunk): View {
+    return this.render(hunk);
+  }
 }
 
-function prefix(kind: DiffLineKind): string { return kind === "addition" ? "+" : kind === "deletion" ? "-" : " "; }
+function toNode(hunk: DiffHunk): DiffHunkNode {
+  let oldLine = hunk.oldRange.start + 1;
+  let newLine = hunk.newRange.start + 1;
+  const lines = hunk.lines.map((line) => {
+    const node = {
+      kind: line.lineKind,
+      text: line.text,
+      termination: line.termination === "none" ? "unterminated" : "terminated",
+      ...(line.lineKind === "context" ? { oldLine, newLine } : {}),
+      ...(line.lineKind === "addition" ? { newLine } : {}),
+      ...(line.lineKind === "deletion" ? { oldLine } : {}),
+    } as const;
+    if (line.lineKind !== "addition") oldLine += 1;
+    if (line.lineKind !== "deletion") newLine += 1;
+    return node;
+  });
+  return {
+    oldRange: { start: hunk.oldRange.start, count: hunk.oldRange.end - hunk.oldRange.start },
+    newRange: { start: hunk.newRange.start, count: hunk.newRange.end - hunk.newRange.start },
+    lines,
+  };
+}

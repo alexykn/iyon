@@ -1,5 +1,6 @@
 export type DiffLineKind = "context" | "addition" | "deletion";
-export interface DiffLine { readonly kind: DiffLineKind; readonly text: string; }
+export type DiffLineTermination = "lf" | "crlf" | "none";
+export interface DiffLine { readonly kind: DiffLineKind; readonly text: string; readonly termination?: DiffLineTermination; }
 export interface DiffHunk { readonly oldStart: number; readonly oldCount: number; readonly newStart: number; readonly newCount: number; readonly lines: readonly DiffLine[]; }
 
 export function unifiedDiff(path: string, before: string, after: string): string {
@@ -27,11 +28,19 @@ export function parseUnifiedDiff(diff: string): DiffHunk[] {
       hunks.push(current);
       continue;
     }
+    if (line === "\\ No newline at end of file") {
+      if (!current || current.lines.length === 0) throw new Error("orphaned no-newline marker");
+      const lines = [...current.lines];
+      lines[lines.length - 1] = { ...lines[lines.length - 1]!, termination: "none" };
+      current = { ...current, lines };
+      hunks[hunks.length - 1] = current;
+      continue;
+    }
     if (!current || line.startsWith("--- ") || line.startsWith("+++ ") || line === "") continue;
     const prefix = line[0];
     if (prefix !== " " && prefix !== "+" && prefix !== "-") throw new Error("malformed unified diff line");
-      current = { ...current, lines: [...current.lines, { kind: prefix === "+" ? "addition" : prefix === "-" ? "deletion" : "context", text: line.slice(1) }] };
-      hunks[hunks.length - 1] = current;
+    current = { ...current, lines: [...current.lines, { kind: prefix === "+" ? "addition" : prefix === "-" ? "deletion" : "context", text: line.slice(1) }] };
+    hunks[hunks.length - 1] = current;
   }
   if (hunks.length === 0) throw new Error("unified diff contains no hunks");
   return hunks;
