@@ -10,5 +10,6 @@ export function renderWriteResult(result: ToolResult): View {
   if (result.isError) return View.spacer(0) as unknown as View;
   const summary = toolText(resultText(result), resultStyle(false)).fillWidth();
   const diff = renderDiff(result.details);
-  return resultBlock(diff ? View.vertical([summary, diff]) : summary) as unknown as View;
+  const body = diff ? View.vertical([summary, diff]).fillWidth() : summary;
+  return resultBlock(body) as unknown as View;
 }

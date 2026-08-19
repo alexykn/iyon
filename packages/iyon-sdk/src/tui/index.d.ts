@@ -109,6 +109,7 @@ export declare class DiffHunk {
   readonly newRange: DiffRange;
   readonly lines: readonly DiffLine[];
   constructor(oldRange: DiffRange, newRange: DiffRange, lines?: readonly DiffLine[]);
+  validate(): void;
   render(): View;
 }
 
