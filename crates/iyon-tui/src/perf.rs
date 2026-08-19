@@ -38,10 +38,26 @@ pub enum Counter {
     StreamStableRowsReused,
     StreamSemanticRestartOffset,
     StreamVisualRestartOffset,
+    PackedEncoderNodesVisited,
+    PackedEncoderRefRecords,
+    PackedEncoderDefRecords,
+    PackedEncoderWordsUsed,
+    PackedEncoderStrings,
+    PackedEncoderStringBytes,
+    PackedEncoderBufferGrows,
+    PackedEncoderRefPacketHits,
+    PackedEncoderCacheResyncs,
+    PackedEncoderColdRetries,
+    NapiPackedNodesSeen,
+    NapiPackedRefHits,
+    NapiPackedRefMisses,
+    NapiPackedDefsDecoded,
+    NapiPackedWordsRead,
+    NapiPackedStringBytesCopied,
 }
 
 impl Counter {
-    pub const COUNT: usize = Self::StreamVisualRestartOffset as usize + 1;
+    pub const COUNT: usize = Self::NapiPackedStringBytesCopied as usize + 1;
 
     const fn index(self) -> usize {
         self as usize
@@ -76,6 +92,22 @@ const NAMES: [&str; Counter::COUNT] = [
     "stream_stable_rows_reused",
     "stream_semantic_restart_offset",
     "stream_visual_restart_offset",
+    "packed_encoder_nodes_visited",
+    "packed_encoder_ref_records",
+    "packed_encoder_def_records",
+    "packed_encoder_words_used",
+    "packed_encoder_strings",
+    "packed_encoder_string_bytes",
+    "packed_encoder_buffer_grows",
+    "packed_encoder_ref_packet_hits",
+    "packed_encoder_cache_resyncs",
+    "packed_encoder_cold_retries",
+    "napi_packed_nodes_seen",
+    "napi_packed_ref_hits",
+    "napi_packed_ref_misses",
+    "napi_packed_defs_decoded",
+    "napi_packed_words_read",
+    "napi_packed_string_bytes_copied",
 ];
 
 #[cfg(feature = "perf-counters")]
@@ -90,9 +122,15 @@ pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// A point-in-time copy of every performance counter.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PerfSnapshot {
     values: [u64; Counter::COUNT],
+}
+
+impl Default for PerfSnapshot {
+    fn default() -> Self {
+        Self { values: [0; Counter::COUNT] }
+    }
 }
 
 impl PerfSnapshot {

@@ -1,4 +1,5 @@
-use napi::bindgen_prelude::{Array, JsObjectValue, JsValue, Object, Result, Unknown, ValueType};
+use napi::bindgen_prelude::{Array, JsObjectValue, JsValue, Object, Result, Uint32Array, Unknown, ValueType};
+use napi::Env;
 use napi_derive::napi;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -66,11 +67,26 @@ pub fn tui_view_bridge_environment_count() -> i64 {
         .unwrap_or(0)
 }
 
+#[cfg(feature = "perf-packed-benchmark")]
+#[napi(js_name = "tuiPerfResetViewBridgeCache")]
+pub fn tui_perf_reset_view_bridge_cache(env: Env) -> Result<()> {
+    let cache = view_bridge_cache_for_env(&env)?;
+    cache
+        .lock()
+        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?
+        .nodes
+        .clear();
+    Ok(())
+}
+
 mod tui_bridge_schema {
     include!(concat!(env!("OUT_DIR"), "/tui_bridge_schema.rs"));
 }
 
 use tui_bridge_schema::*;
+
+#[cfg(feature = "perf-packed-benchmark")]
+mod packed;
 
 struct ViewBridgeCache {
     nodes: HashMap<u64, iyon_tui::WeakView>,
@@ -80,7 +96,14 @@ static VIEW_BRIDGE_CACHES: OnceLock<Mutex<HashMap<usize, Arc<Mutex<ViewBridgeCac
     OnceLock::new();
 
 fn view_bridge_cache(value: &Object<'_>) -> Result<Arc<Mutex<ViewBridgeCache>>> {
-    let env = value.value().env;
+    view_bridge_cache_for_raw_env(value.value().env)
+}
+
+fn view_bridge_cache_for_env(env: &Env) -> Result<Arc<Mutex<ViewBridgeCache>>> {
+    view_bridge_cache_for_raw_env(env.raw())
+}
+
+fn view_bridge_cache_for_raw_env(env: napi::sys::napi_env) -> Result<Arc<Mutex<ViewBridgeCache>>> {
     let key = env as usize;
     let caches = VIEW_BRIDGE_CACHES.get_or_init(|| Mutex::new(HashMap::new()));
     let mut caches = caches
@@ -621,6 +644,19 @@ impl NativeTuiHost {
         ensure_alive(&self.alive)?;
         self.host
             .render(decode_view(&view)?)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    /// Benchmark-only packed transport. The environment is injected by N-API
+    /// so this path shares the direct decoder's environment-local weak cache.
+    #[cfg(feature = "perf-packed-benchmark")]
+    #[napi(js_name = "tuiPerfPackedRender")]
+    pub fn render_packed(&self, env: Env, words: Uint32Array, strings: Vec<String>) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let cache = view_bridge_cache_for_env(&env)?;
+        let view = packed::decode_one(words.as_ref(), &strings, cache)?;
+        self.host
+            .render(view)
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 

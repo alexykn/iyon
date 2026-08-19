@@ -20,8 +20,12 @@ if (artifactName === undefined) {
   throw new Error(`unsupported iyon-native staging target: ${targetKey}`);
 }
 
+const nativeFeatures = process.env.ION_NATIVE_FEATURES?.split(",").map((feature) => feature.trim()).filter(Boolean) ?? [];
+const cargoCommand = ["cargo", "build", "--release", "-p", "iyon-native"];
+if (nativeFeatures.length > 0) cargoCommand.push("--features", nativeFeatures.join(","));
+
 const cargo = Bun.spawnSync({
-  cmd: ["cargo", "build", "--release", "-p", "iyon-native"],
+  cmd: cargoCommand,
   cwd: repositoryDirectory.pathname,
   // The native addon links the full TUI dependency graph. Keep the default
   // staging path reliable on constrained developer/CI machines; callers can

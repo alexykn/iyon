@@ -1,4 +1,4 @@
-use std::{fmt::Write as _, fs, path::PathBuf};
+use std::{collections::BTreeMap, fmt::Write as _, fs, path::PathBuf};
 
 const SCHEMA_PATH: &str = "../../packages/iyon-runtime/src/tui/bridge-schema.json";
 
@@ -43,29 +43,55 @@ const FIELDS: &[(&str, &str)] = &[
     ("diffDeletion", "DIFF_DELETION"),
     ("terminationTerminated", "DIFF_TERMINATED"),
     ("terminationUnterminated", "DIFF_UNTERMINATED"),
+    ("packedMagic", "PACKED_VIEW_MAGIC"),
+    ("packedProtocolVersion", "PACKED_VIEW_PROTOCOL_VERSION"),
+    ("packedRef", "PACKED_VIEW_REF"),
+    ("packedDef", "PACKED_VIEW_DEF"),
+    ("packedColorNone", "PACKED_COLOR_NONE"),
+    ("packedColorString", "PACKED_COLOR_STRING"),
+    ("packedColorAnsi", "PACKED_COLOR_ANSI"),
+    ("packedOverflowNone", "PACKED_OVERFLOW_NONE"),
+    ("packedOverflowEllipsis", "PACKED_OVERFLOW_ELLIPSIS"),
+    ("packedOverflowFooter", "PACKED_OVERFLOW_FOOTER"),
+    ("packedRuleAbsent", "PACKED_RULE_ABSENT"),
+    ("packedRuleFit", "PACKED_RULE_FIT"),
+    ("packedRuleFill", "PACKED_RULE_FILL"),
+    ("packedBorderStyleAbsent", "PACKED_BORDER_STYLE_ABSENT"),
+    ("packedBorderStylePlain", "PACKED_BORDER_STYLE_PLAIN"),
+    ("packedBorderStyleRounded", "PACKED_BORDER_STYLE_ROUNDED"),
+    ("packedBorderStyleDouble", "PACKED_BORDER_STYLE_DOUBLE"),
+    ("packedBorderEdgesAbsent", "PACKED_BORDER_EDGES_ABSENT"),
+    ("packedBorderEdgesAll", "PACKED_BORDER_EDGES_ALL"),
+    ("packedBorderEdgesTopBottom", "PACKED_BORDER_EDGES_TOP_BOTTOM"),
+    ("packedStyleTheme", "PACKED_STYLE_THEME"),
+    ("packedStyleForeground", "PACKED_STYLE_FOREGROUND"),
+    ("packedStyleBackground", "PACKED_STYLE_BACKGROUND"),
+    ("packedDecorationPadding", "PACKED_DECORATION_PADDING"),
+    ("packedDecorationBackground", "PACKED_DECORATION_BACKGROUND"),
+    ("packedDecorationForeground", "PACKED_DECORATION_FOREGROUND"),
+    ("packedDecorationBorder", "PACKED_DECORATION_BORDER"),
+    ("packedDecorationStyle", "PACKED_DECORATION_STYLE"),
+    ("packedDecorationStates", "PACKED_DECORATION_STATES"),
+    ("packedDecorationWidth", "PACKED_DECORATION_WIDTH"),
+    ("packedDecorationHeight", "PACKED_DECORATION_HEIGHT"),
+    ("packedDecorationMinWidth", "PACKED_DECORATION_MIN_WIDTH"),
+    ("packedDecorationMaxWidth", "PACKED_DECORATION_MAX_WIDTH"),
+    ("packedDecorationMinHeight", "PACKED_DECORATION_MIN_HEIGHT"),
+    ("packedDecorationMaxHeight", "PACKED_DECORATION_MAX_HEIGHT"),
+    ("packedBorderGlyphs", "PACKED_BORDER_GLYPHS"),
+    ("packedBorderColor", "PACKED_BORDER_COLOR"),
+    ("packedBorderStyle", "PACKED_BORDER_STYLE"),
+    ("packedBorderEdges", "PACKED_BORDER_EDGES"),
 ];
 
-fn schema_number(source: &str, field: &str) -> u32 {
-    let needle = format!("\"{field}\"");
-    let occurrences = source.match_indices(&needle).count();
-    if occurrences != 1 {
-        panic!("bridge schema field {field} occurs {occurrences} times");
-    }
-    let start = source
-        .find(&needle)
-        .expect("bridge schema occurrence was counted");
-    let value = source[start + needle.len()..]
-        .split_once(':')
-        .map(|(_, rest)| rest.trim_start())
-        .and_then(|rest| {
-            rest.split(|character: char| !character.is_ascii_digit())
-                .next()
-        })
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| panic!("bridge schema field {field} is not a number"));
-    value
-        .parse()
-        .unwrap_or_else(|_| panic!("bridge schema field {field} does not fit u32"))
+type BridgeSchema = BTreeMap<String, u64>;
+
+fn schema_number(schema: &BridgeSchema, field: &str) -> u32 {
+    let value = schema
+        .get(field)
+        .copied()
+        .unwrap_or_else(|| panic!("bridge schema field {field} is missing"));
+    u32::try_from(value).unwrap_or_else(|_| panic!("bridge schema field {field} does not fit u32"))
 }
 
 fn main() {
@@ -76,13 +102,15 @@ fn main() {
     println!("cargo:rerun-if-changed={}", schema_path.display());
     let source = fs::read_to_string(&schema_path)
         .unwrap_or_else(|error| panic!("read bridge schema {}: {error}", schema_path.display()));
+    let schema: BridgeSchema = serde_json::from_str(&source)
+        .unwrap_or_else(|error| panic!("parse bridge schema {}: {error}", schema_path.display()));
 
     let mut generated = String::new();
     for &(field, constant) in FIELDS {
         writeln!(
             generated,
             "pub const {constant}: u32 = {};",
-            schema_number(&source, field)
+            schema_number(&schema, field)
         )
         .expect("writing bridge schema constants cannot fail");
     }
