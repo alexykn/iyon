@@ -31,7 +31,23 @@ export class DiffHunk {
     readonly oldRange: DiffRange,
     readonly newRange: DiffRange,
     readonly lines: readonly DiffLine[] = [],
-  ) {}
+  ) {
+    this.validate();
+  }
+
+  validate(): void {
+    let oldConsumed = 0;
+    let newConsumed = 0;
+    for (const line of this.lines) {
+      if (line.lineKind !== "addition") oldConsumed += 1;
+      if (line.lineKind !== "deletion") newConsumed += 1;
+    }
+    const expectedOld = this.oldRange.end - this.oldRange.start;
+    const expectedNew = this.newRange.end - this.newRange.start;
+    if (oldConsumed !== expectedOld || newConsumed !== expectedNew) {
+      throw new RangeError(`diff hunk consumed old ${oldConsumed}/${expectedOld} and new ${newConsumed}/${expectedNew} lines`);
+    }
+  }
 
   render(): View {
     return new DiffRenderer().render(this);
