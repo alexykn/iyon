@@ -1,3 +1,5 @@
+#[cfg(feature = "perf-packed-benchmark")]
+use napi::bindgen_prelude::Uint32Array;
 use napi::bindgen_prelude::{Array, JsObjectValue, JsValue, Object, Result, Unknown, ValueType};
 use napi_derive::napi;
 use std::collections::{HashMap, HashSet};
@@ -55,6 +57,16 @@ pub fn tui_perf_snapshot() -> Value {
         counters.insert(name.to_owned(), Value::from(value));
     }
     Value::Object(counters)
+}
+
+#[cfg(feature = "perf-packed-benchmark")]
+#[napi(js_name = "tuiPerfPackedRender")]
+pub fn tui_perf_packed_render(
+    host: &NativeTuiHost,
+    words: Uint32Array,
+    strings: Vec<String>,
+) -> Result<()> {
+    host.render_packed_impl(words, strings)
 }
 
 #[napi(js_name = "tuiViewBridgeEnvironmentCount")]
@@ -450,6 +462,8 @@ impl NativeTextInput {
 pub struct NativeTuiHost {
     host: TuiHost,
     alive: AtomicBool,
+    #[cfg(feature = "perf-packed-benchmark")]
+    packed_cache: Arc<Mutex<ViewBridgeCache>>,
 }
 
 #[napi]
@@ -467,6 +481,10 @@ impl NativeTuiHost {
         Ok(Self {
             host,
             alive: AtomicBool::new(true),
+            #[cfg(feature = "perf-packed-benchmark")]
+            packed_cache: Arc::new(Mutex::new(ViewBridgeCache {
+                nodes: HashMap::new(),
+            })),
         })
     }
 
@@ -621,6 +639,28 @@ impl NativeTuiHost {
         ensure_alive(&self.alive)?;
         self.host
             .render(decode_view(&view)?)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    /// Benchmark-only packed transport implementation. The public runtime
+    /// reaches this only through the opt-in performance probe above.
+    #[cfg(feature = "perf-packed-benchmark")]
+    fn render_packed_impl(&self, words: Uint32Array, strings: Vec<String>) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let mut decoder = PackedViewDecoder {
+            words: words.as_ref(),
+            strings: &strings,
+            cursor: 0,
+            cache: Arc::clone(&self.packed_cache),
+        };
+        let view = decoder.decode_node()?;
+        if decoder.cursor != decoder.words.len() {
+            return Err(crate::NativeError::invalid_input(
+                "packed TUI transaction has trailing words",
+            ));
+        }
+        self.host
+            .render(view)
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
@@ -1241,6 +1281,104 @@ fn decode_view(value: &Object<'_>) -> Result<View> {
         active: HashSet::new(),
     };
     decoder.decode(*value)
+}
+
+#[cfg(feature = "perf-packed-benchmark")]
+struct PackedViewDecoder<'a> {
+    words: &'a [u32],
+    strings: &'a [String],
+    cursor: usize,
+    cache: Arc<Mutex<ViewBridgeCache>>,
+}
+
+#[cfg(feature = "perf-packed-benchmark")]
+impl PackedViewDecoder<'_> {
+    fn word(&mut self, name: &str) -> Result<u32> {
+        let word = self.words.get(self.cursor).copied().ok_or_else(|| {
+            crate::NativeError::invalid_input(format!("packed TUI transaction is missing {name}"))
+        })?;
+        self.cursor += 1;
+        Ok(word)
+    }
+
+    fn node_id(&mut self) -> Result<u64> {
+        let id = u64::from(self.word("node id")?);
+        if id == 0 {
+            return Err(crate::NativeError::invalid_input(
+                "packed TUI node id must be positive",
+            ));
+        }
+        Ok(id)
+    }
+
+    fn cached(&self, id: u64) -> Result<View> {
+        let cache = self
+            .cache
+            .lock()
+            .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+        cache
+            .nodes
+            .get(&id)
+            .and_then(iyon_tui::WeakView::upgrade)
+            .ok_or_else(|| {
+                crate::NativeError::invalid_input(format!(
+                    "packed TUI reference points to unknown node id {id}"
+                ))
+            })
+    }
+
+    fn insert(&self, id: u64, view: &View) -> Result<()> {
+        let mut cache = self
+            .cache
+            .lock()
+            .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+        cache.nodes.insert(id, view.downgrade());
+        Ok(())
+    }
+
+    fn decode_node(&mut self) -> Result<View> {
+        let opcode = self.word("opcode")?;
+        match opcode {
+            0 => {
+                let id = self.node_id()?;
+                self.cached(id)
+            }
+            1 => {
+                let id = self.node_id()?;
+                let string_index = self.word("text string index")? as usize;
+                let text = self.strings.get(string_index).ok_or_else(|| {
+                    crate::NativeError::invalid_input(
+                        "packed TUI text string index is out of range",
+                    )
+                })?;
+                let view = View::text(text.clone()).into_view();
+                self.insert(id, &view)?;
+                Ok(view)
+            }
+            2 => {
+                let id = self.node_id()?;
+                let gap = u16::try_from(self.word("column gap")?).map_err(|_| {
+                    crate::NativeError::invalid_input("packed TUI column gap must fit in u16")
+                })?;
+                let child_count = self.word("column child count")? as usize;
+                let mut children = Vec::with_capacity(child_count);
+                for _ in 0..child_count {
+                    children.push(self.decode_node()?);
+                }
+                let view = View::vertical(|column| {
+                    column.gap(gap);
+                    for child in children {
+                        column.child(child);
+                    }
+                });
+                self.insert(id, &view)?;
+                Ok(view)
+            }
+            other => Err(crate::NativeError::invalid_input(format!(
+                "unknown packed TUI opcode {other}"
+            ))),
+        }
+    }
 }
 
 struct ViewDecoder {
