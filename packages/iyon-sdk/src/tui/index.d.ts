@@ -85,6 +85,38 @@ export declare class TextSpan {
   static styled(text: string, style: StyleSpec): TextSpan;
 }
 
+export type DiffLineKind = "context" | "addition" | "deletion";
+export type DiffLineTermination = "lf" | "crlf" | "none";
+
+export declare class DiffRange {
+  readonly kind: "diff-range";
+  readonly start: number;
+  readonly end: number;
+  constructor(start: number, end: number);
+}
+
+export declare class DiffLine {
+  readonly kind: "diff-line";
+  readonly lineKind: DiffLineKind;
+  readonly text: string;
+  readonly termination: DiffLineTermination;
+  constructor(lineKind: DiffLineKind, text: string, termination?: DiffLineTermination);
+}
+
+export declare class DiffHunk {
+  readonly kind: "diff-hunk";
+  readonly oldRange: DiffRange;
+  readonly newRange: DiffRange;
+  readonly lines: readonly DiffLine[];
+  constructor(oldRange: DiffRange, newRange: DiffRange, lines?: readonly DiffLine[]);
+  render(): View;
+}
+
+export declare class DiffRenderer {
+  render(hunks: DiffHunk | readonly DiffHunk[]): View;
+  renderHunk(hunk: DiffHunk): View;
+}
+
 export declare class TextContent {
   readonly kind: "text-content";
   static plain(value: string): TextContent;
@@ -117,6 +149,8 @@ export declare class History implements NativeHandle {
   constructor();
   dispose(): Promise<void>;
   layout(): Promise<HistoryLayout>;
+  push(view: View): Promise<number>;
+  freeze(unit: number, view: View): Promise<void>;
 }
 
 export interface HistoryLayout {

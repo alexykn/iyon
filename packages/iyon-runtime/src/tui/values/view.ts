@@ -7,6 +7,7 @@ import {
   type BorderNode,
   type ColorNode,
   type DecorationNode,
+  type DiffHunkNode,
   type GridCellNode,
   type GridRowNode,
   type GridTrackNode,
@@ -117,6 +118,10 @@ export class View {
   static contentMax(maxRows: number, child: View): View {
     validateU16(maxRows, "maxRows");
     return new View({ type: "contentMax", child: child.node, maxRows });
+  }
+
+  static diff(hunks: readonly DiffHunkNode[]): View {
+    return new View({ type: "diff", hunks: [...hunks] });
   }
 
   static text(value: string): View {
@@ -264,6 +269,13 @@ export function textRowsForHarness(view: View): string[] {
 function rows(node: ViewNode): string[] {
   switch (node.type) {
     case "text": return [node.spans.map((span) => span.text).join("")];
+    case "diff": return node.hunks.flatMap((hunk) => [
+      `@@ -${displayDiffRange(hunk.oldRange)} +${displayDiffRange(hunk.newRange)} @@`,
+      ...hunk.lines.flatMap((line) => [
+        `${line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}${line.text}`,
+        ...(line.termination === "unterminated" ? ["\\ No newline at end of file"] : []),
+      ]),
+    ]);
     case "spacer": return Array.from({ length: node.rows }, () => "");
     case "row": return [node.children.flatMap((child) => rows(child.child)).join("")];
     case "column": return node.children.flatMap((child) => rows(child.child));
@@ -290,6 +302,12 @@ function buildChildren(children: ChildBuilder): ChildrenBuilder {
     builder.childrenOf(children);
   }
   return builder;
+}
+
+function displayDiffRange(range: { readonly start: number; readonly count: number }): string {
+  if (range.count === 0) return `${range.start},0`;
+  const start = range.start + 1;
+  return range.count === 1 ? `${start}` : `${start},${range.count}`;
 }
 
 function validateU16(value: number, name: string): number {

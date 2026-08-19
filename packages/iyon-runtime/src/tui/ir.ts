@@ -23,6 +23,7 @@ export type OverflowIndicatorNode =
 
 export type ViewNode =
   | { readonly type: "text"; readonly spans: readonly TextSpanNode[]; readonly wrap: string; readonly align: string }
+  | { readonly type: "diff"; readonly hunks: readonly DiffHunkNode[] }
   | { readonly type: "spacer"; readonly rows: number }
   | { readonly type: "row" | "column"; readonly children: readonly LayoutChild[]; readonly gap: number }
   | { readonly type: "hanging"; readonly prefix: ViewNode; readonly continuation: ViewNode; readonly body: ViewNode }
@@ -35,6 +36,25 @@ export type ViewNode =
 export interface TextSpanNode {
   readonly text: string;
   readonly style?: StyleNode;
+}
+
+export interface DiffRangeNode {
+  readonly start: number;
+  readonly count: number;
+}
+
+export interface DiffLineNode {
+  readonly kind: "context" | "addition" | "deletion";
+  readonly text: string;
+  readonly termination: "terminated" | "unterminated";
+  readonly oldLine?: number;
+  readonly newLine?: number;
+}
+
+export interface DiffHunkNode {
+  readonly oldRange: DiffRangeNode;
+  readonly newRange: DiffRangeNode;
+  readonly lines: readonly DiffLineNode[];
 }
 
 export type LayoutChild =

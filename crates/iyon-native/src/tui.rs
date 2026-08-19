@@ -12,8 +12,8 @@ use iyon_tui::{
     BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History,
     HorizontalAlign, HostCellStyle, HostHistory, HostScrollPane, HostTextInput, HostTextStream,
     HostViewSlot, IntoView, Key, KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output,
-    Projector, StyleRef, StyleSpec, TextContent, TextInput, TextPart, TextRole, TextSelector,
-    TextSpan, TuiHost, VerticalAlign, View, WrapMode,
+    Projector, Renderer, StyleRef, StyleSpec, TextContent, TextInput, TextPart, TextRole,
+    TextSelector, TextSpan, TuiHost, VerticalAlign, View, WrapMode,
 };
 use serde_json::Map;
 use serde_json::Value;
@@ -1264,6 +1264,7 @@ fn lower_view(value: &Value) -> Result<View> {
             };
             text.into_view()
         }
+        "diff" => lower_diff(object)?,
         "spacer" => {
             let rows = u16_value(object, "rows")?;
             View::spacer(rows)
@@ -1300,6 +1301,113 @@ fn lower_view(value: &Value) -> Result<View> {
         }
     };
     Ok(view)
+}
+
+fn lower_diff(object: &Map<String, Value>) -> Result<View> {
+    let hunks = object
+        .get("hunks")
+        .and_then(Value::as_array)
+        .ok_or_else(|| crate::NativeError::invalid_input("diff hunks must be an array"))?;
+    let mut lowered = Vec::with_capacity(hunks.len());
+    for hunk in hunks {
+        lowered.push(lower_diff_hunk(hunk)?);
+    }
+    Ok(iyon_tui::DiffRenderer::new().render(lowered.as_slice()))
+}
+
+fn lower_diff_hunk(value: &Value) -> Result<iyon_tui::DiffHunk> {
+    use iyon_tui::{DiffHunk, DiffLine, DiffLineNumber, DiffLineTermination};
+
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("diff hunk must be an object"))?;
+    let old_range = lower_diff_range(
+        object
+            .get("oldRange")
+            .ok_or_else(|| crate::NativeError::invalid_input("diff hunk oldRange is required"))?,
+    )?;
+    let new_range = lower_diff_range(
+        object
+            .get("newRange")
+            .ok_or_else(|| crate::NativeError::invalid_input("diff hunk newRange is required"))?,
+    )?;
+    let lines = object
+        .get("lines")
+        .and_then(Value::as_array)
+        .ok_or_else(|| crate::NativeError::invalid_input("diff hunk lines must be an array"))?;
+    let mut lowered = Vec::with_capacity(lines.len());
+    for line in lines {
+        let line = line
+            .as_object()
+            .ok_or_else(|| crate::NativeError::invalid_input("diff line must be an object"))?;
+        let kind = line
+            .get("kind")
+            .and_then(Value::as_str)
+            .ok_or_else(|| crate::NativeError::invalid_input("diff line kind is required"))?;
+        let text = line
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or_else(|| crate::NativeError::invalid_input("diff line text is required"))?;
+        let termination = match line
+            .get("termination")
+            .and_then(Value::as_str)
+            .unwrap_or("terminated")
+        {
+            "terminated" => DiffLineTermination::Terminated,
+            "unterminated" => DiffLineTermination::Unterminated,
+            other => {
+                return Err(crate::NativeError::invalid_input(format!(
+                    "unknown diff line termination `{other}`"
+                )));
+            }
+        };
+        let lowered_line = match kind {
+            "context" => {
+                let old = DiffLineNumber::new(u64_value(line, "oldLine")?)
+                    .ok_or_else(|| crate::NativeError::invalid_input("oldLine must be >= 1"))?;
+                let new = DiffLineNumber::new(u64_value(line, "newLine")?)
+                    .ok_or_else(|| crate::NativeError::invalid_input("newLine must be >= 1"))?;
+                DiffLine::context(old, new, text)
+            }
+            "addition" => {
+                let new = DiffLineNumber::new(u64_value(line, "newLine")?)
+                    .ok_or_else(|| crate::NativeError::invalid_input("newLine must be >= 1"))?;
+                DiffLine::addition(new, text)
+            }
+            "deletion" => {
+                let old = DiffLineNumber::new(u64_value(line, "oldLine")?)
+                    .ok_or_else(|| crate::NativeError::invalid_input("oldLine must be >= 1"))?;
+                DiffLine::deletion(old, text)
+            }
+            other => {
+                return Err(crate::NativeError::invalid_input(format!(
+                    "unknown diff line kind `{other}`"
+                )));
+            }
+        };
+        lowered.push(lowered_line.with_termination(termination));
+    }
+    DiffHunk::new(old_range, new_range, lowered)
+        .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
+}
+
+fn lower_diff_range(value: &Value) -> Result<iyon_tui::DiffRange> {
+    use iyon_tui::{DiffLineOffset, DiffRange};
+    let object = value
+        .as_object()
+        .ok_or_else(|| crate::NativeError::invalid_input("diff range must be an object"))?;
+    DiffRange::new(
+        DiffLineOffset::new(u64_value(object, "start")?),
+        u64_value(object, "count")?,
+    )
+    .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
+}
+
+fn u64_value(object: &Map<String, Value>, field: &str) -> Result<u64> {
+    object
+        .get(field)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| crate::NativeError::invalid_input(format!("{field} must be a u64 integer")))
 }
 
 fn lower_axis(object: &Map<String, Value>, horizontal: bool) -> Result<View> {
