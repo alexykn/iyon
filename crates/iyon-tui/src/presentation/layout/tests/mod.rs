@@ -575,7 +575,7 @@ fn layout_performance_probe() {
     use std::time::Instant;
 
     let long_transcript = (0..80)
-        .map(|index| format!("assistant line {index}: a moderately long transcript sentence"))
+        .map(|index| format!("transcript line {index}: a moderately long generic sentence"))
         .collect::<Vec<_>>()
         .join("\n");
     let cases = vec![

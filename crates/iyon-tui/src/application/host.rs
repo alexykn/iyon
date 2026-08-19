@@ -6,11 +6,13 @@
 
 use std::{
     collections::VecDeque,
+    ops::Range,
     sync::{Arc, Mutex, Weak},
     time::{Duration, Instant},
 };
 
 use anyhow::Result;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::controls::text_input::command::TextInputCommand;
 use crate::text::RewriteProjectionError;
@@ -221,7 +223,10 @@ impl HostViewSlot {
             state.frames = frames;
             state.interval = interval;
             if !preserve_phase {
-                state.last_tick = host_now;
+                // Anchor the animation to the host clock. This keeps the
+                // first scheduled tick from either catching up immediately
+                // or delaying the first frame by one scheduler interval.
+                state.last_tick = Some(host_now.unwrap_or_else(Instant::now));
             }
             state.revision = state.revision.saturating_add(1);
         }
@@ -245,15 +250,22 @@ impl HostViewSlot {
             return false;
         };
         if state.frames.len() < 2 {
+            // Reset the clock so a future set_animation starts fresh
+            // rather than inheriting a stale last_tick.
+            state.last_tick = None;
             return false;
         }
         let Some(last) = state.last_tick else {
+            // First tick with frames: start the clock now so the interval
+            // is measured from the first scheduled tick, not from the
+            // earlier set_animation call. This avoids catching up for the
+            // scheduling delay.
             state.last_tick = Some(now);
             return true;
         };
         let due = now.duration_since(last) >= state.interval;
         if !due {
-            return true;
+            return false;
         }
         state.last_tick = Some(now);
         state.frame_index = (state.frame_index + 1) % state.frames.len();
@@ -456,15 +468,69 @@ pub struct TextStreamAnnotation {
 }
 
 #[derive(Clone, Debug)]
+struct HostSourceChunk {
+    range: StreamRange,
+    annotations: Vec<SemanticTag>,
+    text: Arc<str>,
+}
+
+impl HostSourceChunk {
+    fn pacing_atoms(&self) -> impl Iterator<Item = (StreamRange, HostPacingAtom)> + '_ {
+        self.text.grapheme_indices(true).map(|(start, grapheme)| {
+            let end = start + grapheme.len();
+            (
+                StreamRange::new(
+                    self.range.start().saturating_add(start as u64),
+                    self.range.start().saturating_add(end as u64),
+                ),
+                HostPacingAtom {
+                    annotations: self.annotations.clone(),
+                    source: Arc::clone(&self.text),
+                    local: start..end,
+                },
+            )
+        })
+    }
+
+    fn suffix_from(&self, offset: StreamOffset) -> Option<Self> {
+        if self.range.end() <= offset {
+            return None;
+        }
+        if offset <= self.range.start() {
+            return Some(self.clone());
+        }
+        let local = usize::try_from(offset.as_u64().saturating_sub(self.range.start().as_u64()))
+            .expect("host source chunk offset fits usize");
+        assert!(
+            self.text.is_char_boundary(local),
+            "host source compaction must use a UTF-8 boundary"
+        );
+        Some(Self {
+            range: StreamRange::new(offset, self.range.end()),
+            annotations: self.annotations.clone(),
+            text: Arc::from(&self.text[local..]),
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
 struct HostPacingAtom {
     annotations: Vec<SemanticTag>,
-    text: String,
+    source: Arc<str>,
+    local: Range<usize>,
+}
+
+impl HostPacingAtom {
+    fn text(&self) -> &str {
+        &self.source[self.local.clone()]
+    }
 }
 
 struct HostTextPipeline {
     smoother: Smooth,
     markdown: MarkdownProjector,
     renderer: TextRenderer,
+    paced: Projection<HostPacingAtom>,
 }
 
 impl HostTextPipeline {
@@ -479,21 +545,52 @@ impl HostTextPipeline {
             .with_code_block_label(CodeBlockLabelPolicy::Language)
             .with_code_block_gap(0)
             .with_code_wrap(WrapMode::NoWrap);
+        let paced = ProjectionBuilder::new(
+            StreamOffset::ZERO,
+            StreamOffset::ZERO,
+            StreamOffset::ZERO,
+            false,
+        )
+        .finish()
+        .expect("empty host paced projection is valid");
         Self {
             smoother: Smooth::new(pacing),
             markdown: MarkdownProjector::new(
                 MarkdownOptions::gfm().with_live_table_stabilization(true),
             ),
             renderer: TextRenderer::with_policy(policy),
+            paced,
         }
     }
 
+    fn reset(&mut self) {
+        let pacing = self.smoother.config();
+        *self = Self::new(pacing);
+    }
+
     fn project(&mut self, input: &Projection<HostPacingAtom>) -> Result<Projection<TextContent>> {
-        let paced = self
-            .smoother
-            .project(input)
-            .expect("host stream smoothing is infallible");
-        let raw = paced.map_ref(|atom| TextContent::raw(atom.text.clone()));
+        let previous_end = self.paced.source_end();
+        let reset =
+            self.paced.source_base() != input.source_base() || previous_end > input.source_end();
+        let from = if reset {
+            input.source_base()
+        } else {
+            previous_end
+        };
+        let delta = self.smoother.project_incremental(input, from);
+        if reset {
+            self.paced = delta;
+        } else {
+            for span in delta.spans() {
+                self.paced
+                    .append_span_many(span.source(), span.values().iter().cloned())
+                    .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            }
+            self.paced
+                .set_envelope(delta.stable_through(), delta.is_sealed());
+        }
+        let paced = &self.paced;
+        let raw = paced.map_ref(|atom| TextContent::raw(atom.text()));
         let markdown = self
             .markdown
             .project(&raw)
@@ -502,7 +599,7 @@ impl HostTextPipeline {
         let markdown = pipe_tables
             .project(&markdown)
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-        AnnotationRewriter::new(&paced)
+        AnnotationRewriter::new(paced)
             .into_projector()
             .project(&markdown)
             .map_err(|error| anyhow::anyhow!(error.to_string()))
@@ -910,7 +1007,7 @@ fn pipe_cell_run(text: String, range: Option<StreamRange>) -> TextRun {
 }
 
 struct HostStreamState {
-    pacing_atoms: Vec<(StreamRange, HostPacingAtom)>,
+    source_chunks: Vec<HostSourceChunk>,
     source_base: StreamOffset,
     received_end: StreamOffset,
     revision: StreamRevision,
@@ -956,7 +1053,7 @@ impl Default for HostStreamState {
         .finish()
         .expect("empty host pacing projection is valid");
         Self {
-            pacing_atoms: Vec::new(),
+            source_chunks: Vec::new(),
             source_base: StreamOffset::ZERO,
             received_end: StreamOffset::ZERO,
             revision: StreamRevision::ZERO,
@@ -1026,19 +1123,23 @@ impl HostTextStream {
             if state.sealed {
                 return Err(anyhow::anyhow!("stream is already sealed"));
             }
-            let mut cursor = state.received_end;
-            for character in text.chars() {
-                let next = cursor.saturating_add(character.len_utf8() as u64);
-                state.pacing_atoms.push((
-                    StreamRange::new(cursor, next),
-                    HostPacingAtom {
-                        annotations: annotations.clone(),
-                        text: character.to_string(),
-                    },
-                ));
-                cursor = next;
+            let range = StreamRange::new(
+                state.received_end,
+                state.received_end.saturating_add(text.len() as u64),
+            );
+            let chunk = HostSourceChunk {
+                range,
+                annotations,
+                text: Arc::from(text),
+            };
+            for (atom_range, atom) in chunk.pacing_atoms() {
+                state
+                    .pacing_input
+                    .append_span(atom_range, atom)
+                    .map_err(|error| anyhow::anyhow!(error.to_string()))?;
             }
-            state.received_end = cursor;
+            state.source_chunks.push(chunk);
+            state.received_end = range.end();
             state.revision = state.revision.next();
             state.refresh_semantic()?;
         }
@@ -1055,21 +1156,21 @@ impl HostTextStream {
                 return Err(anyhow::anyhow!("stream is already sealed"));
             }
             let text = text.into();
-            state.pacing_atoms.clear();
+            if let Some(pipeline) = &mut state.pipeline {
+                pipeline.reset();
+            }
+            state.source_chunks.clear();
             state.source_base = StreamOffset::ZERO;
             state.received_end = StreamOffset::new(text.len() as u64);
-            let mut cursor = StreamOffset::ZERO;
-            for character in text.chars() {
-                let next = cursor.saturating_add(character.len_utf8() as u64);
-                state.pacing_atoms.push((
-                    StreamRange::new(cursor, next),
-                    HostPacingAtom {
-                        annotations: Vec::new(),
-                        text: character.to_string(),
-                    },
-                ));
-                cursor = next;
+            if !text.is_empty() {
+                let chunk = HostSourceChunk {
+                    range: StreamRange::new(StreamOffset::ZERO, state.received_end),
+                    annotations: Vec::new(),
+                    text: Arc::from(text.as_str()),
+                };
+                state.source_chunks.push(chunk.clone());
             }
+            state.rebuild_pacing_input()?;
             state.revision = state.revision.next();
             state.refresh_semantic()?;
         }
@@ -1086,6 +1187,8 @@ impl HostTextStream {
                 return Err(anyhow::anyhow!("stream is already sealed"));
             }
             state.sealed = true;
+            let source_end = state.received_end;
+            state.pacing_input.set_envelope(source_end, true);
             state.revision = state.revision.next();
             state.refresh_semantic()?;
         }
@@ -1177,15 +1280,16 @@ impl HostTextStream {
 
 impl HostStreamState {
     fn source_text(&self) -> String {
-        self.pacing_atoms
+        self.source_chunks
             .iter()
-            .map(|(_, atom)| atom.text.as_str())
+            .map(|chunk| chunk.text.as_ref())
             .collect()
     }
 
     fn segments_json(&self) -> Vec<(Vec<TextStreamAnnotation>, String)> {
         let mut segments: Vec<(Vec<TextStreamAnnotation>, String)> = Vec::new();
-        for (_, atom) in &self.pacing_atoms {
+        for chunk in &self.source_chunks {
+            let atom = chunk;
             let annotations = atom
                 .annotations
                 .iter()
@@ -1199,7 +1303,7 @@ impl HostStreamState {
             {
                 text.push_str(&atom.text);
             } else {
-                segments.push((annotations, atom.text.clone()));
+                segments.push((annotations, atom.text.to_string()));
             }
         }
         segments
@@ -1212,8 +1316,10 @@ impl HostStreamState {
             self.received_end,
             self.sealed,
         );
-        for (range, atom) in &self.pacing_atoms {
-            builder = builder.emit(*range, atom.clone());
+        for chunk in &self.source_chunks {
+            for (range, atom) in chunk.pacing_atoms() {
+                builder = builder.emit(range, atom);
+            }
         }
         self.pacing_input = builder
             .finish()
@@ -1222,7 +1328,6 @@ impl HostStreamState {
     }
 
     fn refresh_semantic(&mut self) -> Result<()> {
-        self.rebuild_pacing_input()?;
         if let Some(pipeline) = &mut self.pipeline {
             self.semantic = Some(pipeline.project(&self.pacing_input)?);
         }
@@ -1425,10 +1530,19 @@ impl StreamingSource for HostStreamSource {
             .as_ref()
             .map_or(target, |pipeline| pipeline.restart_from(target))
             .max(state.source_base);
-        state
-            .pacing_atoms
-            .retain(|(range, _)| range.end() > restart);
+        state.source_chunks = state
+            .source_chunks
+            .iter()
+            .filter_map(|chunk| chunk.suffix_from(restart))
+            .collect();
         state.source_base = restart;
+        // Keep the pipeline's published suffix across compaction. Its next
+        // incremental project sees the new source base and reconstructs the
+        // retained paced suffix; resetting the smoother here would publish
+        // only its first grapheme and regress the semantic source end.
+        state
+            .rebuild_pacing_input()
+            .expect("host stream compaction must rebuild a valid source projection");
         state.revision = state.revision.next();
         state
             .refresh_semantic()
@@ -1439,6 +1553,8 @@ impl StreamingSource for HostStreamSource {
         if let Ok(mut state) = self.state.lock() {
             if !state.sealed {
                 state.sealed = true;
+                let source_end = state.received_end;
+                state.pacing_input.set_envelope(source_end, true);
                 state.revision = state.revision.next();
                 state
                     .refresh_semantic()
@@ -2277,5 +2393,36 @@ fn prepare_frame(
                 .map_err(|error| anyhow::anyhow!("terminal render failed: {error:?}"))?;
             Ok(frame)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HostTextStream, TuiHost};
+
+    #[test]
+    fn host_stream_keeps_append_chunks_as_source_spans() {
+        let stream = HostTextStream::with_markdown();
+        stream.append("hello", &[]).unwrap();
+        stream.append(" world\n", &[]).unwrap();
+
+        let state = stream.state.lock().unwrap();
+        assert_eq!(state.source_chunks.len(), 2);
+        assert_eq!(state.pacing_input.spans().len(), 12);
+        assert_eq!(state.source_text(), "hello world\n");
+    }
+
+    #[test]
+    fn host_runtime_character_markdown_compaction_preserves_resident_coordinates() {
+        let host = TuiHost::open(80, 24, true).unwrap();
+        let stream = HostTextStream::with_markdown();
+        host.history().push_stream(&stream).unwrap();
+        let document = "# heading\n\nThis is **markdown**.\n\n- first\n- second\n\n```rust\nfn main() {}\n```\n";
+        for character in document.chars() {
+            stream
+                .append(character.to_string(), &[])
+                .unwrap_or_else(|error| panic!("append {character:?} failed: {error}"));
+        }
+        host.close().unwrap();
     }
 }

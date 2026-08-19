@@ -1,12 +1,12 @@
 //! Type-erased semantic stream units for ordered History.
 
-use std::{any::Any, cell::RefCell, marker::PhantomData, time::Instant};
+use std::{any::Any, cell::RefCell, marker::PhantomData, sync::Arc, time::Instant};
 
 use crate::{
     View,
     stream::{
         CompiledStream, StreamModel, StreamModelError, StreamOffset, StreamRevision,
-        StreamRowIndex, StreamSnapshot, StreamingSource, build_index_from, reindex_from,
+        StreamRowIndex, StreamSnapshot, StreamingSource, build_index_from, reindex_in_place,
         window_view,
     },
 };
@@ -42,7 +42,7 @@ impl ErasedHistoryStream {
         self.state.advance(now)
     }
 
-    pub(crate) fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex {
+    pub(crate) fn prepare_from(&self, start: StreamOffset, width: u16) -> Arc<StreamRowIndex> {
         self.state.prepare_from(start, width)
     }
 
@@ -122,7 +122,7 @@ trait ErasedHistoryStreamState: Any {
     fn is_sealed(&self) -> bool;
     fn next_wakeup(&self) -> Option<Instant>;
     fn advance(&mut self, now: Instant) -> Result<bool, HistoryError>;
-    fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex;
+    fn prepare_from(&self, start: StreamOffset, width: u16) -> Arc<StreamRowIndex>;
     fn window_view(&self, index: &StreamRowIndex, top_row: usize, height: u16) -> View;
     fn compile_from(
         &self,
@@ -138,10 +138,14 @@ trait ErasedHistoryStreamState: Any {
 
 struct StreamLayoutCache {
     width: u16,
+    semantic_base: StreamOffset,
     indexed_from: StreamOffset,
+    indexed_through: StreamOffset,
     revision: StreamRevision,
     stable_through: StreamOffset,
-    index: StreamRowIndex,
+    semantic_changed_from: StreamOffset,
+    visual_restart_from: StreamOffset,
+    index: Arc<StreamRowIndex>,
 }
 
 struct TypedHistoryStream<S: StreamingSource> {
@@ -242,43 +246,65 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
         Ok(true)
     }
 
-    fn prepare_from(&self, start: StreamOffset, width: u16) -> StreamRowIndex {
+    fn prepare_from(&self, start: StreamOffset, width: u16) -> Arc<StreamRowIndex> {
         let snapshot = self.model.snapshot();
         let mut cache = self.layout.borrow_mut();
         let Some(previous) = cache.as_ref() else {
             let index = build_index_from(&self.model, start, width);
+            let index = Arc::new(index);
             *cache = Some(StreamLayoutCache {
                 width,
+                semantic_base: self.model.semantic_base(),
                 indexed_from: start,
+                indexed_through: index.indexed_through,
                 revision: snapshot.revision,
                 stable_through: snapshot.stable_through,
-                index: index.clone(),
+                semantic_changed_from: index.semantic_changed_from,
+                visual_restart_from: index.visual_restart_from,
+                index: Arc::clone(&index),
             });
             return index;
         };
         if previous.width == width
             && previous.indexed_from == start
             && previous.revision == snapshot.revision
+            && previous.indexed_through == snapshot.source_end
+            && previous.stable_through <= snapshot.stable_through
+            && previous.semantic_base == self.model.semantic_base()
         {
-            return previous.index.clone();
+            return Arc::clone(&previous.index);
         }
 
         // The damage begins at the previous semantic stable frontier, not the
         // previous source end. This matters for Markdown/smoother streams: a
         // partially published block may have shifted while its source end was
         // already known, so only content before `stable_through` is immutable.
-        let changed_from = if previous.width == width && previous.indexed_from == start {
-            previous.stable_through.max(start)
+        let semantic_changed_from = if previous.width == width && previous.indexed_from == start {
+            self.model.semantic_changed_from().max(start)
         } else {
             start
         };
-        let index = reindex_from(&self.model, &previous.index, start, changed_from, width);
+        let index = {
+            let entry = cache.as_mut().expect("stream layout cache exists");
+            reindex_in_place(
+                &self.model,
+                Arc::make_mut(&mut entry.index),
+                start,
+                semantic_changed_from,
+                width,
+            );
+            Arc::clone(&entry.index)
+        };
         *cache = Some(StreamLayoutCache {
             width,
+            semantic_base: self.model.semantic_base(),
             indexed_from: start,
+            indexed_through: index.indexed_through,
             revision: snapshot.revision,
             stable_through: snapshot.stable_through,
-            index: index.clone(),
+            semantic_changed_from: index.semantic_changed_from,
+            visual_restart_from: index.visual_restart_from,
+            index: Arc::clone(&index),
         });
         index
     }
@@ -299,8 +325,11 @@ impl<S: StreamingSource> ErasedHistoryStreamState for TypedHistoryStream<S> {
     fn release_resident_through(&mut self, offset: StreamOffset) {
         self.model.release_resident_through(offset);
         if let Some(cache) = self.layout.get_mut().as_mut() {
-            cache.index.retain_from(offset);
+            Arc::make_mut(&mut cache.index).retain_from(offset);
+            cache.semantic_base = cache.semantic_base.max(offset);
             cache.indexed_from = cache.indexed_from.max(offset);
+            cache.semantic_changed_from = cache.semantic_changed_from.max(offset);
+            cache.visual_restart_from = cache.visual_restart_from.max(offset);
         }
     }
 

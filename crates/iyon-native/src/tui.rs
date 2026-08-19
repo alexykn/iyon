@@ -820,7 +820,10 @@ impl NativeTextStream {
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
         let mut snapshot =
             serde_json::json!({"text": text, "revision": revision, "sealed": sealed});
-        if !segments.is_empty() {
+        if segments
+            .iter()
+            .any(|(annotations, _)| !annotations.is_empty())
+        {
             snapshot["segments"] = serde_json::Value::Array(
                 segments
                     .into_iter()

@@ -1,5 +1,7 @@
 //! Width-dependent semantic projection of History into one vertical View.
 
+use std::sync::Arc;
+
 use crate::{
     geometry::Size,
     perf::{self, Counter},
@@ -46,7 +48,7 @@ enum PlannedContent {
     Frozen(FrozenPhysicalRows),
     Live(View),
     Stream {
-        index: Option<StreamRowIndex>,
+        index: Option<Arc<StreamRowIndex>>,
         start: crate::stream::StreamOffset,
         prefix: Option<FrozenPhysicalRows>,
     },
