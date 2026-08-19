@@ -12,8 +12,8 @@ export class PlainTextProjector {
     return new Projection(content, result.spans);
   }
 
-  dispose(): Promise<void> {
-    return Promise.resolve(this.native.dispose());
+  dispose(): void {
+    this.native.dispose();
   }
 }
 
@@ -27,7 +27,7 @@ export class MarkdownProjector {
     return new Projection(content, result.spans);
   }
 
-  dispose(): Promise<void> {
-    return Promise.resolve(this.native.dispose());
+  dispose(): void {
+    this.native.dispose();
   }
 }

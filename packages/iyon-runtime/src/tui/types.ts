@@ -9,10 +9,10 @@ export interface NativeHandle {
   readonly kind: string;
   readonly id: NativeHandleId;
   readonly disposed: boolean;
-  dispose(): Promise<void>;
+  dispose(): void;
 }
 
-export type TuiOperation<T> = Promise<T>;
+export type TuiOperation<T> = T;
 
 export type View = SemanticView;
 
@@ -223,7 +223,7 @@ export interface TerminalMetadata {
 
 export interface TuiRuntime {
   readonly size: TuiOperation<TerminalMetadata>;
-  nextEvent(signal?: AbortSignal): TuiOperation<TuiEvent>;
+  nextEvent(signal?: AbortSignal): Promise<TuiEvent>;
   render(scene: Scene, signal?: AbortSignal): TuiOperation<void>;
   resize(width: number, height: number): TuiOperation<void>;
   close(): TuiOperation<void>;
@@ -240,7 +240,7 @@ export interface TuiRuntime {
 }
 
 export interface AppHarness extends TuiRuntime {
-  nextAction(signal?: AbortSignal): TuiOperation<{ actionId: string; payload?: string } | null>;
+  nextAction(signal?: AbortSignal): Promise<{ actionId: string; payload?: string } | null>;
   createViewSlot(initial: View): ViewSlot;
   createScrollPane(initial: View): ScrollPane;
   pressKey(key: string, modifiers?: readonly string[]): void;

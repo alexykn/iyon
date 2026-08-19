@@ -64,6 +64,7 @@ export interface NativeAddon {
   echoString(value: string): string;
   echoBuffer(value: Buffer): Buffer;
   tuiSmoke(): string;
+  tuiViewBridgeEnvironmentCount(): number;
   asyncSleep(ms: number): Promise<string>;
   CancellationProbe: new () => CancellationProbeContract;
   NativeCounter: new () => NativeCounterContract;
@@ -75,7 +76,6 @@ export interface NativeAddon {
   credentialSet(service: string, account: string, secret: string): void;
   credentialDelete(service: string, account: string): void;
   credentialHas(service: string, account: string): boolean;
-  materializeView?(value: unknown): object;
   NativeHistory?: new () => { dispose(): void; layout(): object; setLayout(layout: object): void; isDetached(): boolean; push(view: object): number; freeze(unit: number, view: object): void; discardLive(unit: number): void; pushStream(stream: object): void; sealStream(stream: object): void };
   NativeTextInput?: new (multiline?: boolean) => { dispose(): void; text(): string; cursorBytes(): number; setText(value: string): void; clear(): void; submitted(): NativeTuiOutputContract; setMultiline(enabled: boolean): void; isMultiline(): boolean; componentId(): number | null };
   NativeTuiHost?: new (width?: number, height?: number, headless?: boolean) => NativeTuiHostContract;

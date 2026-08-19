@@ -19,6 +19,7 @@ export declare class View {
   static text(value: string): View;
   static styledText(spans: readonly TextSpan[]): View;
   static spacer(rows: number): View;
+  static diff(hunks: readonly DiffHunk[]): View;
   static horizontal(children: readonly View[] | ((builder: ChildrenBuilder) => void)): View;
   static vertical(children: readonly View[] | ((builder: ChildrenBuilder) => void)): View;
   static hanging(prefix: View, continuation: View, body: View): View;
@@ -45,6 +46,7 @@ export declare class View {
   maxWidth(value: number): View;
   minHeight(value: number): View;
   maxHeight(value: number): View;
+  noWrap(): View;
 }
 
 export declare class ChildrenBuilder {
@@ -91,8 +93,10 @@ export type DiffLineTermination = "lf" | "crlf" | "none";
 export declare class DiffRange {
   readonly kind: "diff-range";
   readonly start: number;
-  readonly end: number;
-  constructor(start: number, end: number);
+  readonly lineCount: number;
+  constructor(start: number, lineCount: number);
+  isEmpty(): boolean;
+  end(): number;
 }
 
 export declare class DiffLine {
@@ -100,7 +104,12 @@ export declare class DiffLine {
   readonly lineKind: DiffLineKind;
   readonly text: string;
   readonly termination: DiffLineTermination;
-  constructor(lineKind: DiffLineKind, text: string, termination?: DiffLineTermination);
+  readonly oldLine?: number;
+  readonly newLine?: number;
+  constructor(lineKind: DiffLineKind, text: string, termination?: DiffLineTermination, coordinates?: { readonly oldLine?: number; readonly newLine?: number });
+  static context(oldLine: number, newLine: number, text: string, termination?: DiffLineTermination): DiffLine;
+  static addition(newLine: number, text: string, termination?: DiffLineTermination): DiffLine;
+  static deletion(oldLine: number, text: string, termination?: DiffLineTermination): DiffLine;
 }
 
 export declare class DiffHunk {
@@ -140,7 +149,12 @@ export interface NativeHandle {
   readonly kind: string;
   readonly id: number;
   readonly disposed: boolean;
-  dispose(): Promise<void>;
+  dispose(): void;
+}
+
+export interface OutputHandle<T> {
+  readonly kind: "output";
+  readonly payload: T;
 }
 
 export declare class History implements NativeHandle {
@@ -148,10 +162,10 @@ export declare class History implements NativeHandle {
   readonly disposed: boolean;
   readonly kind: "history";
   constructor();
-  dispose(): Promise<void>;
-  layout(): Promise<HistoryLayout>;
-  push(view: View): Promise<number>;
-  freeze(unit: number, view: View): Promise<void>;
+  dispose(): void;
+  layout(): HistoryLayout;
+  push(view: View): number;
+  freeze(unit: number, view: View): void;
 }
 
 export interface HistoryLayout {
@@ -164,26 +178,29 @@ export declare class TextInput implements NativeHandle {
   readonly disposed: boolean;
   readonly kind: "text-input";
   constructor(options?: { multiline?: boolean });
-  dispose(): Promise<void>;
-  text(): Promise<string>;
-  cursorBytes(): Promise<number>;
-  setText(value: string): Promise<void>;
-  clear(): Promise<void>;
-  submitted(): Promise<string | null>;
-  setMultiline(enabled: boolean): Promise<void>;
-  isMultiline(): Promise<boolean>;
-  view(): Promise<View>;
+  dispose(): void;
+  text(): string;
+  cursorBytes(): number;
+  setText(value: string): void;
+  clear(): void;
+  submitted(): OutputHandle<string>;
+  setMultiline(enabled: boolean): void;
+  isMultiline(): boolean;
+  view(): View;
 }
+
+export interface StreamAnnotation { readonly namespace: string; readonly name: string; }
 
 export declare class TextStream implements NativeHandle {
   readonly id: number;
   readonly disposed: boolean;
   readonly kind: "text-stream";
   constructor();
-  dispose(): Promise<void>;
-  update(text: string): Promise<void>;
-  seal(): Promise<void>;
-  snapshot(): Promise<StreamSnapshot>;
+  dispose(): void;
+  update(text: string): void;
+  append(text: string, annotations?: readonly StreamAnnotation[]): void;
+  seal(): void;
+  snapshot(): StreamSnapshot;
 }
 
 export type StreamPane = TextStream;
@@ -199,9 +216,9 @@ export declare class Component implements NativeHandle {
   readonly disposed: boolean;
   readonly kind: "component";
   constructor();
-  dispose(): Promise<void>;
-  view(): Promise<View>;
-  capabilities(): Promise<ComponentCapabilities>;
+  dispose(): void;
+  view(): View;
+  capabilities(): ComponentCapabilities;
 }
 
 export interface ComponentCapabilities {
@@ -260,29 +277,32 @@ export interface TerminalMetadata {
 }
 
 export interface TuiRuntime {
-  readonly size: Promise<TerminalMetadata>;
+  readonly size: TerminalMetadata;
   nextEvent(signal?: AbortSignal): Promise<TuiEvent>;
-  render(scene: Scene, signal?: AbortSignal): Promise<void>;
-  resize(width: number, height: number): Promise<void>;
-  close(): Promise<void>;
+  render(scene: Scene, signal?: AbortSignal): void;
+  resize(width: number, height: number): void;
+  close(): void;
+  exit(): void;
 }
 
 export declare class Tui implements TuiRuntime {
-  readonly size: Promise<TerminalMetadata>;
+  readonly size: TerminalMetadata;
   static open(options?: TuiOpenOptions): Promise<Tui>;
   nextEvent(signal?: AbortSignal): Promise<TuiEvent>;
-  render(scene: SceneValue, signal?: AbortSignal): Promise<void>;
-  resize(width: number, height: number): Promise<void>;
-  close(): Promise<void>;
+  render(scene: SceneValue, signal?: AbortSignal): void;
+  resize(width: number, height: number): void;
+  close(): void;
+  exit(): void;
 }
 
 export declare class AppHarness implements TuiRuntime {
-  readonly size: Promise<TerminalMetadata>;
+  readonly size: TerminalMetadata;
   static open(options?: TuiOpenOptions): Promise<AppHarness>;
   nextEvent(signal?: AbortSignal): Promise<TuiEvent>;
-  render(scene: SceneValue, signal?: AbortSignal): Promise<void>;
-  resize(width: number, height: number): Promise<void>;
-  close(): Promise<void>;
+  render(scene: SceneValue, signal?: AbortSignal): void;
+  resize(width: number, height: number): void;
+  close(): void;
+  exit(): void;
   pressKey(key: string, modifiers?: readonly string[]): void;
   paste(text: string): void;
   advance(ms: number): void;

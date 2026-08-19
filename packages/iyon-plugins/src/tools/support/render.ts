@@ -81,5 +81,5 @@ function toSemanticHunk(hunk: ParsedDiffHunk): DiffHunk {
 
 function toSemanticRange(start: number, count: number): DiffRange {
   const offset = count === 0 ? start : start - 1;
-  return new DiffRange(offset, offset + count);
+  return new DiffRange(offset, count);
 }

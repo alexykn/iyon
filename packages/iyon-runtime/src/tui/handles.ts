@@ -16,7 +16,7 @@ export abstract class HandleBase<T extends NativeHandleObject, K extends string 
 
   get disposed(): boolean { return this.isDisposed; }
 
-  async dispose(): Promise<void> {
+  dispose(): void {
     if (this.isDisposed) return;
     this.isDisposed = true;
     try {
@@ -30,12 +30,12 @@ export abstract class HandleBase<T extends NativeHandleObject, K extends string 
     if (this.isDisposed) throw tuiError("disposed-handle", `${this.kind} handle has been disposed`, { id: this.id });
   }
 
-  protected call<R>(operation: () => R): Promise<R> {
+  protected call<R>(operation: () => R): R {
     try {
       this.ensureOpen();
-      return Promise.resolve(operation());
+      return operation();
     } catch (error) {
-      return Promise.reject(asTuiError(error));
+      throw asTuiError(error);
     }
   }
 }

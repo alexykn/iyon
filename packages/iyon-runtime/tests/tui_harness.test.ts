@@ -21,7 +21,7 @@ describe("native headless harness", () => {
 
     harness.advance(25);
     expect(harness.now()).toBe(25);
-    await harness.close();
+    harness.close();
     expect(harness.exited()).toBe(true);
   });
 
@@ -33,9 +33,9 @@ describe("native headless harness", () => {
     await history.pushStream(stream);
     await stream.update("assistant");
     expect(harness.screenRows().some((row) => row.includes("assistant"))).toBe(true);
-    await stream.seal();
-    await expect(stream.update("late")).rejects.toThrow();
-    await harness.close();
+    stream.seal();
+    expect(() => stream.update("late")).toThrow();
+    harness.close();
   });
 
   test("animates a generic native view slot", async () => {
@@ -46,8 +46,8 @@ describe("native headless harness", () => {
     expect(harness.screenRows().some((row) => row.includes("frame one"))).toBe(true);
     harness.advance(80);
     expect(harness.screenRows().some((row) => row.includes("frame two"))).toBe(true);
-    await slot.dispose();
-    await harness.close();
+    slot.dispose();
+    harness.close();
   });
 
   test("observes native styles and terminal-cell Unicode positions", async () => {
@@ -56,7 +56,7 @@ describe("native headless harness", () => {
     expect(harness.cellXOfText(1, "🌍")).toBe(1);
     expect(harness.cellXOfText(1, "b")).toBe(3);
     expect(harness.styleAt(1, 0).bold).toBe(true);
-    await harness.close();
+    harness.close();
     expect(harness.exited()).toBe(true);
   });
 });

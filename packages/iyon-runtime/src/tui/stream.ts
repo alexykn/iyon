@@ -3,12 +3,12 @@ import type { StreamAnnotation, StreamSnapshot, TextStream as TextStreamContract
 
 export class TextStream extends HandleBase<ReturnType<typeof nativeTui.textStream>, "text-stream"> implements TextStreamContract {
   constructor(options: TextStreamOptions = {}) { super("text-stream", nativeTui.textStream(options)); }
-  update(text: string): Promise<void> { return this.call(() => this.nativeHandle.update(text)); }
-  append(text: string, annotations: readonly StreamAnnotation[] = []): Promise<void> {
-    return this.call(() => this.nativeHandle.append(text, annotations));
+  update(text: string): void { this.call(() => this.nativeHandle.update(text)); }
+  append(text: string, annotations: readonly StreamAnnotation[] = []): void {
+    this.call(() => this.nativeHandle.append(text, annotations));
   }
-  seal(): Promise<void> { return this.call(() => this.nativeHandle.seal()); }
-  snapshot(): Promise<StreamSnapshot> { return this.call(() => this.nativeHandle.snapshot() as StreamSnapshot); }
+  seal(): void { this.call(() => this.nativeHandle.seal()); }
+  snapshot(): StreamSnapshot { return this.call(() => this.nativeHandle.snapshot() as StreamSnapshot); }
   nativeObject(): object { this.ensureOpen(); return this.nativeHandle; }
 }
 
