@@ -154,6 +154,7 @@ struct ViewSlotState {
     view: View,
     revision: u64,
     frames: Vec<View>,
+    pending_frames: Option<Vec<View>>,
     frame_index: usize,
     interval: Duration,
     last_tick: Option<Instant>,
@@ -166,6 +167,7 @@ impl HostViewSlot {
                 view,
                 revision: 0,
                 frames: Vec::new(),
+                pending_frames: None,
                 frame_index: 0,
                 interval: Duration::from_millis(480),
                 last_tick: None,
@@ -183,6 +185,7 @@ impl HostViewSlot {
                 .map_err(|_| anyhow::anyhow!("view slot lock is poisoned"))?;
             state.view = view;
             state.frames.clear();
+            state.pending_frames = None;
             state.frame_index = 0;
             state.last_tick = None;
             state.revision = state.revision.saturating_add(1);
@@ -199,6 +202,61 @@ impl HostViewSlot {
     }
 
     pub fn set_animation(&self, frames: Vec<View>, interval: Duration) -> Result<()> {
+        self.replace_animation(frames, interval)
+    }
+
+    /// Replace animation frames on the next cycle boundary while preserving
+    /// the current frame until the native scheduler reaches frame zero.
+    ///
+    /// This is useful when a caller changes animation semantics without
+    /// wanting a mid-cycle visual inversion. Rust retains the pending frames
+    /// and applies them from the native tick path; callers do not schedule
+    /// individual ticks through the binding.
+    pub fn set_animation_at_cycle_boundary(
+        &self,
+        frames: Vec<View>,
+        interval: Duration,
+    ) -> Result<()> {
+        if frames.is_empty() {
+            return Err(anyhow::anyhow!(
+                "view slot animation requires at least one frame"
+            ));
+        }
+        let host_now = self.host_time();
+        let mut invalidate = false;
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("view slot lock is poisoned"))?;
+            if state.frames.len() < 2 || state.interval != interval {
+                let preserve_phase = !state.frames.is_empty() && state.interval == interval;
+                state.frame_index = if preserve_phase {
+                    state.frame_index % frames.len()
+                } else {
+                    0
+                };
+                state.view = frames[state.frame_index].clone();
+                state.frames = frames;
+                state.pending_frames = None;
+                state.interval = interval;
+                if !preserve_phase {
+                    state.last_tick = Some(host_now.unwrap_or_else(Instant::now));
+                }
+                state.revision = state.revision.saturating_add(1);
+                invalidate = true;
+            } else {
+                state.pending_frames = Some(frames);
+            }
+        }
+        if invalidate {
+            self.invalidate_host()
+        } else {
+            Ok(())
+        }
+    }
+
+    fn replace_animation(&self, frames: Vec<View>, interval: Duration) -> Result<()> {
         if frames.is_empty() {
             return Err(anyhow::anyhow!(
                 "view slot animation requires at least one frame"
@@ -221,6 +279,7 @@ impl HostViewSlot {
             };
             state.view = frames[state.frame_index].clone();
             state.frames = frames;
+            state.pending_frames = None;
             state.interval = interval;
             if !preserve_phase {
                 // Anchor the animation to the host clock. This keeps the
@@ -269,6 +328,11 @@ impl HostViewSlot {
         }
         state.last_tick = Some(now);
         state.frame_index = (state.frame_index + 1) % state.frames.len();
+        if state.frame_index == 0 {
+            if let Some(frames) = state.pending_frames.take() {
+                state.frames = frames;
+            }
+        }
         state.view = state.frames[state.frame_index].clone();
         state.revision = state.revision.saturating_add(1);
         true

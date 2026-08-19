@@ -9,6 +9,7 @@ type NativeViewSlotHandle = {
   componentId(): number | null;
   setView(view: object): void;
   setAnimation(frames: object[], intervalMs: number): void;
+  setAnimationAtCycleBoundary(frames: object[], intervalMs: number): void;
   stopAnimation(view: object): void;
 };
 
@@ -28,6 +29,12 @@ export class ViewSlot extends HandleBase<NativeViewSlotHandle, "component"> impl
     this.call(() => {
       if (frames.length === 0) throw new Error("native view slot animation requires at least one frame");
       this.nativeHandle.setAnimation(frames.map(nodeForBridge), intervalMs);
+    });
+  }
+  setAnimationAtCycleBoundary(frames: readonly View[], intervalMs: number): void {
+    this.call(() => {
+      if (frames.length === 0) throw new Error("native view slot animation requires at least one frame");
+      this.nativeHandle.setAnimationAtCycleBoundary(frames.map(nodeForBridge), intervalMs);
     });
   }
   stopAnimation(view: View): void {

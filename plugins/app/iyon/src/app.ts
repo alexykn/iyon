@@ -74,6 +74,7 @@ class IyonAppImpl implements IyonApp {
   private exitAfterRender = false;
   private exiting = false;
   private workingHandle?: ViewSlot;
+  private workingAnimationMode?: boolean;
   private assistantStream?: NativeAssistantStream;
   private readonly toolCards = new ToolCardStore();
   private readonly toolSlots = new Map<string, ViewSlot>();
@@ -534,6 +535,7 @@ class IyonAppImpl implements IyonApp {
     this.agent.cancel?.();
     await this.sealAssistantStream();
     await this.workingHandle?.stopAnimation(View.spacer(0));
+    this.workingAnimationMode = undefined;
     const pendingApproval = this.currentState.pendingApproval;
     if (pendingApproval !== undefined) {
       await this.core.reject?.(pendingApproval.approvalId, "application exiting");
@@ -571,10 +573,17 @@ class IyonAppImpl implements IyonApp {
   private async renderCurrentScene(): Promise<void> {
     if (this.tui === undefined || !this.started) return;
     if (this.workingHandle !== undefined) {
-      if (this.currentState.activityVisible) {
-        await this.workingHandle.setAnimation(workingFrames(this.currentState, this.theme), 80);
-      } else {
+      if (!this.currentState.activityVisible) {
         await this.workingHandle.stopAnimation(View.spacer(0));
+        this.workingAnimationMode = undefined;
+      } else {
+        const waiting = this.currentState.steering.length > 0;
+        if (this.workingAnimationMode === undefined) {
+          await this.workingHandle.setAnimation(workingFrames(waiting), 80);
+        } else if (this.workingAnimationMode !== waiting) {
+          this.workingHandle.setAnimationAtCycleBoundary(workingFrames(waiting), 80);
+        }
+        this.workingAnimationMode = waiting;
       }
     }
     const key = this.bodyKey(this.currentState);
