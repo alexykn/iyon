@@ -45,6 +45,16 @@ describe("retained TUI semantic values", () => {
     const host = new Host(20, 4, true);
     expect(() => host.render({ id: 1, schema: 99, kind: 1 })).toThrow(/unsupported TUI View bridge schema/);
     expect(() => host.render({ id: 1, schema: 1, kind: 999 })).toThrow(/unknown numeric TUI View node kind/);
+    expect(() => host.render({ id: 2, schema: 1, kind: 11, handle: 0 })).toThrow(/handle must be positive/);
+    expect(() => host.render({
+      id: 3,
+      schema: 1,
+      kind: 7,
+      columns: [],
+      rows: [{ track: { kind: 1 }, cells: [{ view: { id: 4, schema: 1, kind: 3, rows: 0 }, columnSpan: 0, rowSpan: 1 }] }],
+      columnGap: 0,
+      rowGap: 0,
+    })).toThrow(/columnSpan must be positive/);
     host.dispose();
   });
 
@@ -52,10 +62,11 @@ describe("retained TUI semantic values", () => {
     const Host = native.NativeTuiHost;
     if (Host === undefined) throw new Error("native TUI host is unavailable");
     const host = new Host(20, 4, true);
-    const node = nodeForBridge(View.text("cached")) as { kind: number };
+    const node = nodeForBridge(View.text("cached"));
+    expect(Object.isFrozen(node)).toBe(true);
     host.render(node);
-    node.kind = 999;
-    expect(() => host.render(node)).not.toThrow();
+    const malformed = { ...node, kind: 999 } as unknown as typeof node;
+    expect(() => host.render(malformed)).not.toThrow();
     host.dispose();
   });
 

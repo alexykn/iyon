@@ -10,6 +10,7 @@ import {
   BRIDGE_VERTICAL_ALIGN,
   BRIDGE_WRAP_MODE,
   cloneDecoration,
+  cloneStyle,
   emptyDecoration,
   emptyStyle,
   mergeStyles,
@@ -130,13 +131,101 @@ export class ChildrenBuilder {
 
 function withPrivateIdentity(node: BridgeViewNode | BridgeViewNodeDraft): BridgeViewNode {
   const { id: _oldId, schema: _oldSchema, ...draft } = node as BridgeViewNode;
-  return { id: nextNodeId(), schema: VIEW_BRIDGE_SCHEMA_VERSION, ...draft } as BridgeViewNode;
+  return freezeBridgeNode({ id: nextNodeId(), schema: VIEW_BRIDGE_SCHEMA_VERSION, ...draft } as BridgeViewNode);
+}
+
+function freezeColor(color: ColorNode | undefined): void {
+  if (color !== undefined && typeof color === "object") Object.freeze(color);
+}
+
+function freezeStyle(style: StyleNode): void {
+  freezeColor(style.foreground);
+  freezeColor(style.background);
+  Object.freeze(style.attributes);
+  Object.freeze(style);
+}
+
+function freezeDecoration(decoration: DecorationNode): void {
+  if (decoration.padding !== undefined) Object.freeze(decoration.padding);
+  freezeColor(decoration.background);
+  freezeColor(decoration.foreground);
+  if (decoration.border !== undefined) {
+    if (decoration.border.glyphs !== undefined) Object.freeze(decoration.border.glyphs);
+    freezeColor(decoration.border.color);
+    Object.freeze(decoration.border);
+  }
+  freezeStyle(decoration.style);
+  if (decoration.styleStates !== undefined) Object.freeze(decoration.styleStates);
+  Object.freeze(decoration);
+}
+
+function freezeOverflow(overflow: BridgeOverflowIndicatorNode | undefined): void {
+  if (overflow === undefined) return;
+  if (overflow.kind !== BRIDGE_OVERFLOW_KIND.none) freezeStyle(overflow.style);
+  Object.freeze(overflow);
+}
+
+function freezeDiff(hunks: readonly BridgeDiffHunkNode[]): void {
+  for (const hunk of hunks) {
+    Object.freeze(hunk.oldRange);
+    Object.freeze(hunk.newRange);
+    for (const line of hunk.lines) Object.freeze(line);
+    Object.freeze(hunk.lines);
+    Object.freeze(hunk);
+  }
+  Object.freeze(hunks);
+}
+
+function freezeBridgeNode(node: BridgeViewNode): BridgeViewNode {
+  switch (node.kind) {
+    case BRIDGE_VIEW_KIND.text:
+      for (const span of node.spans) {
+        if (span.style !== undefined) freezeStyle(span.style);
+        Object.freeze(span);
+      }
+      Object.freeze(node.spans);
+      break;
+    case BRIDGE_VIEW_KIND.diff:
+      freezeDiff(node.hunks);
+      break;
+    case BRIDGE_VIEW_KIND.row:
+    case BRIDGE_VIEW_KIND.column:
+      for (const child of node.children) Object.freeze(child);
+      Object.freeze(node.children);
+      break;
+    case BRIDGE_VIEW_KIND.grid:
+      for (const track of node.columns) Object.freeze(track);
+      Object.freeze(node.columns);
+      for (const row of node.rows) {
+        Object.freeze(row.track);
+        for (const cell of row.cells) Object.freeze(cell);
+        Object.freeze(row.cells);
+        Object.freeze(row);
+      }
+      Object.freeze(node.rows);
+      break;
+    case BRIDGE_VIEW_KIND.container:
+    case BRIDGE_VIEW_KIND.contentMax:
+      break;
+    case BRIDGE_VIEW_KIND.clamp:
+      freezeOverflow(node.overflow);
+      break;
+    case BRIDGE_VIEW_KIND.decorated:
+      freezeDecoration(node.decoration);
+      break;
+    case BRIDGE_VIEW_KIND.hanging:
+    case BRIDGE_VIEW_KIND.spacer:
+    case BRIDGE_VIEW_KIND.component:
+      break;
+  }
+  return Object.freeze(node);
 }
 
 export class View {
   readonly kind = "view" as const;
-  private constructor(private readonly node: BridgeViewNode | BridgeViewNodeDraft) {
+  private constructor(node: BridgeViewNode | BridgeViewNodeDraft) {
     nodes.set(this, withPrivateIdentity(node));
+    Object.freeze(this);
   }
 
   static contentMax(maxRows: number, child: View): View {
@@ -154,7 +243,10 @@ export class View {
   }
 
   static styledText(spans: readonly TextSpan[]): View {
-    return new View({ kind: BRIDGE_VIEW_KIND.text, spans: spans.map((span) => ({ ...span.value })), wrap: BRIDGE_WRAP_MODE.wordThenGrapheme, align: BRIDGE_HORIZONTAL_ALIGN.start });
+    return new View({ kind: BRIDGE_VIEW_KIND.text, spans: spans.map((span) => ({
+      ...span.value,
+      style: span.value.style === undefined ? undefined : cloneStyle(span.value.style),
+    })), wrap: BRIDGE_WRAP_MODE.wordThenGrapheme, align: BRIDGE_HORIZONTAL_ALIGN.start });
   }
 
   static spacer(rows: number): View {
@@ -251,7 +343,8 @@ export class View {
   textAlign(align: HorizontalAlign): View { return this.mapText((text) => ({ ...text, align: horizontalAlignCode(align) })); }
 
   private decoratedNode(): Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.decorated }> | undefined {
-    return this.node.kind === BRIDGE_VIEW_KIND.decorated ? this.node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.decorated }> : undefined;
+    const node = nodeForBridge(this);
+    return node.kind === BRIDGE_VIEW_KIND.decorated ? node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.decorated }> : undefined;
   }
 
   private decorate(decoration: Partial<DecorationNode>): View {
@@ -259,13 +352,14 @@ export class View {
     const current = decorated === undefined ? emptyDecoration() : cloneDecoration(decorated.decoration);
     const child = decorated?.child ?? nodeForBridge(this);
     const next: DecorationNode = { ...current, ...decoration, style: decoration.style === undefined ? current.style : mergeStyles(current.style, decoration.style) };
-    return new View({ kind: BRIDGE_VIEW_KIND.decorated, child, decoration: next });
+    return new View({ kind: BRIDGE_VIEW_KIND.decorated, child, decoration: cloneDecoration(next) });
   }
 
   private mapText(map: (text: Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>) => Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>): View {
-    if (this.node.kind === BRIDGE_VIEW_KIND.text) return new View(map(this.node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>));
-    if (this.node.kind === BRIDGE_VIEW_KIND.decorated && this.node.child.kind === BRIDGE_VIEW_KIND.text) {
-      const decorated = this.node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.decorated }>;
+    const node = nodeForBridge(this);
+    if (node.kind === BRIDGE_VIEW_KIND.text) return new View(map(node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>));
+    if (node.kind === BRIDGE_VIEW_KIND.decorated && node.child.kind === BRIDGE_VIEW_KIND.text) {
+      const decorated = node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.decorated }>;
       return new View({ ...decorated, child: map(decorated.child as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>) });
     }
     return this;
@@ -326,8 +420,8 @@ function toBridgeHunk(hunk: DiffHunkNode): BridgeDiffHunkNode {
 
 function bridgeOverflow(overflow: OverflowIndicator): BridgeOverflowIndicatorNode {
   if (overflow.kind === "none") return { kind: BRIDGE_OVERFLOW_KIND.none };
-  if (overflow.kind === "ellipsis") return { kind: BRIDGE_OVERFLOW_KIND.ellipsis, style: overflow.style.value };
-  return { kind: BRIDGE_OVERFLOW_KIND.footer, prefix: overflow.prefix, style: overflow.style.value };
+  if (overflow.kind === "ellipsis") return { kind: BRIDGE_OVERFLOW_KIND.ellipsis, style: cloneStyle(overflow.style.value) };
+  return { kind: BRIDGE_OVERFLOW_KIND.footer, prefix: overflow.prefix, style: cloneStyle(overflow.style.value) };
 }
 
 function bridgeGridTrack(track: GridTrackNode): BridgeGridTrackNode {

@@ -66,50 +66,11 @@ pub fn tui_view_bridge_environment_count() -> i64 {
         .unwrap_or(0)
 }
 
-const VIEW_BRIDGE_SCHEMA_VERSION: u32 = 1;
+mod tui_bridge_schema {
+    include!(concat!(env!("OUT_DIR"), "/tui_bridge_schema.rs"));
+}
 
-const VIEW_KIND_TEXT: u32 = 1;
-const VIEW_KIND_DIFF: u32 = 2;
-const VIEW_KIND_SPACER: u32 = 3;
-const VIEW_KIND_ROW: u32 = 4;
-const VIEW_KIND_COLUMN: u32 = 5;
-const VIEW_KIND_HANGING: u32 = 6;
-const VIEW_KIND_GRID: u32 = 7;
-const VIEW_KIND_CONTAINER: u32 = 8;
-const VIEW_KIND_CLAMP: u32 = 9;
-const VIEW_KIND_CONTENT_MAX: u32 = 10;
-const VIEW_KIND_COMPONENT: u32 = 11;
-const VIEW_KIND_DECORATED: u32 = 12;
-
-const LAYOUT_CHILD_NORMAL: u32 = 1;
-const LAYOUT_CHILD_FIXED: u32 = 2;
-const LAYOUT_CHILD_FLEX: u32 = 3;
-const LAYOUT_CHILD_FLEX_MAX: u32 = 4;
-const LAYOUT_CHILD_CONTENT_MAX: u32 = 5;
-
-const GRID_TRACK_CONTENT: u32 = 1;
-const GRID_TRACK_CONTENT_MAX: u32 = 2;
-const GRID_TRACK_FIXED: u32 = 3;
-const GRID_TRACK_FLEX: u32 = 4;
-const GRID_TRACK_FLEX_MAX: u32 = 5;
-
-const OVERFLOW_NONE: u32 = 1;
-const OVERFLOW_ELLIPSIS: u32 = 2;
-const OVERFLOW_FOOTER: u32 = 3;
-const WRAP_WORD_THEN_GRAPHEME: u32 = 1;
-const WRAP_GRAPHEME: u32 = 2;
-const WRAP_NO_WRAP: u32 = 3;
-const ALIGN_START: u32 = 1;
-const ALIGN_CENTER: u32 = 2;
-const ALIGN_END: u32 = 3;
-const VERTICAL_TOP: u32 = 1;
-const VERTICAL_CENTER: u32 = 2;
-const VERTICAL_BOTTOM: u32 = 3;
-const DIFF_CONTEXT: u32 = 1;
-const DIFF_ADDITION: u32 = 2;
-const DIFF_DELETION: u32 = 3;
-const DIFF_TERMINATED: u32 = 1;
-const DIFF_UNTERMINATED: u32 = 2;
+use tui_bridge_schema::*;
 
 struct ViewBridgeCache {
     nodes: HashMap<u64, iyon_tui::WeakView>,
@@ -1397,7 +1358,9 @@ impl ViewDecoder {
                     iyon_tui::OverflowIndicator::None,
                 ))
             }
-            VIEW_KIND_COMPONENT => Ok(View::native_component(required_u64(value, "handle")?)),
+            VIEW_KIND_COMPONENT => Ok(View::native_component(required_positive_u64(
+                value, "handle",
+            )?)),
             VIEW_KIND_DECORATED => {
                 let child = self.decode(required_prop::<Object>(value, "child")?)?;
                 decode_decoration(child, &required_prop::<Object>(value, "decoration")?)
@@ -1523,8 +1486,8 @@ impl ViewDecoder {
             for cell_index in 0..cells.len() {
                 let cell = cells.get_element::<Object>(cell_index)?;
                 let spec = GridCellSpec::new()
-                    .column_span(required_u16(&cell, "columnSpan")?)
-                    .row_span(required_u16(&cell, "rowSpan")?)
+                    .column_span(required_positive_u16(&cell, "columnSpan")?)
+                    .row_span(required_positive_u16(&cell, "rowSpan")?)
                     .horizontal_align(decode_horizontal_align(
                         cell.get::<u32>("horizontalAlign")?.unwrap_or(ALIGN_START),
                     )?)
@@ -1583,6 +1546,26 @@ fn number_to_u16(value: f64, field: &str) -> Result<u16> {
 
 fn required_u16(object: &Object<'_>, field: &str) -> Result<u16> {
     number_to_u16(required_prop::<f64>(object, field)?, field)
+}
+
+fn required_positive_u16(object: &Object<'_>, field: &str) -> Result<u16> {
+    let value = required_u16(object, field)?;
+    if value == 0 {
+        return Err(crate::NativeError::invalid_input(format!(
+            "{field} must be positive"
+        )));
+    }
+    Ok(value)
+}
+
+fn required_positive_u64(object: &Object<'_>, field: &str) -> Result<u64> {
+    let value = required_u64(object, field)?;
+    if value == 0 {
+        return Err(crate::NativeError::invalid_input(format!(
+            "{field} must be positive"
+        )));
+    }
+    Ok(value)
 }
 
 fn decode_wrap(value: u32) -> Result<WrapMode> {
