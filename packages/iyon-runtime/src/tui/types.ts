@@ -103,6 +103,7 @@ export interface Component extends NativeHandle {
 export interface ViewSlot extends Component {
   setView(view: View): TuiOperation<void>;
   setAnimation(frames: readonly View[], intervalMs: number): TuiOperation<void>;
+  setAnimationAtCycleBoundary(frames: readonly View[], intervalMs: number): TuiOperation<void>;
   stopAnimation(view: View): TuiOperation<void>;
   revision(): TuiOperation<number>;
 }

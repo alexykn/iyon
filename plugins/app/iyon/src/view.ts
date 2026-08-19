@@ -10,22 +10,22 @@ export interface IyonViewOptions { readonly composer: TextInput; readonly histor
 
 const SPINNER_FRAMES = ["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"] as const;
 
-export function workingFrames(state: IyonState, theme: IyonTheme): ViewValue[] {
-  const pending = state.steering;
+export function workingFrames(waiting: boolean): ViewValue[] {
   return SPINNER_FRAMES.map((frame, index) => {
-    const spinner = pending.length === 0
-      ? SPINNER_FRAMES[SPINNER_FRAMES.length - 1 - index]
-      : frame;
-    const status = View.text(`${spinner} ${pending.length === 0 ? "Working" : "waiting"}`).noWrap();
-    if (pending.length === 0) return status.padding(Insets.horizontal(2)).fillWidth();
-    const preview = pending[0]!.split(/\s+/).filter(Boolean).join(" ");
-    const extra = pending.length - 1;
-    return View.horizontal((row) => {
-      row.gap(4);
-      row.child(status);
-      row.flex(View.text(`Queue: ${preview}`).noWrap().style(theme.muted));
-      if (extra > 0) row.child(View.text(` + ${extra} more`).noWrap().style(theme.muted));
-    }).fillWidth().padding(Insets.horizontal(2));
+    const spinner = waiting ? frame : SPINNER_FRAMES[SPINNER_FRAMES.length - 1 - index];
+    return View.text(`${spinner} ${waiting ? "waiting" : "Working"}`).noWrap();
+  });
+}
+
+export function workingQueueView(state: IyonState, theme: IyonTheme): ViewValue | undefined {
+  const first = state.steering[0];
+  if (first === undefined) return undefined;
+  const preview = first.split(/\s+/).filter(Boolean).join(" ");
+  const extra = state.steering.length - 1;
+  const muted = (text: string) => View.text(text).noWrap().italic().foreground(theme.mutedColor);
+  return View.horizontal((row) => {
+    row.flex(muted(`Queue: ${preview}`));
+    if (extra > 0) row.child(muted(` + ${extra} more`));
   });
 }
 
@@ -42,7 +42,12 @@ export function createIyonView(options: IyonViewOptions): ViewValue {
     .fillWidth();
   const footer = View.text(footerText(options.state)).style(options.theme.footer).fillWidth();
   const working = options.state.activityVisible && options.working !== undefined
-    ? View.component(options.working).fillWidth().padding(Insets.of(0, 0, 1, 0))
+    ? View.horizontal((row) => {
+      row.gap(4);
+      row.child(View.component(options.working!));
+      const queue = workingQueueView(options.state, options.theme);
+      if (queue !== undefined) row.flex(queue);
+    }).fillWidth().padding(Insets.of(0, 2, 1, 2))
     : View.spacer(0);
   const approval = options.state.pendingApproval === undefined ? View.spacer(0) : approvalView(options.state.pendingApproval);
   return View.vertical((column) => {

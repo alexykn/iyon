@@ -84,7 +84,7 @@ export interface NativeAddon {
   NativeTextStream?: new (options?: "markdown" | { readonly projector?: "markdown"; readonly presentation?: object; readonly pacing?: object }) => { dispose(): void; update(text: string): void; append(text: string, annotations?: readonly object[]): void; seal(): void; snapshot(): object };
   NativeMarkdownProjector?: new () => { dispose(): void; project(text: string, sealed?: boolean): object };
   NativePlainProjector?: new () => { dispose(): void; project(text: string): object };
-  NativeViewSlot?: new (initial: object) => { dispose(): void; revision(): number; componentId(): number | null; setView(view: object): void; setAnimation(frames: object[], intervalMs: number): void; stopAnimation(view: object): void };
+  NativeViewSlot?: new (initial: object) => { dispose(): void; revision(): number; componentId(): number | null; setView(view: object): void; setAnimation(frames: object[], intervalMs: number): void; setAnimationAtCycleBoundary(frames: object[], intervalMs: number): void; stopAnimation(view: object): void };
   NativeScrollPane?: new (initial: object) => { dispose(): void; componentId(): number | null; setContent(view: object): void; followEnd(): void };
 }
 

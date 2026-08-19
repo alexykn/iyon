@@ -35,31 +35,44 @@ export function cycleReasoningEffort(state: IyonState, next: ReasoningLevel): Iy
 
 function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState {
   switch (event.type) {
-    case "turnStarted": return { ...state, activeTurn: true, working: true, activityVisible: true };
+    case "turnStarted": {
+      const activityVisible = state.activeTurn || state.activityVisible || state.steering.length > 0;
+      return { ...state, activeTurn: true, working: state.working || activityVisible, activityVisible };
+    }
     case "userMessage": {
       const delivered = deliverQueuedSteer(state, event.text, event.queueId);
-      return { ...state, userBatches: [...state.userBatches, event.text], ...delivered };
+      return { ...state, userBatches: [...state.userBatches, event.text], activityVisible: state.activeTurn, ...delivered };
     }
-    case "assistantDelta": return { ...state, assistantText: state.assistantText + event.text, assistantOpen: true, activityVisible: state.steering.length > 0 };
-    case "thinkingDelta": return { ...state, thinkingText: state.thinkingText + event.text, assistantOpen: true, activityVisible: state.steering.length > 0 };
+    case "assistantDelta": return { ...state, assistantText: state.assistantText + event.text, assistantOpen: true, activityVisible: state.activeTurn && state.steering.length > 0 };
+    case "thinkingDelta": return { ...state, thinkingText: state.thinkingText + event.text, assistantOpen: true, activityVisible: state.activeTurn && state.steering.length > 0 };
     case "steerQueued": {
       const queueId = event.queueId === undefined ? undefined : String(event.queueId);
-      return { ...state, steering: [...state.steering, event.text], steeringQueueIds: [...state.steeringQueueIds, queueId], activityVisible: true };
+      return { ...state, steering: [...state.steering, event.text], steeringQueueIds: [...state.steeringQueueIds, queueId], activityVisible: state.activeTurn };
     }
     case "configChanged": return updateInfo(state, { provider: event.provider, modelId: event.modelId, reasoningEffort: event.reasoningEffort });
-    case "toolCallPreparing": return withDraft(state, event.key, { draftKey: event.key, toolCallId: normalizeToolCallId(event.toolCallId), toolName: event.toolName, argumentPreview: "", status: "preparing", isError: false, frozen: false });
-    case "toolCallArguments": return updateDraft(state, event.key, (tool) => ({ ...tool, argumentPreview: tool.argumentPreview + event.delta, toolCallId: event.toolCallId === undefined ? tool.toolCallId : normalizeToolCallId(event.toolCallId), toolName: event.toolName ?? tool.toolName }));
-    case "toolCallPrepared": return updateDraft(state, event.key, (tool) => ({ ...tool, toolCallId: normalizeToolCallId(event.toolCallId)!, toolName: event.toolName, arguments: event.arguments, status: "prepared" }));
-    case "toolCallStarted": return startTool(state, normalizeToolCallId(event.toolCallId)!, event.toolName, event.arguments);
-    case "toolCallUpdated": return updateTool(state, normalizeToolCallId(event.toolCallId)!, (tool) => applyToolUpdate(tool, event.update));
-    case "toolApprovalRequested": return { ...updateTool(state, normalizeToolCallId(event.toolCallId)!, (tool) => ({ ...tool, status: "pendingApproval" })), pendingApproval: { approvalId: event.approvalId, toolCallId: normalizeToolCallId(event.toolCallId)!, toolName: event.toolName, arguments: event.arguments } };
-    case "toolApprovalResolved": return { ...updateTool(state, normalizeToolCallId(event.toolCallId)!, (tool) => ({ ...tool, status: event.approved ? "running" : "cancelled", frozen: !event.approved })), pendingApproval: undefined };
-    case "toolResult": return updateTool(state, normalizeToolCallId(event.toolCallId)!, (tool) => ({ ...tool, toolName: event.toolName, result: { content: [{ type: "text", text: event.text }], details: event.details, isError: event.isError, toolCallId: normalizeToolCallId(event.toolCallId) as never, toolName: event.toolName, text: event.text }, status: event.isError ? "failed" : "finished", isError: event.isError, frozen: true }));
+    case "toolCallPreparing": return withDraft(showActivity(state), event.key, { draftKey: event.key, toolCallId: normalizeToolCallId(event.toolCallId), toolName: event.toolName, argumentPreview: "", status: "preparing", isError: false, frozen: false });
+    case "toolCallArguments": return updateDraft(showActivity(state), event.key, (tool) => ({ ...tool, argumentPreview: tool.argumentPreview + event.delta, toolCallId: event.toolCallId === undefined ? tool.toolCallId : normalizeToolCallId(event.toolCallId), toolName: event.toolName ?? tool.toolName }));
+    case "toolCallPrepared": return updateDraft(showActivity(state), event.key, (tool) => ({ ...tool, toolCallId: normalizeToolCallId(event.toolCallId)!, toolName: event.toolName, arguments: event.arguments, status: "prepared" }));
+    case "toolCallStarted": return startTool(showActivity(state), normalizeToolCallId(event.toolCallId)!, event.toolName, event.arguments);
+    case "toolCallUpdated": return updateTool(showActivity(state), normalizeToolCallId(event.toolCallId)!, (tool) => applyToolUpdate(tool, event.update));
+    case "toolApprovalRequested": return { ...updateTool(showActivity(state), normalizeToolCallId(event.toolCallId)!, (tool) => ({ ...tool, status: "pendingApproval" })), pendingApproval: { approvalId: event.approvalId, toolCallId: normalizeToolCallId(event.toolCallId)!, toolName: event.toolName, arguments: event.arguments } };
+    case "toolApprovalResolved": return { ...updateTool(showActivity(state), normalizeToolCallId(event.toolCallId)!, (tool) => ({ ...tool, status: event.approved ? "running" : "cancelled", frozen: !event.approved })), pendingApproval: undefined };
+    case "toolResult": return updateTool(showActivity(state), normalizeToolCallId(event.toolCallId)!, (tool) => ({ ...tool, toolName: event.toolName, result: { content: [{ type: "text", text: event.text }], details: event.details, isError: event.isError, toolCallId: normalizeToolCallId(event.toolCallId) as never, toolName: event.toolName, text: event.text }, status: event.isError ? "failed" : "finished", isError: event.isError, frozen: true }));
     case "toolCallFinished": return state;
-    case "turnFinished": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: finalizeLiveTools(state.liveTools) };
+    case "turnFinished": return hasPreparedTool(state)
+      ? { ...state, activeTurn: true, assistantOpen: false, working: true, activityVisible: true }
+      : { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: finalizeLiveTools(state.liveTools) };
     case "turnFailed": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: finalizeLiveTools(state.liveTools), info: { ...state.info, status: event.message } };
     case "turnCancelled": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: cancelLiveTools(state.liveTools) };
   }
+}
+
+function showActivity(state: IyonState): IyonState {
+  return { ...state, activeTurn: true, working: true, activityVisible: true };
+}
+
+function hasPreparedTool(state: IyonState): boolean {
+  return [...state.liveTools.values()].some((tool) => !tool.frozen && (tool.status === "preparing" || tool.status === "prepared"));
 }
 
 function withDraft(state: IyonState, key: { readonly messageId: number; readonly contentIndex: number }, tool: LiveTool): IyonState {

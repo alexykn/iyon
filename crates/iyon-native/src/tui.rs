@@ -1193,6 +1193,24 @@ impl NativeViewSlot {
 
     #[napi(js_name = "setAnimation")]
     pub fn set_animation(&self, frames: Vec<Object>, interval_ms: i64) -> Result<()> {
+        self.set_animation_with_mode(frames, interval_ms, false)
+    }
+
+    #[napi(js_name = "setAnimationAtCycleBoundary")]
+    pub fn set_animation_at_cycle_boundary(
+        &self,
+        frames: Vec<Object>,
+        interval_ms: i64,
+    ) -> Result<()> {
+        self.set_animation_with_mode(frames, interval_ms, true)
+    }
+
+    fn set_animation_with_mode(
+        &self,
+        frames: Vec<Object>,
+        interval_ms: i64,
+        at_cycle_boundary: bool,
+    ) -> Result<()> {
         ensure_alive(&self.alive)?;
         let interval_ms = u64::try_from(interval_ms).map_err(|_| {
             crate::NativeError::invalid_input("animation interval must be positive")
@@ -1207,15 +1225,17 @@ impl NativeViewSlot {
                 "animation requires at least one frame",
             ));
         }
-        self.slot
-            .set_animation(
-                frames
-                    .into_iter()
-                    .map(|frame| decode_view(&frame))
-                    .collect::<Result<Vec<_>>>()?,
-                std::time::Duration::from_millis(interval_ms),
-            )
-            .map_err(|error| crate::NativeError::internal(error.to_string()))
+        let frames = frames
+            .into_iter()
+            .map(|frame| decode_view(&frame))
+            .collect::<Result<Vec<_>>>()?;
+        let interval = std::time::Duration::from_millis(interval_ms);
+        let result = if at_cycle_boundary {
+            self.slot.set_animation_at_cycle_boundary(frames, interval)
+        } else {
+            self.slot.set_animation(frames, interval)
+        };
+        result.map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
     #[napi(js_name = "stopAnimation")]

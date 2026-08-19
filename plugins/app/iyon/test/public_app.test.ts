@@ -546,7 +546,9 @@ describe("Iyon public native TUI", () => {
       await fixture.app.handleAction({ type: "submit", text: "steer" });
       const rows = fixture.harness.screenRows();
       expect(rows.some((line) => line.includes("Queue: steer"))).toBe(true);
-      expect(rows.some((line) => line.includes("waiting"))).toBe(true);
+      expect(rows.some((line) => line.includes("Working"))).toBe(true);
+      advance(fixture, 80, 5);
+      expect(fixture.harness.screenRows().some((line) => line.includes("waiting"))).toBe(true);
       expect(transcriptLines(fixture.harness).some((line) => line.trim() === "steer")).toBe(false);
     });
   });
@@ -580,8 +582,15 @@ describe("Iyon public native TUI", () => {
 
   test("normal_working_spinner_runs_reverse", async () => {
     await withFixture(60, 20, async (fixture) => {
-      await send(fixture, { type: "turnStarted" });
+      await sendAll(fixture, [{ type: "turnStarted" }, { type: "userMessage", text: "prompt" }]);
       expect(fixture.harness.screenRows().some((line) => line.includes("⠞⢁ Working"))).toBe(true);
+    });
+  });
+
+  test("turn_started_without_user_batch_does_not_show_working", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await send(fixture, { type: "turnStarted" });
+      expect(fixture.harness.screenRows().some((line) => line.includes("Working"))).toBe(false);
     });
   });
 
@@ -589,8 +598,11 @@ describe("Iyon public native TUI", () => {
     await withFixture(60, 20, async (fixture) => {
       await sendAll(fixture, [
         { type: "turnStarted" },
+        { type: "userMessage", text: "prompt" },
         { type: "steerQueued", text: "next" },
       ]);
+      expect(fixture.harness.screenRows().some((line) => line.includes("⠞⢁ Working"))).toBe(true);
+      advance(fixture, 80, 5);
       expect(fixture.harness.screenRows().some((line) => line.includes("⠋⣠ waiting"))).toBe(true);
     });
   });
@@ -621,6 +633,49 @@ describe("Iyon public native TUI", () => {
       const lines = transcriptLines(fixture.harness);
       expect(position(lines, "assista")).toBeLessThan(position(lines, "Queue: second"));
       expect(position(lines, "waiting")).toBeGreaterThan(position(lines, "assista"));
+    });
+  });
+
+  test("working_activity_bridges_tool_execution_and_model_wait", async () => {
+    await withFixture(80, 20, async (fixture) => {
+      const firstKey = draft(21, 0);
+      await sendAll(fixture, [
+        { type: "turnStarted" },
+        { type: "userMessage", text: "prompt" },
+        { type: "assistantDelta", text: "tool request" },
+      ]);
+      expect(fixture.harness.screenRows().some((line) => line.includes("Working"))).toBe(false);
+      await send(fixture, { type: "toolCallPreparing", key: firstKey, toolCallId: "tool-gap-1", toolName: "bash" });
+      await send(fixture, { type: "toolCallPrepared", key: firstKey, toolCallId: "tool-gap-1", toolName: "bash", arguments: { command: "true" } });
+      expect(fixture.harness.screenRows().some((line) => line.includes("Working"))).toBe(true);
+      await send(fixture, { type: "turnFinished" });
+      expect(fixture.harness.screenRows().some((line) => line.includes("Working"))).toBe(true);
+      await send(fixture, { type: "toolCallStarted", toolCallId: "tool-gap-1", toolName: "bash", arguments: { command: "true" } });
+      await send(fixture, { type: "toolResult", toolCallId: "tool-gap-1", toolName: "bash", text: "done", details: {}, isError: false });
+      expect(fixture.harness.screenRows().some((line) => line.includes("Working"))).toBe(true);
+      await send(fixture, { type: "thinkingDelta", text: "next tool" });
+      expect(fixture.harness.screenRows().some((line) => line.includes("Working"))).toBe(false);
+      const secondKey = draft(22, 0);
+      await send(fixture, { type: "toolCallPreparing", key: secondKey, toolCallId: "tool-gap-2", toolName: "bash" });
+      await send(fixture, { type: "toolCallPrepared", key: secondKey, toolCallId: "tool-gap-2", toolName: "bash", arguments: { command: "true" } });
+      await send(fixture, { type: "turnFinished" });
+      expect(fixture.harness.screenRows().some((line) => line.includes("Working"))).toBe(true);
+      await send(fixture, { type: "toolCallStarted", toolCallId: "tool-gap-2", toolName: "bash", arguments: { command: "true" } });
+      await send(fixture, { type: "toolResult", toolCallId: "tool-gap-2", toolName: "bash", text: "done", details: {}, isError: false });
+      expect(fixture.harness.screenRows().some((line) => line.includes("Working"))).toBe(true);
+      await send(fixture, { type: "assistantDelta", text: "final" });
+      advance(fixture, 16, 20);
+      expect(fixture.harness.screenRows().some((line) => line.includes("Working"))).toBe(false);
+    });
+  });
+
+  test("queued_working_preview_is_muted_and_italic", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await sendAll(fixture, [{ type: "turnStarted" }, { type: "userMessage", text: "prompt" }, { type: "steerQueued", text: "queued" }]);
+      const style = styleForText(fixture, "Queue: queued");
+      expect(style.foreground).toBe("#718096");
+      expect(style.dim).toBe(false);
+      expect(style.italic).toBe(true);
     });
   });
 
