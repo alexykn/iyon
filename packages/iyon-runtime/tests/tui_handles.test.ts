@@ -3,6 +3,17 @@ import { describe, expect, test } from "bun:test";
 import { Component, History, TextInput, TextStream, View } from "../src/tui/index.ts";
 
 describe("T5 native TUI handles", () => {
+  test("synchronous native mutations do not allocate Promise wrappers", () => {
+    const stream = new TextStream();
+    expect(stream.update("direct")).toBeUndefined();
+    expect(stream.snapshot()).toMatchObject({ text: "direct", revision: 1 });
+    const history = new History();
+    expect(history.push(View.text("direct"))).toBeGreaterThanOrEqual(0);
+    expect(history.layout()).toEqual({ padding: 0, gap: 0 });
+    stream.dispose();
+    history.dispose();
+  });
+
   test("keeps TextInput state in one native object", async () => {
     const input = new TextInput();
     await input.setText("hello 🌍");
