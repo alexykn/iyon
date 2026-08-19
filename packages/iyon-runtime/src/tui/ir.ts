@@ -1,72 +1,118 @@
 import type { NativeHandleId } from "./types.ts";
+import bridgeSchema from "./bridge-schema.json";
+
+type BridgeSchema = {
+  readonly schemaVersion: 1;
+  readonly viewText: 1;
+  readonly viewDiff: 2;
+  readonly viewSpacer: 3;
+  readonly viewRow: 4;
+  readonly viewColumn: 5;
+  readonly viewHanging: 6;
+  readonly viewGrid: 7;
+  readonly viewContainer: 8;
+  readonly viewClamp: 9;
+  readonly viewContentMax: 10;
+  readonly viewComponent: 11;
+  readonly viewDecorated: 12;
+  readonly layoutNormal: 1;
+  readonly layoutFixed: 2;
+  readonly layoutFlex: 3;
+  readonly layoutFlexMax: 4;
+  readonly layoutContentMax: 5;
+  readonly trackContent: 1;
+  readonly trackContentMax: 2;
+  readonly trackFixed: 3;
+  readonly trackFlex: 4;
+  readonly trackFlexMax: 5;
+  readonly overflowNone: 1;
+  readonly overflowEllipsis: 2;
+  readonly overflowFooter: 3;
+  readonly wrapWordThenGrapheme: 1;
+  readonly wrapGrapheme: 2;
+  readonly wrapNoWrap: 3;
+  readonly horizontalStart: 1;
+  readonly horizontalCenter: 2;
+  readonly horizontalEnd: 3;
+  readonly verticalTop: 1;
+  readonly verticalCenter: 2;
+  readonly verticalBottom: 3;
+  readonly diffContext: 1;
+  readonly diffAddition: 2;
+  readonly diffDeletion: 3;
+  readonly terminationTerminated: 1;
+  readonly terminationUnterminated: 2;
+};
+
+const schema = bridgeSchema as BridgeSchema;
 
 /** Private semantic bridge schema shared by the retained TS DAG and native decoder. */
-export const VIEW_BRIDGE_SCHEMA_VERSION = 1 as const;
+export const VIEW_BRIDGE_SCHEMA_VERSION = schema.schemaVersion;
 
 export const BRIDGE_VIEW_KIND = {
-  text: 1,
-  diff: 2,
-  spacer: 3,
-  row: 4,
-  column: 5,
-  hanging: 6,
-  grid: 7,
-  container: 8,
-  clamp: 9,
-  contentMax: 10,
-  component: 11,
-  decorated: 12,
+  text: schema.viewText,
+  diff: schema.viewDiff,
+  spacer: schema.viewSpacer,
+  row: schema.viewRow,
+  column: schema.viewColumn,
+  hanging: schema.viewHanging,
+  grid: schema.viewGrid,
+  container: schema.viewContainer,
+  clamp: schema.viewClamp,
+  contentMax: schema.viewContentMax,
+  component: schema.viewComponent,
+  decorated: schema.viewDecorated,
 } as const;
 
 export const BRIDGE_LAYOUT_CHILD_KIND = {
-  normal: 1,
-  fixed: 2,
-  flex: 3,
-  flexMax: 4,
-  contentMax: 5,
+  normal: schema.layoutNormal,
+  fixed: schema.layoutFixed,
+  flex: schema.layoutFlex,
+  flexMax: schema.layoutFlexMax,
+  contentMax: schema.layoutContentMax,
 } as const;
 
 export const BRIDGE_GRID_TRACK_KIND = {
-  content: 1,
-  contentMax: 2,
-  fixed: 3,
-  flex: 4,
-  flexMax: 5,
+  content: schema.trackContent,
+  contentMax: schema.trackContentMax,
+  fixed: schema.trackFixed,
+  flex: schema.trackFlex,
+  flexMax: schema.trackFlexMax,
 } as const;
 
 export const BRIDGE_OVERFLOW_KIND = {
-  none: 1,
-  ellipsis: 2,
-  footer: 3,
+  none: schema.overflowNone,
+  ellipsis: schema.overflowEllipsis,
+  footer: schema.overflowFooter,
 } as const;
 
 export const BRIDGE_WRAP_MODE = {
-  wordThenGrapheme: 1,
-  grapheme: 2,
-  noWrap: 3,
+  wordThenGrapheme: schema.wrapWordThenGrapheme,
+  grapheme: schema.wrapGrapheme,
+  noWrap: schema.wrapNoWrap,
 } as const;
 
 export const BRIDGE_HORIZONTAL_ALIGN = {
-  start: 1,
-  center: 2,
-  end: 3,
+  start: schema.horizontalStart,
+  center: schema.horizontalCenter,
+  end: schema.horizontalEnd,
 } as const;
 
 export const BRIDGE_VERTICAL_ALIGN = {
-  top: 1,
-  center: 2,
-  bottom: 3,
+  top: schema.verticalTop,
+  center: schema.verticalCenter,
+  bottom: schema.verticalBottom,
 } as const;
 
 export const BRIDGE_DIFF_LINE_KIND = {
-  context: 1,
-  addition: 2,
-  deletion: 3,
+  context: schema.diffContext,
+  addition: schema.diffAddition,
+  deletion: schema.diffDeletion,
 } as const;
 
 export const BRIDGE_DIFF_LINE_TERMINATION = {
-  terminated: 1,
-  unterminated: 2,
+  terminated: schema.terminationTerminated,
+  unterminated: schema.terminationUnterminated,
 } as const;
 
 export type ColorNode = string | { readonly type: "ansi"; readonly value: number };
@@ -248,19 +294,39 @@ export function emptyDecoration(): DecorationNode {
   return { style: emptyStyle() };
 }
 
+function cloneColor(color: ColorNode | undefined): ColorNode | undefined {
+  return color !== undefined && typeof color === "object" ? { ...color } : color;
+}
+
+export function cloneStyle(style: StyleNode): StyleNode {
+  return {
+    ...style,
+    foreground: cloneColor(style.foreground),
+    background: cloneColor(style.background),
+    attributes: { ...style.attributes },
+  };
+}
+
 export function cloneDecoration(decoration: DecorationNode): DecorationNode {
   return {
     ...decoration,
     padding: decoration.padding === undefined ? undefined : { ...decoration.padding },
-    style: { ...decoration.style, attributes: { ...decoration.style.attributes } },
-    border: decoration.border === undefined ? undefined : { ...decoration.border, glyphs: decoration.border.glyphs && { ...decoration.border.glyphs } },
+    background: cloneColor(decoration.background),
+    foreground: cloneColor(decoration.foreground),
+    style: cloneStyle(decoration.style),
+    border: decoration.border === undefined ? undefined : {
+      ...decoration.border,
+      color: cloneColor(decoration.border.color),
+      glyphs: decoration.border.glyphs && { ...decoration.border.glyphs },
+    },
   };
 }
 
 export function mergeStyles(left: StyleNode, right: StyleNode): StyleNode {
   return {
-    foreground: right.foreground ?? left.foreground,
-    background: right.background ?? left.background,
+    theme: right.theme ?? left.theme,
+    foreground: cloneColor(right.foreground ?? left.foreground),
+    background: cloneColor(right.background ?? left.background),
     attributes: { ...left.attributes, ...right.attributes },
   };
 }
