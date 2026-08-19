@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 perf-counters = ["iyon-tui/perf-counters"]
+perf-packed-benchmark = []
 
 [dependencies]
 iyon-api.workspace = true
