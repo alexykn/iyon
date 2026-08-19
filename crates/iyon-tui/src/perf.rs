@@ -129,7 +129,9 @@ pub struct PerfSnapshot {
 
 impl Default for PerfSnapshot {
     fn default() -> Self {
-        Self { values: [0; Counter::COUNT] }
+        Self {
+            values: [0; Counter::COUNT],
+        }
     }
 }
 

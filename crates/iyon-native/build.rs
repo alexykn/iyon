@@ -62,7 +62,10 @@ const FIELDS: &[(&str, &str)] = &[
     ("packedBorderStyleDouble", "PACKED_BORDER_STYLE_DOUBLE"),
     ("packedBorderEdgesAbsent", "PACKED_BORDER_EDGES_ABSENT"),
     ("packedBorderEdgesAll", "PACKED_BORDER_EDGES_ALL"),
-    ("packedBorderEdgesTopBottom", "PACKED_BORDER_EDGES_TOP_BOTTOM"),
+    (
+        "packedBorderEdgesTopBottom",
+        "PACKED_BORDER_EDGES_TOP_BOTTOM",
+    ),
     ("packedStyleTheme", "PACKED_STYLE_THEME"),
     ("packedStyleForeground", "PACKED_STYLE_FOREGROUND"),
     ("packedStyleBackground", "PACKED_STYLE_BACKGROUND"),

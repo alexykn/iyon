@@ -26,5 +26,4 @@ tokio-util.workspace = true
 
 [build-dependencies]
 napi-build = "2.4.1"
-serde.workspace = true
 serde_json.workspace = true
