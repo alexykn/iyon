@@ -1,6 +1,5 @@
 import { native } from "../src/native.ts";
-import { materializeView } from "../src/tui/materialize.ts";
-import { View } from "../src/tui/values/view.ts";
+import { View, nodeForBridge } from "../src/tui/values/view.ts";
 
 type PerfNative = typeof native & {
   tuiPerfReset?: () => void;
@@ -64,10 +63,14 @@ function emit(
   }));
 }
 
-function materialize(view: View): void {
-  if (materializeView(view) === undefined) {
-    throw new Error("native TUI materializer is unavailable");
-  }
+const benchmarkHost = (() => {
+  const Host = native.NativeTuiHost;
+  if (Host === undefined) throw new Error("native TUI host is unavailable");
+  return new Host(80, 24, true);
+})();
+
+function render(view: View): void {
+  benchmarkHost.render(nodeForBridge(view));
 }
 
 function run(sizeName: string, nodes: number, pattern: "COLD" | "IDENTICAL_IDENTITY" | "SHARED_PATH" | "REBUILT_EQUIVALENT", sha: string): void {
@@ -81,19 +84,19 @@ function run(sizeName: string, nodes: number, pattern: "COLD" | "IDENTICAL_IDENT
     const started = Bun.nanoseconds();
     switch (pattern) {
       case "COLD":
-        materialize(tree(nodes));
+        render(tree(nodes));
         break;
       case "IDENTICAL_IDENTITY":
-        materialize(base);
+        render(base);
         break;
       case "SHARED_PATH":
-        materialize(View.vertical((column) => {
+        render(View.vertical((column) => {
           column.child(shared);
           column.child(View.text(`changed-${index}`));
         }));
         break;
       case "REBUILT_EQUIVALENT":
-        materialize(tree(nodes));
+        render(tree(nodes));
         break;
     }
     samples.push(Bun.nanoseconds() - started);
@@ -108,3 +111,5 @@ for (const size of sizes) {
     run(size.name, size.nodes, pattern, sha);
   }
 }
+
+benchmarkHost.dispose();

@@ -464,19 +464,20 @@ pub(crate) fn projected_atoms(text: &ProjectedText) -> Vec<ProjectedAtom> {
     )>| {
         for (relative, grapheme) in display.grapheme_indices(true) {
             let relative_end = relative + grapheme.len();
-            let contributors = fragments
-                .iter()
-                .enumerate()
-                .filter(|(_, (start, end, _, _, _, _, _))| relative < *end && relative_end > *start)
-                .collect::<Vec<_>>();
-            let first = contributors
-                .first()
-                .map(|(_, fragment)| fragment)
-                .expect("projected EGC must overlap an exact fragment");
-            let last = contributors
-                .last()
-                .map(|(_, fragment)| fragment)
-                .expect("projected EGC must overlap an exact fragment");
+            let mut first_index = None;
+            let mut last_index = None;
+            for (index, (start, end, ..)) in fragments.iter().enumerate() {
+                if relative < *end && relative_end > *start {
+                    first_index.get_or_insert(index);
+                    last_index = Some(index);
+                }
+            }
+            let first = fragments
+                .get(first_index.expect("projected EGC must overlap an exact fragment"))
+                .expect("first exact fragment index must remain valid");
+            let last = fragments
+                .get(last_index.expect("projected EGC must overlap an exact fragment"))
+                .expect("last exact fragment index must remain valid");
             let first_offset = relative - first.0;
             let source_start = if first_offset == 0 {
                 first.2.start
@@ -531,13 +532,6 @@ pub(crate) fn projected_atoms(text: &ProjectedText) -> Vec<ProjectedAtom> {
     }
     flush_exact(&mut atoms, &mut exact_display, &mut fragments);
     atoms
-}
-
-pub(crate) fn checkpoint_after_row(text: &ProjectedText, offset: StreamOffset) -> StreamOffset {
-    projected_atoms(text)
-        .into_iter()
-        .find(|atom| atom.owned.start == offset && atom.display == "\n")
-        .map_or(offset, |atom| atom.owned.end)
 }
 
 pub(crate) fn projected_checkpoint_is_legal(text: &ProjectedText, offset: StreamOffset) -> bool {

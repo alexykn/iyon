@@ -42,7 +42,6 @@ export { View, ChildrenBuilder } from "./values/view.ts";
 export { Insets } from "./values/geometry.ts";
 export { Style, StyleSpec } from "./values/style.ts";
 export { TextSelector, TextSpan } from "./values/text.ts";
-export { materializeView } from "./materialize.ts";
 export { History } from "./history.ts";
 export { TextInput, NativeOutputHandle } from "./text-input.ts";
 export { TextStream, StreamPane } from "./stream.ts";

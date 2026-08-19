@@ -1,5 +1,5 @@
 import { native } from "../native.ts";
-import { materializeView } from "./materialize.ts";
+import { nodeForBridge } from "./values/view.ts";
 import { asTuiError, tuiError } from "./errors.ts";
 import { requireNativeClass } from "./handles.ts";
 import { Scene } from "./scene.ts";
@@ -46,7 +46,7 @@ export class Tui implements TuiRuntime {
     }
   }
 
-  get size(): Promise<TerminalMetadata> { return Promise.resolve({ width: this.width, height: this.height }); }
+  get size(): TerminalMetadata { return { width: this.width, height: this.height }; }
 
   async nextEvent(signal?: AbortSignal): Promise<TuiEvent> {
     if (signal?.aborted) throw tuiError("cancelled", "TUI event wait was cancelled");
@@ -82,7 +82,7 @@ export class Tui implements TuiRuntime {
     return { actionId: event.routeId, ...(event.payload === undefined ? {} : { payload: event.payload }) };
   }
 
-  async render(scene: SceneContract, signal?: AbortSignal): Promise<void> {
+  render(scene: SceneContract, signal?: AbortSignal): void {
     ensureSignal(signal);
     if (this.closed) throw tuiError("terminal", "TUI runtime is closed");
     const normalized = Scene.from(scene);
@@ -90,9 +90,7 @@ export class Tui implements TuiRuntime {
       const history = (normalized.history as unknown as { nativeObject(): object }).nativeObject() as { isDetached?: () => boolean };
       if (history.isDetached?.() === true) this.host.setHistory(history as object);
     }
-    const lowered = materializeView(normalized.body);
-    if (lowered === undefined) throw tuiError("runtime", "native View materialization is unavailable");
-    this.host.render(lowered as object);
+    this.host.render(nodeForBridge(normalized.body));
     this.currentScene = normalized;
   }
 
@@ -103,15 +101,11 @@ export class Tui implements TuiRuntime {
   }
 
   createViewSlot(initialView: import("./values/view.ts").View): ViewSlot {
-    const lowered = materializeView(initialView);
-    if (lowered === undefined) throw tuiError("runtime", "native View materialization is unavailable");
-    return new ViewSlot(this.host.createViewSlot(lowered as object));
+    return new ViewSlot(this.host.createViewSlot(nodeForBridge(initialView)));
   }
 
   createScrollPane(initialView: import("./values/view.ts").View): ScrollPane {
-    const lowered = materializeView(initialView);
-    if (lowered === undefined) throw tuiError("runtime", "native View materialization is unavailable");
-    return new NativeScrollPane(this.host.scrollPane(lowered as object));
+    return new NativeScrollPane(this.host.scrollPane(nodeForBridge(initialView)));
   }
 
   bindKey(key: string, routeId: string, modifiers?: readonly string[]): void {
@@ -128,25 +122,25 @@ export class Tui implements TuiRuntime {
 
   forwardPaste(text: string): void { this.host.forwardPaste(text); }
 
-  async resize(width: number, height: number): Promise<void> {
+  resize(width: number, height: number): void {
     if (this.closed) throw tuiError("terminal", "TUI runtime is closed");
     validateSize(width, height);
     this.host.resize(width, height);
   }
 
-  async close(): Promise<void> {
+  close(): void {
     if (this.closed) return;
     this.closed = true;
     this.host.dispose();
   }
 
-  async exit(): Promise<void> {
+  exit(): void {
     if (this.closed) return;
     this.host.exit();
     this.closed = true;
   }
 
-  async setTheme(theme: import("./values/theme.ts").Theme): Promise<void> {
+  setTheme(theme: import("./values/theme.ts").Theme): void {
     if (this.closed) throw tuiError("terminal", "TUI runtime is closed");
     this.host.setTheme(theme.materialize());
   }
@@ -154,7 +148,7 @@ export class Tui implements TuiRuntime {
   enqueue(event: { readonly type: "key"; readonly key: string; readonly modifiers?: readonly string[] } | { readonly type: "paste"; readonly text: string } | { readonly type: "resize"; readonly width: number; readonly height: number }): void {
     if (event.type === "key") this.host.dispatchKey(event.key, event.modifiers);
     if (event.type === "paste") this.host.dispatchPaste(event.text);
-    if (event.type === "resize") void this.resize(event.width, event.height);
+    if (event.type === "resize") this.resize(event.width, event.height);
   }
 
   screenRows(): readonly string[] { return this.host.screenRows(); }

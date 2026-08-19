@@ -28,12 +28,12 @@ export class AppHarness implements AppHarnessContract {
     return new AppHarness(tui, size);
   }
 
-  get size(): Promise<{ width: number; height: number }> { return Promise.resolve(this.options); }
+  get size(): { width: number; height: number } { return this.options; }
   nextEvent(signal?: AbortSignal): Promise<TuiEvent> { return this.tui.nextEvent(signal); }
   nextAction(signal?: AbortSignal): Promise<{ actionId: string; payload?: string } | null> { return this.tui.nextAction(signal); }
 
-  async render(scene: Scene, signal?: AbortSignal): Promise<void> {
-    await this.tui.render(scene, signal);
+  render(scene: Scene, signal?: AbortSignal): void {
+    this.tui.render(scene, signal);
     this.tui.advance(0);
   }
 
@@ -51,20 +51,20 @@ export class AppHarness implements AppHarnessContract {
   route(output: OutputHandle<string>, actionId: string): void { this.tui.route(output, actionId); }
   interceptPaste(input: TextInput, actionId: string): void { this.tui.interceptPaste(input as RuntimeTextInput, actionId); }
   forwardPaste(text: string): void { this.tui.forwardPaste(text); }
-  setTheme(theme: import("./values/theme.ts").Theme): Promise<void> { return this.tui.setTheme(theme); }
+  setTheme(theme: import("./values/theme.ts").Theme): void { this.tui.setTheme(theme); }
 
-  resize(width: number, height: number): Promise<void> {
+  resize(width: number, height: number): void {
     this.options.width = width;
     this.options.height = height;
-    return this.tui.resize(width, height);
+    this.tui.resize(width, height);
   }
 
-  async close(): Promise<void> {
-    await this.tui.close();
+  close(): void {
+    this.tui.close();
   }
 
-  async exit(): Promise<void> {
-    await this.tui.exit();
+  exit(): void {
+    this.tui.exit();
   }
 
   pressKey(key: string, modifiers?: readonly string[]): void { this.tui.enqueue({ type: "key", key, modifiers }); }

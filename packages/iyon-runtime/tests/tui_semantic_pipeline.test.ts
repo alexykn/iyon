@@ -24,7 +24,7 @@ describe("T5 semantic text pipeline", () => {
     const content = TextContent.plain("abc");
     const projection = new ProjectionBuilder(content).span(0, 3, "abc").finish();
     expect(projection.sourceRange()).toEqual({ start: 0, end: 3 });
-    const hunk = new DiffHunk(new DiffRange(1, 1), new DiffRange(1, 2), [new DiffLine("addition", "new")]);
+    const hunk = new DiffHunk(new DiffRange(1, 0), new DiffRange(1, 1), [new DiffLine("addition", "new")]);
     expect(hunk.render()).toBeInstanceOf(View);
     expect(() => new ProjectionBuilder(content).span(2, 1, "bad").finish()).toThrow(/projection/);
   });

@@ -1,7 +1,8 @@
-use napi::bindgen_prelude::{Reference, Result};
+use napi::bindgen_prelude::{Array, JsObjectValue, JsValue, Object, Result, Unknown, ValueType};
 use napi_derive::napi;
-use std::sync::Mutex;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use iyon_tui::projection::ProjectionBuilder;
@@ -9,11 +10,11 @@ use iyon_tui::stream::{StreamOffset, StreamRange};
 use iyon_tui::text::{FormatId, LanguageId, SemanticTag, TextOrigin};
 use iyon_tui::text::{TextRun, TextVisitor};
 use iyon_tui::{
-    BorderEdges, BorderGlyphs, BorderSpec, Component, GridCellSpec, GridTrack, History,
-    HorizontalAlign, HostCellStyle, HostHistory, HostScrollPane, HostTextInput, HostTextStream,
-    HostViewSlot, IntoView, Key, KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output,
-    Projector, Renderer, StyleRef, StyleSpec, TextContent, TextInput, TextPart, TextRole,
-    TextSelector, TextSpan, TuiHost, VerticalAlign, View, WrapMode,
+    BorderEdges, BorderGlyphs, BorderSpec, GridCellSpec, GridTrack, History, HorizontalAlign,
+    HostCellStyle, HostHistory, HostScrollPane, HostTextInput, HostTextStream, HostViewSlot,
+    IntoView, Key, KeyStroke, MarkdownOptions, MarkdownProjector, Modifiers, Output, Projector,
+    Renderer, StyleRef, StyleSpec, TextContent, TextInput, TextPart, TextRole, TextSelector,
+    TextSpan, TuiHost, VerticalAlign, View, WrapMode,
 };
 use serde_json::Map;
 use serde_json::Value;
@@ -56,13 +57,91 @@ pub fn tui_perf_snapshot() -> Value {
     Value::Object(counters)
 }
 
-/// Opaque native result of one semantic materialization boundary. The Rust
-/// View remains owned by the native object; JavaScript only receives the
-/// validated handle object created by N-API.
-#[napi]
-pub struct NativeTuiView {
-    #[allow(dead_code)]
-    view: View,
+#[napi(js_name = "tuiViewBridgeEnvironmentCount")]
+pub fn tui_view_bridge_environment_count() -> i64 {
+    VIEW_BRIDGE_CACHES
+        .get()
+        .and_then(|caches| caches.lock().ok())
+        .map(|caches| caches.len() as i64)
+        .unwrap_or(0)
+}
+
+const VIEW_BRIDGE_SCHEMA_VERSION: u32 = 1;
+
+const VIEW_KIND_TEXT: u32 = 1;
+const VIEW_KIND_DIFF: u32 = 2;
+const VIEW_KIND_SPACER: u32 = 3;
+const VIEW_KIND_ROW: u32 = 4;
+const VIEW_KIND_COLUMN: u32 = 5;
+const VIEW_KIND_HANGING: u32 = 6;
+const VIEW_KIND_GRID: u32 = 7;
+const VIEW_KIND_CONTAINER: u32 = 8;
+const VIEW_KIND_CLAMP: u32 = 9;
+const VIEW_KIND_CONTENT_MAX: u32 = 10;
+const VIEW_KIND_COMPONENT: u32 = 11;
+const VIEW_KIND_DECORATED: u32 = 12;
+
+const LAYOUT_CHILD_NORMAL: u32 = 1;
+const LAYOUT_CHILD_FIXED: u32 = 2;
+const LAYOUT_CHILD_FLEX: u32 = 3;
+const LAYOUT_CHILD_FLEX_MAX: u32 = 4;
+const LAYOUT_CHILD_CONTENT_MAX: u32 = 5;
+
+const GRID_TRACK_CONTENT: u32 = 1;
+const GRID_TRACK_CONTENT_MAX: u32 = 2;
+const GRID_TRACK_FIXED: u32 = 3;
+const GRID_TRACK_FLEX: u32 = 4;
+const GRID_TRACK_FLEX_MAX: u32 = 5;
+
+const OVERFLOW_NONE: u32 = 1;
+const OVERFLOW_ELLIPSIS: u32 = 2;
+const OVERFLOW_FOOTER: u32 = 3;
+const WRAP_WORD_THEN_GRAPHEME: u32 = 1;
+const WRAP_GRAPHEME: u32 = 2;
+const WRAP_NO_WRAP: u32 = 3;
+const ALIGN_START: u32 = 1;
+const ALIGN_CENTER: u32 = 2;
+const ALIGN_END: u32 = 3;
+const VERTICAL_TOP: u32 = 1;
+const VERTICAL_CENTER: u32 = 2;
+const VERTICAL_BOTTOM: u32 = 3;
+const DIFF_CONTEXT: u32 = 1;
+const DIFF_ADDITION: u32 = 2;
+const DIFF_DELETION: u32 = 3;
+const DIFF_TERMINATED: u32 = 1;
+const DIFF_UNTERMINATED: u32 = 2;
+
+struct ViewBridgeCache {
+    nodes: HashMap<u64, iyon_tui::WeakView>,
+}
+
+static VIEW_BRIDGE_CACHES: OnceLock<Mutex<HashMap<usize, Arc<Mutex<ViewBridgeCache>>>>> =
+    OnceLock::new();
+
+fn view_bridge_cache(value: &Object<'_>) -> Result<Arc<Mutex<ViewBridgeCache>>> {
+    let env = value.value().env;
+    let key = env as usize;
+    let caches = VIEW_BRIDGE_CACHES.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut caches = caches
+        .lock()
+        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+    if let Some(cache) = caches.get(&key) {
+        return Ok(Arc::clone(cache));
+    }
+
+    let cache = Arc::new(Mutex::new(ViewBridgeCache {
+        nodes: HashMap::new(),
+    }));
+    let hook = napi::Env::from_raw(env).add_env_cleanup_hook(key, |key| {
+        if let Some(caches) = VIEW_BRIDGE_CACHES.get() {
+            if let Ok(mut caches) = caches.lock() {
+                caches.remove(&key);
+            }
+        }
+    })?;
+    let _ = hook;
+    caches.insert(key, Arc::clone(&cache));
+    Ok(cache)
 }
 
 #[napi]
@@ -164,30 +243,32 @@ impl NativeHistory {
     }
 
     #[napi]
-    pub fn push(&self, view: &NativeTuiView) -> Result<i64> {
+    pub fn push(&self, view: Object) -> Result<i64> {
         ensure_alive(&self.alive)?;
+        let view = decode_view(&view)?;
         if let Some(host) = &self.host {
             return host
-                .push(view.view.clone())
+                .push(view.clone())
                 .map(|unit| unit.value() as i64)
                 .map_err(|error| crate::NativeError::invalid_input(error.to_string()));
         }
         self.state
             .lock()
             .map_err(|_| crate::NativeError::internal("history lock is poisoned"))?
-            .push(view.view.clone())
+            .push(view)
             .map(|unit| unit.value() as i64)
             .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
     }
 
     #[napi]
-    pub fn freeze(&self, unit: i64, view: &NativeTuiView) -> Result<()> {
+    pub fn freeze(&self, unit: i64, view: Object) -> Result<()> {
         ensure_alive(&self.alive)?;
+        let view = decode_view(&view)?;
         let unit = u64::try_from(unit)
             .map_err(|_| crate::NativeError::invalid_input("history unit id must be positive"))?;
         if let Some(host) = &self.host {
             return host
-                .freeze(unit, view.view.clone())
+                .freeze(unit, view)
                 .map_err(|error| crate::NativeError::invalid_input(error.to_string()));
         }
         Err(crate::NativeError::invalid_input(
@@ -385,22 +466,6 @@ impl NativeTextInput {
         Ok(NativeTuiOutput { output })
     }
 
-    #[napi]
-    pub fn view(&self) -> Result<NativeTuiView> {
-        ensure_alive(&self.alive)?;
-        if let Some(host) = &self.host {
-            return host
-                .view()
-                .map(|view| NativeTuiView { view })
-                .map_err(|error| crate::NativeError::internal(error.to_string()));
-        }
-        let input = self
-            .state
-            .lock()
-            .map_err(|_| crate::NativeError::internal("text input lock is poisoned"))?;
-        Ok(NativeTuiView { view: input.view() })
-    }
-
     #[napi(js_name = "componentId")]
     pub fn component_id(&self) -> Result<Option<i64>> {
         ensure_alive(&self.alive)?;
@@ -536,21 +601,23 @@ impl NativeTuiHost {
     }
 
     #[napi(js_name = "createViewSlot")]
-    pub fn create_view_slot(&self, initial: &NativeTuiView) -> Result<NativeViewSlot> {
+    pub fn create_view_slot(&self, initial: Object) -> Result<NativeViewSlot> {
         ensure_alive(&self.alive)?;
+        let initial = decode_view(&initial)?;
         let slot = self
             .host
-            .create_view_slot(initial.view.clone())
+            .create_view_slot(initial)
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
         Ok(NativeViewSlot::from_host(slot))
     }
 
     #[napi(js_name = "scrollPane")]
-    pub fn scroll_pane(&self, initial: &NativeTuiView) -> Result<NativeScrollPane> {
+    pub fn scroll_pane(&self, initial: Object) -> Result<NativeScrollPane> {
         ensure_alive(&self.alive)?;
+        let initial = decode_view(&initial)?;
         let pane = self
             .host
-            .create_scroll_pane(initial.view.clone())
+            .create_scroll_pane(initial)
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
         Ok(NativeScrollPane::from_host(pane))
     }
@@ -589,10 +656,10 @@ impl NativeTuiHost {
     }
 
     #[napi]
-    pub fn render(&self, view: &NativeTuiView) -> Result<()> {
+    pub fn render(&self, view: Object) -> Result<()> {
         ensure_alive(&self.alive)?;
         self.host
-            .render(view.view.clone())
+            .render(decode_view(&view)?)
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
@@ -1086,11 +1153,11 @@ pub struct NativeScrollPane {
 #[napi]
 impl NativeScrollPane {
     #[napi(constructor)]
-    pub fn new(initial: &NativeTuiView) -> Self {
-        Self {
-            pane: HostScrollPane::new(initial.view.clone()),
+    pub fn new(initial: Object) -> Result<Self> {
+        Ok(Self {
+            pane: HostScrollPane::new(decode_view(&initial)?),
             alive: AtomicBool::new(true),
-        }
+        })
     }
 
     #[napi]
@@ -1105,10 +1172,10 @@ impl NativeScrollPane {
     }
 
     #[napi(js_name = "setContent")]
-    pub fn set_content(&self, view: &NativeTuiView) -> Result<()> {
+    pub fn set_content(&self, view: Object) -> Result<()> {
         ensure_alive(&self.alive)?;
         self.pane
-            .set_content(view.view.clone())
+            .set_content(decode_view(&view)?)
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
@@ -1131,11 +1198,11 @@ impl NativeScrollPane {
 #[napi]
 impl NativeViewSlot {
     #[napi(constructor)]
-    pub fn new(initial: &NativeTuiView) -> Self {
-        Self {
-            slot: HostViewSlot::new(initial.view.clone()),
+    pub fn new(initial: Object) -> Result<Self> {
+        Ok(Self {
+            slot: HostViewSlot::new(decode_view(&initial)?),
             alive: AtomicBool::new(true),
-        }
+        })
     }
 
     #[napi]
@@ -1156,19 +1223,15 @@ impl NativeViewSlot {
     }
 
     #[napi(js_name = "setView")]
-    pub fn set_view(&self, view: &NativeTuiView) -> Result<()> {
+    pub fn set_view(&self, view: Object) -> Result<()> {
         ensure_alive(&self.alive)?;
         self.slot
-            .set_view(view.view.clone())
+            .set_view(decode_view(&view)?)
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
     #[napi(js_name = "setAnimation")]
-    pub fn set_animation(
-        &self,
-        frames: Vec<Reference<NativeTuiView>>,
-        interval_ms: i64,
-    ) -> Result<()> {
+    pub fn set_animation(&self, frames: Vec<Object>, interval_ms: i64) -> Result<()> {
         ensure_alive(&self.alive)?;
         let interval_ms = u64::try_from(interval_ms).map_err(|_| {
             crate::NativeError::invalid_input("animation interval must be positive")
@@ -1185,17 +1248,20 @@ impl NativeViewSlot {
         }
         self.slot
             .set_animation(
-                frames.into_iter().map(|frame| frame.view.clone()).collect(),
+                frames
+                    .into_iter()
+                    .map(|frame| decode_view(&frame))
+                    .collect::<Result<Vec<_>>>()?,
                 std::time::Duration::from_millis(interval_ms),
             )
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
     #[napi(js_name = "stopAnimation")]
-    pub fn stop_animation(&self, view: &NativeTuiView) -> Result<()> {
+    pub fn stop_animation(&self, view: Object) -> Result<()> {
         ensure_alive(&self.alive)?;
         self.slot
-            .stop_animation(view.view.clone())
+            .stop_animation(decode_view(&view)?)
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
@@ -1207,12 +1273,670 @@ impl NativeViewSlot {
     }
 }
 
-#[napi(js_name = "materializeView")]
-pub fn materialize_view(value: Value) -> Result<NativeTuiView> {
-    let view = lower_view(&value)?;
-    Ok(NativeTuiView { view })
+fn decode_view(value: &Object<'_>) -> Result<View> {
+    let cache = view_bridge_cache(value)?;
+    let mut decoder = ViewDecoder {
+        cache,
+        active: HashSet::new(),
+    };
+    decoder.decode(*value)
 }
 
+struct ViewDecoder {
+    cache: Arc<Mutex<ViewBridgeCache>>,
+    active: HashSet<u64>,
+}
+
+impl ViewDecoder {
+    fn decode(&mut self, value: Object<'_>) -> Result<View> {
+        let node_id = required_u64(&value, "id")?;
+        if node_id == 0 {
+            return Err(crate::NativeError::invalid_input(
+                "view node id must be positive",
+            ));
+        }
+        tui_perf_inc!(NapiViewNodesSeen);
+
+        let cached = {
+            let cache = self
+                .cache
+                .lock()
+                .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+            cache
+                .nodes
+                .get(&node_id)
+                .and_then(iyon_tui::WeakView::upgrade)
+        };
+        if let Some(view) = cached {
+            tui_perf_inc!(NapiViewCacheHits);
+            return Ok(view);
+        }
+        {
+            let mut cache = self
+                .cache
+                .lock()
+                .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+            cache.nodes.remove(&node_id);
+        }
+        tui_perf_inc!(NapiViewCacheMisses);
+
+        let schema = required_prop::<u32>(&value, "schema")?;
+        if schema != VIEW_BRIDGE_SCHEMA_VERSION {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unsupported TUI View bridge schema {schema}, expected {VIEW_BRIDGE_SCHEMA_VERSION}"
+            )));
+        }
+        if !self.active.insert(node_id) {
+            return Err(crate::NativeError::invalid_input(
+                "cyclic TUI View node graph",
+            ));
+        }
+        let result = self.decode_miss(&value);
+        self.active.remove(&node_id);
+        let view = result?;
+
+        let mut cache = self
+            .cache
+            .lock()
+            .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+        cache.nodes.insert(node_id, view.downgrade());
+        if cache.nodes.len() > 4096 && cache.nodes.len() % 256 == 0 {
+            cache.nodes.retain(|_, weak| weak.upgrade().is_some());
+        }
+        Ok(view)
+    }
+
+    fn decode_miss(&mut self, value: &Object<'_>) -> Result<View> {
+        let kind = required_prop::<u32>(value, "kind")?;
+        match kind {
+            VIEW_KIND_TEXT => {
+                let spans = required_prop::<Array>(value, "spans")?;
+                let mut lowered = Vec::with_capacity(spans.len() as usize);
+                for index in 0..spans.len() {
+                    lowered.push(decode_text_span(&spans.get_element::<Object>(index)?)?);
+                }
+                let view = View::styled_text(lowered)
+                    .wrap(decode_wrap(required_prop::<u32>(value, "wrap")?)?)
+                    .text_align(decode_horizontal_align(required_prop::<u32>(
+                        value, "align",
+                    )?)?)
+                    .into_view();
+                Ok(view)
+            }
+            VIEW_KIND_DIFF => {
+                let hunks = required_prop::<Array>(value, "hunks")?;
+                let mut lowered = Vec::with_capacity(hunks.len() as usize);
+                for index in 0..hunks.len() {
+                    lowered.push(decode_diff_hunk(&hunks.get_element::<Object>(index)?)?);
+                }
+                Ok(iyon_tui::DiffRenderer::new().render(lowered.as_slice()))
+            }
+            VIEW_KIND_SPACER => Ok(View::spacer(required_u16(value, "rows")?)),
+            VIEW_KIND_ROW => self.decode_axis(value, true),
+            VIEW_KIND_COLUMN => self.decode_axis(value, false),
+            VIEW_KIND_HANGING => Ok(View::hanging(
+                self.decode(required_prop::<Object>(value, "prefix")?)?,
+                self.decode(required_prop::<Object>(value, "continuation")?)?,
+                self.decode(required_prop::<Object>(value, "body")?)?,
+            )),
+            VIEW_KIND_GRID => self.decode_grid(value),
+            VIEW_KIND_CONTAINER => Ok(self
+                .decode(required_prop::<Object>(value, "child")?)?
+                .container()),
+            VIEW_KIND_CLAMP => {
+                let child = self.decode(required_prop::<Object>(value, "child")?)?;
+                Ok(child.clamp_rows(
+                    required_u16(value, "maxRows")?,
+                    decode_overflow(value.get::<Object>("overflow")?.as_ref())?,
+                ))
+            }
+            VIEW_KIND_CONTENT_MAX => {
+                let child = self.decode(required_prop::<Object>(value, "child")?)?;
+                Ok(child.clamp_rows(
+                    required_u16(value, "maxRows")?,
+                    iyon_tui::OverflowIndicator::None,
+                ))
+            }
+            VIEW_KIND_COMPONENT => Ok(View::native_component(required_u64(value, "handle")?)),
+            VIEW_KIND_DECORATED => {
+                let child = self.decode(required_prop::<Object>(value, "child")?)?;
+                decode_decoration(child, &required_prop::<Object>(value, "decoration")?)
+            }
+            other => Err(crate::NativeError::invalid_input(format!(
+                "unknown numeric TUI View node kind {other}"
+            ))),
+        }
+    }
+
+    fn decode_axis(&mut self, value: &Object<'_>, horizontal: bool) -> Result<View> {
+        let gap = required_u16(value, "gap")?;
+        let children = required_prop::<Array>(value, "children")?;
+        let mut lowered = Vec::with_capacity(children.len() as usize);
+        for index in 0..children.len() {
+            let child = children.get_element::<Object>(index)?;
+            let kind = required_prop::<u32>(&child, "kind")?;
+            let view = self.decode(required_prop::<Object>(&child, "child")?)?;
+            let size = child
+                .get::<f64>("size")?
+                .map(|value| number_to_u16(value, "layout child size"))
+                .transpose()?;
+            let max_rows = child
+                .get::<f64>("maxRows")?
+                .map(|value| number_to_u16(value, "layout child maxRows"))
+                .transpose()?;
+            match kind {
+                LAYOUT_CHILD_NORMAL | LAYOUT_CHILD_FLEX => {}
+                LAYOUT_CHILD_FIXED if size.is_some() => {}
+                LAYOUT_CHILD_FIXED => {
+                    return Err(crate::NativeError::invalid_input(
+                        "fixed layout child size is required",
+                    ));
+                }
+                LAYOUT_CHILD_CONTENT_MAX if !horizontal && max_rows.is_some() => {}
+                LAYOUT_CHILD_CONTENT_MAX if horizontal => {
+                    return Err(crate::NativeError::invalid_input(
+                        "contentMax is only valid for vertical children",
+                    ));
+                }
+                LAYOUT_CHILD_CONTENT_MAX => {
+                    return Err(crate::NativeError::invalid_input(
+                        "contentMax maxRows is required",
+                    ));
+                }
+                LAYOUT_CHILD_FLEX_MAX if !horizontal && max_rows.is_some() => {}
+                LAYOUT_CHILD_FLEX_MAX if horizontal => {
+                    return Err(crate::NativeError::invalid_input(
+                        "flexMax is only valid for vertical children",
+                    ));
+                }
+                LAYOUT_CHILD_FLEX_MAX => {
+                    return Err(crate::NativeError::invalid_input(
+                        "flexMax maxRows is required",
+                    ));
+                }
+                other => {
+                    return Err(crate::NativeError::invalid_input(format!(
+                        "unknown layout child kind {other}"
+                    )));
+                }
+            }
+            lowered.push((kind, size, max_rows, view));
+        }
+        if horizontal {
+            Ok(View::horizontal(|row| {
+                row.gap(gap);
+                for (kind, size, _max_rows, view) in lowered {
+                    match kind {
+                        LAYOUT_CHILD_NORMAL => {
+                            row.child(view);
+                        }
+                        LAYOUT_CHILD_FIXED => {
+                            row.fixed(size.expect("validated fixed size"), view);
+                        }
+                        LAYOUT_CHILD_FLEX => {
+                            row.flex(view);
+                        }
+                        _ => unreachable!("invalid horizontal layout child"),
+                    }
+                }
+            }))
+        } else {
+            Ok(View::vertical(|column| {
+                column.gap(gap);
+                for (kind, size, max_rows, view) in lowered {
+                    match kind {
+                        LAYOUT_CHILD_NORMAL => {
+                            column.child(view);
+                        }
+                        LAYOUT_CHILD_FIXED => {
+                            column.fixed(size.expect("validated fixed size"), view);
+                        }
+                        LAYOUT_CHILD_FLEX => {
+                            column.flex(view);
+                        }
+                        LAYOUT_CHILD_CONTENT_MAX => {
+                            column.content_max(max_rows.expect("validated content max"), view);
+                        }
+                        LAYOUT_CHILD_FLEX_MAX => {
+                            column.flex_max(max_rows.expect("validated flex max"), view);
+                        }
+                        _ => unreachable!("invalid vertical layout child"),
+                    }
+                }
+            }))
+        }
+    }
+
+    fn decode_grid(&mut self, value: &Object<'_>) -> Result<View> {
+        let columns = required_prop::<Array>(value, "columns")?;
+        let mut lowered_columns = Vec::with_capacity(columns.len() as usize);
+        for index in 0..columns.len() {
+            lowered_columns.push(decode_grid_track(&columns.get_element::<Object>(index)?)?);
+        }
+        let rows = required_prop::<Array>(value, "rows")?;
+        let mut lowered_rows = Vec::with_capacity(rows.len() as usize);
+        for index in 0..rows.len() {
+            let row = rows.get_element::<Object>(index)?;
+            let track = decode_grid_track(&required_prop::<Object>(&row, "track")?)?;
+            let cells = required_prop::<Array>(&row, "cells")?;
+            let mut lowered_cells = Vec::with_capacity(cells.len() as usize);
+            for cell_index in 0..cells.len() {
+                let cell = cells.get_element::<Object>(cell_index)?;
+                let spec = GridCellSpec::new()
+                    .column_span(required_u16(&cell, "columnSpan")?)
+                    .row_span(required_u16(&cell, "rowSpan")?)
+                    .horizontal_align(decode_horizontal_align(
+                        cell.get::<u32>("horizontalAlign")?.unwrap_or(ALIGN_START),
+                    )?)
+                    .vertical_align(decode_vertical_align(
+                        cell.get::<u32>("verticalAlign")?.unwrap_or(VERTICAL_TOP),
+                    )?);
+                lowered_cells.push((spec, self.decode(required_prop::<Object>(&cell, "view")?)?));
+            }
+            lowered_rows.push((track, lowered_cells));
+        }
+        let column_gap = required_u16(value, "columnGap")?;
+        let row_gap = required_u16(value, "rowGap")?;
+        Ok(View::grid(|grid| {
+            grid.columns(lowered_columns);
+            grid.column_gap(column_gap);
+            grid.row_gap(row_gap);
+            for (track, cells) in lowered_rows {
+                grid.row_with(track, |row| {
+                    for (spec, view) in &cells {
+                        row.cell_with(*spec, view.clone());
+                    }
+                });
+            }
+        }))
+    }
+}
+
+fn required_prop<'env, T: napi::bindgen_prelude::FromNapiValue>(
+    object: &Object<'env>,
+    field: &str,
+) -> Result<T> {
+    object.get(field)?.ok_or_else(|| {
+        crate::NativeError::invalid_input(format!("view node field `{field}` is required"))
+    })
+}
+
+fn required_u64(object: &Object<'_>, field: &str) -> Result<u64> {
+    let value = required_prop::<f64>(object, field)?;
+    if !value.is_finite() || value < 0.0 || value.fract() != 0.0 || value > 9_007_199_254_740_991.0
+    {
+        return Err(crate::NativeError::invalid_input(format!(
+            "{field} must be a safe integer"
+        )));
+    }
+    Ok(value as u64)
+}
+
+fn number_to_u16(value: f64, field: &str) -> Result<u16> {
+    if !value.is_finite() || value < 0.0 || value.fract() != 0.0 || value > f64::from(u16::MAX) {
+        return Err(crate::NativeError::invalid_input(format!(
+            "{field} must fit in u16"
+        )));
+    }
+    Ok(value as u16)
+}
+
+fn required_u16(object: &Object<'_>, field: &str) -> Result<u16> {
+    number_to_u16(required_prop::<f64>(object, field)?, field)
+}
+
+fn decode_wrap(value: u32) -> Result<WrapMode> {
+    match value {
+        WRAP_WORD_THEN_GRAPHEME => Ok(WrapMode::WordThenGrapheme),
+        WRAP_GRAPHEME => Ok(WrapMode::Grapheme),
+        WRAP_NO_WRAP => Ok(WrapMode::NoWrap),
+        other => Err(crate::NativeError::invalid_input(format!(
+            "unknown wrap mode {other}"
+        ))),
+    }
+}
+
+fn decode_horizontal_align(value: u32) -> Result<HorizontalAlign> {
+    match value {
+        ALIGN_START => Ok(HorizontalAlign::Start),
+        ALIGN_CENTER => Ok(HorizontalAlign::Center),
+        ALIGN_END => Ok(HorizontalAlign::End),
+        other => Err(crate::NativeError::invalid_input(format!(
+            "unknown horizontal alignment {other}"
+        ))),
+    }
+}
+
+fn decode_vertical_align(value: u32) -> Result<VerticalAlign> {
+    match value {
+        VERTICAL_TOP => Ok(VerticalAlign::Top),
+        VERTICAL_CENTER => Ok(VerticalAlign::Center),
+        VERTICAL_BOTTOM => Ok(VerticalAlign::Bottom),
+        other => Err(crate::NativeError::invalid_input(format!(
+            "unknown vertical alignment {other}"
+        ))),
+    }
+}
+
+fn decode_diff_hunk(value: &Object<'_>) -> Result<iyon_tui::DiffHunk> {
+    use iyon_tui::{DiffHunk, DiffLine, DiffLineNumber, DiffLineTermination};
+    let old_range = decode_diff_range(&required_prop::<Object>(value, "oldRange")?)?;
+    let new_range = decode_diff_range(&required_prop::<Object>(value, "newRange")?)?;
+    let lines = required_prop::<Array>(value, "lines")?;
+    let mut lowered = Vec::with_capacity(lines.len() as usize);
+    for index in 0..lines.len() {
+        let line = lines.get_element::<Object>(index)?;
+        let kind = required_prop::<u32>(&line, "kind")?;
+        let text = required_prop::<String>(&line, "text")?;
+        tui_perf_add!(NapiViewStringBytesCopied, text.len());
+        let termination = match line.get::<u32>("termination")?.unwrap_or(DIFF_TERMINATED) {
+            DIFF_TERMINATED => DiffLineTermination::Terminated,
+            DIFF_UNTERMINATED => DiffLineTermination::Unterminated,
+            other => {
+                return Err(crate::NativeError::invalid_input(format!(
+                    "unknown diff line termination {other}"
+                )));
+            }
+        };
+        let lowered_line = match kind {
+            DIFF_CONTEXT => DiffLine::context(
+                DiffLineNumber::new(required_u64(&line, "oldLine")?)
+                    .ok_or_else(|| crate::NativeError::invalid_input("oldLine must be >= 1"))?,
+                DiffLineNumber::new(required_u64(&line, "newLine")?)
+                    .ok_or_else(|| crate::NativeError::invalid_input("newLine must be >= 1"))?,
+                text,
+            ),
+            DIFF_ADDITION => DiffLine::addition(
+                DiffLineNumber::new(required_u64(&line, "newLine")?)
+                    .ok_or_else(|| crate::NativeError::invalid_input("newLine must be >= 1"))?,
+                text,
+            ),
+            DIFF_DELETION => DiffLine::deletion(
+                DiffLineNumber::new(required_u64(&line, "oldLine")?)
+                    .ok_or_else(|| crate::NativeError::invalid_input("oldLine must be >= 1"))?,
+                text,
+            ),
+            other => {
+                return Err(crate::NativeError::invalid_input(format!(
+                    "unknown diff line kind {other}"
+                )));
+            }
+        };
+        lowered.push(lowered_line.with_termination(termination));
+    }
+    DiffHunk::new(old_range, new_range, lowered)
+        .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
+}
+
+fn decode_diff_range(value: &Object<'_>) -> Result<iyon_tui::DiffRange> {
+    use iyon_tui::{DiffLineOffset, DiffRange};
+    DiffRange::new(
+        DiffLineOffset::new(required_u64(value, "start")?),
+        required_u64(value, "count")?,
+    )
+    .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
+}
+
+fn decode_grid_track(value: &Object<'_>) -> Result<GridTrack> {
+    match required_prop::<u32>(value, "kind")? {
+        GRID_TRACK_CONTENT => Ok(GridTrack::content()),
+        GRID_TRACK_CONTENT_MAX => Ok(GridTrack::content_max(required_u16(value, "max")?)),
+        GRID_TRACK_FIXED => Ok(GridTrack::fixed(required_u16(value, "size")?)),
+        GRID_TRACK_FLEX => Ok(GridTrack::flex()),
+        GRID_TRACK_FLEX_MAX => Ok(GridTrack::flex_max(required_u16(value, "max")?)),
+        other => Err(crate::NativeError::invalid_input(format!(
+            "unknown grid track kind {other}"
+        ))),
+    }
+}
+
+fn decode_overflow(value: Option<&Object<'_>>) -> Result<iyon_tui::OverflowIndicator> {
+    let Some(value) = value else {
+        return Ok(iyon_tui::OverflowIndicator::None);
+    };
+    match required_prop::<u32>(value, "kind")? {
+        OVERFLOW_NONE => Ok(iyon_tui::OverflowIndicator::None),
+        OVERFLOW_ELLIPSIS => Ok(iyon_tui::OverflowIndicator::Ellipsis {
+            style: decode_style_ref(&required_prop::<Object>(value, "style")?)?,
+        }),
+        OVERFLOW_FOOTER => Ok(iyon_tui::OverflowIndicator::Footer {
+            prefix: required_prop::<String>(value, "prefix")?,
+            style: decode_style_ref(&required_prop::<Object>(value, "style")?)?,
+        }),
+        other => Err(crate::NativeError::invalid_input(format!(
+            "unknown overflow indicator kind {other}"
+        ))),
+    }
+}
+
+fn decode_text_span(value: &Object<'_>) -> Result<TextSpan> {
+    let text = required_prop::<String>(value, "text")?;
+    tui_perf_add!(NapiViewStringBytesCopied, text.len());
+    let style = value
+        .get::<Object>("style")?
+        .map(|style| decode_style_ref(&style))
+        .transpose()?
+        .unwrap_or_else(|| StyleRef::direct(StyleSpec::new()));
+    Ok(TextSpan::styled(text, style))
+}
+
+fn decode_style_ref(value: &Object<'_>) -> Result<StyleRef> {
+    let style = decode_style_spec(value)?;
+    match value.get::<String>("theme")? {
+        Some(theme) => Ok(StyleRef::themed(theme, style)),
+        None => Ok(StyleRef::direct(style)),
+    }
+}
+
+fn decode_style_spec(value: &Object<'_>) -> Result<StyleSpec> {
+    let mut style = StyleSpec::new();
+    if let Some(color) = value.get::<Unknown>("foreground")? {
+        style = style.foreground(decode_color(&color)?);
+    }
+    if let Some(color) = value.get::<Unknown>("background")? {
+        style = style.background(decode_color(&color)?);
+    }
+    if let Some(attributes) = value.get::<Object>("attributes")? {
+        for name in Object::keys(&attributes)? {
+            let enabled = required_prop::<bool>(&attributes, &name)?;
+            let attribute = text_attribute(&name).ok_or_else(|| {
+                crate::NativeError::invalid_input(format!("unknown text attribute `{name}`"))
+            })?;
+            style = style.attribute(attribute, enabled);
+        }
+    }
+    Ok(style)
+}
+
+fn decode_color(value: &Unknown<'_>) -> Result<iyon_tui::ColorSpec> {
+    match value.get_type()? {
+        ValueType::String => {
+            let value = unsafe { value.cast::<String>()? };
+            decode_color_string(&value)
+        }
+        ValueType::Object => {
+            let object = unsafe { value.cast::<Object>()? };
+            if object.get::<String>("type")?.as_deref() != Some("ansi") {
+                return Err(crate::NativeError::invalid_input(
+                    "unknown color object type",
+                ));
+            }
+            let number = required_u64(&object, "value")?;
+            Ok(iyon_tui::ColorSpec::ansi(u8::try_from(number).map_err(
+                |_| crate::NativeError::invalid_input("ANSI color value must fit in u8"),
+            )?))
+        }
+        _ => Err(crate::NativeError::invalid_input(
+            "color must be a string or ANSI color object",
+        )),
+    }
+}
+
+fn decode_color_string(value: &str) -> Result<iyon_tui::ColorSpec> {
+    if let Some(value) = value.strip_prefix("theme:") {
+        return Ok(iyon_tui::ColorSpec::theme(value));
+    }
+    if let Some(value) = value.strip_prefix("ansi:") {
+        return Ok(iyon_tui::ColorSpec::ansi(value.parse::<u8>().map_err(
+            |_| crate::NativeError::invalid_input("ANSI color must fit in u8"),
+        )?));
+    }
+    if let Some(value) = value.strip_prefix('#') {
+        if value.len() == 6 {
+            let r = u8::from_str_radix(&value[0..2], 16).map_err(|_| {
+                crate::NativeError::invalid_input("RGB color must contain hexadecimal bytes")
+            })?;
+            let g = u8::from_str_radix(&value[2..4], 16).map_err(|_| {
+                crate::NativeError::invalid_input("RGB color must contain hexadecimal bytes")
+            })?;
+            let b = u8::from_str_radix(&value[4..6], 16).map_err(|_| {
+                crate::NativeError::invalid_input("RGB color must contain hexadecimal bytes")
+            })?;
+            return Ok(iyon_tui::ColorSpec::rgb(r, g, b));
+        }
+    }
+    let color = match value.to_ascii_lowercase().as_str() {
+        "black" => iyon_tui::AnsiColor::Black,
+        "red" => iyon_tui::AnsiColor::Red,
+        "green" => iyon_tui::AnsiColor::Green,
+        "yellow" => iyon_tui::AnsiColor::Yellow,
+        "blue" => iyon_tui::AnsiColor::Blue,
+        "magenta" => iyon_tui::AnsiColor::Magenta,
+        "cyan" => iyon_tui::AnsiColor::Cyan,
+        "gray" => iyon_tui::AnsiColor::Gray,
+        "darkgray" => iyon_tui::AnsiColor::DarkGray,
+        "lightred" => iyon_tui::AnsiColor::LightRed,
+        "lightgreen" => iyon_tui::AnsiColor::LightGreen,
+        "lightyellow" => iyon_tui::AnsiColor::LightYellow,
+        "lightblue" => iyon_tui::AnsiColor::LightBlue,
+        "lightmagenta" => iyon_tui::AnsiColor::LightMagenta,
+        "lightcyan" => iyon_tui::AnsiColor::LightCyan,
+        "white" => iyon_tui::AnsiColor::White,
+        _ => {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unknown color `{value}`"
+            )));
+        }
+    };
+    Ok(iyon_tui::ColorSpec::named(color))
+}
+
+fn decode_decoration(mut view: View, decoration: &Object<'_>) -> Result<View> {
+    if let Some(value) = decoration.get::<Object>("padding")? {
+        view = view.padding(iyon_tui::Insets::new(
+            required_u16(&value, "top")?,
+            required_u16(&value, "right")?,
+            required_u16(&value, "bottom")?,
+            required_u16(&value, "left")?,
+        ));
+    }
+    if let Some(value) = decoration.get::<Unknown>("background")? {
+        view = view.background(decode_color(&value)?);
+    }
+    if let Some(value) = decoration.get::<Unknown>("foreground")? {
+        view = view.foreground(decode_color(&value)?);
+    }
+    if let Some(value) = decoration.get::<Object>("border")? {
+        view = view.border(decode_border(&value)?);
+    }
+    if let Some(value) = decoration.get::<Object>("style")? {
+        view = view.style(decode_style_ref(&value)?);
+    }
+    if let Some(states) = decoration.get::<Object>("styleStates")? {
+        for key in Object::keys(&states)? {
+            view = view.style_state(key.clone(), required_prop::<String>(&states, &key)?);
+        }
+    }
+    match decoration.get::<String>("width")?.as_deref() {
+        Some("fit") => view = view.fit_width(),
+        Some("fill") => view = view.fill_width(),
+        Some(other) => {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unknown width rule `{other}`"
+            )));
+        }
+        None => {}
+    }
+    match decoration.get::<String>("height")?.as_deref() {
+        Some("fit") => view = view.fit_height(),
+        Some("fill") => view = view.fill_height(),
+        Some(other) => {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unknown height rule `{other}`"
+            )));
+        }
+        None => {}
+    }
+    if decoration.get::<f64>("minWidth")?.is_some() {
+        view = view.min_width(required_u16(decoration, "minWidth")?);
+    }
+    if decoration.get::<f64>("maxWidth")?.is_some() {
+        view = view.max_width(required_u16(decoration, "maxWidth")?);
+    }
+    if decoration.get::<f64>("minHeight")?.is_some() {
+        view = view.min_height(required_u16(decoration, "minHeight")?);
+    }
+    if decoration.get::<f64>("maxHeight")?.is_some() {
+        view = view.max_height(required_u16(decoration, "maxHeight")?);
+    }
+    Ok(view)
+}
+
+fn decode_border(value: &Object<'_>) -> Result<BorderSpec> {
+    let mut spec = match value.get::<String>("style")?.as_deref().unwrap_or("plain") {
+        "plain" => BorderSpec::plain(),
+        "rounded" => BorderSpec::rounded(),
+        "double" => BorderSpec::double(),
+        other => {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unknown border style `{other}`"
+            )));
+        }
+    };
+    let top_bottom = value.get::<String>("edges")?.as_deref() == Some("topBottom");
+    let color = value
+        .get::<Unknown>("color")?
+        .map(|value| decode_color(&value))
+        .transpose()?;
+    if let Some(glyphs) = value.get::<Object>("glyphs")? {
+        let fields = [
+            "top",
+            "right",
+            "bottom",
+            "left",
+            "topLeft",
+            "topRight",
+            "bottomLeft",
+            "bottomRight",
+        ];
+        let values = fields
+            .iter()
+            .map(|field| required_prop::<String>(&glyphs, field))
+            .collect::<Result<Vec<_>>>()?;
+        spec = BorderSpec::custom(
+            BorderGlyphs::new(
+                values[0].as_str(),
+                values[1].as_str(),
+                values[2].as_str(),
+                values[3].as_str(),
+                values[4].as_str(),
+                values[5].as_str(),
+                values[6].as_str(),
+                values[7].as_str(),
+            )
+            .map_err(|error| crate::NativeError::invalid_input(error.to_string()))?,
+        );
+    }
+    if top_bottom {
+        spec = spec.edges(BorderEdges::TOP_BOTTOM);
+    }
+    if let Some(color) = color {
+        spec = spec.color(color);
+    }
+    Ok(spec)
+}
+
+#[cfg(test)]
 fn lower_view(value: &Value) -> Result<View> {
     tui_perf_inc!(NapiViewNodesSeen);
     tui_perf_inc!(NapiViewCacheMisses);
@@ -1303,6 +2027,7 @@ fn lower_view(value: &Value) -> Result<View> {
     Ok(view)
 }
 
+#[cfg(test)]
 fn lower_diff(object: &Map<String, Value>) -> Result<View> {
     let hunks = object
         .get("hunks")
@@ -1315,6 +2040,7 @@ fn lower_diff(object: &Map<String, Value>) -> Result<View> {
     Ok(iyon_tui::DiffRenderer::new().render(lowered.as_slice()))
 }
 
+#[cfg(test)]
 fn lower_diff_hunk(value: &Value) -> Result<iyon_tui::DiffHunk> {
     use iyon_tui::{DiffHunk, DiffLine, DiffLineNumber, DiffLineTermination};
 
@@ -1391,6 +2117,7 @@ fn lower_diff_hunk(value: &Value) -> Result<iyon_tui::DiffHunk> {
         .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
 }
 
+#[cfg(test)]
 fn lower_diff_range(value: &Value) -> Result<iyon_tui::DiffRange> {
     use iyon_tui::{DiffLineOffset, DiffRange};
     let object = value
@@ -1403,6 +2130,7 @@ fn lower_diff_range(value: &Value) -> Result<iyon_tui::DiffRange> {
     .map_err(|error| crate::NativeError::invalid_input(error.to_string()))
 }
 
+#[cfg(test)]
 fn u64_value(object: &Map<String, Value>, field: &str) -> Result<u64> {
     object
         .get(field)
@@ -1410,6 +2138,7 @@ fn u64_value(object: &Map<String, Value>, field: &str) -> Result<u64> {
         .ok_or_else(|| crate::NativeError::invalid_input(format!("{field} must be a u64 integer")))
 }
 
+#[cfg(test)]
 fn lower_axis(object: &Map<String, Value>, horizontal: bool) -> Result<View> {
     let gap = u16_value(object, "gap")?;
     let children = object
@@ -1521,6 +2250,7 @@ fn lower_axis(object: &Map<String, Value>, horizontal: bool) -> Result<View> {
     }
 }
 
+#[cfg(test)]
 fn lower_grid(object: &Map<String, Value>) -> Result<View> {
     let columns = object
         .get("columns")
@@ -1584,6 +2314,7 @@ fn lower_grid(object: &Map<String, Value>) -> Result<View> {
     }))
 }
 
+#[cfg(test)]
 fn lower_grid_track(value: &Value) -> Result<GridTrack> {
     let object = value
         .as_object()
@@ -1604,6 +2335,7 @@ fn lower_grid_track(value: &Value) -> Result<GridTrack> {
     }
 }
 
+#[cfg(test)]
 fn lower_overflow(value: Option<&Value>) -> Result<iyon_tui::OverflowIndicator> {
     let Some(value) = value else {
         return Ok(iyon_tui::OverflowIndicator::None);
@@ -1644,6 +2376,7 @@ fn lower_overflow(value: Option<&Value>) -> Result<iyon_tui::OverflowIndicator> 
     }
 }
 
+#[cfg(test)]
 fn parse_horizontal_align(value: &str) -> Result<HorizontalAlign> {
     match value {
         "start" => Ok(HorizontalAlign::Start),
@@ -1655,6 +2388,7 @@ fn parse_horizontal_align(value: &str) -> Result<HorizontalAlign> {
     }
 }
 
+#[cfg(test)]
 fn parse_vertical_align(value: &str) -> Result<VerticalAlign> {
     match value {
         "top" => Ok(VerticalAlign::Top),
@@ -1666,6 +2400,7 @@ fn parse_vertical_align(value: &str) -> Result<VerticalAlign> {
     }
 }
 
+#[cfg(test)]
 fn lower_text_span(value: &Value) -> Result<TextSpan> {
     let object = value
         .as_object()
@@ -1683,6 +2418,7 @@ fn lower_text_span(value: &Value) -> Result<TextSpan> {
     Ok(TextSpan::styled(text, style))
 }
 
+#[cfg(test)]
 fn lower_style_ref(value: &Value) -> Result<StyleRef> {
     let object = value
         .as_object()
@@ -1719,6 +2455,7 @@ fn lower_style_spec(value: &Value) -> Result<StyleSpec> {
     Ok(style)
 }
 
+#[cfg(test)]
 fn lower_required(object: &Map<String, Value>, field: &str) -> Result<View> {
     lower_view(object.get(field).ok_or_else(|| {
         crate::NativeError::invalid_input(format!("view node field `{field}` is required"))
@@ -2069,6 +2806,7 @@ fn lower_border(value: &Value) -> Result<BorderSpec> {
     Ok(spec)
 }
 
+#[cfg(test)]
 fn apply_decoration(view: View, decoration: Option<&Value>) -> Result<View> {
     let Some(decoration) = decoration.and_then(Value::as_object) else {
         return Ok(view);

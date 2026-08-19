@@ -7,11 +7,14 @@ export type DiffLineTermination = "lf" | "crlf" | "none";
 export class DiffRange {
   readonly kind = "diff-range" as const;
 
-  constructor(readonly start: number, readonly end: number) {
-    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) {
+  constructor(readonly start: number, readonly lineCount: number) {
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(lineCount) || start < 0 || lineCount < 0 || start + lineCount > Number.MAX_SAFE_INTEGER) {
       throw new RangeError("invalid diff range");
     }
   }
+
+  isEmpty(): boolean { return this.lineCount === 0; }
+  end(): number { return this.start + this.lineCount; }
 }
 
 export class DiffLine {
@@ -21,7 +24,24 @@ export class DiffLine {
     readonly lineKind: DiffLineKind,
     readonly text: string,
     readonly termination: DiffLineTermination = "lf",
-  ) {}
+    readonly coordinates: { readonly oldLine?: number; readonly newLine?: number } = {},
+  ) {
+    if (coordinates.oldLine !== undefined) validateLineNumber(coordinates.oldLine, "oldLine");
+    if (coordinates.newLine !== undefined) validateLineNumber(coordinates.newLine, "newLine");
+  }
+
+  get oldLine(): number | undefined { return this.coordinates.oldLine; }
+  get newLine(): number | undefined { return this.coordinates.newLine; }
+
+  static context(oldLine: number, newLine: number, text: string, termination: DiffLineTermination = "lf"): DiffLine {
+    return new DiffLine("context", text, termination, { oldLine, newLine });
+  }
+  static addition(newLine: number, text: string, termination: DiffLineTermination = "lf"): DiffLine {
+    return new DiffLine("addition", text, termination, { newLine });
+  }
+  static deletion(oldLine: number, text: string, termination: DiffLineTermination = "lf"): DiffLine {
+    return new DiffLine("deletion", text, termination, { oldLine });
+  }
 }
 
 export class DiffHunk {
@@ -38,12 +58,18 @@ export class DiffHunk {
   validate(): void {
     let oldConsumed = 0;
     let newConsumed = 0;
+    let oldLine = this.oldRange.lineCount === 0 ? undefined : this.oldRange.start + 1;
+    let newLine = this.newRange.lineCount === 0 ? undefined : this.newRange.start + 1;
     for (const line of this.lines) {
-      if (line.lineKind !== "addition") oldConsumed += 1;
-      if (line.lineKind !== "deletion") newConsumed += 1;
+      const expectedOld = line.lineKind === "addition" ? undefined : oldLine;
+      const expectedNew = line.lineKind === "deletion" ? undefined : newLine;
+      if (line.oldLine !== undefined && line.oldLine !== expectedOld) throw new RangeError("diff line old coordinate does not match its hunk");
+      if (line.newLine !== undefined && line.newLine !== expectedNew) throw new RangeError("diff line new coordinate does not match its hunk");
+      if (line.lineKind !== "addition") { oldConsumed += 1; if (oldLine !== undefined) oldLine += 1; }
+      if (line.lineKind !== "deletion") { newConsumed += 1; if (newLine !== undefined) newLine += 1; }
     }
-    const expectedOld = this.oldRange.end - this.oldRange.start;
-    const expectedNew = this.newRange.end - this.newRange.start;
+    const expectedOld = this.oldRange.lineCount;
+    const expectedNew = this.newRange.lineCount;
     if (oldConsumed !== expectedOld || newConsumed !== expectedNew) {
       throw new RangeError(`diff hunk consumed old ${oldConsumed}/${expectedOld} and new ${newConsumed}/${expectedNew} lines`);
     }
@@ -66,6 +92,10 @@ export class DiffRenderer {
   }
 }
 
+function validateLineNumber(value: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value < 1) throw new RangeError(`${name} must be a positive safe integer`);
+}
+
 function toNode(hunk: DiffHunk): DiffHunkNode {
   let oldLine = hunk.oldRange.start + 1;
   let newLine = hunk.newRange.start + 1;
@@ -74,17 +104,17 @@ function toNode(hunk: DiffHunk): DiffHunkNode {
       kind: line.lineKind,
       text: line.text,
       termination: line.termination === "none" ? "unterminated" : "terminated",
-      ...(line.lineKind === "context" ? { oldLine, newLine } : {}),
-      ...(line.lineKind === "addition" ? { newLine } : {}),
-      ...(line.lineKind === "deletion" ? { oldLine } : {}),
+      ...(line.lineKind === "context" ? { oldLine: line.oldLine ?? oldLine, newLine: line.newLine ?? newLine } : {}),
+      ...(line.lineKind === "addition" ? { newLine: line.newLine ?? newLine } : {}),
+      ...(line.lineKind === "deletion" ? { oldLine: line.oldLine ?? oldLine } : {}),
     } as const;
     if (line.lineKind !== "addition") oldLine += 1;
     if (line.lineKind !== "deletion") newLine += 1;
     return node;
   });
   return {
-    oldRange: { start: hunk.oldRange.start, count: hunk.oldRange.end - hunk.oldRange.start },
-    newRange: { start: hunk.newRange.start, count: hunk.newRange.end - hunk.newRange.start },
+    oldRange: { start: hunk.oldRange.start, count: hunk.oldRange.lineCount },
+    newRange: { start: hunk.newRange.start, count: hunk.newRange.lineCount },
     lines,
   };
 }

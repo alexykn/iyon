@@ -8,7 +8,7 @@ use crate::physical::PhysicalRow;
 use super::{
     coord::{StreamOffset, StreamRange},
     node::{StreamNode, StreamView},
-    projected::{ProjectedText, checkpoint_after_row},
+    projected::{ProjectedText, projected_atoms},
 };
 
 use crate::Theme;
@@ -55,6 +55,12 @@ pub(crate) fn compile_stream_with_theme(
             StreamNode::Text(text) | StreamNode::ContinuousText(text) => {
                 let (_w, compiled_rows) =
                     compiler.compile_projected_text_with_metadata(text, width);
+                let newline_checkpoints = projected_atoms(text)
+                    .into_iter()
+                    .filter(|atom| atom.display == "\n")
+                    .map(|atom| (atom.owned.start, atom.owned.end))
+                    .collect::<Vec<_>>();
+                let mut next_newline = 0;
                 let final_offset = text.owned_range().end;
                 let row_count = compiled_rows.len();
                 if row_count == 0 {
@@ -85,7 +91,13 @@ pub(crate) fn compile_stream_with_theme(
                         };
                         anchors.push(StreamRowAnchor::Checkpoint(checkpoint));
                         rows.push(row.row);
-                        let boundary = checkpoint_after_row(text, offset);
+                        let boundary = match newline_checkpoints.get(next_newline) {
+                            Some((start, end)) if *start == offset => {
+                                next_newline += 1;
+                                *end
+                            }
+                            _ => offset,
+                        };
                         checkpoint = boundary;
                         if !blocked && boundary <= stable_through {
                             transfer.push(StreamRowTransfer::Checkpoint(boundary));

@@ -1,8 +1,7 @@
 import { HandleBase, requireNativeClass } from "./handles.ts";
 import { native } from "../native.ts";
 import type { Component as ComponentContract, ComponentCapabilities, ViewSlot as ViewSlotContract } from "./types.ts";
-import { materializeView } from "./materialize.ts";
-import { View } from "./values/view.ts";
+import { nodeForBridge, View } from "./values/view.ts";
 
 type NativeViewSlotHandle = {
   dispose(): void;
@@ -16,33 +15,23 @@ type NativeViewSlotHandle = {
 export class ViewSlot extends HandleBase<NativeViewSlotHandle, "component"> implements ViewSlotContract {
   constructor(nativeHandle: NativeViewSlotHandle | object) { super("component", nativeHandle as NativeViewSlotHandle); }
 
-  async view(): Promise<View> {
+  view(): View {
     this.ensureOpen();
     return this.nativeComponentId() === undefined ? View.spacer(0) : View.component(this);
   }
-  capabilities(): Promise<ComponentCapabilities> { return this.call(() => ({})); }
-  revision(): Promise<number> { return this.call(() => this.nativeHandle.revision()); }
-  setView(view: View): Promise<void> {
-    return this.call(() => {
-      const lowered = materializeView(view);
-      if (lowered === undefined) throw new Error("native view materialization is unavailable");
-      this.nativeHandle.setView(lowered as object);
-    });
+  capabilities(): ComponentCapabilities { return this.call(() => ({})); }
+  revision(): number { return this.call(() => this.nativeHandle.revision()); }
+  setView(view: View): void {
+    this.call(() => this.nativeHandle.setView(nodeForBridge(view)));
   }
-  setAnimation(frames: readonly View[], intervalMs: number): Promise<void> {
-    return this.call(() => {
+  setAnimation(frames: readonly View[], intervalMs: number): void {
+    this.call(() => {
       if (frames.length === 0) throw new Error("native view slot animation requires at least one frame");
-      const lowered = frames.map(materializeView);
-      if (lowered.some((frame) => frame === undefined)) throw new Error("native view materialization is unavailable");
-      this.nativeHandle.setAnimation(lowered as object[], intervalMs);
+      this.nativeHandle.setAnimation(frames.map(nodeForBridge), intervalMs);
     });
   }
-  stopAnimation(view: View): Promise<void> {
-    return this.call(() => {
-      const lowered = materializeView(view);
-      if (lowered === undefined) throw new Error("native view materialization is unavailable");
-      this.nativeHandle.stopAnimation(lowered as object);
-    });
+  stopAnimation(view: View): void {
+    this.call(() => this.nativeHandle.stopAnimation(nodeForBridge(view)));
   }
   nativeComponentId(): number | undefined {
     const id = this.nativeHandle.componentId();
@@ -52,17 +41,15 @@ export class ViewSlot extends HandleBase<NativeViewSlotHandle, "component"> impl
 
 export class Component extends HandleBase<NativeViewSlotHandle, "component"> implements ComponentContract {
   constructor() {
-    const lowered = materializeView(View.spacer(0));
-    if (lowered === undefined) throw new Error("native view materialization is unavailable");
     const NativeViewSlot = requireNativeClass(native.NativeViewSlot, "NativeViewSlot");
-    super("component", new NativeViewSlot(lowered as object));
+    super("component", new NativeViewSlot(nodeForBridge(View.spacer(0))));
   }
-  async view(): Promise<View> {
+  view(): View {
     this.ensureOpen();
     return this.nativeComponentId() === undefined ? View.spacer(0) : View.component(this);
   }
-  capabilities(): Promise<ComponentCapabilities> { return this.call(() => ({})); }
-  revision(): Promise<number> { return this.call(() => this.nativeHandle.revision()); }
+  capabilities(): ComponentCapabilities { return this.call(() => ({})); }
+  revision(): number { return this.call(() => this.nativeHandle.revision()); }
   nativeComponentId(): number | undefined {
     const id = this.nativeHandle.componentId();
     return id === null ? undefined : id;

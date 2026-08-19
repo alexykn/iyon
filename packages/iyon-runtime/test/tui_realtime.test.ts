@@ -9,9 +9,9 @@ function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function closeAfter(tui: { close(): Promise<void> }, milliseconds: number): Promise<void> {
+async function closeAfter(tui: { close(): void }, milliseconds: number): Promise<void> {
   await sleep(milliseconds);
-  await tui.close();
+  tui.close();
 }
 
 describe("real-time native TUI driving", () => {

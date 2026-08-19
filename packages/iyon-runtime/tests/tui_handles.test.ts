@@ -12,20 +12,21 @@ describe("T5 native TUI handles", () => {
     expect(await input.isMultiline()).toBe(true);
     await input.clear();
     expect(await input.text()).toBe("");
-    await input.dispose();
-    await expect(input.text()).rejects.toMatchObject({ category: "disposed-handle" });
+    input.dispose();
+    try { input.text(); throw new Error("expected disposed handle error"); }
+    catch (error) { expect(error).toMatchObject({ category: "disposed-handle" }); }
   });
 
   test("preserves stream revision and sealed-state errors", async () => {
     const stream = new TextStream();
     await stream.update("first");
     expect(await stream.snapshot()).toEqual({ text: "first", revision: 1, sealed: false });
-    await stream.seal();
-    expect((await stream.snapshot()).sealed).toBe(true);
-    await expect(stream.update("late")).rejects.toThrow(/sealed/);
+    stream.seal();
+    expect(stream.snapshot().sealed).toBe(true);
+    expect(() => stream.update("late")).toThrow(/sealed/);
   });
 
-  test("history accepts a materialized view and component handles are shared", async () => {
+  test("history accepts a retained view and component handles are shared", async () => {
     const history = new History();
     await history.push(View.text("history"));
     const component = new Component();
@@ -33,7 +34,7 @@ describe("T5 native TUI handles", () => {
     const second = await component.view();
     expect(first).not.toBe(second);
     expect(await component.revision()).toBe(0);
-    await component.dispose();
-    await history.dispose();
+    component.dispose();
+    history.dispose();
   });
 });
