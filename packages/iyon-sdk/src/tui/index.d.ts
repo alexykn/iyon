@@ -166,6 +166,8 @@ export declare class History implements NativeHandle {
   layout(): HistoryLayout;
   push(view: View): number;
   freeze(unit: number, view: View): void;
+  pushStream(stream: TextStream): void;
+  sealStream(stream: TextStream): void;
 }
 
 export interface HistoryLayout {
@@ -191,11 +193,28 @@ export declare class TextInput implements NativeHandle {
 
 export interface StreamAnnotation { readonly namespace: string; readonly name: string; }
 
+export interface TextStreamOptions {
+  readonly projector?: "markdown";
+  readonly presentation?: TextStreamPresentation;
+  readonly pacing?: TextStreamPacing;
+}
+
+export interface TextStreamPresentation {
+  readonly insets?: { readonly top?: number; readonly right?: number; readonly bottom?: number; readonly left?: number };
+}
+
+export interface TextStreamPacing {
+  readonly tickIntervalMs?: number;
+  readonly spring?: number;
+  readonly minUnitsPerSecond?: number;
+  readonly maxUnitsPerSecond?: number;
+}
+
 export declare class TextStream implements NativeHandle {
   readonly id: number;
   readonly disposed: boolean;
   readonly kind: "text-stream";
-  constructor();
+  constructor(options?: TextStreamOptions);
   dispose(): void;
   update(text: string): void;
   append(text: string, annotations?: readonly StreamAnnotation[]): void;
@@ -209,6 +228,12 @@ export interface StreamSnapshot {
   readonly text: string;
   readonly revision: number;
   readonly sealed: boolean;
+  readonly segments?: readonly StreamSegmentSnapshot[];
+}
+
+export interface StreamSegmentSnapshot {
+  readonly annotations: readonly StreamAnnotation[];
+  readonly text: string;
 }
 
 export declare class Component implements NativeHandle {

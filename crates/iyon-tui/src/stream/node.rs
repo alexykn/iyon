@@ -106,57 +106,38 @@ impl StreamView {
     /// view vocabulary without changing visible content. Structural source
     /// terminators remain provenance metadata and are intentionally not emitted.
     pub(crate) fn into_static_view(self) -> View {
-        let children = self
-            .nodes
-            .into_iter()
-            .map(|node| match node {
-                StreamNode::Text(text) | StreamNode::ContinuousText(text) => {
-                    let body = View::styled_text(
-                        text.runs
-                            .iter()
-                            .filter(|run| !run.display.is_empty())
-                            .cloned()
-                            .map(|run| {
-                                TextSpan::styled(run.display, run.style)
-                                    .with_style_facts(run.style_facts)
-                            }),
-                    );
-                    let body = match &text.layout {
-                        ProjectedTextLayout::Plain => match text.width {
-                            WidthRule::Fit => body.fit_width(),
-                            WidthRule::Fill => body.fill_width(),
-                        },
-                        ProjectedTextLayout::Hanging { .. } => body.fill_width(),
-                    };
-                    match &text.layout {
-                        ProjectedTextLayout::Plain => body.into_view(),
-                        ProjectedTextLayout::Hanging {
-                            body_column,
-                            prefix,
-                            prefix_style,
-                            prefix_facts,
-                            show_prefix,
-                            ..
-                        } => View::horizontal(|row| {
-                            row.fixed(
-                                *body_column,
-                                if *show_prefix {
-                                    View::styled_text(vec![
-                                        TextSpan::styled(prefix.clone(), prefix_style.clone())
-                                            .with_style_facts(prefix_facts.clone()),
-                                    ])
-                                    .no_wrap()
-                                } else {
-                                    View::text("").fill_width()
-                                },
-                            );
-                            row.flex(body);
-                        }),
+        let mut children = Vec::new();
+        let mut pending_continuous = None;
+        for node in self.nodes {
+            match node {
+                StreamNode::ContinuousText(text) => {
+                    if let Some(pending) = pending_continuous.as_mut()
+                        && merge_continuous_text(pending, &text)
+                    {
+                        continue;
                     }
+                    if let Some(pending) = pending_continuous.take() {
+                        children.push(render_projected_text(pending));
+                    }
+                    pending_continuous = Some(text);
                 }
-                StreamNode::Atomic { view, .. } => view,
-            })
-            .collect::<Vec<_>>();
+                StreamNode::Text(text) => {
+                    if let Some(pending) = pending_continuous.take() {
+                        children.push(render_projected_text(pending));
+                    }
+                    children.push(render_projected_text(text));
+                }
+                StreamNode::Atomic { view, .. } => {
+                    if let Some(pending) = pending_continuous.take() {
+                        children.push(render_projected_text(pending));
+                    }
+                    children.push(view);
+                }
+            }
+        }
+        if let Some(pending) = pending_continuous {
+            children.push(render_projected_text(pending));
+        }
 
         View::vertical(|column| {
             column.children(children);
@@ -215,6 +196,62 @@ impl StreamView {
         Self {
             nodes: vec![StreamNode::atomic(range, view)],
         }
+    }
+}
+
+fn merge_continuous_text(left: &mut ProjectedText, right: &ProjectedText) -> bool {
+    if left.terminator != ExactTerminator::None
+        || right.terminator != ExactTerminator::None
+        || left.content_range.end != right.content_range.start
+        || left.width != right.width
+        || left.wrap != right.wrap
+        || left.align != right.align
+        || left.layout != right.layout
+    {
+        return false;
+    }
+    left.content_range.end = right.content_range.end;
+    left.runs.extend(right.runs.iter().cloned());
+    true
+}
+
+fn render_projected_text(text: ProjectedText) -> View {
+    let body = View::styled_text(
+        text.runs
+            .into_iter()
+            .filter(|run| !run.display.is_empty())
+            .map(|run| TextSpan::styled(run.display, run.style).with_style_facts(run.style_facts)),
+    );
+    let body = match &text.layout {
+        ProjectedTextLayout::Plain => match text.width {
+            WidthRule::Fit => body.fit_width(),
+            WidthRule::Fill => body.fill_width(),
+        },
+        ProjectedTextLayout::Hanging { .. } => body.fill_width(),
+    };
+    match text.layout {
+        ProjectedTextLayout::Plain => body.into_view(),
+        ProjectedTextLayout::Hanging {
+            body_column,
+            prefix,
+            prefix_style,
+            prefix_facts,
+            show_prefix,
+            ..
+        } => View::horizontal(|row| {
+            row.fixed(
+                body_column,
+                if show_prefix {
+                    View::styled_text(vec![
+                        TextSpan::styled(prefix, prefix_style).with_style_facts(prefix_facts),
+                    ])
+                    .no_wrap()
+                } else {
+                    View::text("").fill_width()
+                },
+            );
+            row.flex(body);
+        }),
     }
 }
 

@@ -29,7 +29,7 @@ use crate::{
     Projector, Renderer, ScrollPane, Smooth, SmoothConfig, SoftBreakPolicy, StreamOffset,
     StreamRange, StreamRevision, StreamSnapshot, StreamSnapshotBuilder, StreamingSource,
     TableColumnSizing, TaskListMarkerPolicy, TextContent, TextInput, TextRenderPolicy,
-    TextRenderer, Theme, View, WrapMode,
+    TextRenderer, TextStream as GenericTextStream, Theme, View, WrapMode,
     backend::NativeHistorySink,
     geometry::Size,
     physical::PhysicalRow,
@@ -1007,6 +1007,10 @@ fn pipe_cell_run(text: String, range: Option<StreamRange>) -> TextRun {
 }
 
 struct HostStreamState {
+    /// Plain streams use the generic PERF-5 source directly. This keeps the
+    /// append path out of the host's Markdown/annotation adapter and lets
+    /// StreamModel own stable-prefix promotion and source compaction.
+    plain: Option<GenericTextStream>,
     source_chunks: Vec<HostSourceChunk>,
     source_base: StreamOffset,
     received_end: StreamOffset,
@@ -1053,6 +1057,7 @@ impl Default for HostStreamState {
         .finish()
         .expect("empty host pacing projection is valid");
         Self {
+            plain: Some(GenericTextStream::new()),
             source_chunks: Vec::new(),
             source_base: StreamOffset::ZERO,
             received_end: StreamOffset::ZERO,
@@ -1091,6 +1096,7 @@ impl HostTextStream {
         let stream = Self::new();
         if let Ok(mut state) = stream.state.lock() {
             state.presentation = presentation;
+            state.plain = None;
             state.pipeline = Some(HostTextPipeline::new(presentation.pacing()));
             state
                 .refresh_semantic()
@@ -1123,25 +1129,37 @@ impl HostTextStream {
             if state.sealed {
                 return Err(anyhow::anyhow!("stream is already sealed"));
             }
-            let range = StreamRange::new(
-                state.received_end,
-                state.received_end.saturating_add(text.len() as u64),
-            );
-            let chunk = HostSourceChunk {
-                range,
-                annotations,
-                text: Arc::from(text),
-            };
-            for (atom_range, atom) in chunk.pacing_atoms() {
+            if state.pipeline.is_none() && annotations.is_empty() && state.plain.is_some() {
                 state
-                    .pacing_input
-                    .append_span(atom_range, atom)
-                    .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+                    .plain
+                    .as_mut()
+                    .expect("plain stream is present when the host has no adapter")
+                    .push(text);
+                state.sync_plain_metadata();
+            } else {
+                if state.pipeline.is_none() && state.plain.is_some() {
+                    state.switch_plain_to_annotated_source()?;
+                }
+                let range = StreamRange::new(
+                    state.received_end,
+                    state.received_end.saturating_add(text.len() as u64),
+                );
+                let chunk = HostSourceChunk {
+                    range,
+                    annotations,
+                    text: Arc::from(text),
+                };
+                for (atom_range, atom) in chunk.pacing_atoms() {
+                    state
+                        .pacing_input
+                        .append_span(atom_range, atom)
+                        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+                }
+                state.source_chunks.push(chunk);
+                state.received_end = range.end();
+                state.revision = state.revision.next();
+                state.refresh_semantic()?;
             }
-            state.source_chunks.push(chunk);
-            state.received_end = range.end();
-            state.revision = state.revision.next();
-            state.refresh_semantic()?;
         }
         self.render_host()
     }
@@ -1156,23 +1174,30 @@ impl HostTextStream {
                 return Err(anyhow::anyhow!("stream is already sealed"));
             }
             let text = text.into();
-            if let Some(pipeline) = &mut state.pipeline {
-                pipeline.reset();
+            if state.pipeline.is_none() {
+                state.plain = Some(GenericTextStream::from_text(text));
+                state.sync_plain_metadata();
+                state.source_chunks.clear();
+            } else {
+                if let Some(pipeline) = &mut state.pipeline {
+                    pipeline.reset();
+                }
+                state.plain = None;
+                state.source_chunks.clear();
+                state.source_base = StreamOffset::ZERO;
+                state.received_end = StreamOffset::new(text.len() as u64);
+                if !text.is_empty() {
+                    let chunk = HostSourceChunk {
+                        range: StreamRange::new(StreamOffset::ZERO, state.received_end),
+                        annotations: Vec::new(),
+                        text: Arc::from(text.as_str()),
+                    };
+                    state.source_chunks.push(chunk.clone());
+                }
+                state.rebuild_pacing_input()?;
+                state.revision = state.revision.next();
+                state.refresh_semantic()?;
             }
-            state.source_chunks.clear();
-            state.source_base = StreamOffset::ZERO;
-            state.received_end = StreamOffset::new(text.len() as u64);
-            if !text.is_empty() {
-                let chunk = HostSourceChunk {
-                    range: StreamRange::new(StreamOffset::ZERO, state.received_end),
-                    annotations: Vec::new(),
-                    text: Arc::from(text.as_str()),
-                };
-                state.source_chunks.push(chunk.clone());
-            }
-            state.rebuild_pacing_input()?;
-            state.revision = state.revision.next();
-            state.refresh_semantic()?;
         }
         self.render_host()
     }
@@ -1187,10 +1212,19 @@ impl HostTextStream {
                 return Err(anyhow::anyhow!("stream is already sealed"));
             }
             state.sealed = true;
-            let source_end = state.received_end;
-            state.pacing_input.set_envelope(source_end, true);
-            state.revision = state.revision.next();
-            state.refresh_semantic()?;
+            if state.plain.is_some() {
+                state
+                    .plain
+                    .as_mut()
+                    .expect("plain stream is present when sealing")
+                    .seal();
+                state.sync_plain_metadata();
+            } else {
+                let source_end = state.received_end;
+                state.pacing_input.set_envelope(source_end, true);
+                state.revision = state.revision.next();
+                state.refresh_semantic()?;
+            }
         }
         self.render_host()
     }
@@ -1279,7 +1313,38 @@ impl HostTextStream {
 }
 
 impl HostStreamState {
+    fn sync_plain_metadata(&mut self) {
+        let Some(plain) = self.plain.as_ref() else {
+            return;
+        };
+        self.source_base = plain.source_base();
+        self.received_end = plain.source_end();
+        self.revision = plain.revision();
+    }
+
+    fn switch_plain_to_annotated_source(&mut self) -> Result<()> {
+        let Some(plain) = self.plain.take() else {
+            return Ok(());
+        };
+        self.source_base = plain.source_base();
+        self.received_end = plain.source_end();
+        self.revision = plain.revision();
+        self.source_chunks.clear();
+        let text = plain.retained_text();
+        if !text.is_empty() {
+            self.source_chunks.push(HostSourceChunk {
+                range: StreamRange::new(self.source_base, self.received_end),
+                annotations: Vec::new(),
+                text: Arc::from(text),
+            });
+        }
+        self.rebuild_pacing_input()
+    }
+
     fn source_text(&self) -> String {
+        if let Some(plain) = &self.plain {
+            return plain.retained_text().to_owned();
+        }
         self.source_chunks
             .iter()
             .map(|chunk| chunk.text.as_ref())
@@ -1287,6 +1352,9 @@ impl HostStreamState {
     }
 
     fn segments_json(&self) -> Vec<(Vec<TextStreamAnnotation>, String)> {
+        if self.plain.is_some() {
+            return Vec::new();
+        }
         let mut segments: Vec<(Vec<TextStreamAnnotation>, String)> = Vec::new();
         for chunk in &self.source_chunks {
             let atom = chunk;
@@ -1352,6 +1420,9 @@ impl HostStreamState {
     }
 
     fn snapshot(&self) -> StreamSnapshot {
+        if let Some(plain) = &self.plain {
+            return plain.snapshot();
+        }
         let source_end = self.received_end;
         let Some(semantic) = &self.semantic else {
             let range = StreamRange::new(self.source_base, source_end);
@@ -1521,6 +1592,15 @@ impl StreamingSource for HostStreamSource {
 
     fn compact_before(&mut self, offset: StreamOffset) {
         let mut state = self.state.lock().expect("host stream lock is poisoned");
+        if state.plain.is_some() {
+            state
+                .plain
+                .as_mut()
+                .expect("plain stream is present while compacting")
+                .compact_before(offset);
+            state.sync_plain_metadata();
+            return;
+        }
         let target = offset.min(state.received_end);
         if target <= state.source_base {
             return;
@@ -1553,12 +1633,21 @@ impl StreamingSource for HostStreamSource {
         if let Ok(mut state) = self.state.lock() {
             if !state.sealed {
                 state.sealed = true;
-                let source_end = state.received_end;
-                state.pacing_input.set_envelope(source_end, true);
-                state.revision = state.revision.next();
-                state
-                    .refresh_semantic()
-                    .expect("host stream sealing must preserve projection coverage");
+                if state.plain.is_some() {
+                    state
+                        .plain
+                        .as_mut()
+                        .expect("plain stream is present while sealing")
+                        .seal();
+                    state.sync_plain_metadata();
+                } else {
+                    let source_end = state.received_end;
+                    state.pacing_input.set_envelope(source_end, true);
+                    state.revision = state.revision.next();
+                    state
+                        .refresh_semantic()
+                        .expect("host stream sealing must preserve projection coverage");
+                }
             }
         }
     }
