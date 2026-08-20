@@ -69,16 +69,24 @@ pub fn exports(document: &AbiDocument, schema_hash: &str, generator_hash: &str) 
 
 pub fn table(document: &AbiDocument, schema_hash: &str, generator_hash: &str) -> String {
     let mut output = banner(schema_hash, generator_hash);
-    output.push_str("#[derive(Clone, Copy, Debug)]\npub struct FunctionDescriptor {\n    pub name: &'static str,\n    pub symbol: &'static str,\n    pub family: &'static str,\n    pub hotness: &'static str,\n    pub fallback: &'static str,\n}\n\n");
+    output.push_str("#[derive(Clone, Copy, Debug)]\npub struct FunctionDescriptor {\n    pub name: &'static str,\n    pub symbol: &'static str,\n    pub family: &'static str,\n    pub hotness: &'static str,\n    pub fallback: &'static str,\n    pub ownership: &'static str,\n    pub borrow_duration: &'static str,\n    pub thread_affinity: &'static str,\n    pub may_allocate_native_memory: bool,\n    pub mutates_host_state: bool,\n    pub max_buffer_bytes: u64,\n    pub max_input_count: u32,\n    pub benchmark_registration: &'static str,\n}\n\n");
     output.push_str("pub static FUNCTIONS: &[FunctionDescriptor] = &[\n");
     for function in &document.functions {
         output.push_str(&format!(
-            "    FunctionDescriptor {{\n        name: {:?},\n        symbol: {:?},\n        family: {:?},\n        hotness: {:?},\n        fallback: {:?},\n    }},\n",
+            "    FunctionDescriptor {{\n        name: {:?},\n        symbol: {:?},\n        family: {:?},\n        hotness: {:?},\n        fallback: {:?},\n        ownership: {:?},\n        borrow_duration: {:?},\n        thread_affinity: {:?},\n        may_allocate_native_memory: {},\n        mutates_host_state: {},\n        max_buffer_bytes: {},\n        max_input_count: {},\n        benchmark_registration: {:?},\n    }},\n",
             function.name,
             format!("iyon_{}_v1", function.name),
             function.family,
             function.hotness,
-            function.fallback
+            function.fallback,
+            function.ownership,
+            function.borrow_duration,
+            function.thread_affinity,
+            function.may_allocate_native_memory,
+            function.mutates_host_state,
+            function.max_buffer_bytes,
+            function.max_input_count,
+            function.benchmark_registration
         ));
     }
     output.push_str("];\n\npub const FUNCTION_COUNT: usize = FUNCTIONS.len();\n");

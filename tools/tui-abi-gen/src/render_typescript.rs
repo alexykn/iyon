@@ -80,7 +80,7 @@ pub fn benchmark_registry(
     generator_hash: &str,
 ) -> String {
     let mut output = banner(schema_hash, generator_hash);
-    output.push_str("export type GeneratedAbiBenchmarkCase = {\n  name: string;\n  family: string;\n  hotness: string;\n  scalarArgs: number;\n  hasBuffer: boolean;\n};\n\n");
+    output.push_str("export type GeneratedAbiBenchmarkCase = {\n  name: string;\n  family: string;\n  hotness: string;\n  benchmarkRegistration: string;\n  scalarArgs: number;\n  hasBuffer: boolean;\n  maxBufferBytes: number;\n  maxInputCount: number;\n};\n\n");
     output.push_str("export const generatedAbiCases: readonly GeneratedAbiBenchmarkCase[] = [\n");
     for function in &document.functions {
         let scalar_args = function
@@ -97,7 +97,7 @@ pub fn benchmark_registry(
             .args
             .iter()
             .any(|argument| matches!(argument.lowering.as_str(), "buffer" | "pod_slice"));
-        output.push_str(&format!("  {{ name: {:?}, family: {:?}, hotness: {:?}, scalarArgs: {scalar_args}, hasBuffer: {has_buffer} }},\n", function.name, function.family, function.hotness));
+        output.push_str(&format!("  {{ name: {:?}, family: {:?}, hotness: {:?}, benchmarkRegistration: {:?}, scalarArgs: {scalar_args}, hasBuffer: {has_buffer}, maxBufferBytes: {}, maxInputCount: {} }},\n", function.name, function.family, function.hotness, function.benchmark_registration, function.max_buffer_bytes, function.max_input_count));
     }
     output.push_str("];\n");
     output

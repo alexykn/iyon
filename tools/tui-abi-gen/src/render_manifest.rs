@@ -48,6 +48,15 @@ pub fn manifest(
                 "hotness": function.hotness,
                 "implementation": function.implementation,
                 "fallback": function.fallback,
+                "ownership": function.ownership,
+                "borrow_duration": function.borrow_duration,
+                "thread_affinity": function.thread_affinity,
+                "may_allocate_native_memory": function.may_allocate_native_memory,
+                "mutates_host_state": function.mutates_host_state,
+                "max_buffer_bytes": function.max_buffer_bytes,
+                "max_input_count": function.max_input_count,
+                "arity_specializations": function.arity_specializations,
+                "benchmark_registration": function.benchmark_registration,
                 "return": function.return_type,
                 "args": function.args.iter().map(|argument| json!({
                     "name": argument.name,
@@ -122,16 +131,19 @@ pub fn human_reference(document: &AbiDocument, schema_hash: &str, generator_hash
         output.push('\n');
     }
     output.push_str(
-        "## Functions\n\n| Name | Family | Hotness | Return | Fallback |\n|---|---|---|---|---|\n",
+        "## Functions\n\n| Name | Family | Hotness | Return | Fallback | Thread | Allocates | Host mutation |\n|---|---|---|---|---|---|---|---|\n",
     );
     for function in &document.functions {
         output.push_str(&format!(
-            "| `{}` | `{}` | `{}` | `{}` | `{}` |\n",
+            "| `{}` | `{}` | `{}` | `{}` | `{}` | `{}` | `{}` | `{}` |\n",
             function.name,
             function.family,
             function.hotness,
             function.return_type,
-            function.fallback
+            function.fallback,
+            function.thread_affinity,
+            function.may_allocate_native_memory,
+            function.mutates_host_state
         ));
     }
     output.push_str("\n");

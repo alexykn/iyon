@@ -1,5 +1,5 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 1ca0fdeba92ffd1a195a4898f5629f1f10f849155f8b8b80b03fe1bd050030a8
+// schema_blake3 = bb04c4b5ded9f38d04dd850fed1d99f76bd781a51ab04f140ab35fa14273bf29
 // generator_blake3 = 5134bc9ebe5a949bd99ece560feb766e2612a8d4b222c03f6b928e766f625ca3
 #[derive(Clone, Copy, Debug)]
 pub struct FunctionDescriptor {
@@ -8,6 +8,14 @@ pub struct FunctionDescriptor {
     pub family: &'static str,
     pub hotness: &'static str,
     pub fallback: &'static str,
+    pub ownership: &'static str,
+    pub borrow_duration: &'static str,
+    pub thread_affinity: &'static str,
+    pub may_allocate_native_memory: bool,
+    pub mutates_host_state: bool,
+    pub max_buffer_bytes: u64,
+    pub max_input_count: u32,
+    pub benchmark_registration: &'static str,
 }
 
 pub static FUNCTIONS: &[FunctionDescriptor] = &[
@@ -17,6 +25,14 @@ pub static FUNCTIONS: &[FunctionDescriptor] = &[
         family: "runtime",
         hotness: "probe",
         fallback: "none",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: false,
+        mutates_host_state: false,
+        max_buffer_bytes: 0,
+        max_input_count: 0,
+        benchmark_registration: "ffi.noop",
     },
     FunctionDescriptor {
         name: "view_render_ref",
@@ -24,6 +40,14 @@ pub static FUNCTIONS: &[FunctionDescriptor] = &[
         family: "render_ref",
         hotness: "critical",
         fallback: "v4",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: false,
+        mutates_host_state: false,
+        max_buffer_bytes: 0,
+        max_input_count: 1,
+        benchmark_registration: "view.render_ref",
     },
     FunctionDescriptor {
         name: "view_spacer_create",
@@ -31,6 +55,14 @@ pub static FUNCTIONS: &[FunctionDescriptor] = &[
         family: "constructor",
         hotness: "warm",
         fallback: "v4",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: true,
+        mutates_host_state: false,
+        max_buffer_bytes: 0,
+        max_input_count: 1,
+        benchmark_registration: "view.spacer_create",
     },
     FunctionDescriptor {
         name: "view_text_layout_patch_root",
@@ -38,6 +70,14 @@ pub static FUNCTIONS: &[FunctionDescriptor] = &[
         family: "scalar_patch",
         hotness: "critical",
         fallback: "v4",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: true,
+        mutates_host_state: false,
+        max_buffer_bytes: 0,
+        max_input_count: 1,
+        benchmark_registration: "view.text_layout_patch_root",
     },
     FunctionDescriptor {
         name: "view_common_patch_root",
@@ -45,6 +85,14 @@ pub static FUNCTIONS: &[FunctionDescriptor] = &[
         family: "scalar_patch",
         hotness: "critical",
         fallback: "v4",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: true,
+        mutates_host_state: false,
+        max_buffer_bytes: 0,
+        max_input_count: 1,
+        benchmark_registration: "view.common_patch_root",
     },
     FunctionDescriptor {
         name: "view_axis_create_buffer",
@@ -52,6 +100,14 @@ pub static FUNCTIONS: &[FunctionDescriptor] = &[
         family: "constructor",
         hotness: "warm",
         fallback: "v4",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: true,
+        mutates_host_state: false,
+        max_buffer_bytes: 4194304,
+        max_input_count: 1000000,
+        benchmark_registration: "view.axis_create_buffer",
     },
     FunctionDescriptor {
         name: "view_release_many",
@@ -59,6 +115,14 @@ pub static FUNCTIONS: &[FunctionDescriptor] = &[
         family: "lifecycle",
         hotness: "cold",
         fallback: "none",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: false,
+        mutates_host_state: false,
+        max_buffer_bytes: 524288,
+        max_input_count: 131072,
+        benchmark_registration: "lifecycle.release_many",
     },
 ];
 
