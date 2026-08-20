@@ -16,11 +16,11 @@ This compares **FastShared directly against the old pre-packed `direct` transpor
 | Commit | **0.831** | **16.9% faster** |
 | Native | **0.505** | **49.5% faster** |
 | JS construction | **1.975** | **97.5% slower** |
-| Encoding | 0 vs **about 7.4 µs** | New FastShared page/command encoding cost |
+| Encoding | 0 vs **about 9.1 µs** on the matched subset | New FastShared page/command encoding cost (about 7.5 µs across all 156 local cases) |
 
 By mode, FastShared was 5.9% slower on cold, 10.0% slower on first-use, 34.7% faster on exact identity, 17.2% slower on shared-path updates, and 9.4% faster on rebuilt-equivalent cases. These are cross-revision comparisons, so they show direction rather than a clean single-release benchmark.
 
-The important result is: **FastShared is slower than the old direct baseline on the matched normal matrix.** Its native/commit savings are real, but they are more than consumed by JS construction and page encoding. The retained-trace result below is specific to the new authoritative trace and is not a replacement for the normal matrix.
+The important result is: **FastShared is slower than the old direct baseline on the matched normal matrix.** Its native/commit savings are real, but they are more than consumed by JS construction and page encoding. As a sensitivity estimate, subtracting the measured FastShared encoding time from each case would change the matched-matrix ratio from 1.101 to about 0.965—roughly **3.5% faster** than PERF-7v2 direct. Against the current local PERF-10 direct rerun, the same estimate is about **8.6% faster**. That is an elimination estimate, not a reclassification: moving the same work into native would not produce this gain. The retained-trace result below is specific to the new authoritative trace and is not a replacement for the normal matrix.
 
 ## PERF-10 against its local direct baseline
 
