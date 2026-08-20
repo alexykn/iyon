@@ -348,10 +348,16 @@
           "type": "u32"
         },
         {
-          "buffer_length_of": "children",
+          "buffer_length_of": null,
           "lowering": "pod_slice",
           "name": "children",
           "type": "AxisChildInputV1[]"
+        },
+        {
+          "buffer_length_of": "children",
+          "lowering": "buffer_length",
+          "name": "children_capacity_bytes",
+          "type": "u32"
         },
         {
           "buffer_length_of": null,
@@ -395,10 +401,16 @@
           "type": "RuntimePtr"
         },
         {
-          "buffer_length_of": "refs",
+          "buffer_length_of": null,
           "lowering": "buffer",
           "name": "refs",
           "type": "u32[]"
+        },
+        {
+          "buffer_length_of": "refs",
+          "lowering": "buffer_length",
+          "name": "refs_capacity_bytes",
+          "type": "u32"
         },
         {
           "buffer_length_of": null,
@@ -437,7 +449,7 @@
     "crates/iyon-native/tests/generated_view_abi.rs",
     "PERF-11-generated-abi-reference.md"
   ],
-  "generator_blake3": "0407a3e331cbf8a5af827b2e89fe8ceea30d82c1e7cbf0ad92a0d2c272c336a8",
+  "generator_blake3": "b62dd2ee81e098b7bab79dfe2cac9c9231d38cb0beaeabd4744b7565c37b8985",
   "handles": [
     {
       "kind": null,
@@ -494,5 +506,5 @@
       "size": 8
     }
   ],
-  "schema_blake3": "f62367d8a4d464a917c4958025990e8a120d58409d4a0a55dc5a888a228f6db7"
+  "schema_blake3": "8cbf2331e1e1c177d2d1ee3e7e98d0e8232324ee3f1cb9039499d4d7f2da58cd"
 }

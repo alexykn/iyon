@@ -53,6 +53,7 @@ jobs:
       - name: Verify generated TUI ABI
         run: |
           bun run check:tui-abi
+          cargo test -p tui-abi-gen
           git diff --exit-code -- \
             crates/iyon-native/src/generated \
             crates/iyon-native/include \

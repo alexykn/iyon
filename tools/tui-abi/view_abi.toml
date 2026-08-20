@@ -352,6 +352,11 @@ lowering = "u32"
 name = "children"
 type = "AxisChildInputV1[]"
 lowering = "pod_slice"
+
+[[function.arg]]
+name = "children_capacity_bytes"
+type = "u32"
+lowering = "buffer_length"
 buffer_length_of = "children"
 
 [[function.arg]]
@@ -385,6 +390,11 @@ lowering = "runtime_ptr"
 name = "refs"
 type = "u32[]"
 lowering = "buffer"
+
+[[function.arg]]
+name = "refs_capacity_bytes"
+type = "u32"
+lowering = "buffer_length"
 buffer_length_of = "refs"
 
 [[function.arg]]

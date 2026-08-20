@@ -48,6 +48,7 @@ pub fn calls(document: &AbiDocument, schema_hash: &str, generator_hash: &str) ->
         let call_args = function
             .args
             .iter()
+            .filter(|argument| argument.lowering != "buffer_length")
             .flat_map(call_argument_names)
             .collect::<Vec<_>>()
             .join(", ");
@@ -149,7 +150,7 @@ fn ffi_args(argument: &ArgumentSpec) -> Vec<&'static str> {
         "u16" => vec!["u16"],
         "f32" => vec!["f32"],
         "f64" => vec!["f64"],
-        "buffer" | "pod_slice" => vec!["buffer", "buffer_length"],
+        "buffer" | "pod_slice" => vec!["buffer"],
         "buffer_length" => vec!["buffer_length"],
         "cstring_ephemeral" => vec!["cstring"],
         other => panic!("unsupported generated FFI lowering {other}"),
@@ -167,6 +168,7 @@ fn ffi_return(return_type: &str) -> &'static str {
 fn ts_arguments(arguments: &[ArgumentSpec], document: &AbiDocument) -> String {
     arguments
         .iter()
+        .filter(|argument| argument.lowering != "buffer_length")
         .flat_map(|argument| {
             if argument.lowering == "node_id_pair" {
                 vec![
@@ -192,11 +194,10 @@ fn call_argument_names(argument: &ArgumentSpec) -> Vec<String> {
             format!("{}_high", argument.name),
         ];
     }
-    let mut values = vec![argument.name.clone()];
     if matches!(argument.lowering.as_str(), "buffer" | "pod_slice") {
-        values.push(argument.name.clone());
+        return vec![argument.name.clone(), argument.name.clone()];
     }
-    values
+    vec![argument.name.clone()]
 }
 
 fn ts_type(argument: &ArgumentSpec, document: &AbiDocument) -> &'static str {

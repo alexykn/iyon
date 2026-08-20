@@ -313,13 +313,13 @@ mod tests {
         let (mut document, _) = model::load(&schema).expect("canonical schema parses");
         let bridge = model::load_bridge_schema(&workspace.join(BRIDGE_SCHEMA))
             .expect("bridge schema parses");
-        let buffer = document
+        let length = document
             .functions
             .iter_mut()
             .flat_map(|function| function.args.iter_mut())
-            .find(|argument| argument.lowering == "pod_slice")
-            .expect("canonical POD buffer");
-        buffer.buffer_length_of = None;
+            .find(|argument| argument.lowering == "buffer_length")
+            .expect("canonical buffer length");
+        length.buffer_length_of = None;
         assert!(validate::validate(&document, &bridge).is_err());
     }
 }

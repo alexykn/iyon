@@ -59,11 +59,7 @@ fn c_arguments(arguments: &[ArgumentSpec], document: &AbiDocument) -> String {
                     format!("uint32_t {}_high", argument.name),
                 ];
             }
-            let mut values = vec![format!("{} {}", c_type(argument, document), argument.name)];
-            if matches!(argument.lowering.as_str(), "buffer" | "pod_slice") {
-                values.push(format!("size_t {}_capacity_bytes", argument.name));
-            }
-            values
+            vec![format!("{} {}", c_type(argument, document), argument.name)]
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -79,6 +75,7 @@ fn c_type(argument: &ArgumentSpec, document: &AbiDocument) -> String {
             || "const uint8_t *".to_owned(),
             |name| format!("const {name} *"),
         ),
+        "buffer_length" => "size_t".to_owned(),
         "i32" | "status_only" => "int32_t".to_owned(),
         "u8" => "uint8_t".to_owned(),
         "u16" => "uint16_t".to_owned(),

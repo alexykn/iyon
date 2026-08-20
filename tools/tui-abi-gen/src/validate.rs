@@ -137,14 +137,6 @@ pub fn validate(
                 ));
             }
             validate_type(&argument.type_name, document, function.name.as_str())?;
-            if matches!(argument.lowering.as_str(), "buffer" | "pod_slice")
-                && argument.buffer_length_of.as_deref() != Some(argument.name.as_str())
-            {
-                return invalid(format!(
-                    "buffer argument {}.{} must declare buffer_length_of = its own name",
-                    function.name, argument.name
-                ));
-            }
             if argument.lowering == "buffer_length" {
                 let Some(length_of) = argument.buffer_length_of.as_deref() else {
                     return invalid(format!(
@@ -152,20 +144,20 @@ pub fn validate(
                         function.name, argument.name
                     ));
                 };
-                if !function.args.iter().any(|candidate| {
-                    candidate.name == length_of
-                        && matches!(candidate.lowering.as_str(), "buffer" | "pod_slice")
-                }) {
+                if !argument_names.contains(length_of)
+                    || !function.args.iter().any(|candidate| {
+                        candidate.name == length_of
+                            && matches!(candidate.lowering.as_str(), "buffer" | "pod_slice")
+                    })
+                {
                     return invalid(format!(
                         "{}.{} refers to unknown buffer {}",
                         function.name, argument.name, length_of
                     ));
                 }
-            } else if !matches!(argument.lowering.as_str(), "buffer" | "pod_slice")
-                && argument.buffer_length_of.is_some()
-            {
+            } else if argument.buffer_length_of.is_some() {
                 return invalid(format!(
-                    "only buffer or buffer_length arguments may declare buffer_length_of: {}.{}",
+                    "only buffer_length arguments may declare buffer_length_of: {}.{}",
                     function.name, argument.name
                 ));
             }
@@ -212,6 +204,20 @@ pub fn validate(
         for argument in &function.args {
             if !matches!(argument.lowering.as_str(), "buffer" | "pod_slice") {
                 continue;
+            }
+            let length_count = function
+                .args
+                .iter()
+                .filter(|candidate| {
+                    candidate.lowering == "buffer_length"
+                        && candidate.buffer_length_of.as_deref() == Some(argument.name.as_str())
+                })
+                .count();
+            if length_count != 1 {
+                return invalid(format!(
+                    "buffer argument {}.{} must have exactly one buffer_length pair",
+                    function.name, argument.name
+                ));
             }
             let Some(element_size) = buffer_element_size(argument, document) else {
                 return invalid(format!(
