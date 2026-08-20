@@ -276,6 +276,10 @@ The Tranche 1 implementation is recorded in these commits:
 ee12b51  build(tui): declare generated ABI policy metadata
 afd2d39  bench(tui): record Bun 1.4 FFI probe
 da9be23  fix(tui): align Bun 1.4 ABI tranche with handoff
+01ae31d  bench(tui): rerun Bun 1.4 tranche controls
+3e5b54c  build(tui): make ABI generation layout-safe
+cfa15fb  bench(tui): refresh Bun 1.4 FFI qualification
+2eb7569  fix(tui): model explicit Bun buffer length pairs
 ```
 
 The canonical ABI input and generator sources are located at:
