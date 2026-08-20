@@ -1,3 +1,6 @@
+use std::io::Write;
+use std::process::{Command, Stdio};
+
 use quote::quote;
 use serde_json::Map;
 
@@ -446,11 +449,30 @@ fn format_rust(source: String) -> String {
         return source;
     };
     let (prefix, body) = source.split_at(body_start);
-    let formatted = syn::parse_file(body)
-        .map(|file| {
-            let _tokens: proc_macro2::TokenStream = quote!(#file);
-            prettyplease::unparse(&file)
-        })
-        .unwrap_or_else(|_| body.to_owned());
+    let formatted = rustfmt_body(body).unwrap_or_else(|| {
+        syn::parse_file(body)
+            .map(|file| {
+                let _tokens: proc_macro2::TokenStream = quote!(#file);
+                prettyplease::unparse(&file)
+            })
+            .unwrap_or_else(|_| body.to_owned())
+    });
     format!("{prefix}{}\n", formatted.trim_end())
+}
+
+fn rustfmt_body(body: &str) -> Option<String> {
+    let mut process = Command::new("rustfmt")
+        .args(["--edition", "2024", "--emit", "stdout"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    process.stdin.take()?.write_all(body.as_bytes()).ok()?;
+    let output = process.wait_with_output().ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8(output.stdout).ok())
+        .flatten()
 }
