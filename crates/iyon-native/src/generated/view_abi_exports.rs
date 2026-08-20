@@ -1,10 +1,10 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
 // schema_blake3 = 99cb1472686316689de8d738c78dffa5c60e460d5849a235512a038af55c89e3
-// generator_blake3 = 4219366fc3b1474f5656e00c09aedafb88e34234668757d831421864671d1533
+// generator_blake3 = c4ab26c23fac3bc43c5b8a4b6c75ca3ba1d79b78b4af58ab322f8fef5d9b6601
 // Generated C ABI wrappers. Semantic implementations are supplied by the next tranche.
 use super::{NativeViewRuntime, AxisChildInputV1};
 pub mod generated_impls {
-    use super::{NativeViewRuntime, AxisChildInputV1};
+    use super::{AxisChildInputV1, NativeViewRuntime};
     unsafe extern "Rust" {
         pub fn runtime_noop_impl(runtime: *mut NativeViewRuntime) -> u32;
     }
@@ -68,27 +68,33 @@ pub mod generated_impls {
         ) -> i32;
     }
 }
+
 #[allow(dead_code)]
-fn generated_catch_unwind<T: Copy>(
-    work: impl FnOnce() -> Result<T, T>,
-    panic_value: T,
-) -> T {
+fn generated_catch_unwind<T: Copy>(work: impl FnOnce() -> Result<T, T>, panic_value: T) -> T {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {
         Ok(result) => result.unwrap_or_else(|error| error),
         Err(_) => panic_value,
     }
 }
+
 #[allow(dead_code)]
 fn generated_nonnull<T: Copy, P>(value: *mut P, error: T) -> Result<*mut P, T> {
-    if value.is_null() { Err(error) } else { Ok(value) }
+    if value.is_null() {
+        Err(error)
+    } else {
+        Ok(value)
+    }
 }
+
 #[allow(dead_code)]
-fn generated_nonnull_const<T: Copy, P>(
-    value: *const P,
-    error: T,
-) -> Result<*const P, T> {
-    if value.is_null() { Err(error) } else { Ok(value) }
+fn generated_nonnull_const<T: Copy, P>(value: *const P, error: T) -> Result<*const P, T> {
+    if value.is_null() {
+        Err(error)
+    } else {
+        Ok(value)
+    }
 }
+
 #[allow(dead_code)]
 fn generated_buffer<T: Copy, P>(
     value: *const P,
@@ -97,7 +103,8 @@ fn generated_buffer<T: Copy, P>(
     maximum_bytes: u64,
     error: T,
 ) -> Result<*const P, T> {
-    if capacity_bytes as u64 > maximum_bytes || capacity_bytes % element_size != 0
+    if capacity_bytes as u64 > maximum_bytes
+        || capacity_bytes % element_size != 0
         || (capacity_bytes != 0
             && (value.is_null() || (value as usize) % ::core::mem::align_of::<P>() != 0))
     {
@@ -106,6 +113,7 @@ fn generated_buffer<T: Copy, P>(
         Ok(value)
     }
 }
+
 #[allow(dead_code)]
 fn generated_buffer_used<T: Copy>(
     used_count: u32,
@@ -122,10 +130,16 @@ fn generated_buffer_used<T: Copy>(
         Ok(used_count)
     }
 }
+
 #[allow(dead_code)]
 fn generated_native_ref<T: Copy>(value: u32, error: T) -> Result<u32, T> {
-    if value == 0 || value >= 0x8000_0000 { Err(error) } else { Ok(value) }
+    if value == 0 || value >= 0x8000_0000 {
+        Err(error)
+    } else {
+        Ok(value)
+    }
 }
+
 #[allow(dead_code)]
 fn generated_node_id<T: Copy>(low: u32, high: u32, error: T) -> Result<(u32, u32), T> {
     if high > 0x001f_ffff || (high == 0 && low == 0) {
@@ -134,10 +148,16 @@ fn generated_node_id<T: Copy>(low: u32, high: u32, error: T) -> Result<(u32, u32
         Ok((low, high))
     }
 }
+
 #[allow(dead_code)]
 fn generated_enum<T: Copy>(value: u32, allowed: &[u32], error: T) -> Result<u32, T> {
-    if allowed.contains(&value) { Ok(value) } else { Err(error) }
+    if allowed.contains(&value) {
+        Ok(value)
+    } else {
+        Err(error)
+    }
 }
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn iyon_runtime_noop_v1(runtime: *mut NativeViewRuntime) -> u32 {
     generated_catch_unwind(
@@ -150,6 +170,7 @@ pub unsafe extern "C" fn iyon_runtime_noop_v1(runtime: *mut NativeViewRuntime) -
         0x8000_00ffu32,
     )
 }
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn iyon_view_render_ref_v1(
     runtime: *mut NativeViewRuntime,
@@ -166,6 +187,7 @@ pub unsafe extern "C" fn iyon_view_render_ref_v1(
         0x8000_00ffu32,
     )
 }
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn iyon_view_spacer_create_v1(
     runtime: *mut NativeViewRuntime,
@@ -177,11 +199,8 @@ pub unsafe extern "C" fn iyon_view_spacer_create_v1(
         || {
             (|| -> Result<u32, u32> {
                 let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
-                let (node_id_low, node_id_high) = generated_node_id(
-                    node_id_low,
-                    node_id_high,
-                    0x8000_0001u32,
-                )?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
                 Ok(unsafe {
                     generated_impls::view_spacer_create_impl(
                         runtime,
@@ -195,6 +214,7 @@ pub unsafe extern "C" fn iyon_view_spacer_create_v1(
         0x8000_00ffu32,
     )
 }
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn iyon_view_text_layout_patch_root_v1(
     runtime: *mut NativeViewRuntime,
@@ -209,11 +229,8 @@ pub unsafe extern "C" fn iyon_view_text_layout_patch_root_v1(
             (|| -> Result<u32, u32> {
                 let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
                 let base = generated_native_ref(base, 0x8000_0001u32)?;
-                let (node_id_low, node_id_high) = generated_node_id(
-                    node_id_low,
-                    node_id_high,
-                    0x8000_0001u32,
-                )?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
                 let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
                 let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
                 Ok(unsafe {
@@ -231,6 +248,7 @@ pub unsafe extern "C" fn iyon_view_text_layout_patch_root_v1(
         0x8000_00ffu32,
     )
 }
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn iyon_view_common_patch_root_v1(
     runtime: *mut NativeViewRuntime,
@@ -253,15 +271,9 @@ pub unsafe extern "C" fn iyon_view_common_patch_root_v1(
             (|| -> Result<u32, u32> {
                 let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
                 let base = generated_native_ref(base, 0x8000_0001u32)?;
-                let (node_id_low, node_id_high) = generated_node_id(
-                    node_id_low,
-                    node_id_high,
-                    0x8000_0001u32,
-                )?;
-                let decoration_ref = generated_native_ref(
-                    decoration_ref,
-                    0x8000_0001u32,
-                )?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let decoration_ref = generated_native_ref(decoration_ref, 0x8000_0001u32)?;
                 Ok(unsafe {
                     generated_impls::view_common_patch_root_impl(
                         runtime,
@@ -285,6 +297,7 @@ pub unsafe extern "C" fn iyon_view_common_patch_root_v1(
         0x8000_00ffu32,
     )
 }
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn iyon_view_axis_create_buffer_v1(
     runtime: *mut NativeViewRuntime,
@@ -300,11 +313,8 @@ pub unsafe extern "C" fn iyon_view_axis_create_buffer_v1(
         || {
             (|| -> Result<u32, u32> {
                 let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
-                let (node_id_low, node_id_high) = generated_node_id(
-                    node_id_low,
-                    node_id_high,
-                    0x8000_0001u32,
-                )?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
                 let children = generated_buffer(
                     children,
                     children_capacity_bytes,
@@ -336,6 +346,7 @@ pub unsafe extern "C" fn iyon_view_axis_create_buffer_v1(
         0x8000_00ffu32,
     )
 }
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn iyon_view_release_many_v1(
     runtime: *mut NativeViewRuntime,
@@ -347,20 +358,9 @@ pub unsafe extern "C" fn iyon_view_release_many_v1(
         || {
             (|| -> Result<i32, i32> {
                 let runtime = generated_nonnull(runtime, -1i32)?;
-                let refs = generated_buffer(
-                    refs,
-                    refs_capacity_bytes,
-                    4,
-                    524288,
-                    -2i32,
-                )?;
-                let used_ref_count = generated_buffer_used(
-                    used_ref_count,
-                    refs_capacity_bytes,
-                    4,
-                    131072,
-                    -3i32,
-                )?;
+                let refs = generated_buffer(refs, refs_capacity_bytes, 4, 524288, -2i32)?;
+                let used_ref_count =
+                    generated_buffer_used(used_ref_count, refs_capacity_bytes, 4, 131072, -3i32)?;
                 Ok(unsafe {
                     generated_impls::view_release_many_impl(
                         runtime,
