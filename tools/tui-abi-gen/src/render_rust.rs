@@ -85,7 +85,7 @@ pub fn exports(
         ));
     }
     source.push_str("}\n\n");
-    source.push_str("fn generated_catch_unwind<T: Copy>(work: impl FnOnce() -> Result<T, T>, panic_value: T) -> T {\n    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {\n        Ok(result) => result.unwrap_or_else(|error| error),\n        Err(_) => panic_value,\n    }\n}\n\nfn generated_nonnull<T: Copy, P>(value: *mut P, error: T) -> Result<*mut P, T> {\n    if value.is_null() { Err(error) } else { Ok(value) }\n}\n\nfn generated_nonnull_const<T: Copy, P>(value: *const P, error: T) -> Result<*const P, T> {\n    if value.is_null() { Err(error) } else { Ok(value) }\n}\n\nfn generated_nonzero<T: Copy>(value: u32, error: T) -> Result<u32, T> {\n    if value == 0 { Err(error) } else { Ok(value) }\n}\n\nfn generated_capacity<T: Copy>(value: usize, maximum: u64, error: T) -> Result<usize, T> {\n    if value as u64 > maximum { Err(error) } else { Ok(value) }\n}\n\nfn generated_count<T: Copy>(value: u32, maximum: u32, error: T) -> Result<u32, T> {\n    if value > maximum { Err(error) } else { Ok(value) }\n}\n\nfn generated_enum<T: Copy>(value: u32, allowed: &[u32], error: T) -> Result<u32, T> {\n    if allowed.contains(&value) { Ok(value) } else { Err(error) }\n}\n\n");
+    source.push_str("fn generated_catch_unwind<T: Copy>(work: impl FnOnce() -> Result<T, T>, panic_value: T) -> T {\n    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {\n        Ok(result) => result.unwrap_or_else(|error| error),\n        Err(_) => panic_value,\n    }\n}\n\nfn generated_nonnull<T: Copy, P>(value: *mut P, error: T) -> Result<*mut P, T> {\n    if value.is_null() { Err(error) } else { Ok(value) }\n}\n\nfn generated_nonnull_const<T: Copy, P>(value: *const P, error: T) -> Result<*const P, T> {\n    if value.is_null() { Err(error) } else { Ok(value) }\n}\n\nfn generated_native_ref<T: Copy>(value: u32, error: T) -> Result<u32, T> {\n    if value == 0 || value >= 0x8000_0000 {\n        Err(error)\n    } else {\n        Ok(value)\n    }\n}\n\nfn generated_capacity<T: Copy>(value: usize, maximum: u64, error: T) -> Result<usize, T> {\n    if value as u64 > maximum { Err(error) } else { Ok(value) }\n}\n\nfn generated_count<T: Copy>(value: u32, maximum: u32, error: T) -> Result<u32, T> {\n    if value > maximum { Err(error) } else { Ok(value) }\n}\n\nfn generated_enum<T: Copy>(value: u32, allowed: &[u32], error: T) -> Result<u32, T> {\n    if allowed.contains(&value) { Ok(value) } else { Err(error) }\n}\n\n");
     for function in &document.functions {
         let result_type = rust_type(function.return_type.as_str());
         let panic_error = error_literal(function, "panic");
@@ -197,7 +197,7 @@ fn validation_statements(
                 argument.name, argument.name, error
             )),
             "native_ref" => output.push_str(&format!(
-                "            let {} = generated_nonzero({}, {})?;\n",
+                "            let {} = generated_native_ref({}, {})?;\n",
                 argument.name, argument.name, error
             )),
             "buffer" | "pod_slice" => {
