@@ -120,6 +120,7 @@ const patterns: readonly Pattern[] = [
 ];
 const warmupIterations = positiveEnv("PERF_WARMUP", 50);
 const measuredIterations = positiveEnv("PERF_MEASURED", 200);
+const traceOperations = positiveEnv("PERF_TRACE_OPERATIONS", 1_000);
 const selectedSizes = filterSizes(sizes, Bun.env.PERF_SIZES);
 const selectedWideSizes = filterSizes(wideSizes, Bun.env.PERF_SIZES);
 const candidates = filterNames(["direct", "packed", "packed_v3", "packed_v4"] as const, Bun.env.PERF_CANDIDATES);
@@ -847,7 +848,7 @@ function runSyntheticTrace(sha: string): void {
   resetPackedV3Counters();
   resetPackedV4Counters();
   perfNative.tuiPerfReset?.();
-  for (let index = 0; index < 1_000; index += 1) {
+  for (let index = 0; index < traceOperations; index += 1) {
     const traceSlot = index % 50;
     const mode: Pattern = traceSlot < 35
       ? "LARGE_SHARED_SUBTREE_CUTOFF"
@@ -858,7 +859,7 @@ function runSyntheticTrace(sha: string): void {
           : "COLD";
     for (const candidate of candidateOrder(index)) totals.get(candidate)!.push(runSample(candidate, mode, workload, size.nodes, index, state, false).total);
   }
-  const output: Record<string, unknown> = { benchmark_version: "PERF-9", benchmark: "synthetic_trace", synthetic_trace: true, mix: "70% LARGE_SHARED_SUBTREE_CUTOFF, 20% IDENTICAL_IDENTITY, 8% REBUILT_EQUIVALENT, 2% COLD", git_sha: sha, git_dirty: gitDirty(), git_patch_sha256: gitDirty() ? gitPatchSha256() : undefined, protocol_version: 4, bridge_schema_version: 1, string_lane: "S1_UTF8_ARENA", configured_string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS", utf8_writer: v4Utf8Writer, string_dedupe_policy: v4StringDedupe, native_string_storage: "R0_per_string_owned", slab_page_bytes: null, native_artifact_sha256: sha256("packages/iyon-runtime/native/iyon-native.node"), benchmark_source_sha256: sha256("packages/iyon-runtime/bench/tui_performance.ts") };
+  const output: Record<string, unknown> = { benchmark_version: "PERF-9", benchmark: "synthetic_trace", synthetic_trace: true, trace_operations: traceOperations, mix: "70% LARGE_SHARED_SUBTREE_CUTOFF, 20% IDENTICAL_IDENTITY, 8% REBUILT_EQUIVALENT, 2% COLD", git_sha: sha, git_dirty: gitDirty(), git_patch_sha256: gitDirty() ? gitPatchSha256() : undefined, protocol_version: 4, bridge_schema_version: 1, string_lane: "S1_UTF8_ARENA", configured_string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS", utf8_writer: v4Utf8Writer, string_dedupe_policy: v4StringDedupe, native_string_storage: "R0_per_string_owned", slab_page_bytes: null, native_artifact_sha256: sha256("packages/iyon-runtime/native/iyon-native.node"), benchmark_source_sha256: sha256("packages/iyon-runtime/bench/tui_performance.ts") };
   for (const candidate of candidates) {
     const values = totals.get(candidate)!;
     output[`${candidate}_total_commit_ns`] = values.reduce((sum, value) => sum + value, 0);
