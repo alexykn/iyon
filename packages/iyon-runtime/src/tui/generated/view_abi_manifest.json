@@ -449,7 +449,7 @@
     "crates/iyon-native/tests/generated_view_abi.rs",
     "PERF-11-generated-abi-reference.md"
   ],
-  "generator_blake3": "64203215f9f3f54cee942b261ff94b84b6c5440bf1a2e387347674b3df5383dd",
+  "generator_blake3": "ebf4697aabdf2e40d1ee0cbe90ead29bd79aa1e767e2c4524510ee2709773623",
   "handles": [
     {
       "kind": null,

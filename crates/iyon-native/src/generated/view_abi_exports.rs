@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
 // schema_blake3 = 99cb1472686316689de8d738c78dffa5c60e460d5849a235512a038af55c89e3
-// generator_blake3 = 64203215f9f3f54cee942b261ff94b84b6c5440bf1a2e387347674b3df5383dd
+// generator_blake3 = ebf4697aabdf2e40d1ee0cbe90ead29bd79aa1e767e2c4524510ee2709773623
 // Generated C ABI wrappers. Semantic implementations are supplied by the next tranche.
 use super::{NativeViewRuntime, AxisChildInputV1};
 pub mod generated_impls {
@@ -92,8 +92,12 @@ fn generated_nonnull_const<T: Copy, P>(value: *const P, error: T) -> Result<*con
     }
 }
 
-fn generated_nonzero<T: Copy>(value: u32, error: T) -> Result<u32, T> {
-    if value == 0 { Err(error) } else { Ok(value) }
+fn generated_native_ref<T: Copy>(value: u32, error: T) -> Result<u32, T> {
+    if value == 0 || value >= 0x8000_0000 {
+        Err(error)
+    } else {
+        Ok(value)
+    }
 }
 
 fn generated_capacity<T: Copy>(value: usize, maximum: u64, error: T) -> Result<usize, T> {
@@ -142,7 +146,7 @@ pub unsafe extern "C" fn iyon_view_render_ref_v1(
         || {
             (|| -> Result<u32, u32> {
                 let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
-                let base = generated_nonzero(base, 0x8000_0001u32)?;
+                let base = generated_native_ref(base, 0x8000_0001u32)?;
                 Ok(unsafe { generated_impls::view_render_ref_impl(runtime, base) })
             })()
         },
@@ -188,7 +192,7 @@ pub unsafe extern "C" fn iyon_view_text_layout_patch_root_v1(
         || {
             (|| -> Result<u32, u32> {
                 let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
-                let base = generated_nonzero(base, 0x8000_0001u32)?;
+                let base = generated_native_ref(base, 0x8000_0001u32)?;
                 let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
                 let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
                 Ok(unsafe {
@@ -228,8 +232,8 @@ pub unsafe extern "C" fn iyon_view_common_patch_root_v1(
         || {
             (|| -> Result<u32, u32> {
                 let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
-                let base = generated_nonzero(base, 0x8000_0001u32)?;
-                let decoration_ref = generated_nonzero(decoration_ref, 0x8000_0001u32)?;
+                let base = generated_native_ref(base, 0x8000_0001u32)?;
+                let decoration_ref = generated_native_ref(decoration_ref, 0x8000_0001u32)?;
                 Ok(unsafe {
                     generated_impls::view_common_patch_root_impl(
                         runtime,
