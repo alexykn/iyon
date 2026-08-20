@@ -6,14 +6,12 @@ const packageJson = JSON.parse(await readFile(new URL("../../../package.json", i
 };
 const expectedVersion = (await readFile(new URL("../../../.bun-version", import.meta.url), "utf8")).trim();
 const expectedRevision = (await readFile(new URL("../../../tools/bun-revision.txt", import.meta.url), "utf8")).trim();
-const expectedHash = expectedRevision.split("+")[1];
-
 const errors: string[] = [];
 if (Bun.version !== expectedVersion) errors.push(`Bun version ${Bun.version} !== ${expectedVersion}`);
 if (packageJson.packageManager !== `bun@${expectedVersion}`) errors.push("packageManager is not pinned to the .bun-version");
 if (packageJson.devDependencies?.["bun-types"] !== expectedVersion) errors.push("bun-types is not pinned to the .bun-version");
-if (expectedHash === undefined || !Bun.revision.startsWith(expectedHash)) {
-  errors.push(`Bun revision ${Bun.revision} does not match ${expectedRevision}`);
+if (Bun.revision !== expectedRevision) {
+  errors.push(`Bun revision ${Bun.revision} !== ${expectedRevision}`);
 }
 if (errors.length > 0) throw new Error(errors.join("; "));
 

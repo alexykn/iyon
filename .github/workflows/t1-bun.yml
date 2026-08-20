@@ -21,10 +21,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Bun 1.3.11
+      - name: Set up Bun 1.4.0
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.11
+          bun-version: 1.4.0
 
       - name: Set up Rust 1.97.1
         uses: dtolnay/rust-toolchain@1.97.1
@@ -46,6 +46,21 @@ jobs:
 
       - name: Install Bun workspace
         run: bun install --frozen-lockfile
+
+      - name: Verify Bun 1.4 pin and revision
+        run: bun run check:bun-version
+
+      - name: Verify generated TUI ABI
+        run: |
+          bun run check:tui-abi
+          git diff --exit-code -- \
+            crates/iyon-native/src/generated \
+            crates/iyon-native/include \
+            packages/iyon-runtime/src/tui/generated \
+            packages/iyon-runtime/tests/generated \
+            packages/iyon-runtime/bench/generated \
+            crates/iyon-native/tests/generated_view_abi.rs \
+            PERF-11-generated-abi-reference.md
 
       - name: Stage and load native addon
         run: bun run native:stage

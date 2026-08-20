@@ -69,6 +69,14 @@ pub extern "C" fn iyon_abi_probe_u32_8(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn iyon_abi_probe_i32_4(a0: i32, a1: i32, a2: i32, a3: i32) -> i32 {
+    a0.wrapping_mul(3)
+        .wrapping_add(a1.wrapping_mul(5))
+        .wrapping_add(a2.wrapping_mul(7))
+        .wrapping_add(a3.wrapping_mul(11))
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn iyon_abi_probe_buffer(bytes: *const u8, byte_length: usize) -> u32 {
     if bytes.is_null() {
         return u32::MAX;
@@ -93,6 +101,7 @@ pub fn tui_perf_abi_probe() -> Value {
     serde_json::json!({
         "noop_ptr": iyon_abi_probe_noop as *const () as usize as u64,
         "u32_8_ptr": iyon_abi_probe_u32_8 as *const () as usize as u64,
+        "i32_4_ptr": iyon_abi_probe_i32_4 as *const () as usize as u64,
         "buffer_ptr": iyon_abi_probe_buffer as *const () as usize as u64,
         "cstring_ptr": iyon_abi_probe_cstring as *const () as usize as u64,
     })

@@ -51,6 +51,8 @@ pub struct AbiDocument {
     pub handles: Vec<HandleSpec>,
     #[serde(rename = "enum", default)]
     pub enums: Vec<EnumSpec>,
+    #[serde(rename = "pod", default)]
+    pub pods: Vec<PodSpec>,
     #[serde(rename = "function", default)]
     pub functions: Vec<FunctionSpec>,
 }
@@ -62,6 +64,7 @@ pub struct AbiMetadata {
     pub version: u32,
     pub semantic_schema: u32,
     pub minimum_bun: String,
+    pub qualified_bun: String,
     pub result_encoding: String,
 }
 
@@ -95,6 +98,25 @@ pub struct EnumSpec {
 pub struct EnumValueSpec {
     pub name: String,
     pub source_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PodSpec {
+    pub name: String,
+    pub repr: String,
+    pub size: u32,
+    pub align: u32,
+    #[serde(rename = "field", default)]
+    pub fields: Vec<PodFieldSpec>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PodFieldSpec {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

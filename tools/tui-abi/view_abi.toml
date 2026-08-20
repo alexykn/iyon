@@ -3,6 +3,7 @@ name = "iyon_tui_view"
 version = 1
 semantic_schema = 1
 minimum_bun = "1.4.0"
+qualified_bun = "1.4.0"
 result_encoding = "u32_high_bit_status"
 
 [[handle]]
@@ -70,6 +71,20 @@ source_key = "horizontalCenter"
 [[enum.value]]
 name = "End"
 source_key = "horizontalEnd"
+
+[[pod]]
+name = "AxisChildInputV1"
+repr = "C"
+size = 8
+align = 4
+
+[[pod.field]]
+name = "track_word"
+type = "u32"
+
+[[pod.field]]
+name = "child_ref"
+type = "u32"
 
 [[function]]
 name = "runtime_noop"
@@ -324,9 +339,20 @@ type = "u32"
 lowering = "u32"
 
 [[function.arg]]
+name = "axis_kind"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "gap"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
 name = "children"
 type = "AxisChildInputV1[]"
 lowering = "pod_slice"
+buffer_length_of = "children"
 
 [[function.arg]]
 name = "used_child_count"
@@ -359,6 +385,7 @@ lowering = "runtime_ptr"
 name = "refs"
 type = "u32[]"
 lowering = "buffer"
+buffer_length_of = "refs"
 
 [[function.arg]]
 name = "used_ref_count"

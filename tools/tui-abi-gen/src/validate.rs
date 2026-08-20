@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde_json::Map;
 use thiserror::Error;
 
-use crate::model::{AbiDocument, EnumSpec};
+use crate::model::{AbiDocument, EnumSpec, PodSpec};
 
 #[derive(Debug, Error)]
 pub enum ValidationError {
@@ -21,8 +21,10 @@ pub fn validate(
     if document.abi.version == 0 || document.abi.semantic_schema == 0 {
         return invalid("abi.version and abi.semantic_schema must be non-zero");
     }
-    if document.abi.minimum_bun != "1.4.0" {
-        return invalid("abi.minimum_bun must be exactly 1.4.0 for Tranche 1");
+    if document.abi.minimum_bun != "1.4.0" || document.abi.qualified_bun != "1.4.0" {
+        return invalid(
+            "abi.minimum_bun and abi.qualified_bun must be exactly 1.4.0 for Tranche 1",
+        );
     }
     if document.abi.result_encoding != "u32_high_bit_status" {
         return invalid("abi.result_encoding must be u32_high_bit_status");
@@ -52,6 +54,14 @@ pub fn validate(
         validate_enum(enum_spec, bridge_schema)?;
         if !enum_names.insert(enum_spec.name.as_str()) {
             return invalid(format!("duplicate enum {}", enum_spec.name));
+        }
+    }
+
+    let mut pod_names = HashSet::new();
+    for pod in &document.pods {
+        validate_pod(pod)?;
+        if !pod_names.insert(pod.name.as_str()) {
+            return invalid(format!("duplicate POD struct {}", pod.name));
         }
     }
 
@@ -89,6 +99,10 @@ pub fn validate(
             || function.max_buffer_bytes > 16 * 1024 * 1024
             || function
                 .arity_specializations
+                .windows(2)
+                .any(|window| window[0] >= window[1])
+            || function
+                .arity_specializations
                 .iter()
                 .any(|arity| *arity > 16)
         {
@@ -123,6 +137,38 @@ pub fn validate(
                 ));
             }
             validate_type(&argument.type_name, document, function.name.as_str())?;
+            if matches!(argument.lowering.as_str(), "buffer" | "pod_slice")
+                && argument.buffer_length_of.as_deref() != Some(argument.name.as_str())
+            {
+                return invalid(format!(
+                    "buffer argument {}.{} must declare buffer_length_of = its own name",
+                    function.name, argument.name
+                ));
+            }
+            if argument.lowering == "buffer_length" {
+                let Some(length_of) = argument.buffer_length_of.as_deref() else {
+                    return invalid(format!(
+                        "buffer_length argument {}.{} must declare buffer_length_of",
+                        function.name, argument.name
+                    ));
+                };
+                if !function.args.iter().any(|candidate| {
+                    candidate.name == length_of
+                        && matches!(candidate.lowering.as_str(), "buffer" | "pod_slice")
+                }) {
+                    return invalid(format!(
+                        "{}.{} refers to unknown buffer {}",
+                        function.name, argument.name, length_of
+                    ));
+                }
+            } else if !matches!(argument.lowering.as_str(), "buffer" | "pod_slice")
+                && argument.buffer_length_of.is_some()
+            {
+                return invalid(format!(
+                    "only buffer or buffer_length arguments may declare buffer_length_of: {}.{}",
+                    function.name, argument.name
+                ));
+            }
             if !matches!(
                 argument.lowering.as_str(),
                 "u8" | "u16"
@@ -149,20 +195,6 @@ pub fn validate(
             }
             if matches!(argument.lowering.as_str(), "buffer" | "pod_slice") {
                 variable_buffers += 1;
-            }
-            if let Some(length_of) = &argument.buffer_length_of {
-                if argument.lowering != "buffer_length" {
-                    return invalid(format!(
-                        "{}.{} sets buffer_length_of but is not a buffer_length lowering",
-                        function.name, argument.name
-                    ));
-                }
-                if !argument_names.contains(length_of.as_str()) {
-                    return invalid(format!(
-                        "{}.{} refers to unknown buffer {}",
-                        function.name, argument.name, length_of
-                    ));
-                }
             }
         }
         if variable_buffers > 1 {
@@ -228,16 +260,72 @@ fn validate_type(
     function_name: &str,
 ) -> Result<(), ValidationError> {
     let primitive = matches!(type_name, "u8" | "u16" | "u32" | "i32" | "f32" | "f64");
-    let builtin = matches!(type_name, "u32[]" | "AxisChildInputV1[]");
+    let builtin = type_name == "u32[]";
+    let pod = type_name
+        .strip_suffix("[]")
+        .is_some_and(|name| document.pods.iter().any(|item| item.name == name));
     let handle = document.handles.iter().any(|item| item.name == type_name);
     let enum_type = document.enums.iter().any(|item| item.name == type_name);
-    if !(primitive || builtin || handle || enum_type) {
+    if !(primitive || builtin || pod || handle || enum_type) {
         return invalid(format!(
             "function {} refers to unknown type {}",
             function_name, type_name
         ));
     }
     Ok(())
+}
+
+fn validate_pod(pod: &PodSpec) -> Result<(), ValidationError> {
+    if !is_pascal_case(&pod.name) || pod.repr != "C" {
+        return invalid(format!("POD {} must be PascalCase and repr = C", pod.name));
+    }
+    if pod.size == 0 || pod.align == 0 || !pod.align.is_power_of_two() {
+        return invalid(format!("POD {} has invalid size/alignment", pod.name));
+    }
+    if pod.fields.is_empty() {
+        return invalid(format!("POD {} must define fields", pod.name));
+    }
+    let mut names = HashSet::new();
+    let mut offset = 0u32;
+    let mut max_align = 1u32;
+    for field in &pod.fields {
+        if !is_snake_case(&field.name) || !names.insert(field.name.as_str()) {
+            return invalid(format!(
+                "POD {} has an invalid or duplicate field {}",
+                pod.name, field.name
+            ));
+        }
+        let Some((size, align)) = primitive_layout(&field.type_name) else {
+            return invalid(format!(
+                "POD {} field {} must be a fixed-width primitive",
+                pod.name, field.name
+            ));
+        };
+        offset = align_up(offset, align).saturating_add(size);
+        max_align = max_align.max(align);
+    }
+    let expected_size = align_up(offset, max_align);
+    if expected_size != pod.size || max_align != pod.align {
+        return invalid(format!(
+            "POD {} declares size/alignment {}/{} but fields require {}/{}",
+            pod.name, pod.size, pod.align, expected_size, max_align
+        ));
+    }
+    Ok(())
+}
+
+fn primitive_layout(type_name: &str) -> Option<(u32, u32)> {
+    match type_name {
+        "u8" => Some((1, 1)),
+        "u16" => Some((2, 2)),
+        "u32" | "i32" | "f32" => Some((4, 4)),
+        "f64" => Some((8, 8)),
+        _ => None,
+    }
+}
+
+fn align_up(value: u32, align: u32) -> u32 {
+    (value + align - 1) / align * align
 }
 
 fn is_snake_case(value: &str) -> bool {

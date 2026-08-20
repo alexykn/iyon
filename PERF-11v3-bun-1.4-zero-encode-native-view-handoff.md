@@ -258,7 +258,7 @@ The repository pins and verifies that installation through:
 ```text
 package.json                         packageManager: bun@1.4.0
 .bun-version                         1.4.0
-tools/bun-revision.txt               1.4.0+34cbb9a40
+tools/bun-revision.txt               34cbb9a40b4bd1bd767d134a7065e66c2432a676
 packages/iyon-runtime/scripts/check-bun-version.ts
 ```
 

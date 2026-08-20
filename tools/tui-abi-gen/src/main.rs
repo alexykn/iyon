@@ -128,12 +128,21 @@ fn run() -> Result<(), GeneratorError> {
                 .find(|item| item.name == function)
                 .ok_or(GeneratorError::UnknownFunction(function))?;
             println!(
-                "name: {}\nfamily: {}\nhotness: {}\nimplementation: {}\nfallback: {}\nreturn: {}",
+                "name: {}\nfamily: {}\nhotness: {}\nimplementation: {}\nfallback: {}\nownership: {}\nborrow_duration: {}\nthread_affinity: {}\nmay_allocate_native_memory: {}\nmutates_host_state: {}\nmax_buffer_bytes: {}\nmax_input_count: {}\narity_specializations: {:?}\nbenchmark_registration: {}\nreturn: {}",
                 function_spec.name,
                 function_spec.family,
                 function_spec.hotness,
                 function_spec.implementation,
                 function_spec.fallback,
+                function_spec.ownership,
+                function_spec.borrow_duration,
+                function_spec.thread_affinity,
+                function_spec.may_allocate_native_memory,
+                function_spec.mutates_host_state,
+                function_spec.max_buffer_bytes,
+                function_spec.max_input_count,
+                function_spec.arity_specializations,
+                function_spec.benchmark_registration,
                 function_spec.return_type
             );
             for argument in &function_spec.args {
@@ -284,5 +293,33 @@ mod tests {
             .iter()
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(unique.len(), GENERATOR_OUTPUTS.len());
+    }
+
+    #[test]
+    fn validation_rejects_unknown_lowering() {
+        let workspace = workspace_root().expect("workspace metadata");
+        let schema = workspace.join(DEFAULT_SCHEMA);
+        let (mut document, _) = model::load(&schema).expect("canonical schema parses");
+        let bridge = model::load_bridge_schema(&workspace.join(BRIDGE_SCHEMA))
+            .expect("bridge schema parses");
+        document.functions[0].args[0].lowering = "not_a_bun_ffi_type".to_owned();
+        assert!(validate::validate(&document, &bridge).is_err());
+    }
+
+    #[test]
+    fn validation_rejects_unpaired_buffer_length() {
+        let workspace = workspace_root().expect("workspace metadata");
+        let schema = workspace.join(DEFAULT_SCHEMA);
+        let (mut document, _) = model::load(&schema).expect("canonical schema parses");
+        let bridge = model::load_bridge_schema(&workspace.join(BRIDGE_SCHEMA))
+            .expect("bridge schema parses");
+        let buffer = document
+            .functions
+            .iter_mut()
+            .flat_map(|function| function.args.iter_mut())
+            .find(|argument| argument.lowering == "pod_slice")
+            .expect("canonical POD buffer");
+        buffer.buffer_length_of = None;
+        assert!(validate::validate(&document, &bridge).is_err());
     }
 }

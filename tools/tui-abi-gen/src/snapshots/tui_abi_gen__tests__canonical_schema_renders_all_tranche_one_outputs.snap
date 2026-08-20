@@ -6,6 +6,7 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
   "abi": {
     "minimum_bun": "1.4.0",
     "name": "iyon_tui_view",
+    "qualified_bun": "1.4.0",
     "result_encoding": "u32_high_bit_status",
     "semantic_schema": 1,
     "version": 1
@@ -340,6 +341,18 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
         },
         {
           "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "axis_kind",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "gap",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": "children",
           "lowering": "pod_slice",
           "name": "children",
           "type": "AxisChildInputV1[]"
@@ -386,7 +399,7 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
           "type": "RuntimePtr"
         },
         {
-          "buffer_length_of": null,
+          "buffer_length_of": "refs",
           "lowering": "buffer",
           "name": "refs",
           "type": "u32[]"
@@ -428,7 +441,7 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
     "crates/iyon-native/tests/generated_view_abi.rs",
     "PERF-11-generated-abi-reference.md"
   ],
-  "generator_blake3": "5134bc9ebe5a949bd99ece560feb766e2612a8d4b222c03f6b928e766f625ca3",
+  "generator_blake3": "24d34b5e76bb7302928f251bbf11d78e62dfba0dee9cefe44e46082a1aeedc18",
   "handles": [
     {
       "kind": null,
@@ -467,5 +480,23 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
       "valid": "1..0x7fffffff"
     }
   ],
-  "schema_blake3": "bb04c4b5ded9f38d04dd850fed1d99f76bd781a51ab04f140ab35fa14273bf29"
+  "pods": [
+    {
+      "align": 4,
+      "field": [
+        {
+          "name": "track_word",
+          "type": "u32"
+        },
+        {
+          "name": "child_ref",
+          "type": "u32"
+        }
+      ],
+      "name": "AxisChildInputV1",
+      "repr": "C",
+      "size": 8
+    }
+  ],
+  "schema_blake3": "68e52f9913c6c1252f2a061ff4f942c1b32aac35f32bced41e8f9bdc5b2bacb9"
 }
