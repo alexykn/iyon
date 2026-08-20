@@ -130,6 +130,43 @@ pub fn tui_perf_v3_packed_slot_pages(env: Env) -> Result<i64> {
 }
 
 #[cfg(feature = "perf-packed-benchmark")]
+#[napi(js_name = "tuiPerfV4ResetViewBridgeCache")]
+pub fn tui_perf_v4_reset_view_bridge_cache(env: Env) -> Result<()> {
+    let cache = view_bridge_cache_for_env(&env)?;
+    let mut cache = cache
+        .lock()
+        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+    cache.nodes.clear();
+    cache.packed_v4.reset_slots();
+    Ok(())
+}
+
+#[cfg(feature = "perf-packed-benchmark")]
+#[napi(js_name = "tuiPerfV4ViewBridgeCacheSize")]
+pub fn tui_perf_v4_view_bridge_cache_size(env: Env) -> Result<i64> {
+    let cache = view_bridge_cache_for_env(&env)?;
+    let size = cache
+        .lock()
+        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?
+        .packed_v4
+        .slot_count();
+    i64::try_from(size).map_err(|_| crate::NativeError::internal("packed V4 slot count overflow"))
+}
+
+#[cfg(feature = "perf-packed-benchmark")]
+#[napi(js_name = "tuiPerfV4ViewBridgeGeneration")]
+pub fn tui_perf_v4_view_bridge_generation(env: Env) -> Result<i64> {
+    let cache = view_bridge_cache_for_env(&env)?;
+    Ok(i64::from(
+        cache
+            .lock()
+            .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?
+            .packed_v4
+            .generation,
+    ))
+}
+
+#[cfg(feature = "perf-packed-benchmark")]
 #[napi(js_name = "tuiPerfV3ViewBridgeGeneration")]
 pub fn tui_perf_v3_view_bridge_generation(env: Env) -> Result<i64> {
     let cache = view_bridge_cache_for_env(&env)?;
@@ -152,11 +189,15 @@ use tui_bridge_schema::*;
 mod packed;
 #[cfg(feature = "perf-packed-benchmark")]
 mod packed_v3;
+#[cfg(feature = "perf-packed-benchmark")]
+mod packed_v4;
 
 struct ViewBridgeCache {
     nodes: HashMap<u64, iyon_tui::WeakView>,
     #[cfg(feature = "perf-packed-benchmark")]
     packed_v3: packed_v3::PackedState,
+    #[cfg(feature = "perf-packed-benchmark")]
+    packed_v4: packed_v4::PackedState,
 }
 
 static VIEW_BRIDGE_CACHES: OnceLock<Mutex<HashMap<usize, Arc<Mutex<ViewBridgeCache>>>>> =
@@ -184,6 +225,8 @@ fn view_bridge_cache_for_raw_env(env: napi::sys::napi_env) -> Result<Arc<Mutex<V
         nodes: HashMap::new(),
         #[cfg(feature = "perf-packed-benchmark")]
         packed_v3: packed_v3::PackedState::new(),
+        #[cfg(feature = "perf-packed-benchmark")]
+        packed_v4: packed_v4::PackedState::new(),
     }));
     let hook = napi::Env::from_raw(env).add_env_cleanup_hook(key, |key| {
         if let Some(caches) = VIEW_BRIDGE_CACHES.get() {
@@ -760,6 +803,37 @@ impl NativeTuiHost {
         let view = packed_v3::decode_render_strings(words.as_ref(), strings, cache)?;
         #[cfg(feature = "perf-counters")]
         iyon_tui::perf::inc(iyon_tui::perf::Counter::NapiV3HostMutations);
+        self.host
+            .render(view)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[cfg(feature = "perf-packed-benchmark")]
+    #[napi(js_name = "tuiPerfV4PackedRender")]
+    pub fn render_packed_v4(
+        &self,
+        env: Env,
+        words: Uint32Array,
+        bytes: napi::bindgen_prelude::Uint8Array,
+    ) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let cache = view_bridge_cache_for_env(&env)?;
+        let view = packed_v4::decode_render(words.as_ref(), bytes.as_ref(), cache)?;
+        #[cfg(feature = "perf-counters")]
+        iyon_tui::perf::inc(iyon_tui::perf::Counter::NapiV4HostMutations);
+        self.host
+            .render(view)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))
+    }
+
+    #[cfg(feature = "perf-packed-benchmark")]
+    #[napi(js_name = "tuiPerfV4PackedRenderRef")]
+    pub fn render_packed_v4_ref(&self, env: Env, generation: i64, packed_ref: i64) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let cache = view_bridge_cache_for_env(&env)?;
+        let view = packed_v4::resolve_ref(generation, packed_ref, cache)?;
+        #[cfg(feature = "perf-counters")]
+        iyon_tui::perf::inc(iyon_tui::perf::Counter::NapiV4HostMutations);
         self.host
             .render(view)
             .map_err(|error| crate::NativeError::internal(error.to_string()))
