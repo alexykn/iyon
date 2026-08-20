@@ -62,7 +62,12 @@ pub fn types(
     format_rust(output)
 }
 
-pub fn exports(document: &AbiDocument, schema_hash: &str, generator_hash: &str) -> String {
+pub fn exports(
+    document: &AbiDocument,
+    bridge_schema: &Map<String, serde_json::Value>,
+    schema_hash: &str,
+    generator_hash: &str,
+) -> String {
     let mut source = banner(schema_hash, generator_hash);
     source.push_str(
         "// Generated C ABI wrappers. Semantic implementations are supplied by the next tranche.\n",
@@ -80,20 +85,26 @@ pub fn exports(document: &AbiDocument, schema_hash: &str, generator_hash: &str) 
         ));
     }
     source.push_str("}\n\n");
+    source.push_str("fn generated_catch_unwind<T: Copy>(work: impl FnOnce() -> Result<T, T>, panic_value: T) -> T {\n    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {\n        Ok(result) => result.unwrap_or_else(|error| error),\n        Err(_) => panic_value,\n    }\n}\n\nfn generated_nonnull<T: Copy, P>(value: *mut P, error: T) -> Result<*mut P, T> {\n    if value.is_null() { Err(error) } else { Ok(value) }\n}\n\nfn generated_nonnull_const<T: Copy, P>(value: *const P, error: T) -> Result<*const P, T> {\n    if value.is_null() { Err(error) } else { Ok(value) }\n}\n\nfn generated_nonzero<T: Copy>(value: u32, error: T) -> Result<u32, T> {\n    if value == 0 { Err(error) } else { Ok(value) }\n}\n\nfn generated_capacity<T: Copy>(value: usize, maximum: u64, error: T) -> Result<usize, T> {\n    if value as u64 > maximum { Err(error) } else { Ok(value) }\n}\n\nfn generated_count<T: Copy>(value: u32, maximum: u32, error: T) -> Result<u32, T> {\n    if value > maximum { Err(error) } else { Ok(value) }\n}\n\nfn generated_enum<T: Copy>(value: u32, allowed: &[u32], error: T) -> Result<u32, T> {\n    if allowed.contains(&value) { Ok(value) } else { Err(error) }\n}\n\n");
     for function in &document.functions {
+        let result_type = rust_type(function.return_type.as_str());
+        let panic_error = error_literal(function, "panic");
         source.push_str("#[unsafe(no_mangle)]\n");
         source.push_str(&format!(
-            "pub unsafe extern \"C\" fn iyon_{}_v1({}) -> {} {{\n",
+            "pub unsafe extern \"C\" fn iyon_{}_v1({}) -> {} {{\n    generated_catch_unwind(|| {{\n        (|| -> Result<{}, {}> {{\n",
             function.name,
             rust_arguments(&function.args, document),
-            rust_type(function.return_type.as_str())
+            result_type,
+            result_type,
+            result_type
         ));
+        source.push_str(&validation_statements(function, document, bridge_schema));
         source.push_str(&format!(
-            "    unsafe {{ generated_impls::{}({}) }}\n",
+            "            Ok(unsafe {{ generated_impls::{}({}) }})\n        }})()\n    }},\n        {}\n    )\n}}\n\n",
             function.implementation,
-            rust_call_arguments(&function.args)
+            rust_call_arguments(&function.args),
+            panic_error
         ));
-        source.push_str("}\n\n");
     }
     format_rust(source)
 }
@@ -147,6 +158,101 @@ fn export_imports(document: &AbiDocument) -> String {
             pod_names.join(", ")
         )
     }
+}
+
+fn error_literal(function: &crate::model::FunctionSpec, kind: &str) -> String {
+    if function.return_type == "i32" || function.return_type == "status_only" {
+        return match kind {
+            "panic" => "-127i32".to_owned(),
+            _ => "-1i32".to_owned(),
+        };
+    }
+    match kind {
+        "panic" => "0x8000_00ffu32".to_owned(),
+        _ => "0x8000_0001u32".to_owned(),
+    }
+}
+
+fn validation_statements(
+    function: &crate::model::FunctionSpec,
+    document: &AbiDocument,
+    bridge_schema: &Map<String, serde_json::Value>,
+) -> String {
+    let error = error_literal(function, "invalid");
+    let buffer_error = if function.return_type == "i32" || function.return_type == "status_only" {
+        "-2i32"
+    } else {
+        "0x8000_0002u32"
+    };
+    let count_error = if function.return_type == "i32" || function.return_type == "status_only" {
+        "-3i32"
+    } else {
+        "0x8000_0003u32"
+    };
+    let mut output = String::new();
+    for argument in &function.args {
+        match argument.lowering.as_str() {
+            "runtime_ptr" | "host_ptr" => output.push_str(&format!(
+                "            let {} = generated_nonnull({}, {})?;\n",
+                argument.name, argument.name, error
+            )),
+            "native_ref" => output.push_str(&format!(
+                "            let {} = generated_nonzero({}, {})?;\n",
+                argument.name, argument.name, error
+            )),
+            "buffer" | "pod_slice" => {
+                let capacity = function
+                    .args
+                    .iter()
+                    .find(|candidate| {
+                        candidate.lowering == "buffer_length"
+                            && candidate.buffer_length_of.as_deref() == Some(argument.name.as_str())
+                    })
+                    .map(|candidate| candidate.name.as_str())
+                    .expect("validated buffer_length pair");
+                output.push_str(&format!(
+                    "            let {} = generated_nonnull_const({}, {})?;\n",
+                    argument.name, argument.name, buffer_error
+                ));
+                output.push_str(&format!(
+                    "            let {} = generated_capacity({}, {}, {})?;\n",
+                    capacity, capacity, function.max_buffer_bytes, buffer_error
+                ));
+            }
+            "buffer_length" => {}
+            "buffer_used" => output.push_str(&format!(
+                "            let {} = generated_count({}, {}, {})?;\n",
+                argument.name, argument.name, function.max_input_count, count_error
+            )),
+            _ if document
+                .enums
+                .iter()
+                .any(|item| item.name == argument.type_name) =>
+            {
+                let values = document
+                    .enums
+                    .iter()
+                    .find(|item| item.name == argument.type_name)
+                    .into_iter()
+                    .flat_map(|enum_spec| enum_spec.values.iter())
+                    .map(|value| {
+                        bridge_schema
+                            .get(&value.source_key)
+                            .and_then(serde_json::Value::as_u64)
+                            .expect("validated bridge enum value")
+                            .to_string()
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                output.push_str(&format!(
+                    "            let {} = generated_enum({}, &[{}], {})?;\n",
+                    argument.name, argument.name, values, error
+                ));
+            }
+            _ => {}
+        }
+    }
+    output
 }
 
 fn rust_arguments(arguments: &[ArgumentSpec], document: &AbiDocument) -> String {
