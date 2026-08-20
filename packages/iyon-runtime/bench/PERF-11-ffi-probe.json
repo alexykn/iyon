@@ -9,7 +9,7 @@
   "link_symbols": true,
   "c_function": true,
   "jit_enabled": true,
-  "noop_average_ns": 4.8692084,
+  "noop_average_ns": 3.6689082,
   "noop_sub_5ns": true,
   "u32_8_position_weighted_signature": "pass",
   "i32_4_position_weighted_signature": "pass",
