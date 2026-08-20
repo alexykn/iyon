@@ -135,11 +135,11 @@ const patterns: readonly Pattern[] = [
   "WIDE_PARENT_ONE_EDIT", "WIDE_PARENT_INSERT", "WIDE_PARENT_REMOVE", "TEXT_METADATA_PATCH", "DECORATION_PATCH",
 ];
 const warmupIterations = positiveEnv("PERF_WARMUP", 10);
-const measuredIterations = positiveEnv("PERF_MEASURED", 20);
+const measuredIterations = positiveEnv("PERF_MEASURED", positiveEnv("PERF_NORMAL", 20));
 const tinyIterations = positiveEnv("PERF_TINY", 10);
 const exactIterations = positiveEnv("PERF_EXACT", 1_000);
 const traceOperations = positiveEnv("PERF_TRACE_OPERATIONS", 100);
-const benchmarkVersion = Bun.env.PERF_BENCHMARK_VERSION ?? "PERF-9";
+const benchmarkVersion = Bun.env.PERF_BENCHMARK_VERSION ?? "PERF-11.0-bun14";
 const selectedSizes = filterSizes(sizes, Bun.env.PERF_SIZES);
 const selectedWideSizes = filterSizes(wideSizes, Bun.env.PERF_SIZES);
 const candidates = filterNames(["direct", "packed", "packed_v3", "packed_v4", "fast_shared"] as const, Bun.env.PERF_CANDIDATES);
@@ -933,6 +933,7 @@ function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern:
           : candidate === "packed_v4" ? state.packedV4Counters
         : state.fastCounters,
     bun_version: Bun.version,
+    bun_revision: Bun.revision,
     rustc_version: runtimeVersion("rustc --version"),
     target: `${process.platform}-${process.arch}`,
     profile: "release",
@@ -1003,7 +1004,7 @@ function runSyntheticTrace(sha: string): void {
               : "COLD";
     for (const candidate of candidateOrder(index)) totals.get(candidate)!.push(runSample(candidate, mode, workload, size.nodes, index, state, false).total);
   }
-  const output: Record<string, unknown> = { benchmark_version: benchmarkVersion, instrumentation: Bun.env.PERF_COUNTERS === "0" ? "timing" : "counter", benchmark: "synthetic_trace", synthetic_trace: true, trace_operations: traceOperations, mix: "20% IDENTICAL_IDENTITY, 55% SHARED_PATH, 10% SHARED_DEEP, 5% WIDE_PARENT_ONE_EDIT, 8% REBUILT_EQUIVALENT, 2% COLD", git_sha: sha, git_dirty: gitDirty(), git_patch_sha256: gitDirty() ? gitPatchSha256() : undefined, protocol_version: "hybrid", bridge_schema_version: 1, string_lane: "candidate-specific", configured_string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS", utf8_writer: "candidate-specific", string_dedupe_policy: "candidate-specific", native_string_storage: "candidate-specific", slab_page_bytes: null, native_artifact_sha256: sha256("packages/iyon-runtime/native/iyon-native.node"), benchmark_source_sha256: sha256("packages/iyon-runtime/bench/tui_performance.ts") };
+  const output: Record<string, unknown> = { benchmark_version: benchmarkVersion, instrumentation: Bun.env.PERF_COUNTERS === "0" ? "timing" : "counter", benchmark: "synthetic_trace", synthetic_trace: true, trace_operations: traceOperations, mix: "20% IDENTICAL_IDENTITY, 55% SHARED_PATH, 10% SHARED_DEEP, 5% WIDE_PARENT_ONE_EDIT, 8% REBUILT_EQUIVALENT, 2% COLD", git_sha: sha, git_dirty: gitDirty(), git_patch_sha256: gitDirty() ? gitPatchSha256() : undefined, protocol_version: "hybrid", bridge_schema_version: 1, string_lane: "candidate-specific", configured_string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS", utf8_writer: "candidate-specific", string_dedupe_policy: "candidate-specific", native_string_storage: "candidate-specific", slab_page_bytes: null, native_artifact_sha256: sha256("packages/iyon-runtime/native/iyon-native.node"), benchmark_source_sha256: sha256("packages/iyon-runtime/bench/tui_performance.ts"), bun_version: Bun.version, bun_revision: Bun.revision };
   for (const candidate of candidates) {
     const values = totals.get(candidate)!;
     output[`${candidate}_total_commit_ns`] = values.reduce((sum, value) => sum + value, 0);

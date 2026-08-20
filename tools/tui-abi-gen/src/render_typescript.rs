@@ -1,11 +1,10 @@
 use crate::{
     model::{AbiDocument, ArgumentSpec},
-    render_manifest::banner,
+    render_manifest::{banner, typescript_bindings_header, typescript_calls_header},
 };
 
 pub fn abi_bindings(document: &AbiDocument, schema_hash: &str, generator_hash: &str) -> String {
-    let mut output = banner(schema_hash, generator_hash).replace("//", "//");
-    output.push_str("import { linkSymbols, type Pointer } from \"bun:ffi\";\n\n");
+    let mut output = typescript_bindings_header(schema_hash, generator_hash);
     output.push_str("export type NativeAbiPointers = {\n");
     for function in &document.functions {
         output.push_str(&format!("  {}: Pointer;\n", camel_case(&function.name)));
@@ -22,7 +21,7 @@ pub fn abi_bindings(document: &AbiDocument, schema_hash: &str, generator_hash: &
             function
                 .args
                 .iter()
-                .flat_map(|argument| ffi_args(argument))
+                .flat_map(ffi_args)
                 .map(|item| format!("{item:?}"))
                 .collect::<Vec<_>>()
                 .join(", "),
@@ -34,12 +33,11 @@ pub fn abi_bindings(document: &AbiDocument, schema_hash: &str, generator_hash: &
 }
 
 pub fn calls(document: &AbiDocument, schema_hash: &str, generator_hash: &str) -> String {
-    let mut output = banner(schema_hash, generator_hash);
-    output.push_str("import type { Pointer } from \"bun:ffi\";\nimport type { linkViewAbi } from \"./view_abi\";\n\n");
+    let mut output = typescript_calls_header(schema_hash, generator_hash);
     output
         .push_str("export type ViewAbiSymbols = ReturnType<typeof linkViewAbi>[\"symbols\"];\n\n");
     output.push_str("const ERROR_BIT = 0x8000_0000;\n\n");
-    output.push_str("function checkedRef(result: number): number {\n  if (result >= ERROR_BIT) throw new Error(`native ABI status 0x${result.toString(16)}`);\n  return result;\n}\n\n");
+    output.push_str("function checkedRef(result: number): number {\n  if (result === 0 || result >= ERROR_BIT) throw new Error(`native ABI status 0x${result.toString(16)}`);\n  return result;\n}\n\n");
     for function in &document.functions {
         output.push_str(&format!(
             "export function {}(symbols: ViewAbiSymbols, {}): {} {{\n",
@@ -50,13 +48,7 @@ pub fn calls(document: &AbiDocument, schema_hash: &str, generator_hash: &str) ->
         let call_args = function
             .args
             .iter()
-            .flat_map(|argument| {
-                let mut values = vec![argument.name.clone()];
-                if matches!(argument.lowering.as_str(), "buffer" | "pod_slice") {
-                    values.push(argument.name.clone());
-                }
-                values
-            })
+            .flat_map(call_argument_names)
             .collect::<Vec<_>>()
             .join(", ");
         output.push_str(&format!(
@@ -83,7 +75,7 @@ pub fn benchmark_registry(
     output.push_str("export type GeneratedAbiBenchmarkCase = {\n  name: string;\n  family: string;\n  hotness: string;\n  benchmarkRegistration: string;\n  scalarArgs: number;\n  hasBuffer: boolean;\n  maxBufferBytes: number;\n  maxInputCount: number;\n};\n\n");
     output.push_str("export const generatedAbiCases: readonly GeneratedAbiBenchmarkCase[] = [\n");
     for function in &document.functions {
-        let scalar_args = function
+        let scalar_args: usize = function
             .args
             .iter()
             .filter(|argument| {
@@ -92,7 +84,14 @@ pub fn benchmark_registry(
                     "buffer" | "pod_slice" | "buffer_length"
                 )
             })
-            .count();
+            .map(|argument| {
+                if argument.lowering == "node_id_pair" {
+                    2
+                } else {
+                    1
+                }
+            })
+            .sum();
         let has_buffer = function
             .args
             .iter()
@@ -119,6 +118,23 @@ test("generated ABI manifest is pinned and ordered", () => {{
     for function in &document.functions {
         output.push_str(&format!("    {:?},\n", function.name));
     }
+    output.push_str("  ]);\n});\n\ntest(\"generated ABI signatures and POD layouts are pinned\", () => {\n  expect(manifest.abi.qualified_bun).toBe(\"1.4.0\");\n  expect(manifest.abi.result_encoding).toBe(\"u32_high_bit_status\");\n  expect(manifest.pods.map((item) => [item.name, item.size, item.align])).toEqual([\n");
+    for pod in &document.pods {
+        output.push_str(&format!(
+            "    [{:?}, {}, {}],\n",
+            pod.name, pod.size, pod.align
+        ));
+    }
+    output.push_str("  ]);\n  expect(manifest.functions.map((item) => item.args.map((arg) => arg.lowering))).toEqual([\n");
+    for function in &document.functions {
+        let lowerings = function
+            .args
+            .iter()
+            .map(|argument| format!("{:?}", argument.lowering))
+            .collect::<Vec<_>>()
+            .join(", ");
+        output.push_str(&format!("    [{lowerings}],\n"));
+    }
     output.push_str("  ]);\n});\n");
     output
 }
@@ -126,7 +142,8 @@ test("generated ABI manifest is pinned and ordered", () => {{
 fn ffi_args(argument: &ArgumentSpec) -> Vec<&'static str> {
     match argument.lowering.as_str() {
         "runtime_ptr" | "host_ptr" => vec!["ptr"],
-        "native_ref" | "node_id_pair" | "u32" | "buffer_used" | "native_ref_result" => vec!["u32"],
+        "native_ref" | "u32" | "buffer_used" | "native_ref_result" => vec!["u32"],
+        "node_id_pair" => vec!["u32", "u32"],
         "i32" | "status_only" => vec!["i32"],
         "u8" => vec!["u8"],
         "u16" => vec!["u16"],
@@ -150,9 +167,36 @@ fn ffi_return(return_type: &str) -> &'static str {
 fn ts_arguments(arguments: &[ArgumentSpec], document: &AbiDocument) -> String {
     arguments
         .iter()
-        .map(|argument| format!("{}: {}", argument.name, ts_type(argument, document)))
+        .flat_map(|argument| {
+            if argument.lowering == "node_id_pair" {
+                vec![
+                    format!("{}_low: number", argument.name),
+                    format!("{}_high: number", argument.name),
+                ]
+            } else {
+                vec![format!(
+                    "{}: {}",
+                    argument.name,
+                    ts_type(argument, document)
+                )]
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn call_argument_names(argument: &ArgumentSpec) -> Vec<String> {
+    if argument.lowering == "node_id_pair" {
+        return vec![
+            format!("{}_low", argument.name),
+            format!("{}_high", argument.name),
+        ];
+    }
+    let mut values = vec![argument.name.clone()];
+    if matches!(argument.lowering.as_str(), "buffer" | "pod_slice") {
+        values.push(argument.name.clone());
+    }
+    values
 }
 
 fn ts_type(argument: &ArgumentSpec, document: &AbiDocument) -> &'static str {

@@ -1,15 +1,14 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = bb04c4b5ded9f38d04dd850fed1d99f76bd781a51ab04f140ab35fa14273bf29
-// generator_blake3 = 5134bc9ebe5a949bd99ece560feb766e2612a8d4b222c03f6b928e766f625ca3
+// schema_blake3 = 68e52f9913c6c1252f2a061ff4f942c1b32aac35f32bced41e8f9bdc5b2bacb9
+// generator_blake3 = 24d34b5e76bb7302928f251bbf11d78e62dfba0dee9cefe44e46082a1aeedc18
 import type { Pointer } from "bun:ffi";
 import type { linkViewAbi } from "./view_abi";
-
 export type ViewAbiSymbols = ReturnType<typeof linkViewAbi>["symbols"];
 
 const ERROR_BIT = 0x8000_0000;
 
 function checkedRef(result: number): number {
-  if (result >= ERROR_BIT) throw new Error(`native ABI status 0x${result.toString(16)}`);
+  if (result === 0 || result >= ERROR_BIT) throw new Error(`native ABI status 0x${result.toString(16)}`);
   return result;
 }
 
@@ -38,8 +37,8 @@ export function viewCommonPatchRoot(symbols: ViewAbiSymbols, runtime: Pointer, b
   return checkedRef(result);
 }
 
-export function viewAxisCreateBuffer(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, children: NodeJS.TypedArray | DataView, used_child_count: number): number {
-  const result = symbols.viewAxisCreateBuffer(runtime, node_id_low, node_id_high, children, children, used_child_count);
+export function viewAxisCreateBuffer(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, axis_kind: number, gap: number, children: NodeJS.TypedArray | DataView, used_child_count: number): number {
+  const result = symbols.viewAxisCreateBuffer(runtime, node_id_low, node_id_high, axis_kind, gap, children, children, used_child_count);
   return checkedRef(result);
 }
 

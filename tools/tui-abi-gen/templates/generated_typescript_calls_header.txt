@@ -1,0 +1,3 @@
+{{ banner }}import type { Pointer } from "bun:ffi";
+import type { linkViewAbi } from "./view_abi";
+

@@ -2,7 +2,7 @@ use serde_json::Map;
 
 use crate::{
     model::{AbiDocument, ArgumentSpec},
-    render_manifest::banner,
+    render_manifest::c_header_preamble,
 };
 
 pub fn header(
@@ -11,11 +11,18 @@ pub fn header(
     schema_hash: &str,
     generator_hash: &str,
 ) -> String {
-    let mut output = banner(schema_hash, generator_hash).replace("//", "/*");
-    output = output.replace('\n', " */\n");
-    output.push_str("#ifndef IYON_VIEW_ABI_H\n#define IYON_VIEW_ABI_H\n\n#include <stddef.h>\n#include <stdint.h>\n\n");
-    output.push_str(&format!("#define IYON_VIEW_ABI_NAME \"{}\"\n#define IYON_VIEW_ABI_VERSION {}\n#define IYON_VIEW_SEMANTIC_SCHEMA_VERSION {}\n#define IYON_VIEW_RESULT_ERROR_BIT UINT32_C(0x80000000)\n\n", document.abi.name, document.abi.version, document.abi.semantic_schema));
-    output.push_str("typedef struct NativeViewRuntime NativeViewRuntime;\ntypedef struct NativeHost NativeHost;\ntypedef struct AxisChildInputV1 { uint32_t track_word; uint32_t child_ref; } AxisChildInputV1;\n\n");
+    let mut output = c_header_preamble(document, schema_hash, generator_hash);
+    for pod in &document.pods {
+        output.push_str(&format!("typedef struct {} {{\n", pod.name));
+        for field in &pod.fields {
+            output.push_str(&format!(
+                "    {} {};\n",
+                c_primitive_type(&field.type_name),
+                field.name
+            ));
+        }
+        output.push_str(&format!("}} {};\n\n", pod.name));
+    }
     for enum_spec in &document.enums {
         output.push_str(&format!("typedef enum {} {{\n", enum_spec.name));
         for value in &enum_spec.values {
@@ -46,6 +53,12 @@ fn c_arguments(arguments: &[ArgumentSpec], document: &AbiDocument) -> String {
     arguments
         .iter()
         .flat_map(|argument| {
+            if argument.lowering == "node_id_pair" {
+                return vec![
+                    format!("uint32_t {}_low", argument.name),
+                    format!("uint32_t {}_high", argument.name),
+                ];
+            }
             let mut values = vec![format!("{} {}", c_type(argument, document), argument.name)];
             if matches!(argument.lowering.as_str(), "buffer" | "pod_slice") {
                 values.push(format!("size_t {}_capacity_bytes", argument.name));
@@ -62,7 +75,10 @@ fn c_type(argument: &ArgumentSpec, document: &AbiDocument) -> String {
         "host_ptr" => "NativeHost *".to_owned(),
         "buffer" if argument.type_name == "u32[]" => "const uint32_t *".to_owned(),
         "buffer" => "const uint8_t *".to_owned(),
-        "pod_slice" => "const AxisChildInputV1 *".to_owned(),
+        "pod_slice" => argument.type_name.strip_suffix("[]").map_or_else(
+            || "const uint8_t *".to_owned(),
+            |name| format!("const {name} *"),
+        ),
         "i32" | "status_only" => "int32_t".to_owned(),
         "u8" => "uint8_t".to_owned(),
         "u16" => "uint16_t".to_owned(),
@@ -76,6 +92,18 @@ fn c_type(argument: &ArgumentSpec, document: &AbiDocument) -> String {
             "uint32_t".to_owned()
         }
         _ => "uint32_t".to_owned(),
+    }
+}
+
+fn c_primitive_type(type_name: &str) -> &'static str {
+    match type_name {
+        "u8" => "uint8_t",
+        "u16" => "uint16_t",
+        "u32" => "uint32_t",
+        "i32" => "int32_t",
+        "f32" => "float",
+        "f64" => "double",
+        _ => "uint8_t",
     }
 }
 
