@@ -45,6 +45,14 @@ pub fn header(
             c_arguments(&function.args, document)
         ));
     }
+    for spec in &document.conformance {
+        output.push_str(&format!(
+            "{} iyon_abi_conformance_{}_v1({});\n\n",
+            c_return(spec.return_type.as_str()),
+            spec.name,
+            conformance_c_arguments(&spec.args)
+        ));
+    }
     output.push_str("#endif /* IYON_VIEW_ABI_H */\n");
     output
 }
@@ -93,6 +101,30 @@ fn c_type(argument: &ArgumentSpec, document: &AbiDocument) -> String {
     }
 }
 
+fn conformance_c_arguments(arguments: &[String]) -> String {
+    arguments
+        .iter()
+        .enumerate()
+        .map(|(index, argument)| {
+            let ty = match argument.as_str() {
+                "ptr" => "void *",
+                "buffer" => "const uint8_t *",
+                "buffer_length" => "size_t",
+                "cstring" => "const char *",
+                "u8" => "uint8_t",
+                "u16" => "uint16_t",
+                "u32" => "uint32_t",
+                "i32" => "int32_t",
+                "f32" => "float",
+                "f64" => "double",
+                other => panic!("unsupported conformance type {other}"),
+            };
+            format!("{ty} a{index}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn c_primitive_type(type_name: &str) -> &'static str {
     match type_name {
         "u8" => "uint8_t",
@@ -109,6 +141,8 @@ fn c_return(return_type: &str) -> &'static str {
     match return_type {
         "i32" | "status_only" => "int32_t",
         "u32" | "ViewRefResult" | "native_ref_result" => "uint32_t",
+        "f32" => "float",
+        "f64" => "double",
         other => panic!("unsupported generated C return {other}"),
     }
 }

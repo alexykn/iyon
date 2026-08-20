@@ -401,3 +401,63 @@ buffer_length_of = "refs"
 name = "used_ref_count"
 type = "u32"
 lowering = "buffer_used"
+
+[[conformance]]
+name = "u8_8"
+return = "u32"
+operation = "position_weighted_sum"
+args = ["u8", "u8", "u8", "u8", "u8", "u8", "u8", "u8"]
+
+[[conformance]]
+name = "u16_8"
+return = "u32"
+operation = "position_weighted_sum"
+args = ["u16", "u16", "u16", "u16", "u16", "u16", "u16", "u16"]
+
+[[conformance]]
+name = "u32_8"
+return = "u32"
+operation = "position_weighted_sum"
+args = ["u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"]
+
+[[conformance]]
+name = "u32_16"
+return = "u32"
+operation = "position_weighted_sum"
+args = ["u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"]
+
+[[conformance]]
+name = "i32_4"
+return = "i32"
+operation = "position_weighted_sum"
+args = ["i32", "i32", "i32", "i32"]
+
+[[conformance]]
+name = "f32_4"
+return = "f32"
+operation = "position_weighted_sum"
+args = ["f32", "f32", "f32", "f32"]
+
+[[conformance]]
+name = "f64_4"
+return = "f64"
+operation = "position_weighted_sum"
+args = ["f64", "f64", "f64", "f64"]
+
+[[conformance]]
+name = "pointer"
+return = "u32"
+operation = "pointer_probe"
+args = ["ptr"]
+
+[[conformance]]
+name = "buffer"
+return = "u32"
+operation = "buffer_probe"
+args = ["buffer", "buffer_length"]
+
+[[conformance]]
+name = "cstring"
+return = "u32"
+operation = "cstring_hash"
+args = ["cstring"]

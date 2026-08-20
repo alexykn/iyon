@@ -32,6 +32,36 @@ pub fn abi_bindings(document: &AbiDocument, schema_hash: &str, generator_hash: &
     output
 }
 
+pub fn conformance_bindings(
+    document: &AbiDocument,
+    schema_hash: &str,
+    generator_hash: &str,
+) -> String {
+    let mut output = typescript_bindings_header(schema_hash, generator_hash);
+    output.push_str("export type NativeAbiConformancePointers = {\n");
+    for spec in &document.conformance {
+        output.push_str(&format!("  {}: Pointer;\n", spec.name));
+    }
+    output.push_str("};\n\nexport function linkViewAbiConformance(abi: NativeAbiConformancePointers) {\n  return linkSymbols({\n");
+    for spec in &document.conformance {
+        let args = spec
+            .args
+            .iter()
+            .map(|argument| format!("{argument:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        output.push_str(&format!(
+            "    {}: {{ ptr: abi.{}, args: [{}], returns: {:?} }},\n",
+            spec.name,
+            spec.name,
+            args,
+            spec.return_type
+        ));
+    }
+    output.push_str("  } as const);\n}\n");
+    output
+}
+
 pub fn calls(document: &AbiDocument, schema_hash: &str, generator_hash: &str) -> String {
     let mut output = typescript_calls_header(schema_hash, generator_hash);
     output
@@ -119,6 +149,20 @@ test("generated ABI manifest is pinned and ordered", () => {{
     for function in &document.functions {
         output.push_str(&format!("    {:?},\n", function.name));
     }
+    output.push_str("  ]);\n  expect(manifest.conformance.map((item) => item.name)).toEqual([\n");
+    for spec in &document.conformance {
+        output.push_str(&format!("    {:?},\n", spec.name));
+    }
+    output.push_str("  ]);\n});\n\ntest(\"generated ABI conformance signatures are pinned\", () => {\n  expect(manifest.conformance.map((item) => [item.name, item.return, item.args])).toEqual([\n");
+    for spec in &document.conformance {
+        let args = spec
+            .args
+            .iter()
+            .map(|argument| format!("{:?}", argument))
+            .collect::<Vec<_>>()
+            .join(", ");
+        output.push_str(&format!("    [{:?}, {:?}, [{args}]],\n", spec.name, spec.return_type));
+    }
     output.push_str("  ]);\n});\n\ntest(\"generated ABI signatures and POD layouts are pinned\", () => {\n  expect(manifest.abi.qualified_bun).toBe(\"1.4.0\");\n  expect(manifest.abi.result_encoding).toBe(\"u32_high_bit_status\");\n  expect(manifest.pods.map((item) => [item.name, item.size, item.align])).toEqual([\n");
     for pod in &document.pods {
         output.push_str(&format!(
@@ -161,6 +205,8 @@ fn ffi_return(return_type: &str) -> &'static str {
     match return_type {
         "i32" | "status_only" => "i32",
         "u32" | "ViewRefResult" | "native_ref_result" => "u32",
+        "f32" => "f32",
+        "f64" => "f64",
         other => panic!("unsupported generated FFI return {other}"),
     }
 }
@@ -218,7 +264,7 @@ fn ts_type(argument: &ArgumentSpec, document: &AbiDocument) -> &'static str {
 
 fn ts_return(return_type: &str) -> &'static str {
     match return_type {
-        "i32" | "status_only" | "u32" | "ViewRefResult" | "native_ref_result" => "number",
+        "i32" | "status_only" | "u32" | "ViewRefResult" | "native_ref_result" | "f32" | "f64" => "number",
         other => panic!("unsupported generated TS return {other}"),
     }
 }
