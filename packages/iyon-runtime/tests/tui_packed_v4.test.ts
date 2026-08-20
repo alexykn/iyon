@@ -44,7 +44,9 @@ describe("PERF-9 Packed V4 dual-lane transport", () => {
     if (!available()) return;
     const direct = new Host!(40, 8, true);
     const packed = new Host!(40, 8, true);
+    const bufferPacked = new Host!(40, 8, true);
     const encoder = createPackedV4Encoder();
+    const bufferEncoder = createPackedV4Encoder("buffer");
     const view = View.vertical([
       View.text("héllo 🌍\0x").foreground("cyan"),
       View.text("same"),
@@ -59,7 +61,9 @@ describe("PERF-9 Packed V4 dual-lane transport", () => {
       expect(transaction.words[10]).toBe(3);
       expect(Array.from(transaction.words.slice(transaction.words[11]))).toEqual([0, 13, 17, 21]);
       render(encoder, packed, view);
+      render(bufferEncoder, bufferPacked, view);
       expect(packed.screenRows()).toEqual(direct.screenRows());
+      expect(bufferPacked.screenRows()).toEqual(direct.screenRows());
       const first = packed.screenRows();
       render(encoder, packed, view);
       expect(packed.screenRows()).toEqual(first);
@@ -67,6 +71,7 @@ describe("PERF-9 Packed V4 dual-lane transport", () => {
     } finally {
       direct.dispose();
       packed.dispose();
+      bufferPacked.dispose();
     }
   });
 
