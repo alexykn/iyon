@@ -1,6 +1,3 @@
-use std::io::Write;
-use std::process::{Command, Stdio};
-
 use quote::quote;
 use serde_json::Map;
 
@@ -16,7 +13,9 @@ pub fn types(
     generator_hash: &str,
 ) -> String {
     let mut output = banner(schema_hash, generator_hash);
-    output.push_str("//! Canonical pointer-free ABI types and constants.\n\n");
+    output.push_str(
+        "#![allow(dead_code)]\n\n//! Canonical pointer-free ABI types and constants.\n\n",
+    );
     output.push_str(&format!("pub const ABI_NAME: &str = {:?};\npub const ABI_VERSION: u32 = {};\npub const SEMANTIC_SCHEMA_VERSION: u32 = {};\npub const MINIMUM_BUN: &str = {:?};\npub const QUALIFIED_BUN: &str = {:?};\npub const RESULT_ERROR_BIT: u32 = 0x8000_0000;\n\n", document.abi.name, document.abi.version, document.abi.semantic_schema, document.abi.minimum_bun, document.abi.qualified_bun));
     output.push_str("pub type ViewRefResult = u32;\n\n");
     for pod in &document.pods {
@@ -85,7 +84,7 @@ pub fn exports(
         ));
     }
     source.push_str("}\n\n");
-    source.push_str("fn generated_catch_unwind<T: Copy>(work: impl FnOnce() -> Result<T, T>, panic_value: T) -> T {\n    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {\n        Ok(result) => result.unwrap_or_else(|error| error),\n        Err(_) => panic_value,\n    }\n}\n\nfn generated_nonnull<T: Copy, P>(value: *mut P, error: T) -> Result<*mut P, T> {\n    if value.is_null() { Err(error) } else { Ok(value) }\n}\n\nfn generated_nonnull_const<T: Copy, P>(value: *const P, error: T) -> Result<*const P, T> {\n    if value.is_null() { Err(error) } else { Ok(value) }\n}\n\nfn generated_native_ref<T: Copy>(value: u32, error: T) -> Result<u32, T> {\n    if value == 0 || value >= 0x8000_0000 {\n        Err(error)\n    } else {\n        Ok(value)\n    }\n}\n\nfn generated_capacity<T: Copy>(value: usize, maximum: u64, error: T) -> Result<usize, T> {\n    if value as u64 > maximum { Err(error) } else { Ok(value) }\n}\n\nfn generated_count<T: Copy>(value: u32, maximum: u32, error: T) -> Result<u32, T> {\n    if value > maximum { Err(error) } else { Ok(value) }\n}\n\nfn generated_enum<T: Copy>(value: u32, allowed: &[u32], error: T) -> Result<u32, T> {\n    if allowed.contains(&value) { Ok(value) } else { Err(error) }\n}\n\n");
+    source.push_str("#[allow(dead_code)]\nfn generated_catch_unwind<T: Copy>(work: impl FnOnce() -> Result<T, T>, panic_value: T) -> T {\n    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {\n        Ok(result) => result.unwrap_or_else(|error| error),\n        Err(_) => panic_value,\n    }\n}\n\n#[allow(dead_code)]\nfn generated_nonnull<T: Copy, P>(value: *mut P, error: T) -> Result<*mut P, T> {\n    if value.is_null() { Err(error) } else { Ok(value) }\n}\n\n#[allow(dead_code)]\nfn generated_nonnull_const<T: Copy, P>(value: *const P, error: T) -> Result<*const P, T> {\n    if value.is_null() { Err(error) } else { Ok(value) }\n}\n\n#[allow(dead_code)]\nfn generated_buffer<T: Copy, P>(value: *const P, capacity_bytes: usize, element_size: usize, maximum_bytes: u64, error: T) -> Result<*const P, T> {\n    if capacity_bytes as u64 > maximum_bytes\n        || capacity_bytes % element_size != 0\n        || (capacity_bytes != 0 && (value.is_null() || (value as usize) % ::core::mem::align_of::<P>() != 0))\n    {\n        Err(error)\n    } else {\n        Ok(value)\n    }\n}\n\n#[allow(dead_code)]\nfn generated_buffer_used<T: Copy>(used_count: u32, capacity_bytes: usize, element_size: usize, maximum_count: u32, error: T) -> Result<u32, T> {\n    if used_count > maximum_count || (used_count as usize).saturating_mul(element_size) > capacity_bytes {\n        Err(error)\n    } else {\n        Ok(used_count)\n    }\n}\n\n#[allow(dead_code)]\nfn generated_native_ref<T: Copy>(value: u32, error: T) -> Result<u32, T> {\n    if value == 0 || value >= 0x8000_0000 {\n        Err(error)\n    } else {\n        Ok(value)\n    }\n}\n\n#[allow(dead_code)]\nfn generated_node_id<T: Copy>(low: u32, high: u32, error: T) -> Result<(u32, u32), T> {\n    if high > 0x001f_ffff || (high == 0 && low == 0) {\n        Err(error)\n    } else {\n        Ok((low, high))\n    }\n}\n\n#[allow(dead_code)]\nfn generated_enum<T: Copy>(value: u32, allowed: &[u32], error: T) -> Result<u32, T> {\n    if allowed.contains(&value) { Ok(value) } else { Err(error) }\n}\n\n");
     for function in &document.functions {
         let result_type = rust_type(function.return_type.as_str());
         let panic_error = error_literal(function, "panic");
@@ -111,7 +110,7 @@ pub fn exports(
 
 pub fn table(document: &AbiDocument, schema_hash: &str, generator_hash: &str) -> String {
     let mut output = banner(schema_hash, generator_hash);
-    output.push_str("#[derive(Clone, Copy, Debug)]\npub struct FunctionDescriptor {\n    pub name: &'static str,\n    pub symbol: &'static str,\n    pub family: &'static str,\n    pub hotness: &'static str,\n    pub fallback: &'static str,\n    pub ownership: &'static str,\n    pub borrow_duration: &'static str,\n    pub thread_affinity: &'static str,\n    pub may_allocate_native_memory: bool,\n    pub mutates_host_state: bool,\n    pub max_buffer_bytes: u64,\n    pub max_input_count: u32,\n    pub benchmark_registration: &'static str,\n}\n\n");
+    output.push_str("#![allow(dead_code)]\n\n#[derive(Clone, Copy, Debug)]\npub struct FunctionDescriptor {\n    pub name: &'static str,\n    pub symbol: &'static str,\n    pub family: &'static str,\n    pub hotness: &'static str,\n    pub fallback: &'static str,\n    pub ownership: &'static str,\n    pub borrow_duration: &'static str,\n    pub thread_affinity: &'static str,\n    pub may_allocate_native_memory: bool,\n    pub mutates_host_state: bool,\n    pub max_buffer_bytes: u64,\n    pub max_input_count: u32,\n    pub benchmark_registration: &'static str,\n}\n\n");
     output.push_str("pub static FUNCTIONS: &[FunctionDescriptor] = &[\n");
     for function in &document.functions {
         output.push_str(&format!(
@@ -136,27 +135,33 @@ pub fn table(document: &AbiDocument, schema_hash: &str, generator_hash: &str) ->
 }
 
 fn export_imports(document: &AbiDocument) -> String {
-    let pod_names = document
-        .pods
-        .iter()
-        .filter(|pod| {
-            document.functions.iter().any(|function| {
-                function.args.iter().any(|argument| {
-                    argument.lowering == "pod_slice"
-                        && argument.type_name.strip_suffix("[]") == Some(pod.name.as_str())
+    let mut names = vec!["NativeViewRuntime"];
+    if document.functions.iter().any(|function| {
+        function
+            .args
+            .iter()
+            .any(|argument| argument.lowering == "host_ptr")
+    }) {
+        names.push("NativeHost");
+    }
+    names.extend(
+        document
+            .pods
+            .iter()
+            .filter(|pod| {
+                document.functions.iter().any(|function| {
+                    function.args.iter().any(|argument| {
+                        argument.lowering == "pod_slice"
+                            && argument.type_name.strip_suffix("[]") == Some(pod.name.as_str())
+                    })
                 })
             })
-        })
-        .map(|pod| pod.name.as_str())
-        .collect::<Vec<_>>();
-    if pod_names.is_empty() {
-        "use super::NativeViewRuntime;".to_owned()
+            .map(|pod| pod.name.as_str()),
+    );
+    if names.len() == 1 {
+        format!("use super::{};", names[0])
     } else {
-        format!(
-            "use super::{{{}, {}}};",
-            "NativeViewRuntime",
-            pod_names.join(", ")
-        )
+        format!("use super::{{{}}};", names.join(", "))
     }
 }
 
@@ -190,7 +195,32 @@ fn validation_statements(
         "0x8000_0003u32"
     };
     let mut output = String::new();
-    for argument in &function.args {
+    let mut node_id_pairs = std::collections::HashSet::new();
+    for (index, argument) in function.args.iter().enumerate() {
+        if argument.lowering == "node_id_pair" {
+            output.push_str(&format!(
+                "            let ({}_low, {}_high) = generated_node_id({}_low, {}_high, {})?;\n",
+                argument.name, argument.name, argument.name, argument.name, error
+            ));
+            continue;
+        }
+        if let Some(base) = argument.name.strip_suffix("_low") {
+            let high_name = format!("{base}_high");
+            if base.contains("node_id")
+                && function.args.get(index + 1).is_some_and(|candidate| {
+                    candidate.name == high_name
+                        && candidate.lowering == "u32"
+                        && argument.lowering == "u32"
+                })
+                && node_id_pairs.insert(base.to_owned())
+            {
+                output.push_str(&format!(
+                    "            let ({}, {}) = generated_node_id({}, {}, {})?;\n",
+                    argument.name, high_name, argument.name, high_name, error
+                ));
+                continue;
+            }
+        }
         match argument.lowering.as_str() {
             "runtime_ptr" | "host_ptr" => output.push_str(&format!(
                 "            let {} = generated_nonnull({}, {})?;\n",
@@ -210,20 +240,52 @@ fn validation_statements(
                     })
                     .map(|candidate| candidate.name.as_str())
                     .expect("validated buffer_length pair");
+                let element_size = buffer_element_size(argument, document)
+                    .expect("validated fixed-size buffer element")
+                    .to_string();
                 output.push_str(&format!(
-                    "            let {} = generated_nonnull_const({}, {})?;\n",
-                    argument.name, argument.name, buffer_error
-                ));
-                output.push_str(&format!(
-                    "            let {} = generated_capacity({}, {}, {})?;\n",
-                    capacity, capacity, function.max_buffer_bytes, buffer_error
+                    "            let {} = generated_buffer({}, {}, {}, {}, {})?;\n",
+                    argument.name,
+                    argument.name,
+                    capacity,
+                    element_size,
+                    function.max_buffer_bytes,
+                    buffer_error
                 ));
             }
             "buffer_length" => {}
-            "buffer_used" => output.push_str(&format!(
-                "            let {} = generated_count({}, {}, {})?;\n",
-                argument.name, argument.name, function.max_input_count, count_error
+            "cstring_ephemeral" => output.push_str(&format!(
+                "            let {} = generated_nonnull_const({}, {})?;\n",
+                argument.name, argument.name, error
             )),
+            "buffer_used" => {
+                let buffer = function
+                    .args
+                    .iter()
+                    .find(|candidate| matches!(candidate.lowering.as_str(), "buffer" | "pod_slice"))
+                    .expect("validated buffer_used pair");
+                let capacity = function
+                    .args
+                    .iter()
+                    .find(|candidate| {
+                        candidate.lowering == "buffer_length"
+                            && candidate.buffer_length_of.as_deref() == Some(buffer.name.as_str())
+                    })
+                    .map(|candidate| candidate.name.as_str())
+                    .expect("validated buffer_length pair");
+                let element_size = buffer_element_size(buffer, document)
+                    .expect("validated fixed-size buffer element")
+                    .to_string();
+                output.push_str(&format!(
+                    "            let {} = generated_buffer_used({}, {}, {}, {}, {})?;\n",
+                    argument.name,
+                    argument.name,
+                    capacity,
+                    element_size,
+                    function.max_input_count,
+                    count_error
+                ));
+            }
             _ if document
                 .enums
                 .iter()
@@ -255,6 +317,18 @@ fn validation_statements(
     output
 }
 
+fn buffer_element_size(argument: &ArgumentSpec, document: &AbiDocument) -> Option<u32> {
+    if argument.type_name == "u32[]" {
+        return Some(4);
+    }
+    let pod_name = argument.type_name.strip_suffix("[]")?;
+    document
+        .pods
+        .iter()
+        .find(|pod| pod.name == pod_name)
+        .map(|pod| pod.size)
+}
+
 fn rust_arguments(arguments: &[ArgumentSpec], document: &AbiDocument) -> String {
     let mut rendered = Vec::new();
     for argument in arguments {
@@ -284,6 +358,7 @@ fn rust_type_for_argument(argument: &ArgumentSpec, document: &AbiDocument) -> St
             .strip_suffix("[]")
             .map_or_else(|| "*const u8".to_owned(), |name| format!("*const {name}")),
         "buffer_length" => "usize".to_owned(),
+        "cstring_ephemeral" => "*const ::core::ffi::c_char".to_owned(),
         _ => rust_type(&type_name(argument, document)),
     }
 }
@@ -371,30 +446,11 @@ fn format_rust(source: String) -> String {
         return source;
     };
     let (prefix, body) = source.split_at(body_start);
-    let formatted = rustfmt_body(body).unwrap_or_else(|| {
-        syn::parse_file(body)
-            .map(|file| {
-                let _tokens: proc_macro2::TokenStream = quote!(#file);
-                prettyplease::unparse(&file)
-            })
-            .unwrap_or_else(|_| body.to_owned())
-    });
+    let formatted = syn::parse_file(body)
+        .map(|file| {
+            let _tokens: proc_macro2::TokenStream = quote!(#file);
+            prettyplease::unparse(&file)
+        })
+        .unwrap_or_else(|_| body.to_owned());
     format!("{prefix}{}\n", formatted.trim_end())
-}
-
-fn rustfmt_body(body: &str) -> Option<String> {
-    let mut process = Command::new("rustfmt")
-        .args(["--edition", "2024", "--emit", "stdout"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    process.stdin.take()?.write_all(body.as_bytes()).ok()?;
-    let output = process.wait_with_output().ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8(output.stdout).ok())
-        .flatten()
 }

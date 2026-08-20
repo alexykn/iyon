@@ -318,6 +318,34 @@ mod tests {
     }
 
     #[test]
+    fn validation_rejects_incompatible_lowering() {
+        let workspace = workspace_root().expect("workspace metadata");
+        let schema = workspace.join(DEFAULT_SCHEMA);
+        let (mut document, _, _) = model::load(&schema).expect("canonical schema parses");
+        let bridge = model::load_bridge_schema(&workspace.join(BRIDGE_SCHEMA))
+            .expect("bridge schema parses");
+        document.functions[0].args[0].lowering = "u32".to_owned();
+        assert!(validate::validate(&document, &bridge).is_err());
+    }
+
+    #[test]
+    fn validation_rejects_missing_buffer_used() {
+        let workspace = workspace_root().expect("workspace metadata");
+        let schema = workspace.join(DEFAULT_SCHEMA);
+        let (mut document, _, _) = model::load(&schema).expect("canonical schema parses");
+        let bridge = model::load_bridge_schema(&workspace.join(BRIDGE_SCHEMA))
+            .expect("bridge schema parses");
+        let used = document
+            .functions
+            .iter_mut()
+            .flat_map(|function| function.args.iter_mut())
+            .find(|argument| argument.lowering == "buffer_used")
+            .expect("canonical buffer_used");
+        used.lowering = "u32".to_owned();
+        assert!(validate::validate(&document, &bridge).is_err());
+    }
+
+    #[test]
     fn validation_rejects_unpaired_buffer_length() {
         let workspace = workspace_root().expect("workspace metadata");
         let schema = workspace.join(DEFAULT_SCHEMA);

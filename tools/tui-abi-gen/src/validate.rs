@@ -185,6 +185,7 @@ pub fn validate(
                     function.name, argument.name, argument.lowering
                 ));
             }
+            validate_lowering(argument, document, function.name.as_str())?;
             if matches!(argument.lowering.as_str(), "buffer" | "pod_slice") {
                 variable_buffers += 1;
             }
@@ -198,6 +199,23 @@ pub fn validate(
         if variable_buffers > 0 && function.max_buffer_bytes == 0 {
             return invalid(format!(
                 "buffer function {} must declare max_buffer_bytes",
+                function.name
+            ));
+        }
+        let used_count = function
+            .args
+            .iter()
+            .filter(|argument| argument.lowering == "buffer_used")
+            .count();
+        if variable_buffers > 0 && used_count != variable_buffers {
+            return invalid(format!(
+                "each buffer in {} must have exactly one buffer_used argument",
+                function.name
+            ));
+        }
+        if variable_buffers == 0 && used_count != 0 {
+            return invalid(format!(
+                "buffer_used argument {} has no buffer",
                 function.name
             ));
         }
@@ -285,7 +303,7 @@ fn validate_type(
     function_name: &str,
 ) -> Result<(), ValidationError> {
     let primitive = matches!(type_name, "u8" | "u16" | "u32" | "i32" | "f32" | "f64");
-    let builtin = type_name == "u32[]";
+    let builtin = matches!(type_name, "u32[]" | "NodeId" | "string");
     let pod = type_name
         .strip_suffix("[]")
         .is_some_and(|name| document.pods.iter().any(|item| item.name == name));
@@ -298,6 +316,48 @@ fn validate_type(
         ));
     }
     Ok(())
+}
+
+fn validate_lowering(
+    argument: &crate::model::ArgumentSpec,
+    document: &AbiDocument,
+    function_name: &str,
+) -> Result<(), ValidationError> {
+    let type_name = argument.type_name.as_str();
+    let enum_or_u32 = type_name == "u32"
+        || document.enums.iter().any(|item| item.name == type_name)
+        || document
+            .handles
+            .iter()
+            .any(|item| item.name == type_name && item.rust == "u32");
+    let valid = match argument.lowering.as_str() {
+        "u8" => type_name == "u8",
+        "u16" => type_name == "u16",
+        "u32" | "buffer_used" | "buffer_length" => enum_or_u32,
+        "i32" | "status_only" => type_name == "i32",
+        "f32" => type_name == "f32",
+        "f64" => type_name == "f64",
+        "node_id_pair" => type_name == "NodeId",
+        "native_ref" => document.handles.iter().any(|handle| {
+            handle.name == type_name && handle.rust == "u32" && handle.kind.is_some()
+        }),
+        "runtime_ptr" => type_name == "RuntimePtr",
+        "host_ptr" => type_name == "HostPtr",
+        "buffer" => type_name == "u32[]" || type_name.ends_with("[]"),
+        "pod_slice" => type_name
+            .strip_suffix("[]")
+            .is_some_and(|name| document.pods.iter().any(|pod| pod.name == name)),
+        "cstring_ephemeral" => type_name == "string",
+        "native_ref_result" => enum_or_u32,
+        _ => false,
+    };
+    if valid {
+        return Ok(());
+    }
+    invalid(format!(
+        "argument {}.{} type {} is incompatible with lowering {}",
+        function_name, argument.name, argument.type_name, argument.lowering
+    ))
 }
 
 fn buffer_element_size(
