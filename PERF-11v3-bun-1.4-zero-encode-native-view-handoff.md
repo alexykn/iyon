@@ -289,6 +289,8 @@ b349fbb  build(tui): pin generated Rust formatting
 d14e9f4  test(tui): refresh ABI generator snapshot
 7bf0d41  bench(tui): use full exact-identity sample count
 97722e7  bench(tui): rerun exact Bun 1.4 identity controls
+060d9c6  bench(tui): enforce exact identity iteration policy
+0913858  bench(tui): enforce exact identity controls
 ```
 
 The final Tranche 1 review also hardened the generated foundation: Rust output is formatted by the pinned Rust 1.97.1 `rustfmt` toolchain, with deterministic `prettyplease` fallback; schema validation rejects incompatible lowering/type pairs and missing buffer-used lanes; generated checked wrappers validate full 53-bit NodeId pairs, NativeRef ranges, pointer alignment, buffer capacity/element-width/used-count bounds, enum discriminants, cstring pointers, and panic containment; host-pointer imports and cstring lowering are generated for future slices. The current generated reference records generator BLAKE3 `c4ab26c23fac3bc43c5b8a4b6c75ca3ba1d79b78b4af58ab322f8fef5d9b6601`.
@@ -337,7 +339,7 @@ packages/iyon-runtime/bench/PERF-11-bun14-results.jsonl
 packages/iyon-runtime/bench/PERF-11-ffi-probe.json
 ```
 
-The exact Bun 1.4 baseline record contains 651 JSONL records: 650 normal records across direct, packed/V2, V3, V4, and FastShared, plus one 100-operation synthetic trace. Normal cases use 50 warmups, 500 measured iterations, and 10,000 exact-identity iterations. Every record includes Bun `1.4.0`, revision `34cbb9a40b4bd1bd767d134a7065e66c2432a676`, `git_dirty: false`, and matching benchmark-source/native-artifact hashes. The final control run was captured at clean source revision `7bf0d413fbed730de4aece00c4bc7329084df458`. Its benchmark-source SHA-256 is `2f879d68f9034f196fcf68fe31ea3b7df70dfe08f5778e3817c611228f3b8de0`, and the timing native artifact SHA-256 is `637ccf6720726486b2c3cd789288e52f2ed5701d789673cf516afe2bed266e37`. The run used `PERF_COUNTERS=0`, `PERF_WARMUP=50`, `PERF_NORMAL=500`, `PERF_EXACT=10000`, the two sizes, thirteen selected workloads, five required patterns, and a separate 100-operation synthetic trace.
+The exact Bun 1.4 baseline record contains 651 JSONL records: 650 normal records across direct, packed/V2, V3, V4, and FastShared, plus one 100-operation synthetic trace. Normal cases use 50 warmups, 500 measured iterations, and 10,000 exact-identity iterations. Every record includes Bun `1.4.0`, revision `34cbb9a40b4bd1bd767d134a7065e66c2432a676`, `git_dirty: false`, and matching benchmark-source/native-artifact hashes. The final control run was captured at clean source revision `060d9c688953a9f909e8a118761188fb35d251cc`. Its benchmark-source SHA-256 is `56748dff51f0af681e94b896e6bbcca96fc7d6aa18d952886ac9c67ead93dd36`, and the timing native artifact SHA-256 is `637ccf6720726486b2c3cd789288e52f2ed5701d789673cf516afe2bed266e37`. The run used `PERF_COUNTERS=0`, `PERF_WARMUP=50`, `PERF_NORMAL=500`, `PERF_EXACT=10000`, the two sizes, thirteen selected workloads, five required patterns, and a separate 100-operation synthetic trace.
 
 Regenerate or verify the artifacts with:
 
@@ -348,7 +350,7 @@ bun run check:tui-abi
 
 `check:tui-abi` renders into a temporary directory and compares every generated artifact byte-for-byte with the checked-in files. The authoritative CI check also runs `git diff --exit-code` on the generated paths.
 
-Documentation commits recording the handoff and review state are `1e56c92`, `ad82d5a`, `4715436`, `46889ff`, `31ee207`, `153eef2`, `5239a94`, `d14e9f4`, and the benchmark commits `7bf0d41`/`97722e7`.
+Documentation commits recording the handoff and review state are `1e56c92`, `ad82d5a`, `4715436`, `46889ff`, `31ee207`, `153eef2`, `5239a94`, `d14e9f4`, and the benchmark commits `7bf0d41`, `97722e7`, `060d9c6`, and `0913858`.
 
 ---
 
