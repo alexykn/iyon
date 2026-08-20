@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 68e52f9913c6c1252f2a061ff4f942c1b32aac35f32bced41e8f9bdc5b2bacb9
-// generator_blake3 = 24d34b5e76bb7302928f251bbf11d78e62dfba0dee9cefe44e46082a1aeedc18
+// schema_blake3 = f62367d8a4d464a917c4958025990e8a120d58409d4a0a55dc5a888a228f6db7
+// generator_blake3 = 0407a3e331cbf8a5af827b2e89fe8ceea30d82c1e7cbf0ad92a0d2c272c336a8
 //! Canonical pointer-free ABI types and constants.
 
 pub const ABI_NAME: &str = "iyon_tui_view";
@@ -41,6 +41,10 @@ pub enum WrapMode {
     NoWrap = 3,
 }
 
+static_assertions::const_assert_eq!(WrapMode::WordThenGrapheme as u32, 1);
+static_assertions::const_assert_eq!(WrapMode::Grapheme as u32, 2);
+static_assertions::const_assert_eq!(WrapMode::NoWrap as u32, 3);
+
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HorizontalAlign {
@@ -48,3 +52,7 @@ pub enum HorizontalAlign {
     Center = 2,
     End = 3,
 }
+
+static_assertions::const_assert_eq!(HorizontalAlign::Start as u32, 1);
+static_assertions::const_assert_eq!(HorizontalAlign::Center as u32, 2);
+static_assertions::const_assert_eq!(HorizontalAlign::End as u32, 3);

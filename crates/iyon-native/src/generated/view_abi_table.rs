@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 68e52f9913c6c1252f2a061ff4f942c1b32aac35f32bced41e8f9bdc5b2bacb9
-// generator_blake3 = 24d34b5e76bb7302928f251bbf11d78e62dfba0dee9cefe44e46082a1aeedc18
+// schema_blake3 = f62367d8a4d464a917c4958025990e8a120d58409d4a0a55dc5a888a228f6db7
+// generator_blake3 = 0407a3e331cbf8a5af827b2e89fe8ceea30d82c1e7cbf0ad92a0d2c272c336a8
 #[derive(Clone, Copy, Debug)]
 pub struct FunctionDescriptor {
     pub name: &'static str,
@@ -106,7 +106,7 @@ pub static FUNCTIONS: &[FunctionDescriptor] = &[
         may_allocate_native_memory: true,
         mutates_host_state: false,
         max_buffer_bytes: 4194304,
-        max_input_count: 1000000,
+        max_input_count: 524288,
         benchmark_registration: "view.axis_create_buffer",
     },
     FunctionDescriptor {
