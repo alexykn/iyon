@@ -2,6 +2,7 @@
   "name": "iyon-workspace",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.4.0",
   "workspaces": [
     "packages/*",
     "plugins/agents/*",
@@ -11,6 +12,9 @@
   ],
   "scripts": {
     "workspace:install": "bun install",
+    "check:bun-version": "bun run packages/iyon-runtime/scripts/check-bun-version.ts",
+    "generate:tui-abi": "cargo run -q -p tui-abi-gen -- generate",
+    "check:tui-abi": "cargo run -q -p tui-abi-gen -- check",
     "typecheck": "bunx tsc --noEmit",
     "typecheck:plugins": "bunx tsc --noEmit -p packages/iyon-plugins/tsconfig.json",
     "test:plugins": "bun test packages/iyon-plugins/tests packages/iyon-plugins/test",
@@ -33,6 +37,6 @@
     "@iyon/sdk": "workspace:*"
   },
   "devDependencies": {
-    "bun-types": "latest"
+    "bun-types": "1.4.0"
   }
 }

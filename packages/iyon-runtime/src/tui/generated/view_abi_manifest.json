@@ -1,0 +1,384 @@
+{
+  "abi": {
+    "minimum_bun": "1.4.0",
+    "name": "iyon_tui_view",
+    "result_encoding": "u32_high_bit_status",
+    "semantic_schema": 1,
+    "version": 1
+  },
+  "enums": [
+    {
+      "name": "WrapMode",
+      "repr": "u32",
+      "source": "packages/iyon-runtime/src/tui/bridge-schema.json",
+      "values": [
+        {
+          "name": "WordThenGrapheme",
+          "source_key": "wrapWordThenGrapheme"
+        },
+        {
+          "name": "Grapheme",
+          "source_key": "wrapGrapheme"
+        },
+        {
+          "name": "NoWrap",
+          "source_key": "wrapNoWrap"
+        }
+      ]
+    },
+    {
+      "name": "HorizontalAlign",
+      "repr": "u32",
+      "source": "packages/iyon-runtime/src/tui/bridge-schema.json",
+      "values": [
+        {
+          "name": "Start",
+          "source_key": "horizontalStart"
+        },
+        {
+          "name": "Center",
+          "source_key": "horizontalCenter"
+        },
+        {
+          "name": "End",
+          "source_key": "horizontalEnd"
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        }
+      ],
+      "fallback": "none",
+      "family": "runtime",
+      "hotness": "probe",
+      "implementation": "runtime_noop_impl",
+      "name": "runtime_noop",
+      "return": "u32"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "base",
+          "type": "ViewRef"
+        }
+      ],
+      "fallback": "v4",
+      "family": "render_ref",
+      "hotness": "critical",
+      "implementation": "view_render_ref_impl",
+      "name": "view_render_ref",
+      "return": "ViewRefResult"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "rows",
+          "type": "u32"
+        }
+      ],
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_spacer_create_impl",
+      "name": "view_spacer_create",
+      "return": "ViewRefResult"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "base",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "fallback": "v4",
+      "family": "scalar_patch",
+      "hotness": "critical",
+      "implementation": "view_text_layout_patch_root_impl",
+      "name": "view_text_layout_patch_root",
+      "return": "ViewRefResult"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "base",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "mask",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "padding_tr",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "padding_bl",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "width_rule",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "height_rule",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "min_width",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "max_width",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "min_height",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "max_height",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "decoration_ref",
+          "type": "ViewRef"
+        }
+      ],
+      "fallback": "v4",
+      "family": "scalar_patch",
+      "hotness": "critical",
+      "implementation": "view_common_patch_root_impl",
+      "name": "view_common_patch_root",
+      "return": "ViewRefResult"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "pod_slice",
+          "name": "children",
+          "type": "AxisChildInputV1[]"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "used_child_count",
+          "type": "u32"
+        }
+      ],
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_axis_create_buffer_impl",
+      "name": "view_axis_create_buffer",
+      "return": "ViewRefResult"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer",
+          "name": "refs",
+          "type": "u32[]"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "used_ref_count",
+          "type": "u32"
+        }
+      ],
+      "fallback": "none",
+      "family": "lifecycle",
+      "hotness": "cold",
+      "implementation": "view_release_many_impl",
+      "name": "view_release_many",
+      "return": "i32"
+    }
+  ],
+  "generated_outputs": [
+    "crates/iyon-native/src/generated/view_abi_types.rs",
+    "crates/iyon-native/src/generated/view_abi_exports.rs",
+    "crates/iyon-native/src/generated/view_abi_table.rs",
+    "crates/iyon-native/include/iyon_view_abi.h",
+    "packages/iyon-runtime/src/tui/generated/view_abi.ts",
+    "packages/iyon-runtime/src/tui/generated/view_calls.ts",
+    "packages/iyon-runtime/src/tui/generated/view_abi_manifest.json",
+    "packages/iyon-runtime/tests/generated/view_abi_layout.test.ts",
+    "packages/iyon-runtime/bench/generated/view_abi_cases.ts",
+    "crates/iyon-native/tests/generated_view_abi.rs",
+    "PERF-11-generated-abi-reference.md"
+  ],
+  "generator_blake3": "5134bc9ebe5a949bd99ece560feb766e2612a8d4b222c03f6b928e766f625ca3",
+  "handles": [
+    {
+      "kind": null,
+      "lifetime": "environment",
+      "name": "RuntimePtr",
+      "nullable": false,
+      "rust": "*mut NativeViewRuntime",
+      "typescript": "Pointer",
+      "valid": null
+    },
+    {
+      "kind": null,
+      "lifetime": "host",
+      "name": "HostPtr",
+      "nullable": false,
+      "rust": "*mut NativeHost",
+      "typescript": "Pointer",
+      "valid": null
+    },
+    {
+      "kind": "view",
+      "lifetime": "runtime",
+      "name": "ViewRef",
+      "nullable": false,
+      "rust": "u32",
+      "typescript": "number",
+      "valid": "1..0x7fffffff"
+    },
+    {
+      "kind": "path",
+      "lifetime": "runtime",
+      "name": "PathRef",
+      "nullable": false,
+      "rust": "u32",
+      "typescript": "number",
+      "valid": "1..0x7fffffff"
+    }
+  ],
+  "schema_blake3": "1ca0fdeba92ffd1a195a4898f5629f1f10f849155f8b8b80b03fe1bd050030a8"
+}

@@ -1,0 +1,18 @@
+{
+  "probe": "bun14_ffi_probe.ts",
+  "bun_version": "1.4.0",
+  "bun_revision": "34cbb9a40b4bd1bd767d134a7065e66c2432a676",
+  "bun_cli_revision": "1.4.0+34cbb9a40",
+  "target": "darwin-arm64",
+  "native_artifact_sha256": "ef9bfccd39aaaf4526777b415646eb0dad16bbef1119489c867cb5fce6169897",
+  "pointer_source": "loaded iyon-native N-API image",
+  "link_symbols": true,
+  "c_function": true,
+  "jit_enabled": true,
+  "noop_average_ns": 4.377342,
+  "noop_sub_5ns": true,
+  "u32_8_position_weighted_signature": "pass",
+  "buffer_length_same_typed_array": "pass",
+  "cstring_utf8": "pass",
+  "invalid_signature_guard": "position-weighted ABI conformance"
+}

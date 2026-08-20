@@ -42,6 +42,62 @@ pub fn tui_smoke() -> Result<String> {
     Ok("iyon-tui/t1".to_owned())
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn iyon_abi_probe_noop(value: u32) -> u32 {
+    value.wrapping_add(1)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn iyon_abi_probe_u32_8(
+    a0: u32,
+    a1: u32,
+    a2: u32,
+    a3: u32,
+    a4: u32,
+    a5: u32,
+    a6: u32,
+    a7: u32,
+) -> u32 {
+    a0.wrapping_mul(3)
+        .wrapping_add(a1.wrapping_mul(5))
+        .wrapping_add(a2.wrapping_mul(7))
+        .wrapping_add(a3.wrapping_mul(11))
+        .wrapping_add(a4.wrapping_mul(13))
+        .wrapping_add(a5.wrapping_mul(17))
+        .wrapping_add(a6.wrapping_mul(19))
+        .wrapping_add(a7.wrapping_mul(23))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_abi_probe_buffer(bytes: *const u8, byte_length: usize) -> u32 {
+    if bytes.is_null() {
+        return u32::MAX;
+    }
+    let first = unsafe { *bytes } as u32;
+    (byte_length as u32).wrapping_mul(257).wrapping_add(first)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_abi_probe_cstring(value: *const std::ffi::c_char) -> u32 {
+    if value.is_null() {
+        return 0;
+    }
+    let bytes = unsafe { std::ffi::CStr::from_ptr(value) }.to_bytes();
+    bytes.iter().fold(2166136261u32, |hash, byte| {
+        hash.wrapping_mul(16777619).wrapping_add(u32::from(*byte))
+    })
+}
+
+#[napi(js_name = "tuiPerfAbiProbe")]
+pub fn tui_perf_abi_probe() -> Value {
+    serde_json::json!({
+        "noop_ptr": iyon_abi_probe_noop as *const () as usize as u64,
+        "u32_8_ptr": iyon_abi_probe_u32_8 as *const () as usize as u64,
+        "buffer_ptr": iyon_abi_probe_buffer as *const () as usize as u64,
+        "cstring_ptr": iyon_abi_probe_cstring as *const () as usize as u64,
+    })
+}
+
 #[cfg(feature = "perf-counters")]
 #[napi(js_name = "tuiPerfReset")]
 pub fn tui_perf_reset() {
@@ -605,6 +661,7 @@ impl NativeTuiHost {
         );
         #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
         let mut fast_shared = Box::new(fast_shared::FastSession::new(&mut host));
+        #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
         fast_shared
             .register()
             .map_err(|_| crate::NativeError::internal("FastShared session table is full"))?;
@@ -620,8 +677,10 @@ impl NativeTuiHost {
     pub fn dispose(&self) -> Result<()> {
         if self.alive.swap(false, Ordering::AcqRel) {
             #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
-            self.fast_shared.close();
-            self.fast_shared.unregister();
+            {
+                self.fast_shared.close();
+                self.fast_shared.unregister();
+            }
             self.host
                 .close()
                 .map_err(|error| crate::NativeError::internal(error.to_string()))?;
