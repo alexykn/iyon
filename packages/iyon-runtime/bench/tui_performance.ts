@@ -25,9 +25,21 @@ import {
   splicePackedAxisChildren,
   type PackedV3Encoder,
 } from "../src/tui/packed_v3.ts";
+import {
+  createPackedV4Encoder,
+  packedV4Snapshot,
+  renderPackedV4View,
+  replacePackedAxisChild as replacePackedV4AxisChild,
+  replacePackedGridCell as replacePackedV4GridCell,
+  resetPackedV4Counters,
+  splicePackedAxisChildren as splicePackedV4AxisChildren,
+  type PackedV4Encoder,
+  type PackedV4StringDedupe,
+  type PackedV4Utf8Writer,
+} from "../src/tui/packed_v4.ts";
 
 type Pattern = "COLD" | "FIRST_USE" | "IDENTICAL_IDENTITY" | "SHARED_PATH" | "REBUILT_EQUIVALENT" | "LARGE_SHARED_SUBTREE_CUTOFF" | "SHARED_DEEP" | "WIDE_PARENT_ONE_EDIT" | "WIDE_PARENT_INSERT" | "WIDE_PARENT_REMOVE" | "TEXT_METADATA_PATCH" | "DECORATION_PATCH";
-type Candidate = "direct" | "packed" | "packed_v3";
+type Candidate = "direct" | "packed" | "packed_v3" | "packed_v4";
 type Workload = "plain_text_column" | "styled_span_heavy" | "row_heavy" | "column_track_heavy" | "grid_heavy" | "decoration_heavy" | "diff_heavy" | "component_heavy" | "mixed_realistic" | "wide_column_one_edit" | "wide_row_one_edit" | "wide_grid_cell_edit" | "long_text_wrap_only" | "long_text_one_span_edit" | "large_diff_one_hunk_edit" | "large_decoration_only_change";
 type Size = { readonly name: string; readonly nodes: number };
 
@@ -42,6 +54,8 @@ type PackedHost = BenchmarkHost & {
   tuiPerfV3PackedRender?: (words: Uint32Array, bytes: Uint8Array) => void;
   tuiPerfV3PackedRenderStrings?: (words: Uint32Array, strings: readonly string[]) => void;
   tuiPerfV3PackedRenderRef?: (generation: number, packedRef: number) => void;
+  tuiPerfV4PackedRender?: (words: Uint32Array, bytes: Uint8Array) => void;
+  tuiPerfV4PackedRenderRef?: (generation: number, packedRef: number) => void;
 };
 type PerfNative = typeof native & {
   tuiPerfReset?: () => void;
@@ -50,6 +64,7 @@ type PerfNative = typeof native & {
   tuiPerfViewBridgeCacheSize?: () => number;
   tuiPerfV3ViewBridgeCacheSize?: () => number;
   tuiPerfV3PackedSlotPages?: () => number;
+  tuiPerfV4ViewBridgeCacheSize?: () => number;
 };
 
 type Sample = {
@@ -107,13 +122,17 @@ const warmupIterations = positiveEnv("PERF_WARMUP", 50);
 const measuredIterations = positiveEnv("PERF_MEASURED", 200);
 const selectedSizes = filterSizes(sizes, Bun.env.PERF_SIZES);
 const selectedWideSizes = filterSizes(wideSizes, Bun.env.PERF_SIZES);
-const candidates = filterNames(["direct", "packed", "packed_v3"] as const, Bun.env.PERF_CANDIDATES);
+const candidates = filterNames(["direct", "packed", "packed_v3", "packed_v4"] as const, Bun.env.PERF_CANDIDATES);
 const selectedWorkloads = filterNames(workloads, Bun.env.PERF_WORKLOADS);
 const selectedPatterns = filterNames(patterns, Bun.env.PERF_PATTERNS);
 const stringLane = Bun.env.PERF_V3_STRING_LANE === "strings" ? "strings" : "utf8" as const;
 if (Bun.env.PERF_V3_STRING_LANE !== undefined && Bun.env.PERF_V3_STRING_LANE !== "utf8" && Bun.env.PERF_V3_STRING_LANE !== "strings") {
   throw new Error("PERF_V3_STRING_LANE must be utf8 or strings");
 }
+const v4Utf8Writer = (Bun.env.PERF_V4_UTF8_WRITER ?? "textencoder") as PackedV4Utf8Writer;
+const v4StringDedupe = (Bun.env.PERF_V4_STRING_DEDUPE ?? "content") as PackedV4StringDedupe;
+if (v4Utf8Writer !== "textencoder" && v4Utf8Writer !== "buffer") throw new Error("PERF_V4_UTF8_WRITER must be textencoder or buffer");
+if (!["content", "identity", "hybrid16", "hybrid32", "hybrid64", "hybrid128"].includes(v4StringDedupe)) throw new Error("PERF_V4_STRING_DEDUPE is invalid");
 
 function positiveEnv(name: string, fallback: number): number {
   const value = Number(Bun.env[name] ?? fallback);
@@ -462,29 +481,61 @@ function runSample(
   warmup: boolean,
 ): Sample {
   const firstUse = pattern === "FIRST_USE";
-  const host = firstUse ? createHost() : candidate === "direct" ? state.directHost : candidate === "packed" ? state.packedHost : state.packedV3Host;
-  const encoder = candidate === "packed" ? (firstUse ? createPackedViewEncoder() : state.packedEncoder) : candidate === "packed_v3" ? (firstUse ? createPackedV3Encoder(stringLane) : state.packedV3Encoder) : undefined;
+  const host = firstUse
+    ? createHost()
+    : candidate === "direct" ? state.directHost
+      : candidate === "packed" ? state.packedHost
+        : candidate === "packed_v3" ? state.packedV3Host
+          : state.packedV4Host;
+  const encoder = candidate === "packed"
+    ? (firstUse ? createPackedViewEncoder() : state.packedEncoder)
+    : candidate === "packed_v3"
+      ? (firstUse ? createPackedV3Encoder(stringLane) : state.packedV3Encoder)
+      : candidate === "packed_v4"
+        ? (firstUse ? createPackedV4Encoder(v4Utf8Writer, v4StringDedupe) : state.packedV4Encoder)
+        : undefined;
   if (pattern === "COLD" && candidate === "packed") (encoder as PackedViewEncoder).resetKnownNativeState();
-  const componentId = firstUse && workload === "component_heavy" ? createComponentId(host) : candidate === "direct" ? state.directComponentId : candidate === "packed" ? state.packedComponentId : state.packedV3ComponentId;
+  const componentId = firstUse && workload === "component_heavy"
+    ? createComponentId(host)
+    : candidate === "direct" ? state.directComponentId
+      : candidate === "packed" ? state.packedComponentId
+        : candidate === "packed_v3" ? state.packedV3ComponentId
+          : state.packedV4ComponentId;
   const constructionStarted = now();
-  const baseView = candidate === "direct" ? state.directBase! : candidate === "packed" ? state.packedBase! : state.packedV3Base!;
+  const baseView = candidate === "direct" ? state.directBase!
+    : candidate === "packed" ? state.packedBase!
+      : candidate === "packed_v3" ? state.packedV3Base!
+        : state.packedV4Base!;
   const isWideParentMode = pattern === "WIDE_PARENT_ONE_EDIT" || pattern === "WIDE_PARENT_INSERT" || pattern === "WIDE_PARENT_REMOVE";
   let retainedView: View;
-  if (isWideParentMode && candidate !== "packed_v3") {
+  if (isWideParentMode && candidate !== "packed_v3" && candidate !== "packed_v4") {
     retainedView = wideParentMutation(workload, size, pattern, index);
-  } else if (candidate === "packed_v3" && workload === "wide_grid_cell_edit" && pattern === "WIDE_PARENT_ONE_EDIT") {
+  } else if ((candidate === "packed_v3" || candidate === "packed_v4") && workload === "wide_grid_cell_edit" && pattern === "WIDE_PARENT_ONE_EDIT") {
     const row = Math.floor(Math.max(1, Math.ceil((size - 1) / 4)) / 2);
-    retainedView = replacePackedGridCell(state.packedV3Base!, row, 0, View.text(`grid-edited-${index}`));
+    retainedView = candidate === "packed_v3"
+      ? replacePackedGridCell(state.packedV3Base!, row, 0, View.text(`grid-edited-${index}`))
+      : replacePackedV4GridCell(state.packedV4Base!, row, 0, View.text(`grid-edited-${index}`));
   } else if (candidate === "packed_v3" && pattern === "WIDE_PARENT_ONE_EDIT") {
     retainedView = replacePackedAxisChild(state.packedV3Base!, index % Math.max(1, size), View.text(`edited-${index}`));
+  } else if (candidate === "packed_v4" && pattern === "WIDE_PARENT_ONE_EDIT") {
+    retainedView = replacePackedV4AxisChild(state.packedV4Base!, index % Math.max(1, size), View.text(`edited-${index}`));
   } else if (candidate === "packed_v3" && pattern === "WIDE_PARENT_INSERT") {
     retainedView = splicePackedAxisChildren(state.packedV3Base!, Math.floor(size / 2), 0, [View.text(`inserted-${index}`)]);
+  } else if (candidate === "packed_v4" && pattern === "WIDE_PARENT_INSERT") {
+    retainedView = splicePackedV4AxisChildren(state.packedV4Base!, Math.floor(size / 2), 0, [View.text(`inserted-${index}`)]);
   } else if (candidate === "packed_v3" && pattern === "WIDE_PARENT_REMOVE") {
     retainedView = splicePackedAxisChildren(state.packedV3Base!, Math.floor(size / 2), 1, []);
+  } else if (candidate === "packed_v4" && pattern === "WIDE_PARENT_REMOVE") {
+    retainedView = splicePackedV4AxisChildren(state.packedV4Base!, Math.floor(size / 2), 1, []);
   } else {
     retainedView = pattern === "IDENTICAL_IDENTITY" || pattern === "TEXT_METADATA_PATCH" || pattern === "DECORATION_PATCH"
       ? baseView
-      : buildModeView(workload, size, pattern, index, candidate === "direct" ? state.directShared : candidate === "packed" ? state.packedShared : state.packedV3Shared, componentId);
+      : buildModeView(workload, size, pattern, index,
+        candidate === "direct" ? state.directShared
+          : candidate === "packed" ? state.packedShared
+            : candidate === "packed_v3" ? state.packedV3Shared
+              : state.packedV4Shared,
+        componentId);
   }
   if (pattern === "TEXT_METADATA_PATCH") retainedView = retainedView.noWrap();
   if (pattern === "DECORATION_PATCH") retainedView = retainedView.maxWidth(40);
@@ -492,6 +543,7 @@ function runSample(
   const nativeBefore = nativeCounters();
   const packedBefore = packedEncoderSnapshot();
   const packedV3Before = packedV3Snapshot();
+  const packedV4Before = packedV4Snapshot();
   const cpuBefore = process.cpuUsage();
   const heapBefore = process.memoryUsage().heapUsed;
   const rssBefore = process.memoryUsage().rss;
@@ -510,7 +562,7 @@ function runSample(
       nativeStarted: () => { nativeStarted = now(); },
       nativeFinished: () => { if (nativeStarted !== 0) { native += now() - nativeStarted; nativeStarted = 0; } },
     });
-  } else {
+  } else if (candidate === "packed_v3") {
     const packedHost = host as PackedHost;
     if (packedHost.tuiPerfV3PackedRenderRef === undefined
       || (stringLane === "utf8" && packedHost.tuiPerfV3PackedRender === undefined)
@@ -539,6 +591,23 @@ function runSample(
         nativeFinished: () => { if (nativeStarted !== 0) { native += now() - nativeStarted; nativeStarted = 0; } },
       },
     );
+  } else {
+    const packedHost = host as PackedHost;
+    if (packedHost.tuiPerfV4PackedRenderRef === undefined || packedHost.tuiPerfV4PackedRender === undefined) {
+      throw new Error("native addon lacks Packed V4 methods");
+    }
+    renderPackedV4View(
+      encoder as PackedV4Encoder,
+      retainedView,
+      (words, bytes) => packedHost.tuiPerfV4PackedRender!(words, bytes),
+      (generation, packedRef) => packedHost.tuiPerfV4PackedRenderRef!(generation, packedRef),
+      {
+        encodingStarted: () => { encodingStarted = now(); },
+        encodingFinished: () => { if (encodingStarted !== 0) { encoding += now() - encodingStarted; encodingStarted = 0; } },
+        nativeStarted: () => { nativeStarted = now(); },
+        nativeFinished: () => { if (nativeStarted !== 0) { native += now() - nativeStarted; nativeStarted = 0; } },
+      },
+    );
   }
 
   const commit = now() - commitStarted;
@@ -548,19 +617,32 @@ function runSample(
   const cpu = process.cpuUsage(cpuBefore);
   const heapDelta = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
   const rssDelta = Math.max(0, process.memoryUsage().rss - rssBefore);
-  const nativeCacheSize = candidate === "packed_v3" ? perfNative.tuiPerfV3ViewBridgeCacheSize?.() ?? 0 : perfNative.tuiPerfViewBridgeCacheSize?.() ?? 0;
+  const nativeCacheSize = candidate === "packed_v3"
+    ? perfNative.tuiPerfV3ViewBridgeCacheSize?.() ?? 0
+    : candidate === "packed_v4"
+      ? perfNative.tuiPerfV4ViewBridgeCacheSize?.() ?? 0
+      : perfNative.tuiPerfViewBridgeCacheSize?.() ?? 0;
   const nativeSemanticCacheSize = perfNative.tuiPerfViewBridgeCacheSize?.() ?? 0;
   const nativePackedSlotPages = candidate === "packed_v3" ? perfNative.tuiPerfV3PackedSlotPages?.() ?? 0 : 0;
   const nativeAfter = nativeCounters();
   const packedAfter = packedEncoderSnapshot();
-  const counterTarget = candidate === "direct" ? state.directCounters : candidate === "packed" ? state.packedCounters : state.packedV3Counters;
+  const counterTarget = candidate === "direct" ? state.directCounters
+    : candidate === "packed" ? state.packedCounters
+      : candidate === "packed_v3" ? state.packedV3Counters
+        : state.packedV4Counters;
   addCounters(counterTarget, diffCounters(nativeBefore, nativeAfter));
   if (candidate === "packed") addCounters(state.packedCounters, diffCounters(packedBefore, packedAfter));
   if (candidate === "packed_v3") addCounters(state.packedV3Counters, diffCounters(packedV3Before, packedV3Snapshot()));
+  if (candidate === "packed_v4") addCounters(state.packedV4Counters, diffCounters(packedV4Before, packedV4Snapshot()));
   if (firstUse) host.dispose();
   if (warmup) return { nodeCount: 0, total: 0, commit: 0, forcedFrame: 0, construction: 0, encoding: 0, native: 0, cpuUserUs: 0, cpuSystemUs: 0, heapDelta: 0, rssDelta: 0, scratchCapacity: 0, byteScratchCapacity: 0, nativeCacheSize: 0, nativeSemanticCacheSize: 0, nativePackedSlotPages: 0 };
-  const scratchCapacity = candidate === "packed" ? (encoder as PackedViewEncoder).scratchCapacity() : candidate === "packed_v3" ? (encoder as PackedV3Encoder).wordScratchCapacity : 0;
-  const byteScratchCapacity = candidate === "packed_v3" ? (encoder as PackedV3Encoder).byteScratchCapacity : 0;
+  const scratchCapacity = candidate === "packed" ? (encoder as PackedViewEncoder).scratchCapacity()
+    : candidate === "packed_v3" ? (encoder as PackedV3Encoder).wordScratchCapacity
+      : candidate === "packed_v4" ? (encoder as PackedV4Encoder).wordScratchCapacity
+        : 0;
+  const byteScratchCapacity = candidate === "packed_v3" ? (encoder as PackedV3Encoder).byteScratchCapacity
+    : candidate === "packed_v4" ? (encoder as PackedV4Encoder).byteScratchCapacity
+      : 0;
   return { nodeCount: uniqueNodeCount(retainedView), total: construction + commit, commit, forcedFrame: construction + forcedFrame, construction, encoding, native: native || commit, cpuUserUs: cpu.user, cpuSystemUs: cpu.system, heapDelta, rssDelta, scratchCapacity, byteScratchCapacity, nativeCacheSize, nativeSemanticCacheSize, nativePackedSlotPages };
 }
 
@@ -568,47 +650,61 @@ type CaseState = {
   readonly directHost: BenchmarkHost;
   readonly packedHost: PackedHost;
   readonly packedV3Host: PackedHost;
+  readonly packedV4Host: PackedHost;
   readonly packedEncoder: PackedViewEncoder;
   readonly packedV3Encoder: PackedV3Encoder;
+  readonly packedV4Encoder: PackedV4Encoder;
   readonly directCounters: Record<string, number>;
   readonly packedCounters: Record<string, number>;
   readonly packedV3Counters: Record<string, number>;
+  readonly packedV4Counters: Record<string, number>;
   readonly directBase?: View;
   readonly packedBase?: View;
   readonly packedV3Base?: View;
+  readonly packedV4Base?: View;
   readonly directShared?: View;
   readonly packedShared?: View;
   readonly packedV3Shared?: View;
+  readonly packedV4Shared?: View;
   readonly directComponentId?: number;
   readonly packedComponentId?: number;
   readonly packedV3ComponentId?: number;
+  readonly packedV4ComponentId?: number;
 };
 
 function makeCaseState(workload: Workload, size: number, pattern: Pattern): CaseState {
   const directHost = createHost();
   const packedHost = createHost();
   const packedV3Host = createHost();
+  const packedV4Host = createHost();
   const directComponentId = workload === "component_heavy" ? createComponentId(directHost) : undefined;
   const packedComponentId = workload === "component_heavy" ? createComponentId(packedHost) : undefined;
   const packedV3ComponentId = workload === "component_heavy" ? createComponentId(packedV3Host) : undefined;
+  const packedV4ComponentId = workload === "component_heavy" ? createComponentId(packedV4Host) : undefined;
   return {
     directHost,
     packedHost,
     packedV3Host,
+    packedV4Host,
     packedEncoder: createPackedViewEncoder(),
     packedV3Encoder: createPackedV3Encoder(stringLane),
+    packedV4Encoder: createPackedV4Encoder(v4Utf8Writer, v4StringDedupe),
     directCounters: {},
     packedCounters: {},
     packedV3Counters: {},
+    packedV4Counters: {},
     directBase: workloadView(workload, size, directComponentId),
     packedBase: workloadView(workload, size, packedComponentId),
     packedV3Base: workloadView(workload, size, packedV3ComponentId),
+    packedV4Base: workloadView(workload, size, packedV4ComponentId),
     directShared: pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-direct") : undefined,
     packedShared: pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-packed") : undefined,
     packedV3Shared: pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-packed-v3") : undefined,
+    packedV4Shared: pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-packed-v4") : undefined,
     directComponentId,
     packedComponentId,
     packedV3ComponentId,
+    packedV4ComponentId,
   };
 }
 
@@ -620,18 +716,27 @@ function primePatchBases(pattern: Pattern, state: CaseState): void {
     state.packedHost.tuiPerfPackedRender(packedTransaction.words, packedTransaction.strings);
     state.packedEncoder.commitSuccessfulDefinitions();
   }
-  if (!candidates.includes("packed_v3")) return;
-  const host = state.packedV3Host;
-  const transactionEncoder = state.packedV3Encoder;
-  renderPackedV3View(
-    transactionEncoder,
-    state.packedV3Base!,
-    (words, bytes, strings) => {
-      if (stringLane === "strings") host.tuiPerfV3PackedRenderStrings!(words, strings);
-      else host.tuiPerfV3PackedRender!(words, bytes);
-    },
-    (generation, packedRef) => host.tuiPerfV3PackedRenderRef!(generation, packedRef),
-  );
+  if (candidates.includes("packed_v3")) {
+    const host = state.packedV3Host;
+    renderPackedV3View(
+      state.packedV3Encoder,
+      state.packedV3Base!,
+      (words, bytes, strings) => {
+        if (stringLane === "strings") host.tuiPerfV3PackedRenderStrings!(words, strings);
+        else host.tuiPerfV3PackedRender!(words, bytes);
+      },
+      (generation, packedRef) => host.tuiPerfV3PackedRenderRef!(generation, packedRef),
+    );
+  }
+  if (candidates.includes("packed_v4")) {
+    const host = state.packedV4Host;
+    renderPackedV4View(
+      state.packedV4Encoder,
+      state.packedV4Base!,
+      (words, bytes) => host.tuiPerfV4PackedRender!(words, bytes),
+      (generation, packedRef) => host.tuiPerfV4PackedRenderRef!(generation, packedRef),
+    );
+  }
 }
 
 function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern: Pattern, samples: readonly Sample[], state: CaseState, sha: string): void {
@@ -643,7 +748,7 @@ function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern:
   const native = samples.map((sample) => sample.native);
   const nodeCount = samples.find((sample) => sample.nodeCount > 0)?.nodeCount ?? size.nodes;
   const output = {
-    benchmark_version: "PERF-8",
+    benchmark_version: "PERF-9",
     candidate,
     workload,
     size: size.name,
@@ -652,9 +757,14 @@ function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern:
     git_sha: sha,
     git_dirty: gitDirty(),
     git_patch_sha256: gitDirty() ? gitPatchSha256() : undefined,
-    protocol_version: 2,
+    protocol_version: candidate === "packed_v4" ? 4 : candidate === "packed_v3" ? 2 : candidate === "packed" ? 1 : 0,
     bridge_schema_version: 1,
-    string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS",
+    string_lane: candidate === "packed_v4" ? "S1_UTF8_ARENA" : stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS",
+    configured_string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS",
+    utf8_writer: candidate === "packed_v4" ? v4Utf8Writer : candidate === "packed_v3" && stringLane === "utf8" ? "TextEncoder.encodeInto" : null,
+    string_dedupe_policy: candidate === "packed_v4" ? v4StringDedupe : candidate === "packed_v3" ? "D0_content_all" : null,
+    native_string_storage: candidate === "packed_v4" ? "R0_per_string_owned" : candidate === "packed_v3" ? "per_use_owned" : null,
+    slab_page_bytes: null,
     native_artifact_sha256: sha256("packages/iyon-runtime/native/iyon-native.node"),
     benchmark_source_sha256: sha256("packages/iyon-runtime/bench/tui_performance.ts"),
     warmup_iterations: warmupIterations,
@@ -682,7 +792,10 @@ function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern:
     native_bridge_cache_entries: samples.length === 0 ? 0 : samples[samples.length - 1]!.nativeCacheSize,
     native_semantic_cache_entries: samples.length === 0 ? 0 : samples[samples.length - 1]!.nativeSemanticCacheSize,
     packed_slot_pages_peak: samples.reduce((peak, sample) => Math.max(peak, sample.nativePackedSlotPages), 0),
-    counters: candidate === "direct" ? state.directCounters : candidate === "packed" ? state.packedCounters : state.packedV3Counters,
+    counters: candidate === "direct" ? state.directCounters
+      : candidate === "packed" ? state.packedCounters
+        : candidate === "packed_v3" ? state.packedV3Counters
+          : state.packedV4Counters,
     bun_version: Bun.version,
     rustc_version: runtimeVersion("rustc --version"),
     target: `${process.platform}-${process.arch}`,
@@ -704,12 +817,14 @@ function runCase(workload: Workload, size: Size, pattern: Pattern, sha: string):
   primePatchBases(pattern, state);
   resetPackedEncoderCounters();
   resetPackedV3Counters();
+  resetPackedV4Counters();
   perfNative.tuiPerfReset?.();
   for (let index = 0; index < warmupIterations; index += 1) {
     for (const candidate of candidateOrder(index)) runSample(candidate, pattern, workload, size.nodes, index, state, true);
   }
   resetPackedEncoderCounters();
   resetPackedV3Counters();
+  resetPackedV4Counters();
   perfNative.tuiPerfReset?.();
   const samples = new Map<Candidate, Sample[]>(candidates.map((candidate) => [candidate, []]));
   const sampleCount = measurementCount(pattern);
@@ -720,6 +835,7 @@ function runCase(workload: Workload, size: Size, pattern: Pattern, sha: string):
   state.directHost.dispose();
   state.packedHost.dispose();
   state.packedV3Host.dispose();
+  state.packedV4Host.dispose();
 }
 
 function runSyntheticTrace(sha: string): void {
@@ -729,6 +845,7 @@ function runSyntheticTrace(sha: string): void {
   const totals = new Map<Candidate, number[]>(candidates.map((candidate) => [candidate, []]));
   resetPackedEncoderCounters();
   resetPackedV3Counters();
+  resetPackedV4Counters();
   perfNative.tuiPerfReset?.();
   for (let index = 0; index < 1_000; index += 1) {
     const traceSlot = index % 50;
@@ -741,7 +858,7 @@ function runSyntheticTrace(sha: string): void {
           : "COLD";
     for (const candidate of candidateOrder(index)) totals.get(candidate)!.push(runSample(candidate, mode, workload, size.nodes, index, state, false).total);
   }
-  const output: Record<string, unknown> = { benchmark_version: "PERF-8", benchmark: "synthetic_trace", synthetic_trace: true, mix: "70% LARGE_SHARED_SUBTREE_CUTOFF, 20% IDENTICAL_IDENTITY, 8% REBUILT_EQUIVALENT, 2% COLD", git_sha: sha, git_dirty: gitDirty(), git_patch_sha256: gitDirty() ? gitPatchSha256() : undefined, protocol_version: 2, bridge_schema_version: 1, string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS", native_artifact_sha256: sha256("packages/iyon-runtime/native/iyon-native.node"), benchmark_source_sha256: sha256("packages/iyon-runtime/bench/tui_performance.ts") };
+  const output: Record<string, unknown> = { benchmark_version: "PERF-9", benchmark: "synthetic_trace", synthetic_trace: true, mix: "70% LARGE_SHARED_SUBTREE_CUTOFF, 20% IDENTICAL_IDENTITY, 8% REBUILT_EQUIVALENT, 2% COLD", git_sha: sha, git_dirty: gitDirty(), git_patch_sha256: gitDirty() ? gitPatchSha256() : undefined, protocol_version: 4, bridge_schema_version: 1, string_lane: "S1_UTF8_ARENA", configured_string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS", utf8_writer: v4Utf8Writer, string_dedupe_policy: v4StringDedupe, native_string_storage: "R0_per_string_owned", slab_page_bytes: null, native_artifact_sha256: sha256("packages/iyon-runtime/native/iyon-native.node"), benchmark_source_sha256: sha256("packages/iyon-runtime/bench/tui_performance.ts") };
   for (const candidate of candidates) {
     const values = totals.get(candidate)!;
     output[`${candidate}_total_commit_ns`] = values.reduce((sum, value) => sum + value, 0);
