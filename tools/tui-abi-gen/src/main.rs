@@ -1,0 +1,288 @@
+mod model;
+mod render_header;
+mod render_manifest;
+mod render_rust;
+mod render_typescript;
+mod validate;
+
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
+
+use cargo_metadata::MetadataCommand;
+use clap::{Parser, Subcommand};
+use thiserror::Error;
+
+use crate::{model::ModelError, validate::ValidationError};
+
+const DEFAULT_SCHEMA: &str = "tools/tui-abi/view_abi.toml";
+const BRIDGE_SCHEMA: &str = "packages/iyon-runtime/src/tui/bridge-schema.json";
+const GENERATOR_OUTPUTS: &[&str] = &[
+    "crates/iyon-native/src/generated/view_abi_types.rs",
+    "crates/iyon-native/src/generated/view_abi_exports.rs",
+    "crates/iyon-native/src/generated/view_abi_table.rs",
+    "crates/iyon-native/include/iyon_view_abi.h",
+    "packages/iyon-runtime/src/tui/generated/view_abi.ts",
+    "packages/iyon-runtime/src/tui/generated/view_calls.ts",
+    "packages/iyon-runtime/src/tui/generated/view_abi_manifest.json",
+    "packages/iyon-runtime/tests/generated/view_abi_layout.test.ts",
+    "packages/iyon-runtime/bench/generated/view_abi_cases.ts",
+    "crates/iyon-native/tests/generated_view_abi.rs",
+    "PERF-11-generated-abi-reference.md",
+];
+
+#[derive(Debug, Parser)]
+#[command(name = "tui-abi-gen", about = "Generate the Bun 1.4 native View ABI")]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    Generate {
+        #[arg(long)]
+        input: Option<PathBuf>,
+        #[arg(long)]
+        output_root: Option<PathBuf>,
+    },
+    Check {
+        #[arg(long)]
+        input: Option<PathBuf>,
+        #[arg(long)]
+        output_root: Option<PathBuf>,
+    },
+    PrintManifest {
+        #[arg(long)]
+        input: Option<PathBuf>,
+    },
+    Explain {
+        function: String,
+        #[arg(long)]
+        input: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Error)]
+enum GeneratorError {
+    #[error("unable to resolve the Cargo workspace: {0}")]
+    Metadata(#[from] cargo_metadata::Error),
+    #[error(transparent)]
+    Model(#[from] ModelError),
+    #[error(transparent)]
+    Validation(#[from] ValidationError),
+    #[error("I/O error at {path}: {source}")]
+    Io {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("stale generated output: {0}")]
+    Stale(String),
+    #[error("unknown ABI function {0}")]
+    UnknownFunction(String),
+}
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{}", miette::miette!("{error}"));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<(), GeneratorError> {
+    let cli = Cli::parse();
+    let workspace = workspace_root()?;
+    match cli.command {
+        Command::Generate { input, output_root } => {
+            let schema = input.unwrap_or_else(|| workspace.join(DEFAULT_SCHEMA));
+            let root = output_root.unwrap_or_else(|| workspace.clone());
+            write_outputs(&root, &render_outputs(&workspace, &schema)?)
+        }
+        Command::Check { input, output_root } => {
+            let schema = input.unwrap_or_else(|| workspace.join(DEFAULT_SCHEMA));
+            let root = output_root.unwrap_or_else(|| workspace.clone());
+            check_outputs(&root, &render_outputs(&workspace, &schema)?)
+        }
+        Command::PrintManifest { input } => {
+            let schema = input.unwrap_or_else(|| workspace.join(DEFAULT_SCHEMA));
+            let outputs = render_outputs(&workspace, &schema)?;
+            let manifest = outputs
+                .get("packages/iyon-runtime/src/tui/generated/view_abi_manifest.json")
+                .expect("manifest is an authoritative generated output");
+            print!("{manifest}");
+            Ok(())
+        }
+        Command::Explain { function, input } => {
+            let schema = input.unwrap_or_else(|| workspace.join(DEFAULT_SCHEMA));
+            let (document, _) = model::load(&schema)?;
+            let function_spec = document
+                .functions
+                .iter()
+                .find(|item| item.name == function)
+                .ok_or(GeneratorError::UnknownFunction(function))?;
+            println!(
+                "name: {}\nfamily: {}\nhotness: {}\nimplementation: {}\nfallback: {}\nreturn: {}",
+                function_spec.name,
+                function_spec.family,
+                function_spec.hotness,
+                function_spec.implementation,
+                function_spec.fallback,
+                function_spec.return_type
+            );
+            for argument in &function_spec.args {
+                println!(
+                    "arg {}: {} ({})",
+                    argument.name, argument.type_name, argument.lowering
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+fn workspace_root() -> Result<PathBuf, GeneratorError> {
+    let metadata = MetadataCommand::new().no_deps().exec()?;
+    Ok(metadata.workspace_root.into_std_path_buf())
+}
+
+fn render_outputs(
+    workspace: &Path,
+    schema_path: &Path,
+) -> Result<BTreeMap<String, String>, GeneratorError> {
+    let (document, schema_source) = model::load(schema_path)?;
+    let bridge_path = workspace.join(BRIDGE_SCHEMA);
+    let bridge_schema = model::load_bridge_schema(&bridge_path)?;
+    validate::validate(&document, &bridge_schema)?;
+    let schema_hash = blake3::hash(schema_source.as_bytes()).to_hex().to_string();
+    let generator_hash = render_manifest::generator_hash();
+    let output_paths: Vec<&str> = GENERATOR_OUTPUTS.to_vec();
+    let mut outputs = BTreeMap::new();
+    outputs.insert(
+        GENERATOR_OUTPUTS[0].to_owned(),
+        render_rust::types(&document, &bridge_schema, &schema_hash, &generator_hash),
+    );
+    outputs.insert(
+        GENERATOR_OUTPUTS[1].to_owned(),
+        render_rust::exports(&document, &schema_hash, &generator_hash),
+    );
+    outputs.insert(
+        GENERATOR_OUTPUTS[2].to_owned(),
+        render_rust::table(&document, &schema_hash, &generator_hash),
+    );
+    outputs.insert(
+        GENERATOR_OUTPUTS[3].to_owned(),
+        render_header::header(&document, &bridge_schema, &schema_hash, &generator_hash),
+    );
+    outputs.insert(
+        GENERATOR_OUTPUTS[4].to_owned(),
+        render_typescript::abi_bindings(&document, &schema_hash, &generator_hash),
+    );
+    outputs.insert(
+        GENERATOR_OUTPUTS[5].to_owned(),
+        render_typescript::calls(&document, &schema_hash, &generator_hash),
+    );
+    outputs.insert(
+        GENERATOR_OUTPUTS[6].to_owned(),
+        render_manifest::manifest(&document, &schema_hash, &generator_hash, &output_paths),
+    );
+    outputs.insert(
+        GENERATOR_OUTPUTS[7].to_owned(),
+        render_typescript::layout_test(&document, &schema_hash, &generator_hash),
+    );
+    outputs.insert(
+        GENERATOR_OUTPUTS[8].to_owned(),
+        render_typescript::benchmark_registry(&document, &schema_hash, &generator_hash),
+    );
+    outputs.insert(
+        GENERATOR_OUTPUTS[9].to_owned(),
+        render_rust::layout_tests(&document, &schema_hash, &generator_hash),
+    );
+    outputs.insert(
+        GENERATOR_OUTPUTS[10].to_owned(),
+        render_manifest::human_reference(&document, &schema_hash, &generator_hash),
+    );
+    Ok(outputs)
+}
+
+fn write_outputs(root: &Path, outputs: &BTreeMap<String, String>) -> Result<(), GeneratorError> {
+    for (relative_path, content) in outputs {
+        let path = root.join(relative_path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|source| GeneratorError::Io {
+                path: parent.display().to_string(),
+                source,
+            })?;
+        }
+        fs::write(&path, content).map_err(|source| GeneratorError::Io {
+            path: path.display().to_string(),
+            source,
+        })?;
+    }
+    Ok(())
+}
+
+fn check_outputs(root: &Path, outputs: &BTreeMap<String, String>) -> Result<(), GeneratorError> {
+    let temporary = tempfile::tempdir().map_err(|source| GeneratorError::Io {
+        path: "temporary generator output".to_owned(),
+        source,
+    })?;
+    write_outputs(temporary.path(), outputs)?;
+    for relative_path in outputs.keys() {
+        let expected_path = temporary.path().join(relative_path);
+        let actual_path = root.join(relative_path);
+        let expected = fs::read_to_string(&expected_path).map_err(|source| GeneratorError::Io {
+            path: expected_path.display().to_string(),
+            source,
+        })?;
+        let actual = match fs::read_to_string(&actual_path) {
+            Ok(value) => value,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(GeneratorError::Stale(relative_path.clone()));
+            }
+            Err(source) => {
+                return Err(GeneratorError::Io {
+                    path: actual_path.display().to_string(),
+                    source,
+                });
+            }
+        };
+        if actual != expected {
+            return Err(GeneratorError::Stale(relative_path.clone()));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_schema_renders_all_tranche_one_outputs() {
+        let workspace = workspace_root().expect("workspace metadata");
+        let schema = workspace.join(DEFAULT_SCHEMA);
+        let outputs = render_outputs(&workspace, &schema).expect("canonical schema validates");
+        assert_eq!(outputs.len(), GENERATOR_OUTPUTS.len());
+        assert!(outputs.contains_key("crates/iyon-native/src/generated/view_abi_types.rs"));
+        insta::assert_snapshot!(
+            outputs
+                .get("packages/iyon-runtime/src/tui/generated/view_abi_manifest.json")
+                .expect("manifest output")
+        );
+    }
+
+    #[test]
+    fn generated_output_paths_are_unique() {
+        let unique = GENERATOR_OUTPUTS
+            .iter()
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(unique.len(), GENERATOR_OUTPUTS.len());
+    }
+}

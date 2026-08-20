@@ -65,6 +65,12 @@ export interface NativeAddon {
   echoString(value: string): string;
   echoBuffer(value: Buffer): Buffer;
   tuiSmoke(): string;
+  tuiPerfAbiProbe?(): {
+    noop_ptr: number;
+    u32_8_ptr: number;
+    buffer_ptr: number;
+    cstring_ptr: number;
+  };
   tuiViewBridgeEnvironmentCount(): number;
   asyncSleep(ms: number): Promise<string>;
   CancellationProbe: new () => CancellationProbeContract;

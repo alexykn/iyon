@@ -57,7 +57,7 @@ const OP_PATCH_DECORATION = 17;
 const OP_PATCH_AXIS = 18;
 const OP_PATCH_GRID = 19;
 const FAST_CACHE_MISS = 1;
-const FAST_SUPPORTED_BUN_VERSION = "1.3.11";
+const FAST_SUPPORTED_BUN_VERSION = "1.4.0";
 
 export type FastSharedAbiPage = { readonly id: number; readonly ptr: number; readonly bytes: number };
 export type FastSharedAbi = {
