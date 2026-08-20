@@ -20,6 +20,13 @@ use iyon_tui::{
 use serde_json::Map;
 use serde_json::Value;
 
+mod generated_view_abi_conformance {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/generated/view_abi_conformance.rs"
+    ));
+}
+
 macro_rules! tui_perf_inc {
     ($counter:ident) => {
         #[cfg(feature = "perf-counters")]
@@ -104,6 +111,22 @@ pub fn tui_perf_abi_probe() -> Value {
         "i32_4_ptr": iyon_abi_probe_i32_4 as *const () as usize as u64,
         "buffer_ptr": iyon_abi_probe_buffer as *const () as usize as u64,
         "cstring_ptr": iyon_abi_probe_cstring as *const () as usize as u64,
+    })
+}
+
+#[napi(js_name = "tuiPerfAbiConformanceProbe")]
+pub fn tui_perf_abi_conformance_probe() -> Value {
+    serde_json::json!({
+        "u8_8": generated_view_abi_conformance::iyon_abi_conformance_u8_8_v1 as *const () as usize as u64,
+        "u16_8": generated_view_abi_conformance::iyon_abi_conformance_u16_8_v1 as *const () as usize as u64,
+        "u32_8": generated_view_abi_conformance::iyon_abi_conformance_u32_8_v1 as *const () as usize as u64,
+        "u32_16": generated_view_abi_conformance::iyon_abi_conformance_u32_16_v1 as *const () as usize as u64,
+        "i32_4": generated_view_abi_conformance::iyon_abi_conformance_i32_4_v1 as *const () as usize as u64,
+        "f32_4": generated_view_abi_conformance::iyon_abi_conformance_f32_4_v1 as *const () as usize as u64,
+        "f64_4": generated_view_abi_conformance::iyon_abi_conformance_f64_4_v1 as *const () as usize as u64,
+        "pointer": generated_view_abi_conformance::iyon_abi_conformance_pointer_v1 as *const () as usize as u64,
+        "buffer": generated_view_abi_conformance::iyon_abi_conformance_buffer_v1 as *const () as usize as u64,
+        "cstring": generated_view_abi_conformance::iyon_abi_conformance_cstring_v1 as *const () as usize as u64,
     })
 }
 

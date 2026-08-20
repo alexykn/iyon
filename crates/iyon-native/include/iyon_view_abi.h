@@ -1,6 +1,6 @@
 /* DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. */
-/* schema_blake3 = 99cb1472686316689de8d738c78dffa5c60e460d5849a235512a038af55c89e3 */
-/* generator_blake3 = c4ab26c23fac3bc43c5b8a4b6c75ca3ba1d79b78b4af58ab322f8fef5d9b6601 */
+/* schema_blake3 = d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951 */
+/* generator_blake3 = 96ec2f1ad0ee36f4d1f5352aeac7f6eb649dbfef93482a946523580365c505f9 */
 #ifndef IYON_VIEW_ABI_H
 #define IYON_VIEW_ABI_H
 
@@ -46,5 +46,25 @@ uint32_t iyon_view_common_patch_root_v1(NativeViewRuntime * runtime, uint32_t ba
 uint32_t iyon_view_axis_create_buffer_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t axis_kind, uint32_t gap, const AxisChildInputV1 * children, size_t children_capacity_bytes, uint32_t used_child_count);
 
 int32_t iyon_view_release_many_v1(NativeViewRuntime * runtime, const uint32_t * refs, size_t refs_capacity_bytes, uint32_t used_ref_count);
+
+uint32_t iyon_abi_conformance_u8_8_v1(uint8_t a0, uint8_t a1, uint8_t a2, uint8_t a3, uint8_t a4, uint8_t a5, uint8_t a6, uint8_t a7);
+
+uint32_t iyon_abi_conformance_u16_8_v1(uint16_t a0, uint16_t a1, uint16_t a2, uint16_t a3, uint16_t a4, uint16_t a5, uint16_t a6, uint16_t a7);
+
+uint32_t iyon_abi_conformance_u32_8_v1(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5, uint32_t a6, uint32_t a7);
+
+uint32_t iyon_abi_conformance_u32_16_v1(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5, uint32_t a6, uint32_t a7, uint32_t a8, uint32_t a9, uint32_t a10, uint32_t a11, uint32_t a12, uint32_t a13, uint32_t a14, uint32_t a15);
+
+int32_t iyon_abi_conformance_i32_4_v1(int32_t a0, int32_t a1, int32_t a2, int32_t a3);
+
+float iyon_abi_conformance_f32_4_v1(float a0, float a1, float a2, float a3);
+
+double iyon_abi_conformance_f64_4_v1(double a0, double a1, double a2, double a3);
+
+uint32_t iyon_abi_conformance_pointer_v1(void * a0);
+
+uint32_t iyon_abi_conformance_buffer_v1(const uint8_t * a0, size_t a1);
+
+uint32_t iyon_abi_conformance_cstring_v1(const char * a0);
 
 #endif /* IYON_VIEW_ABI_H */

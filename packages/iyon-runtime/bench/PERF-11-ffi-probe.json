@@ -4,16 +4,28 @@
   "bun_revision": "34cbb9a40b4bd1bd767d134a7065e66c2432a676",
   "bun_cli_revision": "34cbb9a40b4bd1bd767d134a7065e66c2432a676",
   "target": "darwin-arm64",
-  "native_artifact_sha256": "637ccf6720726486b2c3cd789288e52f2ed5701d789673cf516afe2bed266e37",
+  "native_artifact_sha256": "28598f95a720d0963aa8f117a846101f92734f3605c466a51a8365e710cd206e",
+  "schema_blake3": "d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951",
+  "generator_blake3": "96ec2f1ad0ee36f4d1f5352aeac7f6eb649dbfef93482a946523580365c505f9",
+  "conformance_function_count": 10,
   "pointer_source": "loaded iyon-native N-API image",
   "link_symbols": true,
   "c_function": true,
   "jit_enabled": true,
-  "noop_average_ns": 3.6689082,
+  "noop_average_ns": 4.7255002,
   "noop_sub_5ns": true,
   "u32_8_position_weighted_signature": "pass",
   "i32_4_position_weighted_signature": "pass",
   "buffer_length_same_typed_array": "pass",
   "cstring_utf8": "pass",
-  "invalid_signature_guard": "position-weighted ABI conformance plus generator schema validation"
+  "generated_conformance": {
+    "unsigned_scalars": "pass",
+    "signed_scalar": "pass",
+    "floating_scalars": "pass",
+    "maximum_arity": "pass",
+    "pointer": "pass",
+    "buffer_length": "pass",
+    "cstring_utf8": "pass"
+  },
+  "invalid_signature_guard": "generated wrapper failure tests plus generator schema validation"
 }

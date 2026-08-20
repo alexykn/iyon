@@ -1,11 +1,11 @@
-<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = 99cb1472686316689de8d738c78dffa5c60e460d5849a235512a038af55c89e3; generator_blake3 = c4ab26c23fac3bc43c5b8a4b6c75ca3ba1d79b78b4af58ab322f8fef5d9b6601 -->
+<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951; generator_blake3 = 96ec2f1ad0ee36f4d1f5352aeac7f6eb649dbfef93482a946523580365c505f9 -->
 
 # PERF-11 generated ABI reference
 
 > This file is generated. Do not edit it directly.
 
-- Schema BLAKE3: `99cb1472686316689de8d738c78dffa5c60e460d5849a235512a038af55c89e3`
-- Generator BLAKE3: `c4ab26c23fac3bc43c5b8a4b6c75ca3ba1d79b78b4af58ab322f8fef5d9b6601`
+- Schema BLAKE3: `d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951`
+- Generator BLAKE3: `96ec2f1ad0ee36f4d1f5352aeac7f6eb649dbfef93482a946523580365c505f9`
 - ABI: `iyon_tui_view` v1
 - Semantic schema: v1
 - Minimum Bun: `1.4.0`
@@ -54,4 +54,19 @@
 | `view_common_patch_root` | `scalar_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 | `view_axis_create_buffer` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 | `view_release_many` | `lifecycle` | `cold` | `i32` | `none` | `owner_thread` | `false` | `false` |
+
+## ABI conformance fixtures
+
+| Name | Return | Operation | Arguments |
+|---|---|---|---|
+| `u8_8` | `u32` | `position_weighted_sum` | `u8, u8, u8, u8, u8, u8, u8, u8` |
+| `u16_8` | `u32` | `position_weighted_sum` | `u16, u16, u16, u16, u16, u16, u16, u16` |
+| `u32_8` | `u32` | `position_weighted_sum` | `u32, u32, u32, u32, u32, u32, u32, u32` |
+| `u32_16` | `u32` | `position_weighted_sum` | `u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32` |
+| `i32_4` | `i32` | `position_weighted_sum` | `i32, i32, i32, i32` |
+| `f32_4` | `f32` | `position_weighted_sum` | `f32, f32, f32, f32` |
+| `f64_4` | `f64` | `position_weighted_sum` | `f64, f64, f64, f64` |
+| `pointer` | `u32` | `pointer_probe` | `ptr` |
+| `buffer` | `u32` | `buffer_probe` | `buffer, buffer_length` |
+| `cstring` | `u32` | `cstring_hash` | `cstring` |
 

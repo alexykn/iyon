@@ -23,9 +23,11 @@ const BRIDGE_SCHEMA: &str = "packages/iyon-runtime/src/tui/bridge-schema.json";
 const GENERATOR_OUTPUTS: &[&str] = &[
     "crates/iyon-native/src/generated/view_abi_types.rs",
     "crates/iyon-native/src/generated/view_abi_exports.rs",
+    "crates/iyon-native/src/generated/view_abi_conformance.rs",
     "crates/iyon-native/src/generated/view_abi_table.rs",
     "crates/iyon-native/include/iyon_view_abi.h",
     "packages/iyon-runtime/src/tui/generated/view_abi.ts",
+    "packages/iyon-runtime/src/tui/generated/view_abi_conformance.ts",
     "packages/iyon-runtime/src/tui/generated/view_calls.ts",
     "packages/iyon-runtime/src/tui/generated/view_abi_manifest.json",
     "packages/iyon-runtime/tests/generated/view_abi_layout.test.ts",
@@ -194,38 +196,46 @@ fn render_outputs(
     );
     outputs.insert(
         GENERATOR_OUTPUTS[2].to_owned(),
-        render_rust::table(&document, &schema_hash, &generator_hash),
+        render_rust::conformance(&document, &schema_hash, &generator_hash),
     );
     outputs.insert(
         GENERATOR_OUTPUTS[3].to_owned(),
-        render_header::header(&document, &bridge_schema, &schema_hash, &generator_hash),
+        render_rust::table(&document, &schema_hash, &generator_hash),
     );
     outputs.insert(
         GENERATOR_OUTPUTS[4].to_owned(),
-        render_typescript::abi_bindings(&document, &schema_hash, &generator_hash),
+        render_header::header(&document, &bridge_schema, &schema_hash, &generator_hash),
     );
     outputs.insert(
         GENERATOR_OUTPUTS[5].to_owned(),
-        render_typescript::calls(&document, &schema_hash, &generator_hash),
+        render_typescript::abi_bindings(&document, &schema_hash, &generator_hash),
     );
     outputs.insert(
         GENERATOR_OUTPUTS[6].to_owned(),
-        render_manifest::manifest(&document, &schema_hash, &generator_hash, &output_paths),
+        render_typescript::conformance_bindings(&document, &schema_hash, &generator_hash),
     );
     outputs.insert(
         GENERATOR_OUTPUTS[7].to_owned(),
-        render_typescript::layout_test(&document, &schema_hash, &generator_hash),
+        render_typescript::calls(&document, &schema_hash, &generator_hash),
     );
     outputs.insert(
         GENERATOR_OUTPUTS[8].to_owned(),
-        render_typescript::benchmark_registry(&document, &schema_hash, &generator_hash),
+        render_manifest::manifest(&document, &schema_hash, &generator_hash, &output_paths),
     );
     outputs.insert(
         GENERATOR_OUTPUTS[9].to_owned(),
-        render_rust::layout_tests(&document, &schema_hash, &generator_hash),
+        render_typescript::layout_test(&document, &schema_hash, &generator_hash),
     );
     outputs.insert(
         GENERATOR_OUTPUTS[10].to_owned(),
+        render_typescript::benchmark_registry(&document, &schema_hash, &generator_hash),
+    );
+    outputs.insert(
+        GENERATOR_OUTPUTS[11].to_owned(),
+        render_rust::layout_tests(&document, &schema_hash, &generator_hash),
+    );
+    outputs.insert(
+        GENERATOR_OUTPUTS[12].to_owned(),
         render_manifest::human_reference(&document, &schema_hash, &generator_hash),
     );
     Ok(outputs)
@@ -359,6 +369,17 @@ mod tests {
             .find(|argument| argument.lowering == "buffer_length")
             .expect("canonical buffer length");
         length.buffer_length_of = None;
+        assert!(validate::validate(&document, &bridge).is_err());
+    }
+
+    #[test]
+    fn validation_rejects_invalid_conformance_signature() {
+        let workspace = workspace_root().expect("workspace metadata");
+        let schema = workspace.join(DEFAULT_SCHEMA);
+        let (mut document, _, _) = model::load(&schema).expect("canonical schema parses");
+        let bridge = model::load_bridge_schema(&workspace.join(BRIDGE_SCHEMA))
+            .expect("bridge schema parses");
+        document.conformance[0].args[0] = "i32".to_owned();
         assert!(validate::validate(&document, &bridge).is_err());
     }
 }

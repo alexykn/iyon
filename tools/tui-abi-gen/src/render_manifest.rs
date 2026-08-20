@@ -186,6 +186,18 @@ pub fn manifest(
             })
         })
         .collect();
+    let conformance: Vec<Value> = document
+        .conformance
+        .iter()
+        .map(|spec| {
+            json!({
+                "name": spec.name,
+                "return": spec.return_type,
+                "operation": spec.operation,
+                "args": spec.args,
+            })
+        })
+        .collect();
     let value = json!({
         "abi": {
             "name": document.abi.name,
@@ -201,6 +213,7 @@ pub fn manifest(
         "enums": enums,
         "pods": document.pods,
         "functions": functions,
+        "conformance": conformance,
         "generated_outputs": output_paths,
     });
     serde_json::to_string_pretty(&value).expect("ABI manifest is serializable") + "\n"
@@ -253,6 +266,16 @@ pub fn human_reference(document: &AbiDocument, schema_hash: &str, generator_hash
             function.thread_affinity,
             function.may_allocate_native_memory,
             function.mutates_host_state
+        ));
+    }
+    output.push_str("\n## ABI conformance fixtures\n\n| Name | Return | Operation | Arguments |\n|---|---|---|---|\n");
+    for spec in &document.conformance {
+        output.push_str(&format!(
+            "| `{}` | `{}` | `{}` | `{}` |\n",
+            spec.name,
+            spec.return_type,
+            spec.operation,
+            spec.args.join(", ")
         ));
     }
     output.push_str("\n");

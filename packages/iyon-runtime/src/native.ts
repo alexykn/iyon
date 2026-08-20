@@ -68,8 +68,21 @@ export interface NativeAddon {
   tuiPerfAbiProbe?(): {
     noop_ptr: number;
     u32_8_ptr: number;
+    i32_4_ptr: number;
     buffer_ptr: number;
     cstring_ptr: number;
+  };
+  tuiPerfAbiConformanceProbe?(): {
+    u8_8: number;
+    u16_8: number;
+    u32_8: number;
+    u32_16: number;
+    i32_4: number;
+    f32_4: number;
+    f64_4: number;
+    pointer: number;
+    buffer: number;
+    cstring: number;
   };
   tuiViewBridgeEnvironmentCount(): number;
   asyncSleep(ms: number): Promise<string>;

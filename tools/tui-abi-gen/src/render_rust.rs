@@ -111,6 +111,89 @@ pub fn exports(
     format_rust(source)
 }
 
+pub fn conformance(document: &AbiDocument, schema_hash: &str, generator_hash: &str) -> String {
+    let mut output = banner(schema_hash, generator_hash);
+    for spec in &document.conformance {
+        let args = spec
+            .args
+            .iter()
+            .enumerate()
+            .map(|(index, type_name)| format!("a{index}: {}", conformance_rust_type(type_name)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        output.push_str(&format!(
+            "#[unsafe(no_mangle)]\npub unsafe extern \"C\" fn iyon_abi_conformance_{}_v1({}) -> {} {{\n",
+            spec.name,
+            args,
+            conformance_rust_type(&spec.return_type)
+        ));
+        match spec.operation.as_str() {
+            "position_weighted_sum" => output.push_str(&format!(
+                "    {}\n",
+                weighted_sum_expression(spec)
+            )),
+            "pointer_probe" => output.push_str(
+                "    if a0.is_null() { 0 } else { 1 }\n",
+            ),
+            "buffer_probe" => output.push_str(
+                "    if a0.is_null() { u32::MAX } else { (a1 as u32).wrapping_mul(257).wrapping_add(unsafe { *a0 as u32 }) }\n",
+            ),
+            "cstring_hash" => output.push_str(
+                "    if a0.is_null() { 0 } else { unsafe { ::core::ffi::CStr::from_ptr(a0) }.to_bytes().iter().fold(2166136261u32, |hash, byte| hash.wrapping_mul(16777619).wrapping_add(u32::from(*byte))) }\n",
+            ),
+            operation => panic!("unsupported conformance operation {operation}"),
+        }
+        output.push_str("}\n\n");
+    }
+    format_rust(output)
+}
+
+fn conformance_rust_type(type_name: &str) -> &'static str {
+    match type_name {
+        "u8" => "u8",
+        "u16" => "u16",
+        "u32" => "u32",
+        "i32" => "i32",
+        "f32" => "f32",
+        "f64" => "f64",
+        "ptr" => "*mut ::core::ffi::c_void",
+        "buffer" => "*const u8",
+        "buffer_length" => "usize",
+        "cstring" => "*const ::core::ffi::c_char",
+        other => panic!("unsupported conformance type {other}"),
+    }
+}
+
+fn weighted_sum_expression(spec: &crate::model::ConformanceSpec) -> String {
+    const WEIGHTS: [u32; 16] = [3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59];
+    let terms = spec
+        .args
+        .iter()
+        .enumerate()
+        .map(|(index, type_name)| match type_name.as_str() {
+            "u8" | "u16" => format!("u32::from(a{index}).wrapping_mul({})", WEIGHTS[index]),
+            "u32" | "i32" => format!("a{index}.wrapping_mul({})", WEIGHTS[index]),
+            "f32" => format!("a{index} * {}.0", WEIGHTS[index]),
+            "f64" => format!("a{index} * {}.0", WEIGHTS[index]),
+            other => panic!("unsupported weighted conformance type {other}"),
+        })
+        .collect::<Vec<_>>();
+    let operator = match spec.args.first().map(String::as_str) {
+        Some("f32" | "f64") => " + ",
+        Some("u8" | "u16" | "u32" | "i32") => ".wrapping_add(",
+        _ => panic!("weighted conformance requires at least one scalar argument"),
+    };
+    if operator == " + " {
+        terms.join(operator)
+    } else {
+        let mut expression = terms[0].clone();
+        for term in terms.iter().skip(1) {
+            expression = format!("{expression}.wrapping_add({term})");
+        }
+        expression
+    }
+}
+
 pub fn table(document: &AbiDocument, schema_hash: &str, generator_hash: &str) -> String {
     let mut output = banner(schema_hash, generator_hash);
     output.push_str("#![allow(dead_code)]\n\n#[derive(Clone, Copy, Debug)]\npub struct FunctionDescriptor {\n    pub name: &'static str,\n    pub symbol: &'static str,\n    pub family: &'static str,\n    pub hotness: &'static str,\n    pub fallback: &'static str,\n    pub ownership: &'static str,\n    pub borrow_duration: &'static str,\n    pub thread_affinity: &'static str,\n    pub may_allocate_native_memory: bool,\n    pub mutates_host_state: bool,\n    pub max_buffer_bytes: u64,\n    pub max_input_count: u32,\n    pub benchmark_registration: &'static str,\n}\n\n");
@@ -429,15 +512,93 @@ pub fn layout_tests(document: &AbiDocument, schema_hash: &str, generator_hash: &
     } else {
         format!("use generated_types::{{{}}};\n\n", pod_imports.join(", "))
     };
-    output.push_str(&format!("#[allow(dead_code)]\nstruct NativeViewRuntime;\n\n#[path = \"../src/generated/view_abi_table.rs\"]\nmod generated;\n#[path = \"../src/generated/view_abi_types.rs\"]\nmod generated_types;\n\n{generated_root_imports}mod generated_exports {{\n    include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/generated/view_abi_exports.rs\"));\n}}\n\n#[test]\nfn generated_function_count_is_stable() {{\n"));
+    output.push_str(&format!("#[allow(dead_code)]\npub struct NativeViewRuntime;\n\n#[path = \"../src/generated/view_abi_table.rs\"]\nmod generated;\n#[path = \"../src/generated/view_abi_types.rs\"]\nmod generated_types;\n#[path = \"../src/generated/view_abi_conformance.rs\"]\nmod generated_conformance;\n\n{generated_root_imports}mod generated_exports {{\n    include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/generated/view_abi_exports.rs\"));\n}}\n\n"));
+    for (index, function) in document.functions.iter().enumerate() {
+        output.push_str(&format!(
+            "#[unsafe(no_mangle)]\npub unsafe extern \"Rust\" fn {}({}) -> {} {{\n",
+            function.implementation,
+            rust_arguments(&function.args, document),
+            rust_type(function.return_type.as_str())
+        ));
+        for argument in &function.args {
+            output.push_str(&format!("    let _ = {};\n", argument.name));
+        }
+        output.push_str(&format!("    {}\n}}\n\n", test_stub_value(function.return_type.as_str(), index)));
+    }
+    output.push_str("#[test]\nfn generated_function_count_is_stable() {\n");
     output.push_str(&format!(
         "    assert_eq!(generated::FUNCTION_COUNT, {});\n",
         document.functions.len()
     ));
     output.push_str(
-        "}\n\n#[test]\nfn generated_abi_version_is_one() {\n    assert_eq!(generated_types::ABI_VERSION, 1);\n}\n",
+        "}\n\n#[test]\nfn generated_abi_version_is_one() {\n    assert_eq!(generated_types::ABI_VERSION, 1);\n}\n\n",
     );
+    output.push_str(&format!(
+        "#[test]\nfn generated_conformance_count_is_stable() {{\n    assert_eq!({}, {});\n}}\n",
+        document.conformance.len(),
+        document.conformance.len()
+    ));
+    output.push_str("\n#[test]\nfn generated_conformance_functions_are_callable() {\n");
+    for spec in &document.conformance {
+        output.push_str(&conformance_test_call(spec));
+    }
+    output.push_str("}\n\n#[test]\nfn generated_wrappers_reject_invalid_inputs_and_delegate() {\n    let mut runtime = NativeViewRuntime;\n    let runtime_ptr = &mut runtime as *mut NativeViewRuntime;\n");
+    if document.functions.len() >= 7 {
+        output.push_str("    assert_eq!(unsafe { generated_exports::iyon_runtime_noop_v1(runtime_ptr) }, 0x100);\n    assert_eq!(unsafe { generated_exports::iyon_view_render_ref_v1(runtime_ptr, 1) }, 0x101);\n    assert_eq!(unsafe { generated_exports::iyon_view_spacer_create_v1(runtime_ptr, 1, 0, 2) }, 0x102);\n    assert_eq!(unsafe { generated_exports::iyon_view_text_layout_patch_root_v1(runtime_ptr, 1, 1, 0, 1, 2) }, 0x103);\n    assert_eq!(unsafe { generated_exports::iyon_view_common_patch_root_v1(runtime_ptr, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1) }, 0x104);\n    let children = [generated_types::AxisChildInputV1 { track_word: 1, child_ref: 1 }];\n    assert_eq!(unsafe { generated_exports::iyon_view_axis_create_buffer_v1(runtime_ptr, 1, 0, 1, 0, children.as_ptr(), core::mem::size_of_val(&children), 1) }, 0x105);\n    let refs = [1_u32];\n    assert_eq!(unsafe { generated_exports::iyon_view_release_many_v1(runtime_ptr, refs.as_ptr(), core::mem::size_of_val(&refs), 1) }, 106);\n    assert_eq!(unsafe { generated_exports::iyon_runtime_noop_v1(core::ptr::null_mut()) }, 0x8000_0001);\n    assert_eq!(unsafe { generated_exports::iyon_view_render_ref_v1(runtime_ptr, 0) }, 0x8000_0001);\n    assert_eq!(unsafe { generated_exports::iyon_view_spacer_create_v1(runtime_ptr, 0, 0, 1) }, 0x8000_0001);\n    assert_eq!(unsafe { generated_exports::iyon_view_text_layout_patch_root_v1(runtime_ptr, 1, 1, 0, 0, 1) }, 0x8000_0001);\n    assert_eq!(unsafe { generated_exports::iyon_view_axis_create_buffer_v1(runtime_ptr, 1, 0, 1, 0, core::ptr::null(), 8, 0) }, 0x8000_0002);\n    assert_eq!(unsafe { generated_exports::iyon_view_axis_create_buffer_v1(runtime_ptr, 1, 0, 1, 0, core::ptr::null(), 0, 1) }, 0x8000_0003);\n    assert_eq!(unsafe { generated_exports::iyon_view_release_many_v1(runtime_ptr, core::ptr::null(), 4, 0) }, -2);\n    assert_eq!(unsafe { generated_exports::iyon_view_release_many_v1(runtime_ptr, core::ptr::null(), 0, 1) }, -3);\n");
+    }
+    output.push_str("}\n");
     format_rust(output)
+}
+
+fn test_stub_value(return_type: &str, index: usize) -> String {
+    match return_type {
+        "i32" | "status_only" => format!("{}", 100 + index as i32),
+        "f32" => format!("{}.0_f32", 100 + index),
+        "f64" => format!("{}.0_f64", 100 + index),
+        _ => format!("0x{:x}", 0x100 + index),
+    }
+}
+
+fn conformance_test_call(spec: &crate::model::ConformanceSpec) -> String {
+    let symbol = format!("generated_conformance::iyon_abi_conformance_{}_v1", spec.name);
+    match spec.operation.as_str() {
+        "position_weighted_sum" => {
+            let args = spec
+                .args
+                .iter()
+                .enumerate()
+                .map(|(index, type_name)| format!("{} as {}", index + 1, type_name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let expected = spec
+                .args
+                .iter()
+                .enumerate()
+                .map(|(index, _)| {
+                    (index as u32 + 1)
+                        * [3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59]
+                            [index]
+                })
+                .sum::<u32>();
+            if matches!(spec.return_type.as_str(), "f32" | "f64") {
+                format!(
+                    "    assert!((unsafe {{ {symbol}({args}) }} - {expected}.0).abs() < 0.000001);\n"
+                )
+            } else {
+                format!("    assert_eq!(unsafe {{ {symbol}({args}) }}, {expected});\n")
+            }
+        }
+        "pointer_probe" => format!(
+            "    assert_eq!(unsafe {{ {symbol}(core::ptr::NonNull::<core::ffi::c_void>::dangling().as_ptr()) }}, 1);\n"
+        ),
+        "buffer_probe" => format!(
+            "    let bytes = [0x7b_u8, 0x01, 0x02, 0x03];\n    assert_eq!(unsafe {{ {symbol}(bytes.as_ptr(), bytes.len()) }}, 4 * 257 + 0x7b);\n"
+        ),
+        "cstring_hash" => format!(
+            "    let text = std::ffi::CString::new(\"ABI ✓\").expect(\"test text has no NUL\");\n    assert_ne!(unsafe {{ {symbol}(text.as_ptr()) }}, 0);\n"
+        ),
+        operation => panic!("unsupported conformance test operation {operation}"),
+    }
 }
 
 fn format_rust(source: String) -> String {

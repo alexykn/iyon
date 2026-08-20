@@ -55,6 +55,8 @@ pub struct AbiDocument {
     pub pods: Vec<PodSpec>,
     #[serde(rename = "function", default)]
     pub functions: Vec<FunctionSpec>,
+    #[serde(rename = "conformance", default)]
+    pub conformance: Vec<ConformanceSpec>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -152,6 +154,17 @@ pub struct ArgumentSpec {
     pub lowering: String,
     #[serde(default)]
     pub buffer_length_of: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConformanceSpec {
+    pub name: String,
+    #[serde(rename = "return")]
+    pub return_type: String,
+    pub operation: String,
+    #[serde(default)]
+    pub args: Vec<String>,
 }
 
 pub fn load(path: &Path) -> Result<(AbiDocument, String, toml_edit::Document<String>), ModelError> {

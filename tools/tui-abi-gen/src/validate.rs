@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde_json::Map;
 use thiserror::Error;
 
-use crate::model::{AbiDocument, EnumSpec, PodSpec};
+use crate::model::{AbiDocument, ConformanceSpec, EnumSpec, PodSpec};
 
 #[derive(Debug, Error)]
 pub enum ValidationError {
@@ -66,6 +66,10 @@ pub fn validate(
     }
 
     let mut function_names = HashSet::new();
+    for conformance in &document.conformance {
+        validate_conformance(conformance)?;
+    }
+
     for function in &document.functions {
         if !is_snake_case(&function.name) {
             return invalid(format!("function {} must be snake_case", function.name));
@@ -254,6 +258,93 @@ pub fn validate(
         }
     }
 
+    Ok(())
+}
+
+fn validate_conformance(conformance: &ConformanceSpec) -> Result<(), ValidationError> {
+    if !is_snake_case(&conformance.name) {
+        return invalid(format!(
+            "conformance {} must be snake_case",
+            conformance.name
+        ));
+    }
+    if !matches!(conformance.return_type.as_str(), "u32" | "i32" | "f32" | "f64") {
+        return invalid(format!(
+            "conformance {} has unsupported return type {}",
+            conformance.name, conformance.return_type
+        ));
+    }
+    if !matches!(
+        conformance.operation.as_str(),
+        "position_weighted_sum" | "pointer_probe" | "buffer_probe" | "cstring_hash"
+    ) {
+        return invalid(format!(
+            "conformance {} has unsupported operation {}",
+            conformance.name, conformance.operation
+        ));
+    }
+    if conformance.args.len() > 16 {
+        return invalid(format!(
+            "conformance {} exceeds the representative maximum arity",
+            conformance.name
+        ));
+    }
+    match conformance.operation.as_str() {
+        "position_weighted_sum" => {
+            if conformance.args.is_empty()
+                || conformance.args.iter().any(|arg| {
+                    !matches!(arg.as_str(), "u8" | "u16" | "u32" | "i32" | "f32" | "f64")
+                })
+                || conformance.args.windows(2).any(|args| args[0] != args[1])
+                || conformance.return_type != match conformance.args[0].as_str() {
+                    "i32" => "i32",
+                    "f32" => "f32",
+                    "f64" => "f64",
+                    _ => "u32",
+                }
+            {
+                return invalid(format!(
+                    "conformance {} has an invalid weighted scalar signature",
+                    conformance.name
+                ));
+            }
+        }
+        "pointer_probe" => {
+            if conformance.args.len() != 1
+                || conformance.args[0] != "ptr"
+                || conformance.return_type != "u32"
+            {
+                return invalid(format!(
+                    "conformance {} must be ptr -> u32",
+                    conformance.name
+                ));
+            }
+        }
+        "buffer_probe" => {
+            if conformance.args.len() != 2
+                || conformance.args[0] != "buffer"
+                || conformance.args[1] != "buffer_length"
+                || conformance.return_type != "u32"
+            {
+                return invalid(format!(
+                    "conformance {} must be buffer + buffer_length -> u32",
+                    conformance.name
+                ));
+            }
+        }
+        "cstring_hash" => {
+            if conformance.args.len() != 1
+                || conformance.args[0] != "cstring"
+                || conformance.return_type != "u32"
+            {
+                return invalid(format!(
+                    "conformance {} must be cstring -> u32",
+                    conformance.name
+                ));
+            }
+        }
+        _ => unreachable!(),
+    }
     Ok(())
 }
 
