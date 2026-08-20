@@ -326,7 +326,7 @@ packages/iyon-runtime/bench/PERF-11-bun14-results.jsonl
 packages/iyon-runtime/bench/PERF-11-ffi-probe.json
 ```
 
-The exact Bun 1.4 baseline record contains 651 JSONL records: 650 normal records across direct, packed/V2, V3, V4, and FastShared, plus one 100-operation synthetic trace. Normal cases use 50 warmups, 500 measured iterations, and 10,000 exact-identity iterations. Every record includes Bun `1.4.0`, revision `34cbb9a40b4bd1bd767d134a7065e66c2432a676`, `git_dirty: false`, and matching benchmark-source/native-artifact hashes.
+The exact Bun 1.4 baseline record contains 651 JSONL records: 650 normal records across direct, packed/V2, V3, V4, and FastShared, plus one 100-operation synthetic trace. Normal cases use 50 warmups, 500 measured iterations, and 10,000 exact-identity iterations. Every record includes Bun `1.4.0`, revision `34cbb9a40b4bd1bd767d134a7065e66c2432a676`, `git_dirty: false`, and matching benchmark-source/native-artifact hashes. The final control run was captured at clean source revision `6152eaf0b7ed20ff711cdbf158ff8f0c1d37a4a7`.
 
 Regenerate or verify the artifacts with:
 
