@@ -13,6 +13,8 @@ use crate::{
     perf::{self, Counter},
 };
 
+#[cfg(feature = "perf-counters")]
+use super::api::GridTrack;
 use super::api::{
     style::{
         BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleFacts, StyleRef, StyleStates,
@@ -55,6 +57,883 @@ impl ViewFlags {
     }
 }
 
+/// Wide immutable sequence used by retained layout payloads. Updates copy
+/// only the root-to-leaf path and retain unchanged Arc-backed chunks.
+#[derive(Clone, Debug)]
+pub(crate) struct PersistentSeq<T: SequenceAggregate + Clone> {
+    root: Arc<SeqNode<T>>,
+}
+
+pub(crate) trait SequenceAggregate {
+    fn sequence_flags(&self) -> u8;
+}
+
+#[derive(Clone, Debug)]
+enum SeqNode<T: SequenceAggregate + Clone> {
+    Leaf {
+        items: Arc<[T]>,
+        flags: u8,
+    },
+    Branch {
+        children: Arc<[Arc<SeqNode<T>>]>,
+        sizes: Arc<[usize]>,
+        flags: u8,
+    },
+}
+
+impl<T: SequenceAggregate + Clone> PersistentSeq<T> {
+    const BRANCH: usize = 32;
+
+    pub(crate) fn from_vec(values: Vec<T>) -> Self {
+        let mut level: Vec<Arc<SeqNode<T>>> = values
+            .chunks(Self::BRANCH)
+            .map(|items| {
+                Arc::new(SeqNode::Leaf {
+                    items: items.to_vec().into(),
+                    flags: items
+                        .iter()
+                        .fold(0, |flags, item| flags | item.sequence_flags()),
+                })
+            })
+            .collect();
+        if level.is_empty() {
+            level.push(Arc::new(SeqNode::Leaf {
+                items: Arc::new([]),
+                flags: 0,
+            }));
+        }
+        while level.len() > Self::BRANCH {
+            level = level.chunks(Self::BRANCH).map(Self::make_branch).collect();
+        }
+        perf::add(Counter::PersistentSeqNodesAllocated, level.len() as u64);
+        let root = if level.len() == 1 {
+            level.pop().expect("sequence root")
+        } else {
+            Self::make_branch(&level)
+        };
+        Self { root }
+    }
+
+    fn make_branch(children: &[Arc<SeqNode<T>>]) -> Arc<SeqNode<T>> {
+        perf::inc(Counter::PersistentSeqNodesAllocated);
+        perf::inc(Counter::PersistentSeqBranchClones);
+        let mut total = 0;
+        let mut flags = 0;
+        let mut sizes = Vec::with_capacity(children.len());
+        for child in children {
+            total += child.len();
+            sizes.push(total);
+            flags |= child.flags();
+        }
+        Arc::new(SeqNode::Branch {
+            children: children.to_vec().into(),
+            sizes: sizes.into(),
+            flags,
+        })
+    }
+
+    fn from_roots(roots: Vec<Arc<SeqNode<T>>>) -> Self {
+        if roots.is_empty() {
+            return Self::from_vec(Vec::new());
+        }
+        Self {
+            root: Self::make_branch(&roots),
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.root.len()
+    }
+    fn height(&self) -> usize {
+        self.root.height()
+    }
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    pub(crate) fn aggregate_flags(&self) -> u8 {
+        self.root.flags()
+    }
+    pub(crate) fn get(&self, index: usize) -> Option<&T> {
+        self.root.get(index)
+    }
+    pub(crate) fn set(&self, index: usize, value: T) -> Self {
+        if index >= self.len() {
+            panic!("persistent sequence index out of range");
+        }
+        perf::inc(Counter::PersistentSeqLeafClones);
+        perf::add(Counter::PersistentSeqBranchClones, self.height() as u64);
+        perf::add(
+            Counter::PersistentSeqNodesAllocated,
+            (self.height() + 1) as u64,
+        );
+        Self {
+            root: self.root.set(index, value),
+        }
+    }
+    pub(crate) fn insert(&self, index: usize, value: T) -> Self {
+        if index > self.len() {
+            panic!("persistent sequence insert index out of range");
+        }
+        let inserted = insert_node(&self.root, index, value);
+        let root = if inserted.len() == 1 {
+            inserted[0].clone()
+        } else {
+            Self::make_branch(&inserted)
+        };
+        Self { root }
+    }
+    pub(crate) fn remove(&self, index: usize) -> Self {
+        if index >= self.len() {
+            panic!("persistent sequence remove index out of range");
+        }
+        Self {
+            root: normalize_root(remove_node(&self.root, index)),
+        }
+    }
+    pub(crate) fn split(&self, index: usize) -> (Self, Self) {
+        if index > self.len() {
+            panic!("persistent sequence split index out of range");
+        }
+        let (left, right) = split_node(&self.root, index);
+        (
+            Self {
+                root: normalize_root(left),
+            },
+            Self {
+                root: normalize_root(right),
+            },
+        )
+    }
+    pub(crate) fn concat(&self, other: &Self) -> Self {
+        if self.is_empty() {
+            return other.clone();
+        }
+        if other.is_empty() {
+            return self.clone();
+        }
+        let roots = concat_nodes(&self.root, &other.root);
+        Self {
+            root: normalize_root(if roots.len() == 1 {
+                roots.into_iter().next().expect("concatenated root")
+            } else {
+                Self::make_branch(&roots)
+            }),
+        }
+    }
+    pub(crate) fn splice(&self, index: usize, remove_count: usize, inserted: Vec<T>) -> Self {
+        if index > self.len() || remove_count > self.len() - index {
+            panic!("persistent sequence splice range out of bounds");
+        }
+        let (left, remainder) = self.split(index);
+        let (_, right) = remainder.split(remove_count);
+        left.concat(&Self::from_vec(inserted)).concat(&right)
+    }
+    pub(crate) fn iter(&self) -> PersistentSeqIter<'_, T> {
+        PersistentSeqIter {
+            stack: vec![(self.root.as_ref(), 0)],
+        }
+    }
+    pub(crate) fn root_ptr(&self) -> *const () {
+        Arc::as_ptr(&self.root) as *const ()
+    }
+}
+
+impl<T: SequenceAggregate + Clone> From<Vec<T>> for PersistentSeq<T> {
+    fn from(values: Vec<T>) -> Self {
+        Self::from_vec(values)
+    }
+}
+
+impl<T: SequenceAggregate + Clone + PartialEq> PartialEq for PersistentSeq<T> {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.root, &other.root) || self.iter().eq(other.iter())
+    }
+}
+
+impl<T: SequenceAggregate + Clone + Eq> Eq for PersistentSeq<T> {}
+
+impl<T: SequenceAggregate + Clone> std::ops::Index<usize> for PersistentSeq<T> {
+    type Output = T;
+    fn index(&self, index: usize) -> &Self::Output {
+        self.get(index)
+            .expect("persistent sequence index out of range")
+    }
+}
+
+fn insert_node<T: SequenceAggregate + Clone>(
+    node: &Arc<SeqNode<T>>,
+    index: usize,
+    value: T,
+) -> Vec<Arc<SeqNode<T>>> {
+    match node.as_ref() {
+        SeqNode::Leaf { items, .. } => {
+            let mut values = items.to_vec();
+            values.insert(index, value);
+            if values.len() <= PersistentSeq::<T>::BRANCH {
+                return vec![Arc::new(SeqNode::Leaf {
+                    flags: values
+                        .iter()
+                        .fold(0, |flags, item| flags | item.sequence_flags()),
+                    items: values.into(),
+                })];
+            }
+            let right = values.split_off(PersistentSeq::<T>::BRANCH);
+            vec![
+                Arc::new(SeqNode::Leaf {
+                    flags: values
+                        .iter()
+                        .fold(0, |flags, item| flags | item.sequence_flags()),
+                    items: values.into(),
+                }),
+                Arc::new(SeqNode::Leaf {
+                    flags: right
+                        .iter()
+                        .fold(0, |flags, item| flags | item.sequence_flags()),
+                    items: right.into(),
+                }),
+            ]
+        }
+        SeqNode::Branch {
+            children, sizes, ..
+        } => {
+            let child = sizes
+                .partition_point(|size| *size <= index)
+                .min(children.len().saturating_sub(1));
+            let offset = if child == 0 {
+                index
+            } else {
+                index - sizes[child - 1]
+            };
+            let inserted = insert_node(&children[child], offset, value);
+            let mut next = Vec::with_capacity(children.len() + inserted.len() - 1);
+            next.extend(children[..child].iter().cloned());
+            next.extend(inserted);
+            next.extend(children[child + 1..].iter().cloned());
+            if next.len() <= PersistentSeq::<T>::BRANCH {
+                return vec![PersistentSeq::make_branch(&next)];
+            }
+            vec![
+                PersistentSeq::make_branch(&next[..PersistentSeq::<T>::BRANCH]),
+                PersistentSeq::make_branch(&next[PersistentSeq::<T>::BRANCH..]),
+            ]
+        }
+    }
+}
+
+fn remove_node<T: SequenceAggregate + Clone>(
+    node: &Arc<SeqNode<T>>,
+    index: usize,
+) -> Arc<SeqNode<T>> {
+    match node.as_ref() {
+        SeqNode::Leaf { items, .. } => {
+            let mut values = items.to_vec();
+            values.remove(index);
+            Arc::new(SeqNode::Leaf {
+                flags: values
+                    .iter()
+                    .fold(0, |flags, item| flags | item.sequence_flags()),
+                items: values.into(),
+            })
+        }
+        SeqNode::Branch {
+            children, sizes, ..
+        } => {
+            let child = sizes.partition_point(|size| *size <= index);
+            let offset = if child == 0 {
+                index
+            } else {
+                index - sizes[child - 1]
+            };
+            let replacement = remove_node(&children[child], offset);
+            let mut next = children.to_vec();
+            next[child] = replacement;
+            if next[child].len() == 0 {
+                next.remove(child);
+            }
+            if next.is_empty() {
+                Arc::new(SeqNode::Leaf {
+                    items: Arc::new([]),
+                    flags: 0,
+                })
+            } else {
+                PersistentSeq::make_branch(&next)
+            }
+        }
+    }
+}
+
+fn empty_node<T: SequenceAggregate + Clone>() -> Arc<SeqNode<T>> {
+    Arc::new(SeqNode::Leaf {
+        items: Arc::new([]),
+        flags: 0,
+    })
+}
+
+fn branch_or_empty<T: SequenceAggregate + Clone>(children: &[Arc<SeqNode<T>>]) -> Arc<SeqNode<T>> {
+    if children.is_empty() {
+        empty_node()
+    } else {
+        PersistentSeq::make_branch(children)
+    }
+}
+
+fn split_node<T: SequenceAggregate + Clone>(
+    node: &Arc<SeqNode<T>>,
+    index: usize,
+) -> (Arc<SeqNode<T>>, Arc<SeqNode<T>>) {
+    if index == 0 {
+        return (empty_node(), Arc::clone(node));
+    }
+    if index == node.len() {
+        return (Arc::clone(node), empty_node());
+    }
+    match node.as_ref() {
+        SeqNode::Leaf { items, .. } => (
+            Arc::new(SeqNode::Leaf {
+                flags: items[..index]
+                    .iter()
+                    .fold(0, |flags, item| flags | item.sequence_flags()),
+                items: items[..index].to_vec().into(),
+            }),
+            Arc::new(SeqNode::Leaf {
+                flags: items[index..]
+                    .iter()
+                    .fold(0, |flags, item| flags | item.sequence_flags()),
+                items: items[index..].to_vec().into(),
+            }),
+        ),
+        SeqNode::Branch {
+            children, sizes, ..
+        } => {
+            let child = sizes.partition_point(|size| *size <= index);
+            let offset = if child == 0 {
+                index
+            } else {
+                index - sizes[child - 1]
+            };
+            let child_height = children[child].height();
+            let (left_child, right_child) = split_node(&children[child], offset);
+            let left_child = wrap_to_height(&left_child, child_height);
+            let right_child = wrap_to_height(&right_child, child_height);
+            let mut left_children = children[..child].to_vec();
+            if left_child.len() > 0 {
+                left_children.push(left_child);
+            }
+            let mut right_children = Vec::with_capacity(children.len() - child);
+            if right_child.len() > 0 {
+                right_children.push(right_child);
+            }
+            right_children.extend(children[child + 1..].iter().cloned());
+            (
+                branch_or_empty(&left_children),
+                branch_or_empty(&right_children),
+            )
+        }
+    }
+}
+
+fn wrap_to_height<T: SequenceAggregate + Clone>(
+    node: &Arc<SeqNode<T>>,
+    height: usize,
+) -> Arc<SeqNode<T>> {
+    let mut current = Arc::clone(node);
+    while current.height() < height {
+        current = PersistentSeq::make_branch(&[current]);
+    }
+    current
+}
+
+fn concat_nodes<T: SequenceAggregate + Clone>(
+    left: &Arc<SeqNode<T>>,
+    right: &Arc<SeqNode<T>>,
+) -> Vec<Arc<SeqNode<T>>> {
+    match (left.as_ref(), right.as_ref()) {
+        (
+            SeqNode::Leaf {
+                items: left_items, ..
+            },
+            SeqNode::Leaf {
+                items: right_items, ..
+            },
+        ) => {
+            let mut items = Vec::with_capacity(left_items.len() + right_items.len());
+            items.extend(left_items.iter().cloned());
+            items.extend(right_items.iter().cloned());
+            if items.len() <= PersistentSeq::<T>::BRANCH {
+                vec![Arc::new(SeqNode::Leaf {
+                    flags: items
+                        .iter()
+                        .fold(0, |flags, item| flags | item.sequence_flags()),
+                    items: items.into(),
+                })]
+            } else {
+                let right_items = items.split_off(PersistentSeq::<T>::BRANCH);
+                vec![
+                    Arc::new(SeqNode::Leaf {
+                        flags: items
+                            .iter()
+                            .fold(0, |flags, item| flags | item.sequence_flags()),
+                        items: items.into(),
+                    }),
+                    Arc::new(SeqNode::Leaf {
+                        flags: right_items
+                            .iter()
+                            .fold(0, |flags, item| flags | item.sequence_flags()),
+                        items: right_items.into(),
+                    }),
+                ]
+            }
+        }
+        (
+            SeqNode::Branch {
+                children: left_children,
+                ..
+            },
+            SeqNode::Branch {
+                children: right_children,
+                ..
+            },
+        ) if left.height() == right.height() => {
+            let boundary = concat_nodes(
+                left_children.last().expect("left branch child"),
+                right_children.first().expect("right branch child"),
+            );
+            let mut children = Vec::with_capacity(left_children.len() + right_children.len());
+            children.extend(left_children[..left_children.len() - 1].iter().cloned());
+            children.extend(boundary);
+            children.extend(right_children[1..].iter().cloned());
+            if children.len() <= PersistentSeq::<T>::BRANCH {
+                vec![PersistentSeq::make_branch(&children)]
+            } else {
+                vec![
+                    PersistentSeq::make_branch(&children[..PersistentSeq::<T>::BRANCH]),
+                    PersistentSeq::make_branch(&children[PersistentSeq::<T>::BRANCH..]),
+                ]
+            }
+        }
+        _ => {
+            let height = left.height().max(right.height());
+            let left = wrap_to_height(left, height);
+            let right = wrap_to_height(right, height);
+            concat_nodes(&left, &right)
+        }
+    }
+}
+
+fn normalize_root<T: SequenceAggregate + Clone>(mut root: Arc<SeqNode<T>>) -> Arc<SeqNode<T>> {
+    loop {
+        match root.as_ref() {
+            SeqNode::Branch { children, .. } if children.len() == 1 => root = children[0].clone(),
+            _ => return root,
+        }
+    }
+}
+
+impl<T: SequenceAggregate + Clone> SeqNode<T> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Leaf { items, .. } => items.len(),
+            Self::Branch { sizes, .. } => sizes.last().copied().unwrap_or(0),
+        }
+    }
+    fn height(&self) -> usize {
+        match self {
+            Self::Leaf { .. } => 0,
+            Self::Branch { children, .. } => children
+                .first()
+                .map(|child| child.height() + 1)
+                .unwrap_or(0),
+        }
+    }
+    fn flags(&self) -> u8 {
+        match self {
+            Self::Leaf { flags, .. } | Self::Branch { flags, .. } => *flags,
+        }
+    }
+    fn get(&self, mut index: usize) -> Option<&T> {
+        match self {
+            Self::Leaf { items, .. } => items.get(index),
+            Self::Branch {
+                children, sizes, ..
+            } => {
+                let child = sizes.partition_point(|size| *size <= index);
+                if child > 0 {
+                    index -= sizes[child - 1];
+                }
+                children.get(child)?.get(index)
+            }
+        }
+    }
+    fn set(&self, index: usize, value: T) -> Arc<Self> {
+        match self {
+            Self::Leaf { items, .. } => {
+                let mut next = items.to_vec();
+                next[index] = value;
+                Arc::new(Self::Leaf {
+                    flags: next
+                        .iter()
+                        .fold(0, |flags, item| flags | item.sequence_flags()),
+                    items: next.into(),
+                })
+            }
+            Self::Branch {
+                children, sizes, ..
+            } => {
+                let child = sizes.partition_point(|size| *size <= index);
+                let offset = if child == 0 {
+                    index
+                } else {
+                    index - sizes[child - 1]
+                };
+                let mut next = children.to_vec();
+                next[child] = next[child].set(offset, value);
+                let flags = next.iter().fold(0, |flags, item| flags | item.flags());
+                Arc::new(Self::Branch {
+                    children: next.into(),
+                    sizes: sizes.clone(),
+                    flags,
+                })
+            }
+        }
+    }
+}
+
+/// Common-field inputs for the benchmark/native retained constructor.
+#[cfg(all(feature = "perf-counters", feature = "native-host"))]
+#[doc(hidden)]
+#[derive(Clone)]
+pub enum RetainedSizeRule {
+    Fit,
+    Fill,
+}
+
+#[cfg(all(feature = "perf-counters", feature = "native-host"))]
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct RetainedDecoration {
+    pub padding: Option<Insets>,
+    pub background: Option<ColorSpec>,
+    pub foreground: Option<ColorSpec>,
+    pub border: Option<BorderSpec>,
+    pub style: StyleRef,
+    pub style_states: Vec<(String, String)>,
+    pub width: Option<RetainedSizeRule>,
+    pub height: Option<RetainedSizeRule>,
+    pub min_width: Option<u16>,
+    pub max_width: Option<u16>,
+    pub min_height: Option<u16>,
+    pub max_height: Option<u16>,
+}
+
+/// Opaque retained axis sequence accepted by the benchmark/native transport.
+#[cfg(feature = "perf-counters")]
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct RetainedAxis {
+    kind: RetainedAxisKind,
+}
+
+#[cfg(feature = "perf-counters")]
+#[derive(Clone)]
+enum RetainedAxisKind {
+    Row(PersistentSeq<RowChild>),
+    Column(PersistentSeq<ColumnChild>),
+}
+
+#[cfg(feature = "perf-counters")]
+#[doc(hidden)]
+#[derive(Clone)]
+pub enum RetainedAxisTrack {
+    Content,
+    Fixed(u16),
+    Flex,
+    FlexMax(u16),
+    ContentMax(u16),
+}
+
+#[cfg(feature = "perf-counters")]
+#[doc(hidden)]
+pub struct RetainedAxisChild {
+    pub track: RetainedAxisTrack,
+    pub view: View,
+}
+
+#[cfg(feature = "perf-counters")]
+impl RetainedAxis {
+    pub fn leaf(horizontal: bool, items: Vec<RetainedAxisChild>) -> Self {
+        if horizontal {
+            Self {
+                kind: RetainedAxisKind::Row(PersistentSeq::from_vec(
+                    items
+                        .into_iter()
+                        .map(|item| RowChild {
+                            track: retained_track(item.track),
+                            view: item.view,
+                        })
+                        .collect(),
+                )),
+            }
+        } else {
+            Self {
+                kind: RetainedAxisKind::Column(PersistentSeq::from_vec(
+                    items
+                        .into_iter()
+                        .map(|item| ColumnChild {
+                            track: retained_track(item.track),
+                            view: item.view,
+                        })
+                        .collect(),
+                )),
+            }
+        }
+    }
+
+    pub fn branch(horizontal: bool, children: Vec<Self>) -> Result<Self, String> {
+        if children.is_empty() {
+            return Err("retained axis branch requires children".to_owned());
+        }
+        if horizontal {
+            let mut roots = Vec::with_capacity(children.len());
+            let mut height = None;
+            for child in children {
+                match child {
+                    RetainedAxis {
+                        kind: RetainedAxisKind::Row(sequence),
+                    } => {
+                        if height.get_or_insert(sequence.height()) != &sequence.height() {
+                            return Err("retained row sequence heights differ".to_owned());
+                        }
+                        roots.push(sequence.root);
+                    }
+                    RetainedAxis {
+                        kind: RetainedAxisKind::Column(_),
+                    } => {
+                        return Err("row sequence contains a column child".to_owned());
+                    }
+                }
+            }
+            Ok(Self {
+                kind: RetainedAxisKind::Row(PersistentSeq::from_roots(roots)),
+            })
+        } else {
+            let mut roots = Vec::with_capacity(children.len());
+            let mut height = None;
+            for child in children {
+                match child {
+                    RetainedAxis {
+                        kind: RetainedAxisKind::Column(sequence),
+                    } => {
+                        if height.get_or_insert(sequence.height()) != &sequence.height() {
+                            return Err("retained column sequence heights differ".to_owned());
+                        }
+                        roots.push(sequence.root);
+                    }
+                    RetainedAxis {
+                        kind: RetainedAxisKind::Row(_),
+                    } => return Err("column sequence contains a row child".to_owned()),
+                }
+            }
+            Ok(Self {
+                kind: RetainedAxisKind::Column(PersistentSeq::from_roots(roots)),
+            })
+        }
+    }
+
+    pub fn aggregate_flags(&self) -> u8 {
+        match &self.kind {
+            RetainedAxisKind::Row(sequence) => sequence.aggregate_flags(),
+            RetainedAxisKind::Column(sequence) => sequence.aggregate_flags(),
+        }
+    }
+
+    fn into_kind(self, gap: u16) -> ViewKind {
+        match self.kind {
+            RetainedAxisKind::Row(sequence) => ViewKind::Row(Arc::new(RowView {
+                children: sequence,
+                gap,
+                vertical_align: VerticalAlign::Top,
+            })),
+            RetainedAxisKind::Column(sequence) => ViewKind::Column(Arc::new(ColumnView {
+                children: sequence,
+                gap,
+            })),
+        }
+    }
+
+    pub fn into_view(self, gap: u16) -> View {
+        View::new_kind(self.into_kind(gap))
+    }
+}
+
+#[cfg(feature = "perf-counters")]
+fn retained_track(track: RetainedAxisTrack) -> TrackSize {
+    match track {
+        RetainedAxisTrack::Content => TrackSize::Content { max: None },
+        RetainedAxisTrack::Fixed(size) => TrackSize::Fixed(size),
+        RetainedAxisTrack::Flex => TrackSize::Flex { min: 1 },
+        RetainedAxisTrack::FlexMax(max) => TrackSize::FlexMax { min: 1, max },
+        RetainedAxisTrack::ContentMax(max) => TrackSize::Content { max: Some(max) },
+    }
+}
+
+/// Opaque retained grid-cell sequence accepted by the benchmark/native transport.
+#[cfg(feature = "perf-counters")]
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct RetainedGridCells {
+    cells: PersistentSeq<GridCellView>,
+    max_row: usize,
+    max_column: usize,
+}
+
+#[cfg(feature = "perf-counters")]
+#[doc(hidden)]
+pub struct RetainedGridCell {
+    pub row: usize,
+    pub column: usize,
+    pub row_span: u16,
+    pub column_span: u16,
+    pub horizontal_align: HorizontalAlign,
+    pub vertical_align: VerticalAlign,
+    pub view: View,
+}
+
+#[cfg(feature = "perf-counters")]
+impl RetainedGridCells {
+    pub fn leaf(items: Vec<RetainedGridCell>) -> Self {
+        let max_row = items
+            .iter()
+            .map(|item| item.row.saturating_add(usize::from(item.row_span)))
+            .max()
+            .unwrap_or(0);
+        let max_column = items
+            .iter()
+            .map(|item| item.column.saturating_add(usize::from(item.column_span)))
+            .max()
+            .unwrap_or(0);
+        Self {
+            cells: PersistentSeq::from_vec(
+                items
+                    .into_iter()
+                    .map(|item| GridCellView {
+                        row: item.row,
+                        column: item.column,
+                        row_span: item.row_span,
+                        column_span: item.column_span,
+                        horizontal_align: item.horizontal_align,
+                        vertical_align: item.vertical_align,
+                        view: item.view,
+                    })
+                    .collect(),
+            ),
+            max_row,
+            max_column,
+        }
+    }
+
+    pub fn branch(children: Vec<Self>) -> Result<Self, String> {
+        if children.is_empty() {
+            return Err("retained grid branch requires children".to_owned());
+        }
+        let mut height = None;
+        let mut max_row = 0;
+        let mut max_column = 0;
+        let mut roots = Vec::with_capacity(children.len());
+        for child in children {
+            let child_height = child.cells.height();
+            max_row = max_row.max(child.max_row);
+            max_column = max_column.max(child.max_column);
+            if height.get_or_insert(child_height) != &child_height {
+                return Err("retained grid sequence heights differ".to_owned());
+            }
+            roots.push(child.cells.root);
+        }
+        Ok(Self {
+            cells: PersistentSeq::from_roots(roots),
+            max_row,
+            max_column,
+        })
+    }
+
+    pub fn aggregate_flags(&self) -> u8 {
+        self.cells.aggregate_flags()
+    }
+
+    pub fn into_view(
+        self,
+        mut columns: Vec<GridTrack>,
+        mut rows: Vec<GridTrack>,
+        column_gap: u16,
+        row_gap: u16,
+    ) -> View {
+        while columns.len() < self.max_column {
+            columns.push(GridTrack::content());
+        }
+        while rows.len() < self.max_row {
+            rows.push(GridTrack::content());
+        }
+        View::new_kind(ViewKind::Grid(Arc::new(GridView {
+            columns: PersistentSeq::from_vec(
+                columns.into_iter().map(|track| track.track).collect(),
+            ),
+            rows: PersistentSeq::from_vec(rows.into_iter().map(|track| track.track).collect()),
+            column_gap,
+            row_gap,
+            cells: self.cells,
+        })))
+    }
+}
+
+pub(crate) struct PersistentSeqIter<'a, T: SequenceAggregate + Clone> {
+    stack: Vec<(&'a SeqNode<T>, usize)>,
+}
+
+impl<'a, T: SequenceAggregate + Clone> Iterator for PersistentSeqIter<'a, T> {
+    type Item = &'a T;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let (node, index) = self.stack.last_mut()?;
+            match node {
+                SeqNode::Leaf { items, .. } => {
+                    if *index >= items.len() {
+                        self.stack.pop();
+                        continue;
+                    }
+                    let value = &items[*index];
+                    *index += 1;
+                    return Some(value);
+                }
+                SeqNode::Branch { children, .. } => {
+                    if *index >= children.len() {
+                        self.stack.pop();
+                        continue;
+                    }
+                    let child = children[*index].as_ref();
+                    *index += 1;
+                    self.stack.push((child, 0));
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct TransportPayload(Option<Arc<dyn std::any::Any + Send + Sync>>);
+
+impl std::fmt::Debug for TransportPayload {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("<retained transport payload>")
+    }
+}
+
+impl PartialEq for TransportPayload {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for TransportPayload {}
+
 /// An owned backend-neutral semantic view.
 ///
 /// Views are persistent values. Cloning one only clones this outer `Arc`; a
@@ -63,7 +942,13 @@ impl ViewFlags {
 #[derive(Debug, PartialEq)]
 pub struct View {
     inner: Arc<ViewNode>,
+    /// Private lifetime anchor for retained transport payloads. It is not
+    /// semantic state and is intentionally ignored by equality.
+    transport_payload: TransportPayload,
 }
+
+impl std::panic::RefUnwindSafe for View {}
+impl std::panic::UnwindSafe for View {}
 
 #[derive(Debug)]
 pub(crate) struct ViewNode {
@@ -82,6 +967,7 @@ impl Clone for View {
         perf::inc(Counter::ViewCloneCalls);
         Self {
             inner: Arc::clone(&self.inner),
+            transport_payload: self.transport_payload.clone(),
         }
     }
 }
@@ -109,6 +995,7 @@ impl View {
                 style_facts: parts.style_facts,
                 kind: parts.kind,
             }),
+            transport_payload: TransportPayload::default(),
         }
     }
 
@@ -150,11 +1037,25 @@ impl View {
 
     /// Creates a new semantic root while retaining all unchanged payloads.
     pub(crate) fn map_node(self, update: impl FnOnce(&mut ViewNode)) -> Self {
+        let payload = self.transport_payload.clone();
         let mut next = self.inner.shallow_clone();
         update(&mut next);
+        next.flags = ViewNode::compute_flags(&next.kind);
         next.id = next_view_id();
         Self {
             inner: Arc::new(next),
+            transport_payload: payload,
+        }
+    }
+
+    /// Retains a private transport object for exactly as long as this
+    /// immutable semantic View remains reachable.
+    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[doc(hidden)]
+    pub fn retain_transport_payload(self, payload: Arc<dyn std::any::Any + Send + Sync>) -> Self {
+        Self {
+            inner: self.inner,
+            transport_payload: TransportPayload(Some(payload)),
         }
     }
 
@@ -172,9 +1073,75 @@ impl View {
         self.flags().contains_component_slot()
     }
 
+    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[doc(hidden)]
+    pub fn retained_axis_horizontal(&self) -> Option<bool> {
+        match self.kind() {
+            ViewKind::Row(_) => Some(true),
+            ViewKind::Column(_) => Some(false),
+            _ => None,
+        }
+    }
+
+    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[doc(hidden)]
+    pub fn retained_axis_gap(&self) -> Option<u16> {
+        match self.kind() {
+            ViewKind::Row(row) => Some(row.gap),
+            ViewKind::Column(column) => Some(column.gap),
+            _ => None,
+        }
+    }
+
+    /// Applies a retained axis patch while preserving the base node's common
+    /// fields. The sequence is already validated and structurally shared by
+    /// the V3 decoder; only the immutable root node is replaced.
+    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[doc(hidden)]
+    pub fn patch_retained_axis(self, sequence: RetainedAxis, gap: u16) -> Self {
+        let kind = sequence.into_kind(gap);
+        self.map_node(|node| {
+            node.kind = kind;
+        })
+    }
+
+    /// Applies a retained grid-cell patch while preserving the grid's
+    /// persistent track vectors and all common node fields.
+    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[doc(hidden)]
+    pub fn patch_retained_grid(self, cells: RetainedGridCells) -> Result<Self, String> {
+        let sequence = cells.cells;
+        if !matches!(self.kind(), ViewKind::Grid(_)) {
+            return Err("retained grid patch base is not a grid".to_owned());
+        }
+        Ok(self.map_node(|node| {
+            let ViewKind::Grid(grid) = &node.kind else {
+                unreachable!("grid patch base was validated")
+            };
+            let mut patched = grid.as_ref().clone();
+            patched.cells = sequence;
+            node.kind = ViewKind::Grid(Arc::new(patched));
+        }))
+    }
+
+    /// Returns text layout metadata without inspecting the retained span
+    /// payload. The V3 patch decoder uses this to validate metadata-only
+    /// patches in O(1) with respect to text size.
+    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[doc(hidden)]
+    pub fn retained_text_layout(&self) -> Option<(WrapMode, HorizontalAlign)> {
+        match self.kind() {
+            ViewKind::Text(text) => Some((text.wrap, text.align)),
+            _ => None,
+        }
+    }
+
     #[cfg(feature = "native-host")]
     pub fn downgrade(&self) -> WeakView {
-        WeakView(Arc::downgrade(&self.inner))
+        WeakView {
+            inner: Arc::downgrade(&self.inner),
+            transport_payload: self.transport_payload.0.as_ref().map(Arc::downgrade),
+        }
     }
 }
 
@@ -197,22 +1164,9 @@ impl ViewNode {
             ),
             ViewKind::ClampRows(clamp) => clamp.child.flags(),
             ViewKind::RowViewport(viewport) => viewport.child.flags(),
-            ViewKind::Column(column) => ViewFlags(
-                column
-                    .children
-                    .iter()
-                    .fold(0, |flags, child| flags | child.view.flags().0),
-            ),
-            ViewKind::Row(row) => ViewFlags(
-                row.children
-                    .iter()
-                    .fold(0, |flags, child| flags | child.view.flags().0),
-            ),
-            ViewKind::Grid(grid) => ViewFlags(
-                grid.cells
-                    .iter()
-                    .fold(0, |flags, cell| flags | cell.view.flags().0),
-            ),
+            ViewKind::Column(column) => ViewFlags(column.children.aggregate_flags()),
+            ViewKind::Row(row) => ViewFlags(row.children.aggregate_flags()),
+            ViewKind::Grid(grid) => ViewFlags(grid.cells.aggregate_flags()),
         }
     }
 
@@ -241,12 +1195,22 @@ impl ViewNode {
 
 #[cfg(feature = "native-host")]
 #[derive(Clone)]
-pub struct WeakView(std::sync::Weak<ViewNode>);
+pub struct WeakView {
+    inner: std::sync::Weak<ViewNode>,
+    transport_payload: Option<std::sync::Weak<dyn std::any::Any + Send + Sync>>,
+}
 
 #[cfg(feature = "native-host")]
 impl WeakView {
     pub fn upgrade(&self) -> Option<View> {
-        self.0.upgrade().map(|inner| View { inner })
+        self.inner.upgrade().map(|inner| View {
+            inner,
+            transport_payload: TransportPayload(
+                self.transport_payload
+                    .as_ref()
+                    .and_then(std::sync::Weak::upgrade),
+            ),
+        })
     }
 }
 
@@ -315,7 +1279,7 @@ impl TextView {
 /// RETAINED SEMANTIC IR. Vertical composition. The parent owns sibling gaps.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ColumnView {
-    pub(crate) children: Arc<[ColumnChild]>,
+    pub(crate) children: PersistentSeq<ColumnChild>,
     pub(crate) gap: u16,
 }
 
@@ -324,6 +1288,12 @@ pub(crate) struct ColumnView {
 pub(crate) struct ColumnChild {
     pub(crate) track: TrackSize,
     pub(crate) view: View,
+}
+
+impl SequenceAggregate for ColumnChild {
+    fn sequence_flags(&self) -> u8 {
+        self.view.flags().0
+    }
 }
 
 impl ColumnChild {
@@ -352,7 +1322,7 @@ impl ColumnChild {
 /// RETAINED SEMANTIC IR. Horizontal composition. The parent owns sibling gaps.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RowView {
-    pub(crate) children: Arc<[RowChild]>,
+    pub(crate) children: PersistentSeq<RowChild>,
     pub(crate) gap: u16,
     pub(crate) vertical_align: VerticalAlign,
 }
@@ -370,6 +1340,12 @@ pub(crate) struct HangingView {
 pub(crate) struct RowChild {
     pub(crate) track: TrackSize,
     pub(crate) view: View,
+}
+
+impl SequenceAggregate for RowChild {
+    fn sequence_flags(&self) -> u8 {
+        self.view.flags().0
+    }
 }
 
 impl RowChild {
@@ -398,11 +1374,11 @@ impl RowChild {
 /// RETAINED SEMANTIC IR. Shared two-dimensional track layout.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GridView {
-    pub(crate) columns: Arc<[TrackSize]>,
-    pub(crate) rows: Arc<[TrackSize]>,
+    pub(crate) columns: PersistentSeq<TrackSize>,
+    pub(crate) rows: PersistentSeq<TrackSize>,
     pub(crate) column_gap: u16,
     pub(crate) row_gap: u16,
-    pub(crate) cells: Arc<[GridCellView]>,
+    pub(crate) cells: PersistentSeq<GridCellView>,
 }
 
 /// RETAINED SEMANTIC IR. One grid cell and its explicit track placement.
@@ -417,6 +1393,12 @@ pub(crate) struct GridCellView {
     pub(crate) view: View,
 }
 
+impl SequenceAggregate for GridCellView {
+    fn sequence_flags(&self) -> u8 {
+        self.view.flags().0
+    }
+}
+
 /// RETAINED SEMANTIC IR. Width allocation for a row child.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TrackSize {
@@ -424,6 +1406,12 @@ pub(crate) enum TrackSize {
     Fixed(u16),
     Flex { min: u16 },
     FlexMax { min: u16, max: u16 },
+}
+
+impl SequenceAggregate for TrackSize {
+    fn sequence_flags(&self) -> u8 {
+        0
+    }
 }
 
 /// RETAINED SEMANTIC IR. Structural container holding one semantic child.
@@ -499,8 +1487,9 @@ pub(crate) struct RowViewportView {
 
 #[cfg(test)]
 mod tests {
-    use super::{View, ViewKind};
+    use super::{PersistentSeq, SeqNode, SequenceAggregate, View, ViewKind};
     use crate::presentation::IntoView;
+    use std::sync::Arc;
 
     #[test]
     fn clone_retains_identity_and_only_clones_the_outer_arc() {
@@ -561,6 +1550,70 @@ mod tests {
             &original_column.children[0].view,
             &changed_column.children[0].view
         ));
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    struct SequenceValue(usize);
+
+    impl SequenceAggregate for SequenceValue {
+        fn sequence_flags(&self) -> u8 {
+            0
+        }
+    }
+
+    fn shared_node_count<T: SequenceAggregate + Clone>(
+        left: &Arc<SeqNode<T>>,
+        right: &Arc<SeqNode<T>>,
+    ) -> usize {
+        if Arc::ptr_eq(left, right) {
+            return 1;
+        }
+        match (left.as_ref(), right.as_ref()) {
+            (
+                SeqNode::Branch {
+                    children: left_children,
+                    ..
+                },
+                SeqNode::Branch {
+                    children: right_children,
+                    ..
+                },
+            ) => left_children
+                .iter()
+                .zip(right_children.iter())
+                .map(|(left, right)| shared_node_count(left, right))
+                .sum(),
+            _ => 0,
+        }
+    }
+
+    #[test]
+    fn persistent_sequences_copy_only_structural_paths() {
+        for size in [0, 1, 31, 32, 33, 1_024, 10_000, 100_000] {
+            let values: Vec<_> = (0..size).map(SequenceValue).collect();
+            let original = PersistentSeq::from_vec(values.clone());
+            assert_eq!(original.iter().cloned().collect::<Vec<_>>(), values);
+            if size == 0 {
+                continue;
+            }
+            let middle = size / 2;
+            let changed = original.set(middle, SequenceValue(usize::MAX));
+            assert_eq!(original[middle], SequenceValue(middle));
+            assert_eq!(changed[middle], SequenceValue(usize::MAX));
+            if size > PersistentSeq::<SequenceValue>::BRANCH {
+                assert!(shared_node_count(&original.root, &changed.root) > 0);
+            }
+
+            let inserted = original.insert(middle, SequenceValue(usize::MAX - 1));
+            let removed = inserted.remove(middle);
+            assert_eq!(removed, original);
+            let (left, right) = inserted.split(middle);
+            assert_eq!(left.concat(&right), inserted);
+            let spliced = original.splice(middle, 1, vec![SequenceValue(7), SequenceValue(8)]);
+            let mut expected = values.clone();
+            expected.splice(middle..middle + 1, [SequenceValue(7), SequenceValue(8)]);
+            assert_eq!(spliced.iter().cloned().collect::<Vec<_>>(), expected);
+        }
     }
 
     #[test]

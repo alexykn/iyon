@@ -3,7 +3,7 @@ import {
   BRIDGE_VIEW_KIND,
   type BridgeViewNode,
 } from "../src/tui/ir.ts";
-import { View, nodeForBridge } from "../src/tui/values/view.ts";
+import { View, nodeForBridge, nodeForDirectBridge } from "../src/tui/values/view.ts";
 import type { NativeHandleId } from "../src/tui/types.ts";
 import { TextSpan } from "../src/tui/values/text.ts";
 import { Style } from "../src/tui/values/style.ts";
@@ -15,10 +15,20 @@ import {
   resetPackedEncoderCounters,
   type PackedViewEncoder,
 } from "../src/tui/packed.ts";
+import {
+  createPackedV3Encoder,
+  packedV3Snapshot,
+  renderPackedV3View,
+  replacePackedAxisChild,
+  replacePackedGridCell,
+  resetPackedV3Counters,
+  splicePackedAxisChildren,
+  type PackedV3Encoder,
+} from "../src/tui/packed_v3.ts";
 
-type Pattern = "COLD" | "FIRST_USE" | "IDENTICAL_IDENTITY" | "SHARED_PATH" | "REBUILT_EQUIVALENT" | "SHARED_WIDE" | "SHARED_DEEP";
-type Candidate = "direct" | "packed";
-type Workload = "plain_text_column" | "styled_span_heavy" | "row_heavy" | "column_track_heavy" | "grid_heavy" | "decoration_heavy" | "diff_heavy" | "component_heavy" | "mixed_realistic";
+type Pattern = "COLD" | "FIRST_USE" | "IDENTICAL_IDENTITY" | "SHARED_PATH" | "REBUILT_EQUIVALENT" | "LARGE_SHARED_SUBTREE_CUTOFF" | "SHARED_DEEP" | "WIDE_PARENT_ONE_EDIT" | "WIDE_PARENT_INSERT" | "WIDE_PARENT_REMOVE" | "TEXT_METADATA_PATCH" | "DECORATION_PATCH";
+type Candidate = "direct" | "packed" | "packed_v3";
+type Workload = "plain_text_column" | "styled_span_heavy" | "row_heavy" | "column_track_heavy" | "grid_heavy" | "decoration_heavy" | "diff_heavy" | "component_heavy" | "mixed_realistic" | "wide_column_one_edit" | "wide_row_one_edit" | "wide_grid_cell_edit" | "long_text_wrap_only" | "long_text_one_span_edit" | "large_diff_one_hunk_edit" | "large_decoration_only_change";
 type Size = { readonly name: string; readonly nodes: number };
 
 type BenchmarkHost = {
@@ -27,12 +37,19 @@ type BenchmarkHost = {
   createViewSlot(initial: object): object;
   dispose(): void;
 };
-type PackedHost = BenchmarkHost & { tuiPerfPackedRender(words: Uint32Array, strings: string[]): void };
+type PackedHost = BenchmarkHost & {
+  tuiPerfPackedRender(words: Uint32Array, strings: string[]): void;
+  tuiPerfV3PackedRender?: (words: Uint32Array, bytes: Uint8Array) => void;
+  tuiPerfV3PackedRenderStrings?: (words: Uint32Array, strings: readonly string[]) => void;
+  tuiPerfV3PackedRenderRef?: (generation: number, packedRef: number) => void;
+};
 type PerfNative = typeof native & {
   tuiPerfReset?: () => void;
   tuiPerfSnapshot?: () => Record<string, number>;
   tuiPerfResetViewBridgeCache?: () => void;
   tuiPerfViewBridgeCacheSize?: () => number;
+  tuiPerfV3ViewBridgeCacheSize?: () => number;
+  tuiPerfV3PackedSlotPages?: () => number;
 };
 
 type Sample = {
@@ -48,7 +65,10 @@ type Sample = {
   readonly heapDelta: number;
   readonly rssDelta: number;
   readonly scratchCapacity: number;
+  readonly byteScratchCapacity: number;
   readonly nativeCacheSize: number;
+  readonly nativeSemanticCacheSize: number;
+  readonly nativePackedSlotPages: number;
 };
 
 type Stats = {
@@ -66,23 +86,45 @@ const sizes: readonly Size[] = [
   { name: "large_view", nodes: 2_000 },
   { name: "huge_view", nodes: 10_000 },
 ];
+const wideSizes: readonly Size[] = [
+  { name: "wide_32", nodes: 32 },
+  { name: "wide_256", nodes: 256 },
+  { name: "wide_2048", nodes: 2_048 },
+  { name: "wide_10000", nodes: 10_000 },
+  { name: "wide_100000", nodes: 100_000 },
+];
 const workloads: readonly Workload[] = [
   "plain_text_column", "styled_span_heavy", "row_heavy", "column_track_heavy", "grid_heavy",
   "decoration_heavy", "diff_heavy", "component_heavy", "mixed_realistic",
+  "wide_column_one_edit", "wide_row_one_edit", "wide_grid_cell_edit", "long_text_wrap_only",
+  "long_text_one_span_edit", "large_diff_one_hunk_edit", "large_decoration_only_change",
 ];
 const patterns: readonly Pattern[] = [
-  "COLD", "FIRST_USE", "IDENTICAL_IDENTITY", "SHARED_PATH", "REBUILT_EQUIVALENT", "SHARED_WIDE", "SHARED_DEEP",
+  "COLD", "FIRST_USE", "IDENTICAL_IDENTITY", "SHARED_PATH", "REBUILT_EQUIVALENT", "LARGE_SHARED_SUBTREE_CUTOFF", "SHARED_DEEP",
+  "WIDE_PARENT_ONE_EDIT", "WIDE_PARENT_INSERT", "WIDE_PARENT_REMOVE", "TEXT_METADATA_PATCH", "DECORATION_PATCH",
 ];
-const warmupIterations = positiveEnv("PERF_WARMUP", 20);
+const warmupIterations = positiveEnv("PERF_WARMUP", 50);
 const measuredIterations = positiveEnv("PERF_MEASURED", 200);
 const selectedSizes = filterSizes(sizes, Bun.env.PERF_SIZES);
+const selectedWideSizes = filterSizes(wideSizes, Bun.env.PERF_SIZES);
+const candidates = filterNames(["direct", "packed", "packed_v3"] as const, Bun.env.PERF_CANDIDATES);
 const selectedWorkloads = filterNames(workloads, Bun.env.PERF_WORKLOADS);
 const selectedPatterns = filterNames(patterns, Bun.env.PERF_PATTERNS);
+const stringLane = Bun.env.PERF_V3_STRING_LANE === "strings" ? "strings" : "utf8" as const;
+if (Bun.env.PERF_V3_STRING_LANE !== undefined && Bun.env.PERF_V3_STRING_LANE !== "utf8" && Bun.env.PERF_V3_STRING_LANE !== "strings") {
+  throw new Error("PERF_V3_STRING_LANE must be utf8 or strings");
+}
 
 function positiveEnv(name: string, fallback: number): number {
   const value = Number(Bun.env[name] ?? fallback);
   if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer`);
   return value;
+}
+
+function measurementCount(pattern: Pattern): number {
+  if (Bun.env.PERF_MEASURED !== undefined) return measuredIterations;
+  if (pattern === "IDENTICAL_IDENTITY" || pattern === "TEXT_METADATA_PATCH" || pattern === "DECORATION_PATCH") return 1_000;
+  return measuredIterations;
 }
 
 function filterNames<T extends string>(values: readonly T[], filter: string | undefined): readonly T[] {
@@ -106,7 +148,7 @@ function createHost(): PackedHost {
 }
 
 function renderDirect(host: BenchmarkHost, view: View): void {
-  host.render(nodeForBridge(view));
+  host.render(nodeForDirectBridge(view));
 }
 
 function tree(nodes: number, prefix = "node"): View {
@@ -223,6 +265,42 @@ function mixedTree(nodes: number): View {
   });
 }
 
+function wideColumn(nodes: number, prefix = "wide"): View {
+  return View.vertical(Array.from({ length: Math.max(1, nodes) }, (_, index) => View.text(`${prefix}-${index}`)));
+}
+
+function wideRow(nodes: number, prefix = "wide"): View {
+  return View.horizontal(Array.from({ length: Math.max(1, nodes) }, (_, index) => View.text(`${prefix}-${index}`)));
+}
+
+function gridCellMutation(nodes: number, index: number): View {
+  const rows = Math.max(1, Math.ceil((nodes - 1) / 4));
+  const targetRow = Math.floor(rows / 2);
+  return View.grid((grid) => {
+    grid.columns([{ kind: "fixed", size: 12 }, { kind: "flex" }, { kind: "contentMax", max: 8 }]);
+    grid.columnGap(1).rowGap(1);
+    for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
+      const track = rowIndex % 2 === 0 ? { kind: "content" as const } : { kind: "flexMax" as const, max: 4 };
+      grid.rowWith(track, (row) => {
+        row.cellWith({ columnSpan: 1, horizontalAlign: "start" }, rowIndex === targetRow ? View.text(`grid-edited-${index}`) : View.text(`grid-a-${rowIndex}`));
+        row.cellWith({ columnSpan: 2, verticalAlign: "center" }, View.text(`grid-b-${rowIndex}`));
+      });
+    }
+  });
+}
+
+function wideParentMutation(workload: Workload, nodes: number, pattern: Pattern, index: number): View {
+  if (workload === "wide_grid_cell_edit") return gridCellMutation(nodes, index);
+  const values = Array.from({ length: Math.max(1, nodes) }, (_, childIndex) => View.text(`wide-${childIndex}`));
+  const position = pattern === "WIDE_PARENT_ONE_EDIT" ? index % values.length : Math.floor(values.length / 2);
+  if (pattern === "WIDE_PARENT_ONE_EDIT") values[position] = View.text(`edited-${index}`);
+  if (pattern === "WIDE_PARENT_INSERT") values.splice(position, 0, View.text(`inserted-${index}`));
+  if (pattern === "WIDE_PARENT_REMOVE") values.splice(position, 1);
+  return workload === "wide_row_one_edit" ? View.horizontal(values) : View.vertical(values);
+}
+
+function longText(): View { return View.text("x".repeat(8_192)); }
+
 function workloadView(workload: Workload, nodes: number, componentId?: number): View {
   switch (workload) {
     case "plain_text_column": return tree(nodes);
@@ -236,10 +314,17 @@ function workloadView(workload: Workload, nodes: number, componentId?: number): 
       if (componentId === undefined) throw new Error("component workload requires a registered component");
       return componentTree(nodes, componentId);
     case "mixed_realistic": return mixedTree(nodes);
+  case "wide_column_one_edit": return wideColumn(nodes);
+  case "wide_row_one_edit": return wideRow(nodes);
+  case "wide_grid_cell_edit": return gridTree(nodes);
+  case "long_text_wrap_only": return longText();
+  case "long_text_one_span_edit": return View.styledText([TextSpan.plain("x".repeat(8_192))]);
+  case "large_diff_one_hunk_edit": return diffTree(nodes);
+  case "large_decoration_only_change": return View.text("decoration").padding(1);
   }
 }
 
-function sharedWide(size: number, index: number, shared: View): View {
+function largeSharedSubtreeCutoff(size: number, index: number, shared: View): View {
   return View.vertical((column) => {
     column.child(shared);
     column.child(View.text(`changed-${index}`));
@@ -279,7 +364,7 @@ function uniqueNodeCount(view: View): number {
       default: break;
     }
   };
-  visit(nodeForBridge(view));
+  visit(nodeForDirectBridge(view));
   return seen.size;
 }
 
@@ -291,8 +376,11 @@ function buildModeView(
   shared?: View,
   componentId?: number,
 ): View {
-  if (pattern === "SHARED_PATH" || pattern === "SHARED_WIDE") return sharedWide(size, index, shared ?? tree(Math.max(2, Math.floor(size / 2)), "shared"));
+  if (pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF") return largeSharedSubtreeCutoff(size, index, shared ?? tree(Math.max(2, Math.floor(size / 2)), "shared"));
   if (pattern === "SHARED_DEEP") return sharedDeep(Math.min(64, Math.max(4, Math.floor(Math.log2(size)))), index, shared ?? tree(Math.max(2, Math.floor(size / 3)), "deep-shared"));
+  if (pattern === "WIDE_PARENT_ONE_EDIT" || pattern === "WIDE_PARENT_INSERT" || pattern === "WIDE_PARENT_REMOVE") return workloadView(workload, size, componentId);
+  if (pattern === "TEXT_METADATA_PATCH") return longText();
+  if (pattern === "DECORATION_PATCH") return View.text("decoration").padding(1);
   return workloadView(workload, size, componentId);
 }
 
@@ -328,10 +416,17 @@ function stats(samples: readonly number[]): Stats {
   };
 }
 
-function gitSha(): string {
-  const result = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
+function commandText(command: string[]): string {
+  const result = Bun.spawnSync(command);
   return new TextDecoder().decode(result.stdout).trim() || "unknown";
 }
+
+function gitSha(): string { return commandText(["git", "rev-parse", "HEAD"]); }
+function gitDirty(): boolean { const status = commandText(["git", "status", "--porcelain"]); return status !== "unknown" && status !== ""; }
+function gitPatchSha256(): string {
+  return commandText(["sh", "-c", "{ git diff HEAD --binary; git ls-files --others --exclude-standard -z | xargs -0 -n1 shasum -a 256; } | shasum -a 256"]).split(/\s+/)[0] ?? "unknown";
+}
+function sha256(path: string): string { return commandText(["shasum", "-a", "256", path]).split(/\s+/)[0] ?? "unknown"; }
 
 function runtimeVersion(command: string): string {
   const result = Bun.spawnSync(command.split(" "));
@@ -367,17 +462,36 @@ function runSample(
   warmup: boolean,
 ): Sample {
   const firstUse = pattern === "FIRST_USE";
-  const host = firstUse ? createHost() : candidate === "direct" ? state.directHost : state.packedHost;
-  const encoder = candidate === "packed" ? (firstUse ? createPackedViewEncoder() : state.packedEncoder) : undefined;
-  if (pattern === "COLD") encoder?.resetKnownNativeState();
-  const componentId = firstUse && workload === "component_heavy" ? createComponentId(host) : candidate === "direct" ? state.directComponentId : state.packedComponentId;
+  const host = firstUse ? createHost() : candidate === "direct" ? state.directHost : candidate === "packed" ? state.packedHost : state.packedV3Host;
+  const encoder = candidate === "packed" ? (firstUse ? createPackedViewEncoder() : state.packedEncoder) : candidate === "packed_v3" ? (firstUse ? createPackedV3Encoder() : state.packedV3Encoder) : undefined;
+  if (pattern === "COLD" && candidate === "packed") (encoder as PackedViewEncoder).resetKnownNativeState();
+  const componentId = firstUse && workload === "component_heavy" ? createComponentId(host) : candidate === "direct" ? state.directComponentId : candidate === "packed" ? state.packedComponentId : state.packedV3ComponentId;
   const constructionStarted = now();
-  const view = pattern === "IDENTICAL_IDENTITY"
-    ? candidate === "direct" ? state.directBase! : state.packedBase!
-    : buildModeView(workload, size, pattern, index, candidate === "direct" ? state.directShared : state.packedShared, componentId);
+  const baseView = candidate === "direct" ? state.directBase! : candidate === "packed" ? state.packedBase! : state.packedV3Base!;
+  const isWideParentMode = pattern === "WIDE_PARENT_ONE_EDIT" || pattern === "WIDE_PARENT_INSERT" || pattern === "WIDE_PARENT_REMOVE";
+  let retainedView: View;
+  if (isWideParentMode && candidate !== "packed_v3") {
+    retainedView = wideParentMutation(workload, size, pattern, index);
+  } else if (candidate === "packed_v3" && workload === "wide_grid_cell_edit" && pattern === "WIDE_PARENT_ONE_EDIT") {
+    const row = Math.floor(Math.max(1, Math.ceil((size - 1) / 4)) / 2);
+    retainedView = replacePackedGridCell(state.packedV3Base!, row, 0, View.text(`grid-edited-${index}`));
+  } else if (candidate === "packed_v3" && pattern === "WIDE_PARENT_ONE_EDIT") {
+    retainedView = replacePackedAxisChild(state.packedV3Base!, index % Math.max(1, size), View.text(`edited-${index}`));
+  } else if (candidate === "packed_v3" && pattern === "WIDE_PARENT_INSERT") {
+    retainedView = splicePackedAxisChildren(state.packedV3Base!, Math.floor(size / 2), 0, [View.text(`inserted-${index}`)]);
+  } else if (candidate === "packed_v3" && pattern === "WIDE_PARENT_REMOVE") {
+    retainedView = splicePackedAxisChildren(state.packedV3Base!, Math.floor(size / 2), 1, []);
+  } else {
+    retainedView = pattern === "IDENTICAL_IDENTITY" || pattern === "TEXT_METADATA_PATCH" || pattern === "DECORATION_PATCH"
+      ? baseView
+      : buildModeView(workload, size, pattern, index, candidate === "direct" ? state.directShared : candidate === "packed" ? state.packedShared : state.packedV3Shared, componentId);
+  }
+  if (pattern === "TEXT_METADATA_PATCH") retainedView = retainedView.noWrap();
+  if (pattern === "DECORATION_PATCH") retainedView = retainedView.maxWidth(40);
   const construction = now() - constructionStarted;
   const nativeBefore = nativeCounters();
   const packedBefore = packedEncoderSnapshot();
+  const packedV3Before = packedV3Snapshot();
   const cpuBefore = process.cpuUsage();
   const heapBefore = process.memoryUsage().heapUsed;
   const rssBefore = process.memoryUsage().rss;
@@ -387,16 +501,46 @@ function runSample(
   let encodingStarted = 0;
   let nativeStarted = 0;
   if (candidate === "direct") {
-    renderDirect(host, view);
+    renderDirect(host, retainedView);
     native = now() - commitStarted;
-  } else {
-    renderPackedView(encoder!, view, (words, strings) => (host as PackedHost).tuiPerfPackedRender(words, strings), {
+  } else if (candidate === "packed") {
+    renderPackedView(encoder as PackedViewEncoder, retainedView, (words, strings) => (host as PackedHost).tuiPerfPackedRender(words, strings), {
       encodingStarted: () => { encodingStarted = now(); },
       encodingFinished: () => { if (encodingStarted !== 0) { encoding += now() - encodingStarted; encodingStarted = 0; } },
       nativeStarted: () => { nativeStarted = now(); },
       nativeFinished: () => { if (nativeStarted !== 0) { native += now() - nativeStarted; nativeStarted = 0; } },
     });
+  } else {
+    const packedHost = host as PackedHost;
+    if (packedHost.tuiPerfV3PackedRenderRef === undefined
+      || (stringLane === "utf8" && packedHost.tuiPerfV3PackedRender === undefined)
+      || (stringLane === "strings" && packedHost.tuiPerfV3PackedRenderStrings === undefined)) {
+      throw new Error("native addon lacks selected Packed V3 benchmark methods");
+    }
+    let encodingStarted = 0;
+    let nativeStarted = 0;
+    renderPackedV3View(
+      encoder as PackedV3Encoder,
+      retainedView,
+      (words, bytes, strings) => {
+        if (stringLane === "strings") {
+          if (packedHost.tuiPerfV3PackedRenderStrings === undefined) throw new Error("native addon lacks Packed V3 string-lane method");
+          packedHost.tuiPerfV3PackedRenderStrings(words, strings);
+        } else {
+          if (packedHost.tuiPerfV3PackedRender === undefined) throw new Error("native addon lacks Packed V3 byte-lane method");
+          packedHost.tuiPerfV3PackedRender(words, bytes);
+        }
+      },
+      (generation, packedRef) => packedHost.tuiPerfV3PackedRenderRef!(generation, packedRef),
+      {
+        encodingStarted: () => { encodingStarted = now(); },
+        encodingFinished: () => { if (encodingStarted !== 0) { encoding += now() - encodingStarted; encodingStarted = 0; } },
+        nativeStarted: () => { nativeStarted = now(); },
+        nativeFinished: () => { if (nativeStarted !== 0) { native += now() - nativeStarted; nativeStarted = 0; } },
+      },
+    );
   }
+
   const commit = now() - commitStarted;
   const forcedStarted = commitStarted;
   if (Bun.env.PERF_FORCED_FRAME === "1") host.advanceTime(0);
@@ -404,48 +548,90 @@ function runSample(
   const cpu = process.cpuUsage(cpuBefore);
   const heapDelta = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
   const rssDelta = Math.max(0, process.memoryUsage().rss - rssBefore);
-  const nativeCacheSize = perfNative.tuiPerfViewBridgeCacheSize?.() ?? 0;
+  const nativeCacheSize = candidate === "packed_v3" ? perfNative.tuiPerfV3ViewBridgeCacheSize?.() ?? 0 : perfNative.tuiPerfViewBridgeCacheSize?.() ?? 0;
+  const nativeSemanticCacheSize = perfNative.tuiPerfViewBridgeCacheSize?.() ?? 0;
+  const nativePackedSlotPages = candidate === "packed_v3" ? perfNative.tuiPerfV3PackedSlotPages?.() ?? 0 : 0;
   const nativeAfter = nativeCounters();
   const packedAfter = packedEncoderSnapshot();
-  addCounters(candidate === "direct" ? state.directCounters : state.packedCounters, diffCounters(nativeBefore, nativeAfter));
+  const counterTarget = candidate === "direct" ? state.directCounters : candidate === "packed" ? state.packedCounters : state.packedV3Counters;
+  addCounters(counterTarget, diffCounters(nativeBefore, nativeAfter));
   if (candidate === "packed") addCounters(state.packedCounters, diffCounters(packedBefore, packedAfter));
+  if (candidate === "packed_v3") addCounters(state.packedV3Counters, diffCounters(packedV3Before, packedV3Snapshot()));
   if (firstUse) host.dispose();
-  if (warmup) return { nodeCount: 0, total: 0, commit: 0, forcedFrame: 0, construction: 0, encoding: 0, native: 0, cpuUserUs: 0, cpuSystemUs: 0, heapDelta: 0, rssDelta: 0, scratchCapacity: 0, nativeCacheSize: 0 };
-  return { nodeCount: uniqueNodeCount(view), total: construction + commit, commit, forcedFrame: construction + forcedFrame, construction, encoding, native: native || commit, cpuUserUs: cpu.user, cpuSystemUs: cpu.system, heapDelta, rssDelta, scratchCapacity: encoder?.scratchCapacity() ?? 0, nativeCacheSize };
+  if (warmup) return { nodeCount: 0, total: 0, commit: 0, forcedFrame: 0, construction: 0, encoding: 0, native: 0, cpuUserUs: 0, cpuSystemUs: 0, heapDelta: 0, rssDelta: 0, scratchCapacity: 0, byteScratchCapacity: 0, nativeCacheSize: 0, nativeSemanticCacheSize: 0, nativePackedSlotPages: 0 };
+  const scratchCapacity = candidate === "packed" ? (encoder as PackedViewEncoder).scratchCapacity() : candidate === "packed_v3" ? (encoder as PackedV3Encoder).wordScratchCapacity : 0;
+  const byteScratchCapacity = candidate === "packed_v3" ? (encoder as PackedV3Encoder).byteScratchCapacity : 0;
+  return { nodeCount: uniqueNodeCount(retainedView), total: construction + commit, commit, forcedFrame: construction + forcedFrame, construction, encoding, native: native || commit, cpuUserUs: cpu.user, cpuSystemUs: cpu.system, heapDelta, rssDelta, scratchCapacity, byteScratchCapacity, nativeCacheSize, nativeSemanticCacheSize, nativePackedSlotPages };
 }
 
 type CaseState = {
   readonly directHost: BenchmarkHost;
   readonly packedHost: PackedHost;
+  readonly packedV3Host: PackedHost;
   readonly packedEncoder: PackedViewEncoder;
+  readonly packedV3Encoder: PackedV3Encoder;
   readonly directCounters: Record<string, number>;
   readonly packedCounters: Record<string, number>;
+  readonly packedV3Counters: Record<string, number>;
   readonly directBase?: View;
   readonly packedBase?: View;
+  readonly packedV3Base?: View;
   readonly directShared?: View;
   readonly packedShared?: View;
+  readonly packedV3Shared?: View;
   readonly directComponentId?: number;
   readonly packedComponentId?: number;
+  readonly packedV3ComponentId?: number;
 };
 
 function makeCaseState(workload: Workload, size: number, pattern: Pattern): CaseState {
   const directHost = createHost();
   const packedHost = createHost();
+  const packedV3Host = createHost();
   const directComponentId = workload === "component_heavy" ? createComponentId(directHost) : undefined;
   const packedComponentId = workload === "component_heavy" ? createComponentId(packedHost) : undefined;
+  const packedV3ComponentId = workload === "component_heavy" ? createComponentId(packedV3Host) : undefined;
   return {
     directHost,
     packedHost,
+    packedV3Host,
     packedEncoder: createPackedViewEncoder(),
+    packedV3Encoder: createPackedV3Encoder(stringLane),
     directCounters: {},
     packedCounters: {},
+    packedV3Counters: {},
     directBase: workloadView(workload, size, directComponentId),
     packedBase: workloadView(workload, size, packedComponentId),
-    directShared: pattern === "SHARED_PATH" || pattern === "SHARED_WIDE" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-direct") : undefined,
-    packedShared: pattern === "SHARED_PATH" || pattern === "SHARED_WIDE" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-packed") : undefined,
+    packedV3Base: workloadView(workload, size, packedV3ComponentId),
+    directShared: pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-direct") : undefined,
+    packedShared: pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-packed") : undefined,
+    packedV3Shared: pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-packed-v3") : undefined,
     directComponentId,
     packedComponentId,
+    packedV3ComponentId,
   };
+}
+
+function primePatchBases(pattern: Pattern, state: CaseState): void {
+  if (pattern !== "TEXT_METADATA_PATCH" && pattern !== "DECORATION_PATCH") return;
+  if (candidates.includes("direct")) state.directHost.render(nodeForDirectBridge(state.directBase!));
+  if (candidates.includes("packed")) {
+    const packedTransaction = state.packedEncoder.encodeRoots([nodeForBridge(state.packedBase!)]);
+    state.packedHost.tuiPerfPackedRender(packedTransaction.words, packedTransaction.strings);
+    state.packedEncoder.commitSuccessfulDefinitions();
+  }
+  if (!candidates.includes("packed_v3")) return;
+  const host = state.packedV3Host;
+  const transactionEncoder = state.packedV3Encoder;
+  renderPackedV3View(
+    transactionEncoder,
+    state.packedV3Base!,
+    (words, bytes, strings) => {
+      if (stringLane === "strings") host.tuiPerfV3PackedRenderStrings!(words, strings);
+      else host.tuiPerfV3PackedRender!(words, bytes);
+    },
+    (generation, packedRef) => host.tuiPerfV3PackedRenderRef!(generation, packedRef),
+  );
 }
 
 function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern: Pattern, samples: readonly Sample[], state: CaseState, sha: string): void {
@@ -457,15 +643,22 @@ function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern:
   const native = samples.map((sample) => sample.native);
   const nodeCount = samples.find((sample) => sample.nodeCount > 0)?.nodeCount ?? size.nodes;
   const output = {
-    benchmark_version: "PERF-7v2",
+    benchmark_version: "PERF-8",
     candidate,
     workload,
     size: size.name,
     mode: pattern,
     node_count: nodeCount,
     git_sha: sha,
+    git_dirty: gitDirty(),
+    git_patch_sha256: gitDirty() ? gitPatchSha256() : undefined,
+    protocol_version: 2,
+    bridge_schema_version: 1,
+    string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS",
+    native_artifact_sha256: sha256("packages/iyon-runtime/native/iyon-native.node"),
+    benchmark_source_sha256: sha256("packages/iyon-runtime/bench/tui_performance.ts"),
     warmup_iterations: warmupIterations,
-    measured_iterations: measuredIterations,
+    measured_iterations: samples.length,
     samples_ns: total,
     commit_samples_ns: commit,
     forced_frame_samples_ns: forced,
@@ -485,70 +678,97 @@ function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern:
     heap_peak_delta_bytes: samples.reduce((peak, sample) => Math.max(peak, sample.heapDelta), 0),
     rss_peak_delta_bytes: samples.reduce((peak, sample) => Math.max(peak, sample.rssDelta), 0),
     scratch_word_capacity: samples.reduce((peak, sample) => Math.max(peak, sample.scratchCapacity), 0),
+    scratch_byte_capacity: samples.reduce((peak, sample) => Math.max(peak, sample.byteScratchCapacity), 0),
     native_bridge_cache_entries: samples.length === 0 ? 0 : samples[samples.length - 1]!.nativeCacheSize,
-    counters: candidate === "direct" ? state.directCounters : state.packedCounters,
+    native_semantic_cache_entries: samples.length === 0 ? 0 : samples[samples.length - 1]!.nativeSemanticCacheSize,
+    packed_slot_pages_peak: samples.reduce((peak, sample) => Math.max(peak, sample.nativePackedSlotPages), 0),
+    counters: candidate === "direct" ? state.directCounters : candidate === "packed" ? state.packedCounters : state.packedV3Counters,
     bun_version: Bun.version,
     rustc_version: runtimeVersion("rustc --version"),
     target: `${process.platform}-${process.arch}`,
     profile: "release",
-    p99_informational: measuredIterations < 1_000,
+    p99_informational: samples.length < 1_000,
     synthetic_trace: false,
   };
   console.log(JSON.stringify(output));
 }
 
+function candidateOrder(index: number): readonly Candidate[] {
+  if (candidates.length === 0) throw new Error("PERF_CANDIDATES selected no candidates");
+  const offset = index % candidates.length;
+  return [...candidates.slice(offset), ...candidates.slice(0, offset)];
+}
+
 function runCase(workload: Workload, size: Size, pattern: Pattern, sha: string): void {
   const state = makeCaseState(workload, size.nodes, pattern);
+  primePatchBases(pattern, state);
   resetPackedEncoderCounters();
+  resetPackedV3Counters();
   perfNative.tuiPerfReset?.();
   for (let index = 0; index < warmupIterations; index += 1) {
-    const first = index % 2 === 0 ? "direct" : "packed";
-    runSample(first, pattern, workload, size.nodes, index, state, true);
-    runSample(first === "direct" ? "packed" : "direct", pattern, workload, size.nodes, index, state, true);
+    for (const candidate of candidateOrder(index)) runSample(candidate, pattern, workload, size.nodes, index, state, true);
   }
   resetPackedEncoderCounters();
+  resetPackedV3Counters();
   perfNative.tuiPerfReset?.();
-  const directSamples: Sample[] = [];
-  const packedSamples: Sample[] = [];
-  for (let index = 0; index < measuredIterations; index += 1) {
-    const first = index % 2 === 0 ? "direct" : "packed";
-    const firstSample = runSample(first, pattern, workload, size.nodes, index + warmupIterations, state, false);
-    const second = first === "direct" ? "packed" : "direct";
-    const secondSample = runSample(second, pattern, workload, size.nodes, index + warmupIterations, state, false);
-    if (first === "direct") { directSamples.push(firstSample); packedSamples.push(secondSample); }
-    else { packedSamples.push(firstSample); directSamples.push(secondSample); }
+  const samples = new Map<Candidate, Sample[]>(candidates.map((candidate) => [candidate, []]));
+  const sampleCount = measurementCount(pattern);
+  for (let index = 0; index < sampleCount; index += 1) {
+    for (const candidate of candidateOrder(index + warmupIterations)) samples.get(candidate)!.push(runSample(candidate, pattern, workload, size.nodes, index + warmupIterations, state, false));
   }
-  emitCase("direct", workload, size, pattern, directSamples, state, sha);
-  emitCase("packed", workload, size, pattern, packedSamples, state, sha);
+  for (const candidate of candidates) emitCase(candidate, workload, size, pattern, samples.get(candidate)!, state, sha);
   state.directHost.dispose();
   state.packedHost.dispose();
+  state.packedV3Host.dispose();
 }
 
 function runSyntheticTrace(sha: string): void {
   const workload: Workload = "mixed_realistic";
   const size: Size = { name: "synthetic_trace", nodes: 2_000 };
-  const state = makeCaseState(workload, size.nodes, "SHARED_WIDE");
-  const directTotals: number[] = [];
-  const packedTotals: number[] = [];
+  const state = makeCaseState(workload, size.nodes, "LARGE_SHARED_SUBTREE_CUTOFF");
+  const totals = new Map<Candidate, number[]>(candidates.map((candidate) => [candidate, []]));
   resetPackedEncoderCounters();
+  resetPackedV3Counters();
   perfNative.tuiPerfReset?.();
   for (let index = 0; index < 1_000; index += 1) {
-    const mode: Pattern = index % 50 < 35 ? "SHARED_WIDE" : index % 10 < 9 ? "IDENTICAL_IDENTITY" : index % 50 === 49 ? "REBUILT_EQUIVALENT" : "COLD";
-    const first = index % 2 === 0 ? "direct" : "packed";
-    const a = runSample(first, mode, workload, size.nodes, index, state, false);
-    const b = runSample(first === "direct" ? "packed" : "direct", mode, workload, size.nodes, index, state, false);
-    if (first === "direct") { directTotals.push(a.total); packedTotals.push(b.total); }
-    else { packedTotals.push(a.total); directTotals.push(b.total); }
+    const traceSlot = index % 50;
+    const mode: Pattern = traceSlot < 35
+      ? "LARGE_SHARED_SUBTREE_CUTOFF"
+      : traceSlot < 45
+        ? "IDENTICAL_IDENTITY"
+        : traceSlot < 49
+          ? "REBUILT_EQUIVALENT"
+          : "COLD";
+    for (const candidate of candidateOrder(index)) totals.get(candidate)!.push(runSample(candidate, mode, workload, size.nodes, index, state, false).total);
   }
-  console.log(JSON.stringify({ benchmark_version: "PERF-7v2", benchmark: "synthetic_trace", synthetic_trace: true, mix: "70% SHARED_PATH, 20% IDENTICAL_IDENTITY, 8% REBUILT_EQUIVALENT, 2% large replacement", direct_total_commit_ns: directTotals.reduce((sum, value) => sum + value, 0), packed_total_commit_ns: packedTotals.reduce((sum, value) => sum + value, 0), direct_samples_ns: directTotals, packed_samples_ns: packedTotals, git_sha: sha }));
+  const output: Record<string, unknown> = { benchmark_version: "PERF-8", benchmark: "synthetic_trace", synthetic_trace: true, mix: "70% LARGE_SHARED_SUBTREE_CUTOFF, 20% IDENTICAL_IDENTITY, 8% REBUILT_EQUIVALENT, 2% COLD", git_sha: sha, git_dirty: gitDirty(), git_patch_sha256: gitDirty() ? gitPatchSha256() : undefined, protocol_version: 2, bridge_schema_version: 1, string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS", native_artifact_sha256: sha256("packages/iyon-runtime/native/iyon-native.node"), benchmark_source_sha256: sha256("packages/iyon-runtime/bench/tui_performance.ts") };
+  for (const candidate of candidates) {
+    const values = totals.get(candidate)!;
+    output[`${candidate}_total_commit_ns`] = values.reduce((sum, value) => sum + value, 0);
+    output[`${candidate}_samples_ns`] = values;
+  }
+  console.log(JSON.stringify(output));
   state.directHost.dispose();
   state.packedHost.dispose();
+  state.packedV3Host.dispose();
 }
 
 const sha = gitSha();
+if (gitDirty() && Bun.env.PERF_ALLOW_DIRTY !== "1") {
+  throw new Error("PERF-8 authoritative runs require a clean worktree; set PERF_ALLOW_DIRTY=1 only for explicitly non-authoritative development runs");
+}
 for (const workload of selectedWorkloads) {
-  for (const size of selectedSizes) {
-    for (const pattern of selectedPatterns) runCase(workload, size, pattern, sha);
+  const isWideAxisWorkload = workload === "wide_column_one_edit" || workload === "wide_row_one_edit" || workload === "wide_grid_cell_edit";
+  const caseSizes = isWideAxisWorkload ? selectedWideSizes : selectedSizes;
+  for (const size of caseSizes) {
+    for (const pattern of selectedPatterns) {
+      const isWideParentMode = pattern === "WIDE_PARENT_ONE_EDIT" || pattern === "WIDE_PARENT_INSERT" || pattern === "WIDE_PARENT_REMOVE";
+      if (isWideParentMode && !isWideAxisWorkload) continue;
+      if (workload === "wide_grid_cell_edit" && pattern !== "WIDE_PARENT_ONE_EDIT" && isWideParentMode) continue;
+      if (pattern === "TEXT_METADATA_PATCH" && workload !== "long_text_wrap_only") continue;
+      if (pattern === "DECORATION_PATCH" && workload !== "large_decoration_only_change") continue;
+      runCase(workload, size, pattern, sha);
+    }
   }
 }
 if (Bun.env.PERF_TRACE === "1") runSyntheticTrace(sha);

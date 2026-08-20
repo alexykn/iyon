@@ -81,6 +81,41 @@ type BridgeSchema = {
   readonly packedBorderColor: 2;
   readonly packedBorderStyle: 4;
   readonly packedBorderEdges: 8;
+  readonly packedV3ProtocolVersion: 2;
+  readonly packedV3ResetGeneration: 1;
+  readonly packedV3ColdClosure: 2;
+  readonly packedV3HasByteLane: 4;
+  readonly packedV3HasStringLane: 8;
+  readonly packedV3DefViewFull: 1;
+  readonly packedV3PatchView: 2;
+  readonly packedV3DefSeqLeaf: 3;
+  readonly packedV3DefSeqBranch: 4;
+  readonly packedV3DefGridCellLeaf: 5;
+  readonly packedV3DefGridCellBranch: 6;
+  readonly packedV3OpRender: 10;
+  readonly packedV3OpRenderForest: 11;
+  readonly packedV3PatchText: 1;
+  readonly packedV3PatchDecoration: 2;
+  readonly packedV3PatchAxis: 3;
+  readonly packedV3PatchGrid: 4;
+  readonly packedV3PatchWrap: 1;
+  readonly packedV3PatchAlign: 2;
+  readonly packedV3PatchPadding: 4;
+  readonly packedV3PatchWidth: 8;
+  readonly packedV3PatchHeight: 16;
+  readonly packedV3PatchMinWidth: 32;
+  readonly packedV3PatchMaxWidth: 64;
+  readonly packedV3PatchMinHeight: 128;
+  readonly packedV3PatchMaxHeight: 256;
+  readonly packedV3PatchGap: 512;
+  readonly packedV3PatchSequence: 1024;
+  readonly packedV3PatchGridCells: 2048;
+  readonly packedV3SeqColumn: 1;
+  readonly packedV3SeqRow: 2;
+  readonly packedV3SeqGrid: 3;
+  readonly packedV3WireLocalBit: 2147483648;
+  readonly packedV3SeqBranchFactor: 32;
+  readonly packedV3SeqPageShift: 12;
 };
 
 const schema = bridgeSchema as BridgeSchema;
@@ -195,6 +230,45 @@ export const PACKED_VIEW = {
   borderColor: schema.packedBorderColor,
   borderStyle: schema.packedBorderStyle,
   borderEdges: schema.packedBorderEdges,
+} as const;
+
+/** Packed V3 retained graph protocol constants. */
+export const PACKED_V3 = {
+  version: schema.packedV3ProtocolVersion,
+  resetGeneration: schema.packedV3ResetGeneration,
+  coldClosure: schema.packedV3ColdClosure,
+  hasByteLane: schema.packedV3HasByteLane,
+  hasStringLane: schema.packedV3HasStringLane,
+  defViewFull: schema.packedV3DefViewFull,
+  patchView: schema.packedV3PatchView,
+  defSeqLeaf: schema.packedV3DefSeqLeaf,
+  defSeqBranch: schema.packedV3DefSeqBranch,
+  defGridCellLeaf: schema.packedV3DefGridCellLeaf,
+  defGridCellBranch: schema.packedV3DefGridCellBranch,
+  opRender: schema.packedV3OpRender,
+  opRenderForest: schema.packedV3OpRenderForest,
+  patchText: schema.packedV3PatchText,
+  patchDecoration: schema.packedV3PatchDecoration,
+  patchAxis: schema.packedV3PatchAxis,
+  patchGrid: schema.packedV3PatchGrid,
+  patchWrap: schema.packedV3PatchWrap,
+  patchAlign: schema.packedV3PatchAlign,
+  patchPadding: schema.packedV3PatchPadding,
+  patchWidth: schema.packedV3PatchWidth,
+  patchHeight: schema.packedV3PatchHeight,
+  patchMinWidth: schema.packedV3PatchMinWidth,
+  patchMaxWidth: schema.packedV3PatchMaxWidth,
+  patchMinHeight: schema.packedV3PatchMinHeight,
+  patchMaxHeight: schema.packedV3PatchMaxHeight,
+  patchGap: schema.packedV3PatchGap,
+  patchSequence: schema.packedV3PatchSequence,
+  patchGridCells: schema.packedV3PatchGridCells,
+  seqColumn: schema.packedV3SeqColumn,
+  seqRow: schema.packedV3SeqRow,
+  seqGrid: schema.packedV3SeqGrid,
+  wireLocalBit: schema.packedV3WireLocalBit,
+  seqBranchFactor: schema.packedV3SeqBranchFactor,
+  seqPageShift: schema.packedV3SeqPageShift,
 } as const;
 
 export type ColorNode = string | { readonly type: "ansi"; readonly value: number };

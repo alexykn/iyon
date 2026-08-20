@@ -56,7 +56,7 @@
 use std::num::NonZeroU16;
 
 use super::{style::VerticalAlign, text::HorizontalAlign, view::IntoView};
-use crate::presentation::ir::{GridCellView, GridView, TrackSize, View};
+use crate::presentation::ir::{GridCellView, GridView, PersistentSeq, TrackSize, View};
 
 /// A column or row track size. The underlying layout representation is private.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -269,11 +269,11 @@ fn lower_grid(grid: Grid) -> GridView {
     debug_assert_grid_non_overlapping(&columns, &rows, &cells);
 
     GridView {
-        columns: columns.into(),
-        rows: rows.into(),
+        columns: PersistentSeq::from_vec(columns),
+        rows: PersistentSeq::from_vec(rows),
         column_gap: grid.column_gap,
         row_gap: grid.row_gap,
-        cells: cells.into(),
+        cells: PersistentSeq::from_vec(cells),
     }
 }
 
@@ -362,16 +362,16 @@ mod tests {
         });
         let grid = grid_ir(&view);
         assert_eq!(
-            grid.columns.as_ref(),
-            &[
+            grid.columns.iter().copied().collect::<Vec<_>>(),
+            vec![
                 TrackSize::Content { max: None },
                 TrackSize::Fixed(4),
                 TrackSize::Flex { min: 1 },
             ]
         );
         assert_eq!(
-            grid.rows.as_ref(),
-            &[TrackSize::Content { max: None }, TrackSize::Fixed(3),]
+            grid.rows.iter().copied().collect::<Vec<_>>(),
+            vec![TrackSize::Content { max: None }, TrackSize::Fixed(3),]
         );
     }
 
@@ -382,8 +382,8 @@ mod tests {
             grid.columns([GridTrack::content(), GridTrack::flex()]);
         });
         assert_eq!(
-            grid_ir(&view).columns.as_ref(),
-            &[TrackSize::Content { max: None }, TrackSize::Flex { min: 1 }]
+            grid_ir(&view).columns.iter().copied().collect::<Vec<_>>(),
+            vec![TrackSize::Content { max: None }, TrackSize::Flex { min: 1 }]
         );
     }
 

@@ -8,8 +8,8 @@ use crate::{
     perf::{self, Counter},
     presentation::{
         ir::{
-            ColumnView, GridView, HangingView, RowView, RowViewportView, TextView, TrackSize, View,
-            ViewKind, WidthRule,
+            ColumnView, GridView, HangingView, PersistentSeq, RowView, RowViewportView, TextView,
+            TrackSize, View, ViewKind, WidthRule,
         },
         wrap::{TextFlowMetrics, text_flow_metrics},
     },
@@ -145,7 +145,7 @@ pub(super) enum MeasuredKind {
     },
     Grid {
         columns: TrackAllocation,
-        row_tracks: Vec<TrackSize>,
+        row_tracks: PersistentSeq<TrackSize>,
         intrinsic_rows: TrackAllocation,
         cells: Vec<MeasuredGridCell>,
         row_gap: u16,
@@ -532,7 +532,7 @@ fn measure_grid(
     );
     MeasuredKind::Grid {
         columns,
-        row_tracks: grid.rows.to_vec(),
+        row_tracks: grid.rows.clone(),
         intrinsic_rows,
         cells,
         row_gap: grid.row_gap,

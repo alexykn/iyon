@@ -106519,7 +106519,7 @@
               ]
             },
             "kind": "Struct",
-            "signature": "\"struct View Fields::Named { brace_token: Brace, named: [Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(inner)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(ViewNode), arguments: PathArguments::None }] } })], gt_token: Gt } }] } } }, Comma] }\"",
+            "signature": "\"struct View Fields::Named { brace_token: Brace, named: [Field { attrs: [], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(inner)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(ViewNode), arguments: PathArguments::None }] } })], gt_token: Gt } }] } } }, Comma, Field { attrs: [Attribute { pound_token: Pound, style: AttrStyle::Outer, bracket_token: Bracket, meta: Meta::NameValue { path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(doc), arguments: PathArguments::None }] }, eq_token: Eq, value: Expr::Lit { attrs: [], lit: Lit::Str { token: \\\" Private lifetime anchor for retained transport payloads. It is not\\\" } } } }, Attribute { pound_token: Pound, style: AttrStyle::Outer, bracket_token: Bracket, meta: Meta::NameValue { path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(doc), arguments: PathArguments::None }] }, eq_token: Eq, value: Expr::Lit { attrs: [], lit: Lit::Str { token: \\\" semantic state and is intentionally ignored by equality.\\\" } } } }], vis: Visibility::Inherited, mutability: FieldMutability::None, ident: Some(Ident(transport_payload)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(TransportPayload), arguments: PathArguments::None }] } } }, Comma] }\"",
             "visibility": "Public",
             "source": {
               "path": "crates/iyon-tui/src/presentation/ir.rs",
@@ -107320,6 +107320,300 @@
             ]
           },
           {
+            "id": "iyon-tui::presentation::ir::View::from_retained_clamp",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "from_retained_clamp"
+              ]
+            },
+            "kind": "AssociatedFunction",
+            "signature": "\"impl-fn from_retained_clamp Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(from_retained_clamp), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(child), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(max_rows), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u16), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(overflow), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(OverflowIndicator), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/view.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "from_retained_clamp"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::from_retained_component",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "from_retained_component"
+              ]
+            },
+            "kind": "AssociatedFunction",
+            "signature": "\"impl-fn from_retained_component Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(from_retained_component), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(raw_id), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u64), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/view.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "from_retained_component"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::from_retained_container",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "from_retained_container"
+              ]
+            },
+            "kind": "AssociatedFunction",
+            "signature": "\"impl-fn from_retained_container Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(from_retained_container), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(child), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/view.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "from_retained_container"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::from_retained_decoration",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "from_retained_decoration"
+              ]
+            },
+            "kind": "AssociatedFunction",
+            "signature": "\"impl-fn from_retained_decoration Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(from_retained_decoration), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(child), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(parts), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(RetainedDecoration), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/view.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "from_retained_decoration"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::from_retained_hanging",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "from_retained_hanging"
+              ]
+            },
+            "kind": "AssociatedFunction",
+            "signature": "\"impl-fn from_retained_hanging Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(from_retained_hanging), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(prefix), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(continuation), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(body), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(View), arguments: PathArguments::None }] } } }), Comma], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }), Comma, GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/view.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "from_retained_hanging"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::from_retained_text",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "from_retained_text"
+              ]
+            },
+            "kind": "AssociatedFunction",
+            "signature": "\"impl-fn from_retained_text Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(from_retained_text), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(spans), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Vec), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(TextSpan), arguments: PathArguments::None }] } })], gt_token: Gt } }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(wrap), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(WrapMode), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(align), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HorizontalAlign), arguments: PathArguments::None }] } } }), Comma], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/view.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "from_retained_text"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
             "id": "iyon-tui::presentation::ir::View::grid",
             "canonical_path": {
               "crate_id": "iyon-tui",
@@ -107847,6 +108141,300 @@
                     "ir",
                     "View",
                     "padding"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::patch_retained_axis",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "patch_retained_axis"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn patch_retained_axis Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(patch_retained_axis), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: None, mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(sequence), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(RetainedAxis), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(gap), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u16), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/ir.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "patch_retained_axis"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::patch_retained_grid",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "patch_retained_grid"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn patch_retained_grid Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(patch_retained_grid), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: None, mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(cells), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(RetainedGridCells), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Result), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }), Comma, GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/ir.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "patch_retained_grid"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::retain_transport_payload",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "retain_transport_payload"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn retain_transport_payload Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(retain_transport_payload), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: None, mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(payload), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::TraitObject { dyn_token: Some(Dyn), bounds: [TypeParamBound::Trait(TraitBound { paren_token: None, modifier: TraitBoundModifier::None, lifetimes: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(std), arguments: PathArguments::None }, PathSep, PathSegment { ident: Ident(any), arguments: PathArguments::None }, PathSep, PathSegment { ident: Ident(Any), arguments: PathArguments::None }] } }), Plus, TypeParamBound::Trait(TraitBound { paren_token: None, modifier: TraitBoundModifier::None, lifetimes: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Send), arguments: PathArguments::None }] } }), Plus, TypeParamBound::Trait(TraitBound { paren_token: None, modifier: TraitBoundModifier::None, lifetimes: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Sync), arguments: PathArguments::None }] } })] })], gt_token: Gt } }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/ir.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "retain_transport_payload"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::retained_axis_gap",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "retained_axis_gap"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn retained_axis_gap Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(retained_axis_gap), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(u16), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/ir.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "retained_axis_gap"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::retained_axis_horizontal",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "retained_axis_horizontal"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn retained_axis_horizontal Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(retained_axis_horizontal), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(bool), arguments: PathArguments::None }] } })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/ir.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "retained_axis_horizontal"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::retained_text_layout",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "retained_text_layout"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn retained_text_layout Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(retained_text_layout), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Reference { and_token: And, lifetime: None, mutability: None, elem: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Tuple { paren_token: Paren, elems: [Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(WrapMode), arguments: PathArguments::None }] } }, Comma, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HorizontalAlign), arguments: PathArguments::None }] } }] })], gt_token: Gt } }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/ir.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "retained_text_layout"
                   ]
                 },
                 "alias": false,
@@ -108435,6 +109023,104 @@
                     "ir",
                     "View",
                     "view_plain_text"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::with_text_layout",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "with_text_layout"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn with_text_layout Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(with_text_layout), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: None, mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(wrap), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(WrapMode), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(align), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HorizontalAlign), arguments: PathArguments::None }] } } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/view.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "with_text_layout"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::ir::View::with_text_layout_patch",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "with_text_layout_patch"
+              ]
+            },
+            "kind": "Method",
+            "signature": "\"impl-fn with_text_layout_patch Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(with_text_layout_patch), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Receiver(Receiver { attrs: [], reference: None, mutability: None, self_token: SelfValue, colon_token: None, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(wrap), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(WrapMode), arguments: PathArguments::None }] } })], gt_token: Gt } }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(align), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Option), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(HorizontalAlign), arguments: PathArguments::None }] } })], gt_token: Gt } }] } } }), Comma], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/view.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "ir",
+                    "View",
+                    "with_text_layout_patch"
                   ]
                 },
                 "alias": false,
@@ -141936,6 +142622,108 @@
                 "presentation",
                 "ir",
                 "View",
+                "from_retained_clamp"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "from_retained_component"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "from_retained_container"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "from_retained_decoration"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "from_retained_hanging"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "from_retained_text"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
                 "grid"
               ]
             },
@@ -142107,6 +142895,108 @@
                 "ir",
                 "View",
                 "padding"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "patch_retained_axis"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "patch_retained_grid"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "retain_transport_payload"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "retained_axis_gap"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "retained_axis_horizontal"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "retained_text_layout"
               ]
             },
             "alias": false,
@@ -142311,6 +143201,40 @@
                 "ir",
                 "View",
                 "view_plain_text"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "with_text_layout"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "ir",
+                "View",
+                "with_text_layout_patch"
               ]
             },
             "alias": false,
@@ -148085,5 +149009,5 @@
       }
     }
   ],
-  "content_hash": "81c9c0eeab32856d"
+  "content_hash": "e2647d4eecc9b38a"
 }

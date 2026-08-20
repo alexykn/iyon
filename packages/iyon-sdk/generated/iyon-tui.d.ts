@@ -2282,6 +2282,18 @@ declare module "iyon:tui" {
   export function presentation__ir__View__fit_width(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::presentation::ir::View::foreground [NativeAsync / T5]
   export function presentation__ir__View__foreground(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::presentation::ir::View::from_retained_clamp [NativeHandle / T5]
+  export interface presentation__ir__View__from_retained_clamp { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::presentation::ir::View::from_retained_component [NativeHandle / T5]
+  export interface presentation__ir__View__from_retained_component { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::presentation::ir::View::from_retained_container [NativeHandle / T5]
+  export interface presentation__ir__View__from_retained_container { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::presentation::ir::View::from_retained_decoration [NativeHandle / T5]
+  export interface presentation__ir__View__from_retained_decoration { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::presentation::ir::View::from_retained_hanging [NativeHandle / T5]
+  export interface presentation__ir__View__from_retained_hanging { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::presentation::ir::View::from_retained_text [NativeHandle / T5]
+  export interface presentation__ir__View__from_retained_text { readonly __nativeHandle: unique symbol; }
   // iyon-tui::presentation::ir::View::grid [NativeAsync / T5]
   export function presentation__ir__View__grid(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::presentation::ir::View::hanging [NativeAsync / T5]
@@ -2304,6 +2316,18 @@ declare module "iyon:tui" {
   export function presentation__ir__View__native_component(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::presentation::ir::View::padding [NativeAsync / T5]
   export function presentation__ir__View__padding(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::presentation::ir::View::patch_retained_axis [NativeHandle / T5]
+  export interface presentation__ir__View__patch_retained_axis { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::presentation::ir::View::patch_retained_grid [NativeHandle / T5]
+  export interface presentation__ir__View__patch_retained_grid { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::presentation::ir::View::retain_transport_payload [NativeHandle / T5]
+  export interface presentation__ir__View__retain_transport_payload { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::presentation::ir::View::retained_axis_gap [NativeHandle / T5]
+  export interface presentation__ir__View__retained_axis_gap { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::presentation::ir::View::retained_axis_horizontal [NativeHandle / T5]
+  export interface presentation__ir__View__retained_axis_horizontal { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::presentation::ir::View::retained_text_layout [NativeHandle / T5]
+  export interface presentation__ir__View__retained_text_layout { readonly __nativeHandle: unique symbol; }
   // iyon-tui::presentation::ir::View::reversed [NativeAsync / T5]
   export function presentation__ir__View__reversed(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::presentation::ir::View::spacer [NativeAsync / T5]
@@ -2328,6 +2352,10 @@ declare module "iyon:tui" {
   export function presentation__ir__View__vertical(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::presentation::ir::View::view_plain_text [NativeAsync / T5]
   export function presentation__ir__View__view_plain_text(...args: readonly unknown[]): Promise<unknown>;
+  // iyon-tui::presentation::ir::View::with_text_layout [NativeHandle / T5]
+  export interface presentation__ir__View__with_text_layout { readonly __nativeHandle: unique symbol; }
+  // iyon-tui::presentation::ir::View::with_text_layout_patch [NativeHandle / T5]
+  export interface presentation__ir__View__with_text_layout_patch { readonly __nativeHandle: unique symbol; }
   // iyon-tui::projection [MirrorValue / T5]
   export type projection = Record<string, unknown>;
   // iyon-tui::projection::Projection [MirrorValue / T5]

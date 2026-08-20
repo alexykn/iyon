@@ -36,6 +36,8 @@ import {
 import { insets, Insets } from "./geometry.ts";
 import { StyleSpec } from "./style.ts";
 import { TextSpan, type HorizontalAlign, type WrapMode } from "./text.ts";
+import { packedMeta, registerPackedMeta, setPackedGridCells, setPackedSequence, type PackedGridCell, type PackedLineage, type PackedMetaSeed } from "../packed_v3_meta.ts";
+import { PersistentSeq } from "../persistent_seq.ts";
 
 type ChildBuilder = readonly View[] | ((builder: ChildrenBuilder) => void);
 type CounterBox = { next: number };
@@ -129,9 +131,11 @@ export class ChildrenBuilder {
   gapValue(): number { return this.layoutGap; }
 }
 
-function withPrivateIdentity(node: BridgeViewNode | BridgeViewNodeDraft): BridgeViewNode {
+function withPrivateIdentity(node: BridgeViewNode | BridgeViewNodeDraft, lineage?: PackedLineage, seed?: PackedMetaSeed): BridgeViewNode {
   const { id: _oldId, schema: _oldSchema, ...draft } = node as BridgeViewNode;
-  return freezeBridgeNode({ id: nextNodeId(), schema: VIEW_BRIDGE_SCHEMA_VERSION, ...draft } as BridgeViewNode);
+  const result = freezeBridgeNode({ id: nextNodeId(), schema: VIEW_BRIDGE_SCHEMA_VERSION, ...draft } as BridgeViewNode);
+  registerPackedMeta(result, lineage, seed);
+  return result;
 }
 
 function freezeColor(color: ColorNode | undefined): void {
@@ -223,8 +227,8 @@ function freezeBridgeNode(node: BridgeViewNode): BridgeViewNode {
 
 export class View {
   readonly kind = "view" as const;
-  private constructor(node: BridgeViewNode | BridgeViewNodeDraft) {
-    nodes.set(this, withPrivateIdentity(node));
+  private constructor(node: BridgeViewNode | BridgeViewNodeDraft, lineage?: PackedLineage, seed?: PackedMetaSeed) {
+    nodes.set(this, withPrivateIdentity(node, lineage, seed));
     Object.freeze(this);
   }
 
@@ -304,6 +308,51 @@ export class View {
     return new View({ kind: BRIDGE_VIEW_KIND.component, handle: (nativeId ?? handle.id) as NativeHandleId });
   }
 
+  static replaceAxisChildForPackedTransport(view: View, index: number, child: View): View {
+    const node = nodeForBridge(view);
+    if (node.kind !== BRIDGE_VIEW_KIND.row && node.kind !== BRIDGE_VIEW_KIND.column) throw new TypeError("packed axis replacement requires a row or column");
+    const current = packedMeta(node).sequence ?? PersistentSeq.from(node.children);
+    const item = current.get(index);
+    if (item === undefined) throw new RangeError("packed axis replacement index out of range");
+    const sequence = current.set(index, { ...item, child: nodeForBridge(child) });
+    const next = new View({ ...node, children: node.children }, { kind: "axis", base: node }, { sequence });
+    setPackedSequence(nodeForBridge(next), sequence);
+    return next;
+  }
+
+  static spliceAxisChildrenForPackedTransport(view: View, index: number, removeCount: number, children: readonly View[]): View {
+    const node = nodeForBridge(view);
+    if (node.kind !== BRIDGE_VIEW_KIND.row && node.kind !== BRIDGE_VIEW_KIND.column) throw new TypeError("packed axis splice requires a row or column");
+    const current = packedMeta(node).sequence ?? PersistentSeq.from(node.children);
+    const items = children.map((child) => ({ kind: BRIDGE_LAYOUT_CHILD_KIND.normal, child: nodeForBridge(child) }));
+    const sequence = current.splice(index, removeCount, ...items);
+    const next = new View({ ...node, children: node.children }, { kind: "axis", base: node }, { sequence });
+    setPackedSequence(nodeForBridge(next), sequence);
+    return next;
+  }
+
+  static replaceGridCellForPackedTransport(view: View, row: number, column: number, child: View): View {
+    const node = nodeForBridge(view);
+    if (node.kind !== BRIDGE_VIEW_KIND.grid) throw new TypeError("packed grid replacement requires a grid");
+    if (!Number.isInteger(row) || row < 0 || row >= node.rows.length) throw new RangeError("packed grid row out of range");
+    if (!Number.isInteger(column) || column < 0) throw new RangeError("packed grid column out of range");
+    const baseMeta = packedMeta(node);
+    const current = baseMeta.gridCells;
+    if (current === undefined || baseMeta.gridCellOffsets === undefined) throw new Error("packed grid sequence is unavailable");
+    const index = baseMeta.gridCellOffsets.get(`${row}:${column}`);
+    if (index === undefined) throw new RangeError("packed grid cell index is unavailable");
+    const cell = current.get(index);
+    if (cell === undefined) throw new RangeError("packed grid cell out of range");
+    const sequence = current.set(index, { ...cell, view: nodeForBridge(child) } satisfies PackedGridCell);
+    const next = new View(
+      { ...node, rows: node.rows },
+      { kind: "grid", base: node },
+      { gridCells: sequence, gridCellOffsets: baseMeta.gridCellOffsets },
+    );
+    setPackedGridCells(nodeForBridge(next), sequence);
+    return next;
+  }
+
   bold(): View { return this.textAttribute("bold"); }
   dim(): View { return this.textAttribute("dim"); }
   italic(): View { return this.textAttribute("italic"); }
@@ -322,7 +371,7 @@ export class View {
     const decorated = this.decoratedNode();
     const current = decorated === undefined ? emptyDecoration() : cloneDecoration(decorated.decoration);
     const child = decorated?.child ?? nodeForBridge(this);
-    return new View({ kind: BRIDGE_VIEW_KIND.decorated, child, decoration: { ...current, styleStates: { ...current.styleStates, [key]: value } } });
+    return new View({ kind: BRIDGE_VIEW_KIND.decorated, child, decoration: { ...current, styleStates: { ...current.styleStates, [key]: value } } }, { kind: "decoration", base: nodeForBridge(this) });
   }
 
   container(): View { return new View({ kind: BRIDGE_VIEW_KIND.container, child: nodeForBridge(this) }); }
@@ -352,15 +401,15 @@ export class View {
     const current = decorated === undefined ? emptyDecoration() : cloneDecoration(decorated.decoration);
     const child = decorated?.child ?? nodeForBridge(this);
     const next: DecorationNode = { ...current, ...decoration, style: decoration.style === undefined ? current.style : mergeStyles(current.style, decoration.style) };
-    return new View({ kind: BRIDGE_VIEW_KIND.decorated, child, decoration: cloneDecoration(next) });
+    return new View({ kind: BRIDGE_VIEW_KIND.decorated, child, decoration: cloneDecoration(next) }, { kind: "decoration", base: nodeForBridge(this) });
   }
 
   private mapText(map: (text: Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>) => Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>): View {
     const node = nodeForBridge(this);
-    if (node.kind === BRIDGE_VIEW_KIND.text) return new View(map(node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>));
+    if (node.kind === BRIDGE_VIEW_KIND.text) return new View(map(node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>), { kind: "text", base: node });
     if (node.kind === BRIDGE_VIEW_KIND.decorated && node.child.kind === BRIDGE_VIEW_KIND.text) {
       const decorated = node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.decorated }>;
-      return new View({ ...decorated, child: map(decorated.child as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>) });
+      return new View({ ...decorated, child: map(decorated.child as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>) }, { kind: "text", base: node });
     }
     return this;
   }
@@ -373,6 +422,81 @@ export function nodeForBridge(view: View): BridgeViewNode {
   const node = nodes.get(view);
   if (node === undefined) throw new TypeError("view is not a runtime semantic value");
   return node;
+}
+
+/**
+ * Materializes only Packed V3 sequence overrides for the legacy direct bridge.
+ * Ordinary Views return their frozen node unchanged; direct decoding of a
+ * retained sequence operation gets an exact array-shaped semantic object.
+ */
+export function nodeForDirectBridge(view: View): BridgeViewNode {
+  const node = nodeForBridge(view);
+  return packedMeta(node).containsSequenceOverride ? materializeDirectNode(node) : node;
+}
+
+function materializeDirectNode(node: BridgeViewNode): BridgeViewNode {
+  if (node.kind === BRIDGE_VIEW_KIND.grid && packedMeta(node).sequenceOverride) {
+    const sequence = packedMeta(node).gridCells;
+    if (sequence === undefined) return node;
+    let index = 0;
+    const rows = node.rows.map((row) => ({
+      ...row,
+      cells: row.cells.map((cell) => {
+        const next = sequence.get(index++)!;
+        return { ...cell, view: materializeDirectNode(next.view) };
+      }),
+    }));
+    return { ...node, rows };
+  }
+  if ((node.kind === BRIDGE_VIEW_KIND.row || node.kind === BRIDGE_VIEW_KIND.column) && packedMeta(node).sequenceOverride) {
+    const sequence = packedMeta(node).sequence;
+    if (sequence === undefined) return node;
+    return { ...node, children: [...sequence].map((child) => ({ ...child, child: materializeDirectNode(child.child) })) };
+  }
+  switch (node.kind) {
+    case BRIDGE_VIEW_KIND.hanging: {
+      const prefix = materializeDirectNode(node.prefix);
+      const continuation = materializeDirectNode(node.continuation);
+      const body = materializeDirectNode(node.body);
+      return prefix === node.prefix && continuation === node.continuation && body === node.body ? node : { ...node, prefix, continuation, body };
+    }
+    case BRIDGE_VIEW_KIND.container:
+    case BRIDGE_VIEW_KIND.clamp:
+    case BRIDGE_VIEW_KIND.contentMax: {
+      const child = materializeDirectNode(node.child);
+      return child === node.child ? node : { ...node, child };
+    }
+    case BRIDGE_VIEW_KIND.decorated: {
+      const child = materializeDirectNode(node.child);
+      return child === node.child ? node : { ...node, child };
+    }
+    case BRIDGE_VIEW_KIND.grid: {
+      let changed = false;
+      const rows = node.rows.map((row) => {
+        const cells = row.cells.map((cell) => {
+          const view = materializeDirectNode(cell.view);
+          changed ||= view !== cell.view;
+          return view === cell.view ? cell : { ...cell, view };
+        });
+        return cells === row.cells ? row : { ...row, cells };
+      });
+      return changed ? { ...node, rows } : node;
+    }
+    default: return node;
+  }
+}
+
+/** Internal retained-transport operation: replace one axis child via a persistent sequence path. */
+export function replaceAxisChildForPackedTransport(view: View, index: number, child: View): View {
+  return View.replaceAxisChildForPackedTransport(view, index, child);
+}
+
+export function spliceAxisChildrenForPackedTransport(view: View, index: number, removeCount: number, children: readonly View[]): View {
+  return View.spliceAxisChildrenForPackedTransport(view, index, removeCount, children);
+}
+
+export function replaceGridCellForPackedTransport(view: View, row: number, column: number, child: View): View {
+  return View.replaceGridCellForPackedTransport(view, row, column, child);
 }
 
 export function textRowsForHarness(view: View): string[] { return rows(nodeForBridge(view)); }

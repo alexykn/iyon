@@ -107,7 +107,10 @@ use crate::{
     geometry::Size,
     history::{HistoryPhysicalOverlay, HistoryViewportAnchor, project_into_session_for_host},
     presentation::{
-        ir::{ColumnChild, ColumnView, HeightRule, TrackSize, ViewKind, ViewNodeParts, WidthRule},
+        ir::{
+            ColumnChild, ColumnView, HeightRule, PersistentSeq, TrackSize, ViewKind, ViewNodeParts,
+            WidthRule,
+        },
         layout::{LayoutCache, measure_view_with_overlay_and_cache},
     },
 };
@@ -267,7 +270,7 @@ fn root_view(history: Option<View>, body: View) -> View {
         style_states: StyleStates::default(),
         style_facts: StyleFacts::default(),
         kind: ViewKind::Column(Arc::new(ColumnView {
-            children: children.into(),
+            children: PersistentSeq::from_vec(children),
             gap: 0,
         })),
     })
