@@ -284,7 +284,12 @@ cfa15fb  bench(tui): refresh Bun 1.4 FFI qualification
 3173972  build(tui): retain ABI schema source spans
 c3c7a49  build(tui): generate checked ABI wrapper shells
 3c4fcb0  build(tui): validate generated native reference handles
+827b2ab  build(tui): harden generated ABI validation
 ```
+
+The final Tranche 1 review also hardened the generated foundation: Rust output is formatted with pinned `prettyplease` rather than the host `rustfmt`; schema validation rejects incompatible lowering/type pairs and missing buffer-used lanes; generated checked wrappers validate full 53-bit NodeId pairs, NativeRef ranges, pointer alignment, buffer capacity/element-width/used-count bounds, enum discriminants, cstring pointers, and panic containment; host-pointer imports and cstring lowering are generated for future slices. The current generated reference records generator BLAKE3 `4219366fc3b1474f5656e00c09aedafb88e34234668757d831421864671d1533`.
+
+**Tranche 1 status: COMPLETE.** Bun preflight (`§2.1–§2.4`) and generator bootstrap (`STEP 0.1–STEP 0.5`) are implemented, generated artifacts are checked in and deterministic, and the required Bun 1.4 controls/FFI probes pass. No production Native Shadow routing or Tranche 2 (`STEP 0.6–0.9`) work is claimed or enabled yet.
 
 The canonical ABI input and generator sources are located at:
 
@@ -338,6 +343,8 @@ bun run check:tui-abi
 ```
 
 `check:tui-abi` renders into a temporary directory and compares every generated artifact byte-for-byte with the checked-in files. The authoritative CI check also runs `git diff --exit-code` on the generated paths.
+
+Documentation commits recording the handoff and review state are `1e56c92`, `ad82d5a`, `4715436`, `46889ff`, `31ee207`, and `153eef2`.
 
 ---
 
