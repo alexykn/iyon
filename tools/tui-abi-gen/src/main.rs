@@ -121,15 +121,26 @@ fn run() -> Result<(), GeneratorError> {
         }
         Command::Explain { function, input } => {
             let schema = input.unwrap_or_else(|| workspace.join(DEFAULT_SCHEMA));
-            let (document, _) = model::load(&schema)?;
+            let (document, _, syntax) = model::load(&schema)?;
             let function_spec = document
                 .functions
                 .iter()
                 .find(|item| item.name == function)
                 .ok_or(GeneratorError::UnknownFunction(function))?;
+            let source_span = syntax
+                .get("function")
+                .and_then(toml_edit::Item::as_array_of_tables)
+                .and_then(|functions| {
+                    functions.iter().find(|table| {
+                        table.get("name").and_then(toml_edit::Item::as_str)
+                            == Some(function_spec.name.as_str())
+                    })
+                })
+                .and_then(|table| table.get("name").and_then(toml_edit::Item::span));
             println!(
-                "name: {}\nfamily: {}\nhotness: {}\nimplementation: {}\nfallback: {}\nownership: {}\nborrow_duration: {}\nthread_affinity: {}\nmay_allocate_native_memory: {}\nmutates_host_state: {}\nmax_buffer_bytes: {}\nmax_input_count: {}\narity_specializations: {:?}\nbenchmark_registration: {}\nreturn: {}",
+                "name: {}\nsource_span: {:?}\nfamily: {}\nhotness: {}\nimplementation: {}\nfallback: {}\nownership: {}\nborrow_duration: {}\nthread_affinity: {}\nmay_allocate_native_memory: {}\nmutates_host_state: {}\nmax_buffer_bytes: {}\nmax_input_count: {}\narity_specializations: {:?}\nbenchmark_registration: {}\nreturn: {}",
                 function_spec.name,
+                source_span,
                 function_spec.family,
                 function_spec.hotness,
                 function_spec.implementation,
@@ -165,7 +176,7 @@ fn render_outputs(
     workspace: &Path,
     schema_path: &Path,
 ) -> Result<BTreeMap<String, String>, GeneratorError> {
-    let (document, schema_source) = model::load(schema_path)?;
+    let (document, schema_source, _) = model::load(schema_path)?;
     let bridge_path = workspace.join(BRIDGE_SCHEMA);
     let bridge_schema = model::load_bridge_schema(&bridge_path)?;
     validate::validate(&document, &bridge_schema)?;
@@ -299,7 +310,7 @@ mod tests {
     fn validation_rejects_unknown_lowering() {
         let workspace = workspace_root().expect("workspace metadata");
         let schema = workspace.join(DEFAULT_SCHEMA);
-        let (mut document, _) = model::load(&schema).expect("canonical schema parses");
+        let (mut document, _, _) = model::load(&schema).expect("canonical schema parses");
         let bridge = model::load_bridge_schema(&workspace.join(BRIDGE_SCHEMA))
             .expect("bridge schema parses");
         document.functions[0].args[0].lowering = "not_a_bun_ffi_type".to_owned();
@@ -310,7 +321,7 @@ mod tests {
     fn validation_rejects_unpaired_buffer_length() {
         let workspace = workspace_root().expect("workspace metadata");
         let schema = workspace.join(DEFAULT_SCHEMA);
-        let (mut document, _) = model::load(&schema).expect("canonical schema parses");
+        let (mut document, _, _) = model::load(&schema).expect("canonical schema parses");
         let bridge = model::load_bridge_schema(&workspace.join(BRIDGE_SCHEMA))
             .expect("bridge schema parses");
         let length = document

@@ -154,7 +154,7 @@ pub struct ArgumentSpec {
     pub buffer_length_of: Option<String>,
 }
 
-pub fn load(path: &Path) -> Result<(AbiDocument, String), ModelError> {
+pub fn load(path: &Path) -> Result<(AbiDocument, String, toml_edit::Document<String>), ModelError> {
     let path_display = path.display().to_string();
     let source = std::fs::read_to_string(path).map_err(|source| ModelError::Read {
         path: path_display.clone(),
@@ -162,12 +162,13 @@ pub fn load(path: &Path) -> Result<(AbiDocument, String), ModelError> {
     })?;
 
     // Parse with toml_edit first so the generator rejects syntax that the
-    // serializer cannot understand and keeps a source-document validation
-    // point for future span diagnostics.
-    let _: toml_edit::DocumentMut = source.parse().map_err(|source| ModelError::ParseDocument {
-        path: path_display.clone(),
-        source,
-    })?;
+    // serializer cannot understand while retaining declaration order and
+    // source spans for explain/diagnostic output.
+    let syntax =
+        toml_edit::Document::parse(source.clone()).map_err(|source| ModelError::ParseDocument {
+            path: path_display.clone(),
+            source,
+        })?;
 
     let toml_deserializer =
         toml::Deserializer::parse(&source).map_err(|source| ModelError::ParseToml {
@@ -180,7 +181,7 @@ pub fn load(path: &Path) -> Result<(AbiDocument, String), ModelError> {
         path: path_display,
         source: serde_path_to_error::Error::new(track.path(), source),
     })?;
-    Ok((document, source))
+    Ok((document, source, syntax))
 }
 
 pub fn load_bridge_schema(
