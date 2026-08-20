@@ -161,9 +161,6 @@ fn rust_arguments(arguments: &[ArgumentSpec], document: &AbiDocument) -> String 
                 argument.name,
                 rust_type_for_argument(argument, document)
             ));
-            if matches!(argument.lowering.as_str(), "buffer" | "pod_slice") {
-                rendered.push(format!("{}_capacity_bytes: usize", argument.name));
-            }
         }
     }
     rendered.join(", ")
@@ -180,6 +177,7 @@ fn rust_type_for_argument(argument: &ArgumentSpec, document: &AbiDocument) -> St
             .type_name
             .strip_suffix("[]")
             .map_or_else(|| "*const u8".to_owned(), |name| format!("*const {name}")),
+        "buffer_length" => "usize".to_owned(),
         _ => rust_type(&type_name(argument, document)),
     }
 }
@@ -209,11 +207,7 @@ fn rust_call_arguments(arguments: &[ArgumentSpec]) -> String {
                     format!("{}_high", argument.name),
                 ];
             }
-            let mut values = vec![argument.name.clone()];
-            if matches!(argument.lowering.as_str(), "buffer" | "pod_slice") {
-                values.push(format!("{}_capacity_bytes", argument.name));
-            }
-            values
+            vec![argument.name.clone()]
         })
         .collect::<Vec<_>>()
         .join(", ")
