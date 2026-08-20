@@ -280,6 +280,7 @@ da9be23  fix(tui): align Bun 1.4 ABI tranche with handoff
 3e5b54c  build(tui): make ABI generation layout-safe
 cfa15fb  bench(tui): refresh Bun 1.4 FFI qualification
 2eb7569  fix(tui): model explicit Bun buffer length pairs
+0fd00f1  bench(tui): pin final Bun 1.4 control revision
 ```
 
 The canonical ABI input and generator sources are located at:
