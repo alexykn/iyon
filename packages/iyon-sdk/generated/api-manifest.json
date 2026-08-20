@@ -105857,7 +105857,7 @@
               ]
             },
             "kind": "Struct",
-            "signature": "\"struct TextSpan Fields::Named { brace_token: Brace, named: [Field { attrs: [], vis: Visibility::Restricted { pub_token: Pub, paren_token: Paren, in_token: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(crate), arguments: PathArguments::None }] } }, mutability: FieldMutability::None, ident: Some(Ident(text)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(String), arguments: PathArguments::None }] } } }, Comma, Field { attrs: [], vis: Visibility::Restricted { pub_token: Pub, paren_token: Paren, in_token: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(crate), arguments: PathArguments::None }] } }, mutability: FieldMutability::None, ident: Some(Ident(style)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(StyleRef), arguments: PathArguments::None }] } } }, Comma, Field { attrs: [], vis: Visibility::Restricted { pub_token: Pub, paren_token: Paren, in_token: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(crate), arguments: PathArguments::None }] } }, mutability: FieldMutability::None, ident: Some(Ident(style_facts)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(StyleFacts), arguments: PathArguments::None }] } } }, Comma] }\"",
+            "signature": "\"struct TextSpan Fields::Named { brace_token: Brace, named: [Field { attrs: [], vis: Visibility::Restricted { pub_token: Pub, paren_token: Paren, in_token: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(crate), arguments: PathArguments::None }] } }, mutability: FieldMutability::None, ident: Some(Ident(text)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(TextStorage), arguments: PathArguments::None }] } } }, Comma, Field { attrs: [], vis: Visibility::Restricted { pub_token: Pub, paren_token: Paren, in_token: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(crate), arguments: PathArguments::None }] } }, mutability: FieldMutability::None, ident: Some(Ident(style)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(StyleRef), arguments: PathArguments::None }] } } }, Comma, Field { attrs: [], vis: Visibility::Restricted { pub_token: Pub, paren_token: Paren, in_token: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(crate), arguments: PathArguments::None }] } }, mutability: FieldMutability::None, ident: Some(Ident(style_facts)), colon_token: Some(Colon), ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(StyleFacts), arguments: PathArguments::None }] } } }, Comma] }\"",
             "visibility": "Public",
             "source": {
               "path": "crates/iyon-tui/src/presentation/api/text.rs",
@@ -105886,6 +105886,57 @@
                 "trace": {
                   "steps": [
                     "pub use from presentation::api::text::TextSpan at crates/iyon-tui/src/lib.rs"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "iyon-tui::presentation::api::text::TextSpan::from_shared_utf8",
+            "canonical_path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "api",
+                "text",
+                "TextSpan",
+                "from_shared_utf8"
+              ]
+            },
+            "kind": "AssociatedFunction",
+            "signature": "\"impl-fn from_shared_utf8 Signature { constness: None, asyncness: None, unsafety: None, abi: None, fn_token: Fn, ident: Ident(from_shared_utf8), generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None }, paren_token: Paren, inputs: [FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(source), subpat: None }, colon_token: Colon, ty: Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Arc), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::TraitObject { dyn_token: Some(Dyn), bounds: [TypeParamBound::Trait(TraitBound { paren_token: None, modifier: TraitBoundModifier::None, lifetimes: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(SharedUtf8Source), arguments: PathArguments::None }] } })] })], gt_token: Gt } }] } } }), Comma, FnArg::Typed(PatType { attrs: [], pat: Pat::Ident { attrs: [], by_ref: None, mutability: None, ident: Ident(style), subpat: None }, colon_token: Colon, ty: Type::ImplTrait { impl_token: Impl, bounds: [TypeParamBound::Trait(TraitBound { paren_token: None, modifier: TraitBoundModifier::None, lifetimes: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Into), arguments: PathArguments::AngleBracketed { colon2_token: None, lt_token: Lt, args: [GenericArgument::Type(Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(StyleRef), arguments: PathArguments::None }] } })], gt_token: Gt } }] } })] } })], variadic: None, output: ReturnType::Type(RArrow, Type::Path { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident(Self), arguments: PathArguments::None }] } }) }\"",
+            "visibility": "Public",
+            "source": {
+              "path": "crates/iyon-tui/src/presentation/api/text.rs",
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            },
+            "availability": {
+              "active": true,
+              "cfg": []
+            },
+            "paths": [
+              {
+                "path": {
+                  "crate_id": "iyon-tui",
+                  "segments": [
+                    "presentation",
+                    "api",
+                    "text",
+                    "TextSpan",
+                    "from_shared_utf8"
+                  ]
+                },
+                "alias": false,
+                "trace": {
+                  "steps": [
+                    "impl associated item"
                   ]
                 }
               }
@@ -142172,6 +142223,24 @@
                 "api",
                 "text",
                 "TextSpan",
+                "from_shared_utf8"
+              ]
+            },
+            "alias": false,
+            "trace": {
+              "steps": [
+                "impl associated item"
+              ]
+            }
+          },
+          {
+            "path": {
+              "crate_id": "iyon-tui",
+              "segments": [
+                "presentation",
+                "api",
+                "text",
+                "TextSpan",
                 "plain"
               ]
             },
@@ -149009,5 +149078,5 @@
       }
     }
   ],
-  "content_hash": "e2647d4eecc9b38a"
+  "content_hash": "ad78a6d6d08881cc"
 }

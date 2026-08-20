@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "mapped": 2330,
+  "mapped": 2331,
   "missing": [],
   "stale": [],
   "records": [
@@ -22478,6 +22478,18 @@
       "implementation_owner": "T5",
       "status": "stub",
       "note": "explicit public alias projection",
+      "evidence": []
+    },
+    {
+      "item_id": "iyon-tui::presentation::api::text::TextSpan::from_shared_utf8",
+      "path": "iyon-tui::presentation::api::text::TextSpan::from_shared_utf8",
+      "strategy": "NativeSync",
+      "rust_path": "iyon-tui::presentation::api::text::TextSpan::from_shared_utf8",
+      "typescript_module": "iyon:tui",
+      "typescript_export": "presentation__api__text__TextSpan__from_shared_utf8",
+      "implementation_owner": "T5",
+      "status": "stub",
+      "note": "native retained UTF-8 benchmark boundary",
       "evidence": []
     },
     {

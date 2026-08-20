@@ -1,6 +1,6 @@
 //! Typed semantic text construction backed by the canonical View IR.
 
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use super::style::{
     BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleFacts, StyleRef, StyleStateKey,
@@ -8,21 +8,82 @@ use super::style::{
 };
 use crate::presentation::ir::{TextView, View, ViewKind};
 
+/// Immutable UTF-8 storage owned by a native retained page.
+///
+/// Implementations must return the same valid UTF-8 contents for their entire
+/// lifetime. The trait is intentionally small so a native page can be held by
+/// a semantic `TextSpan` without copying its bytes into a `String`.
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
+pub trait SharedUtf8Source: Send + Sync {
+    fn as_str(&self) -> &str;
+}
+
+pub(crate) enum TextStorage {
+    Owned(String),
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
+    Shared(Arc<dyn SharedUtf8Source>),
+}
+
+impl Clone for TextStorage {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Owned(text) => Self::Owned(text.clone()),
+            #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
+            Self::Shared(source) => Self::Shared(Arc::clone(source)),
+        }
+    }
+}
+
+impl fmt::Debug for TextStorage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("TextStorage")
+            .field(&self.as_str())
+            .finish()
+    }
+}
+
+impl PartialEq for TextStorage {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl TextStorage {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Owned(text) => text,
+            #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
+            Self::Shared(source) => source.as_str(),
+        }
+    }
+}
+
 /// A semantic text span with optional text-cell styling.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextSpan {
-    pub(crate) text: String,
+    pub(crate) text: TextStorage,
     pub(crate) style: StyleRef,
     pub(crate) style_facts: StyleFacts,
 }
 
 impl TextSpan {
     pub fn text(&self) -> &str {
-        &self.text
+        self.text.as_str()
     }
 
     pub fn text_mut(&mut self) -> &mut String {
-        &mut self.text
+        #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
+        if matches!(&self.text, TextStorage::Shared(_)) {
+            self.text = TextStorage::Owned(self.text.as_str().to_owned());
+        }
+        match &mut self.text {
+            TextStorage::Owned(text) => text,
+            #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
+            TextStorage::Shared(_) => {
+                unreachable!("shared text is materialized before mutable access")
+            }
+        }
     }
 
     pub fn style(&self) -> &StyleRef {
@@ -35,7 +96,7 @@ impl TextSpan {
 
     pub fn plain(text: impl Into<String>) -> Self {
         Self {
-            text: text.into(),
+            text: TextStorage::Owned(text.into()),
             style: StyleRef::default(),
             style_facts: StyleFacts::default(),
         }
@@ -43,7 +104,18 @@ impl TextSpan {
 
     pub fn styled(text: impl Into<String>, style: impl Into<StyleRef>) -> Self {
         Self {
-            text: text.into(),
+            text: TextStorage::Owned(text.into()),
+            style: style.into(),
+            style_facts: StyleFacts::default(),
+        }
+    }
+
+    /// Constructs a span backed by immutable native-owned UTF-8 storage.
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
+    #[doc(hidden)]
+    pub fn from_shared_utf8(source: Arc<dyn SharedUtf8Source>, style: impl Into<StyleRef>) -> Self {
+        Self {
+            text: TextStorage::Shared(source),
             style: style.into(),
             style_facts: StyleFacts::default(),
         }

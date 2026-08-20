@@ -12,6 +12,7 @@ import { nodeForBridge, replaceAxisChildForPackedTransport, replaceGridCellForPa
 import { packedMeta, packedSequenceMeta, type CanonicalDecoration, type CanonicalStyle, type PackedGridCell, type PackedLineage } from "./packed_v3_meta.ts";
 import { PersistentSeq, type PersistentSeqNode } from "./persistent_seq.ts";
 
+const collectCounters = Bun.env.PERF_COUNTERS !== "0";
 const HEADER_WORDS = 12;
 const U32 = 0x1_0000_0000;
 const MAX_U32 = U32 - 1;
@@ -136,7 +137,7 @@ class WordWriter {
     const next = new Uint32Array(size);
     next.set(this.#buffer);
     this.#buffer = next;
-    counters.packed_v4_word_buffer_grows += 1;
+    if (collectCounters) counters.packed_v4_word_buffer_grows += 1;
   }
 }
 
@@ -167,15 +168,15 @@ class ByteArena {
       throw new RangeError("packed V4 UTF-8 writers reject unpaired UTF-16 surrogates for direct-bridge parity");
     }
     if (value.length === 0) {
-      counters.packed_v4_empty_refs += 1;
+      if (collectCounters) counters.packed_v4_empty_refs += 1;
       return 0;
     }
     const useContentDedupe = this.shouldContentDedupe(value);
     if (useContentDedupe) {
-      counters.packed_v4_content_dedupe_lookups += 1;
+      if (collectCounters) counters.packed_v4_content_dedupe_lookups += 1;
       const existing = this.#indices.get(value);
       if (existing !== undefined) {
-        counters.packed_v4_content_dedupe_hits += 1;
+        if (collectCounters) counters.packed_v4_content_dedupe_hits += 1;
         return existing;
       }
     }
@@ -188,16 +189,16 @@ class ByteArena {
       let expected: number | undefined;
       if (available < conservativeMax || !Number.isSafeInteger(conservativeMax)) {
         expected = Buffer.byteLength(value, "utf8");
-        counters.packed_v4_byte_length_calls += 1;
+        if (collectCounters) counters.packed_v4_byte_length_calls += 1;
         this.ensure(expected);
       }
       written = (this.#buffer as Buffer).write(value, start, this.#buffer.length - start, "utf8");
-      counters.packed_v4_buffer_write_calls += 1;
+      if (collectCounters) counters.packed_v4_buffer_write_calls += 1;
       if (expected !== undefined && written !== expected) {
         throw new Error("packed V4 Buffer writer produced a truncated string");
       }
     } else {
-      counters.packed_v4_textencoder_calls += 1;
+      if (collectCounters) counters.packed_v4_textencoder_calls += 1;
       const encoder = this.#encoder!;
       let result = encoder.encodeInto(value, this.#buffer.subarray(start));
       while (result.read !== value.length) {
@@ -216,8 +217,8 @@ class ByteArena {
     const ref = this.#ends.length;
     this.#ends.push(this.#cursor);
     if (useContentDedupe) this.#indices.set(value, ref);
-    counters.packed_v4_string_count += 1;
-    counters.packed_v4_utf8_bytes += written;
+    if (collectCounters) counters.packed_v4_string_count += 1;
+    if (collectCounters) counters.packed_v4_utf8_bytes += written;
     return ref;
   }
 
@@ -241,7 +242,7 @@ class ByteArena {
     const next = this.writer === "buffer" ? Buffer.allocUnsafe(size) : new Uint8Array(size);
     next.set(this.#buffer.subarray(0, this.#cursor));
     this.#buffer = next;
-    counters.packed_v4_byte_buffer_grows += 1;
+    if (collectCounters) counters.packed_v4_byte_buffer_grows += 1;
   }
 }
 
@@ -322,7 +323,7 @@ export class PackedV4Encoder {
     const recordsEndWord = this.#writer.position;
     const stringOffsetsStartWord = recordsEndWord;
     for (const offset of this.#bytes.offsets) this.#writer.push(offset);
-    counters.packed_v4_offset_words += this.#bytes.offsets.length;
+    if (collectCounters) counters.packed_v4_offset_words += this.#bytes.offsets.length;
     const words = this.#writer.finish();
     const usedBytes = this.#bytes.usedBytes;
     if (usedBytes > MAX_U32) throw new RangeError("packed V4 UTF-8 arena exceeds u32 byte limit");
@@ -339,8 +340,8 @@ export class PackedV4Encoder {
     words[9] = recordsEndWord;
     words[10] = this.#bytes.stringCount;
     words[11] = stringOffsetsStartWord;
-    counters.packed_v4_words_used += words.length;
-    counters.packed_v4_bytes_used += usedBytes;
+    if (collectCounters) counters.packed_v4_words_used += words.length;
+    if (collectCounters) counters.packed_v4_bytes_used += usedBytes;
     return {
       words,
       bytes: this.#bytes.finish(),
@@ -356,20 +357,20 @@ export class PackedV4Encoder {
     this.#touchedSequences = [];
   }
 
-  render(root: View, invoke: PackedV4Invoke, invokeRef: PackedV4InvokeRef, hooks: PackedV4Hooks = {}): void {
-    const node = nodeForBridge(root);
+  render(root: View | BridgeViewNode, invoke: PackedV4Invoke, invokeRef: PackedV4InvokeRef, hooks: PackedV4Hooks = {}): void {
+    const node = "schema" in root ? root : nodeForBridge(root);
     const meta = packedMeta(node);
     let resynchronize = false;
     if (meta.publishedGeneration === transportGeneration) {
       const ref = this.ensureViewRef(meta);
-      counters.packed_v4_exact_ref_fast_hits += 1;
+      if (collectCounters) counters.packed_v4_exact_ref_fast_hits += 1;
       hooks.nativeStarted?.();
       try {
         invokeRef(transportGeneration, ref);
         return;
       } catch (error) {
         if (!isPackedV4CacheMiss(error)) throw error;
-        counters.packed_v4_cache_resyncs += 1;
+        if (collectCounters) counters.packed_v4_cache_resyncs += 1;
         this.#touchedViews = [];
         this.#touchedSequences = [];
         this.invalidateGeneration();
@@ -379,7 +380,7 @@ export class PackedV4Encoder {
       }
     }
     if (!resynchronize && nextTransportRef >= PACKED_V4.wireLocalBit - 256) {
-      counters.packed_v4_cache_resyncs += 1;
+      if (collectCounters) counters.packed_v4_cache_resyncs += 1;
       this.invalidateGeneration();
       resynchronize = true;
     }
@@ -400,13 +401,13 @@ export class PackedV4Encoder {
         this.#touchedViews = [];
         this.#touchedSequences = [];
         if (!isPackedV4CacheMiss(error)) throw error;
-        counters.packed_v4_cache_resyncs += 1;
+        if (collectCounters) counters.packed_v4_cache_resyncs += 1;
         this.invalidateGeneration();
       } finally {
         hooks.nativeFinished?.();
       }
     }
-    counters.packed_v4_cold_retries += 1;
+    if (collectCounters) counters.packed_v4_cold_retries += 1;
     hooks.encodingStarted?.();
     let coldTransaction: PackedV4Transaction;
     try {
@@ -442,15 +443,15 @@ export class PackedV4Encoder {
   }
 
   private compileView(node: BridgeViewNode, cold: boolean): number {
-    counters.packed_v4_compile_objects_visited += 1;
+    if (collectCounters) counters.packed_v4_compile_objects_visited += 1;
     const meta = packedMeta(node);
     if (!cold && meta.publishedGeneration === transportGeneration) {
-      counters.packed_v4_persistent_refs += 1;
+      if (collectCounters) counters.packed_v4_persistent_refs += 1;
       return this.ensureViewRef(meta);
     }
     if (meta.visitEpoch === this.#epoch) {
       if (meta.state === "visiting") throw new Error(`packed V4 cyclic semantic dependency at NodeId ${node.id}`);
-      counters.packed_v4_local_refs += 1;
+      if (collectCounters) counters.packed_v4_local_refs += 1;
       return localRef(meta.localDefIndex);
     }
     meta.visitEpoch = this.#epoch;
@@ -468,7 +469,7 @@ export class PackedV4Encoder {
       this.emitPatch(ref, node, base, patch.kind, patch.mask, values);
       meta.state = "emitted";
       this.#touchedViews.push(node);
-      counters.packed_v4_patch_view_defs += 1;
+      if (collectCounters) counters.packed_v4_patch_view_defs += 1;
       return localRef(meta.localDefIndex);
     }
     const ref = this.ensureViewRef(meta);
@@ -477,7 +478,7 @@ export class PackedV4Encoder {
     this.emitFull(ref, node, dependencies);
     meta.state = "emitted";
     this.#touchedViews.push(node);
-    counters.packed_v4_full_view_defs += 1;
+    if (collectCounters) counters.packed_v4_full_view_defs += 1;
     return localRef(meta.localDefIndex);
   }
 
@@ -520,12 +521,12 @@ export class PackedV4Encoder {
   private compileSequence(node: PersistentSeqNode<BridgeLayoutChild>, kind: number, cold: boolean): number {
     const meta = packedSequenceMeta(node);
     if (!cold && meta.publishedGeneration === transportGeneration) {
-      counters.packed_v4_persistent_refs += 1;
+      if (collectCounters) counters.packed_v4_persistent_refs += 1;
       return this.ensureSequenceRef(meta);
     }
     if (meta.visitEpoch === this.#epoch) {
       if (meta.state === "visiting") throw new Error("packed V4 cyclic sequence dependency");
-      counters.packed_v4_local_refs += 1;
+      if (collectCounters) counters.packed_v4_local_refs += 1;
       return localRef(meta.localDefIndex);
     }
     meta.visitEpoch = this.#epoch;
@@ -535,7 +536,7 @@ export class PackedV4Encoder {
       const values = node.items.map((item) => ({ item, view: this.compileView(item.child, cold) }));
       meta.localDefIndex = this.#definitions++;
       this.emitSequenceLeaf(ref, kind, node.aggregate, values);
-      counters.packed_v4_seq_leaf_defs += 1;
+      if (collectCounters) counters.packed_v4_seq_leaf_defs += 1;
     } else {
       let cumulative = 0;
       const children = node.children.map((child) => {
@@ -544,7 +545,7 @@ export class PackedV4Encoder {
       });
       meta.localDefIndex = this.#definitions++;
       this.emitSequenceBranch(ref, kind, node.height, node.aggregate, children);
-      counters.packed_v4_seq_branch_defs += 1;
+      if (collectCounters) counters.packed_v4_seq_branch_defs += 1;
     }
     meta.state = "emitted";
     this.#touchedSequences.push(node);
@@ -617,12 +618,12 @@ export class PackedV4Encoder {
   private compileGridSequence(node: PersistentSeqNode<PackedGridCell>, cold: boolean): number {
     const meta = packedSequenceMeta(node);
     if (!cold && meta.publishedGeneration === transportGeneration) {
-      counters.packed_v4_persistent_refs += 1;
+      if (collectCounters) counters.packed_v4_persistent_refs += 1;
       return this.ensureSequenceRef(meta);
     }
     if (meta.visitEpoch === this.#epoch) {
       if (meta.state === "visiting") throw new Error("packed V4 cyclic grid sequence dependency");
-      counters.packed_v4_local_refs += 1;
+      if (collectCounters) counters.packed_v4_local_refs += 1;
       return localRef(meta.localDefIndex);
     }
     meta.visitEpoch = this.#epoch;
@@ -632,7 +633,7 @@ export class PackedV4Encoder {
       const values = node.items.map((item) => ({ item, view: this.compileView(item.view, cold) }));
       meta.localDefIndex = this.#definitions++;
       this.emitGridSequenceLeaf(ref, node.aggregate, values);
-      counters.packed_v4_seq_leaf_defs += 1;
+      if (collectCounters) counters.packed_v4_seq_leaf_defs += 1;
     } else {
       let cumulative = 0;
       const children = node.children.map((child) => {
@@ -641,7 +642,7 @@ export class PackedV4Encoder {
       });
       meta.localDefIndex = this.#definitions++;
       this.emitGridSequenceBranch(ref, node.height, node.aggregate, children);
-      counters.packed_v4_seq_branch_defs += 1;
+      if (collectCounters) counters.packed_v4_seq_branch_defs += 1;
     }
     meta.state = "emitted";
     this.#touchedSequences.push(node);
@@ -697,8 +698,8 @@ export class PackedV4Encoder {
     }
     if (candidate === undefined) return undefined;
     const publishedBase = candidate;
-    counters.packed_v4_lineage_steps += lineageSteps + 1;
-    if (lineageSteps > 0) counters.packed_v4_patch_chains_collapsed += 1;
+    if (collectCounters) counters.packed_v4_lineage_steps += lineageSteps + 1;
+    if (lineageSteps > 0) if (collectCounters) counters.packed_v4_patch_chains_collapsed += 1;
     if (lineageKind === "text") {
       const target = node.kind === BRIDGE_VIEW_KIND.decorated ? node.child : node;
       const source = publishedBase.kind === BRIDGE_VIEW_KIND.decorated ? publishedBase.child : publishedBase;
@@ -866,7 +867,14 @@ export function createPackedV4Encoder(utf8Writer: PackedV4Utf8Writer = "textenco
 export function replacePackedAxisChild(view: View, index: number, child: View): View { return replaceAxisChildForPackedTransport(view, index, child); }
 export function splicePackedAxisChildren(view: View, index: number, removeCount: number, children: readonly View[]): View { return spliceAxisChildrenForPackedTransport(view, index, removeCount, children); }
 export function replacePackedGridCell(view: View, row: number, column: number, child: View): View { return replaceGridCellForPackedTransport(view, row, column, child); }
-export function renderPackedV4View(encoder: PackedV4Encoder, view: View, invoke: PackedV4Invoke, invokeRef: PackedV4InvokeRef, hooks?: PackedV4Hooks): void {
-  encoder.render(view, invoke, invokeRef, hooks);
+export function renderPackedV4View(encoder: PackedV4Encoder, view: View, invoke: PackedV4Invoke, invokeRef: PackedV4InvokeRef, hooks: PackedV4Hooks = {}): void {
+  hooks.encodingStarted?.();
+  let node: BridgeViewNode;
+  try {
+    node = nodeForBridge(view);
+  } finally {
+    hooks.encodingFinished?.();
+  }
+  encoder.render(node, invoke, invokeRef, hooks);
 }
 function assertNever(value: never): never { throw new Error(`unsupported packed V4 View kind ${(value as { readonly kind?: unknown }).kind ?? "unknown"}`); }

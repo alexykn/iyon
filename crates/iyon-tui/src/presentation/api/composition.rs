@@ -190,7 +190,7 @@ mod tests {
         let ViewKind::Text(text) = view.as_view().kind() else {
             panic!("expected text view");
         };
-        &text.spans[0].text
+        text.spans[0].text()
     }
 
     #[test]

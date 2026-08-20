@@ -105,13 +105,13 @@ impl ViewCompiler {
         let spans = text.spans.iter().map(|span| {
             let base = if track_source {
                 let current = relative_source;
-                relative_source += span.text.len();
+                relative_source += span.text().len();
                 Some(current)
             } else {
                 None
             };
             (
-                span.text.as_str(),
+                span.text(),
                 self.theme.resolve_text_style(
                     inherited,
                     &span.style,
@@ -125,7 +125,7 @@ impl ViewCompiler {
             let source = text
                 .spans
                 .iter()
-                .map(|span| span.text.as_str())
+                .map(|span| span.text())
                 .collect::<String>();
             validate_cursor_anchor(&source, anchor);
             source

@@ -37,9 +37,24 @@ import {
   type PackedV4StringDedupe,
   type PackedV4Utf8Writer,
 } from "../src/tui/packed_v4.ts";
+import {
+  createFastSharedEncoder,
+  createFastSharedTransport,
+  fastSharedSnapshot,
+  isFastCacheMiss,
+  isFastUnsupported,
+  recordFastSharedFallback,
+  resetFastSharedCounters,
+  replaceFastSharedAxisChild,
+  replaceFastSharedGridCell,
+  spliceFastSharedAxisChildren,
+  type FastSharedAbi,
+  type FastSharedEncoder,
+  type FastSharedTransport,
+} from "../src/tui/fast_shared.ts";
 
 type Pattern = "COLD" | "FIRST_USE" | "IDENTICAL_IDENTITY" | "SHARED_PATH" | "REBUILT_EQUIVALENT" | "LARGE_SHARED_SUBTREE_CUTOFF" | "SHARED_DEEP" | "WIDE_PARENT_ONE_EDIT" | "WIDE_PARENT_INSERT" | "WIDE_PARENT_REMOVE" | "TEXT_METADATA_PATCH" | "DECORATION_PATCH";
-type Candidate = "direct" | "packed" | "packed_v3" | "packed_v4";
+type Candidate = "direct" | "packed" | "packed_v3" | "packed_v4" | "fast_shared";
 type Workload = "plain_text_column" | "styled_span_heavy" | "row_heavy" | "column_track_heavy" | "grid_heavy" | "decoration_heavy" | "diff_heavy" | "component_heavy" | "mixed_realistic" | "wide_column_one_edit" | "wide_row_one_edit" | "wide_grid_cell_edit" | "long_text_wrap_only" | "long_text_one_span_edit" | "large_diff_one_hunk_edit" | "large_decoration_only_change";
 type Size = { readonly name: string; readonly nodes: number };
 
@@ -56,6 +71,7 @@ type PackedHost = BenchmarkHost & {
   tuiPerfV3PackedRenderRef?: (generation: number, packedRef: number) => void;
   tuiPerfV4PackedRender?: (words: Uint32Array, bytes: Uint8Array) => void;
   tuiPerfV4PackedRenderRef?: (generation: number, packedRef: number) => void;
+  tuiPerfFastSharedAbi?: () => FastSharedAbi;
 };
 type PerfNative = typeof native & {
   tuiPerfReset?: () => void;
@@ -118,12 +134,15 @@ const patterns: readonly Pattern[] = [
   "COLD", "FIRST_USE", "IDENTICAL_IDENTITY", "SHARED_PATH", "REBUILT_EQUIVALENT", "LARGE_SHARED_SUBTREE_CUTOFF", "SHARED_DEEP",
   "WIDE_PARENT_ONE_EDIT", "WIDE_PARENT_INSERT", "WIDE_PARENT_REMOVE", "TEXT_METADATA_PATCH", "DECORATION_PATCH",
 ];
-const warmupIterations = positiveEnv("PERF_WARMUP", 50);
-const measuredIterations = positiveEnv("PERF_MEASURED", 200);
-const traceOperations = positiveEnv("PERF_TRACE_OPERATIONS", 1_000);
+const warmupIterations = positiveEnv("PERF_WARMUP", 10);
+const measuredIterations = positiveEnv("PERF_MEASURED", 20);
+const tinyIterations = positiveEnv("PERF_TINY", 10);
+const exactIterations = positiveEnv("PERF_EXACT", 1_000);
+const traceOperations = positiveEnv("PERF_TRACE_OPERATIONS", 100);
+const benchmarkVersion = Bun.env.PERF_BENCHMARK_VERSION ?? "PERF-9";
 const selectedSizes = filterSizes(sizes, Bun.env.PERF_SIZES);
 const selectedWideSizes = filterSizes(wideSizes, Bun.env.PERF_SIZES);
-const candidates = filterNames(["direct", "packed", "packed_v3", "packed_v4"] as const, Bun.env.PERF_CANDIDATES);
+const candidates = filterNames(["direct", "packed", "packed_v3", "packed_v4", "fast_shared"] as const, Bun.env.PERF_CANDIDATES);
 const selectedWorkloads = filterNames(workloads, Bun.env.PERF_WORKLOADS);
 const selectedPatterns = filterNames(patterns, Bun.env.PERF_PATTERNS);
 const stringLane = Bun.env.PERF_V3_STRING_LANE === "strings" ? "strings" : "utf8" as const;
@@ -141,9 +160,10 @@ function positiveEnv(name: string, fallback: number): number {
   return value;
 }
 
-function measurementCount(pattern: Pattern): number {
+function measurementCount(pattern: Pattern, workload: Workload, size: Size): number {
   if (Bun.env.PERF_MEASURED !== undefined) return measuredIterations;
-  if (pattern === "IDENTICAL_IDENTITY" || pattern === "TEXT_METADATA_PATCH" || pattern === "DECORATION_PATCH") return 1_000;
+  if (pattern === "IDENTICAL_IDENTITY" && workload === "plain_text_column" && size.name === "small_view") return exactIterations;
+  if (pattern === "IDENTICAL_IDENTITY" || pattern === "TEXT_METADATA_PATCH" || pattern === "DECORATION_PATCH") return tinyIterations;
   return measuredIterations;
 }
 
@@ -167,8 +187,27 @@ function createHost(): PackedHost {
   return new Host(80, 24, true) as unknown as PackedHost;
 }
 
-function renderDirect(host: BenchmarkHost, view: View): void {
-  host.render(nodeForDirectBridge(view));
+type TransportHooks = {
+  readonly encodingStarted?: () => void;
+  readonly encodingFinished?: () => void;
+  readonly nativeStarted?: () => void;
+  readonly nativeFinished?: () => void;
+};
+
+function renderDirect(host: BenchmarkHost, view: View, hooks: TransportHooks = {}): void {
+  hooks.encodingStarted?.();
+  let bridged: object;
+  try {
+    bridged = nodeForDirectBridge(view);
+  } finally {
+    hooks.encodingFinished?.();
+  }
+  hooks.nativeStarted?.();
+  try {
+    host.render(bridged);
+  } finally {
+    hooks.nativeFinished?.();
+  }
 }
 
 function tree(nodes: number, prefix = "node"): View {
@@ -487,29 +526,46 @@ function runSample(
     : candidate === "direct" ? state.directHost
       : candidate === "packed" ? state.packedHost
         : candidate === "packed_v3" ? state.packedV3Host
-          : state.packedV4Host;
+          : candidate === "packed_v4" ? state.packedV4Host
+            : state.fastHost!;
+  const fastTransport = candidate === "fast_shared"
+    ? (firstUse ? createFastSharedTransport(host as PackedHost) : state.fastTransport!)
+    : undefined;
   const encoder = candidate === "packed"
     ? (firstUse ? createPackedViewEncoder() : state.packedEncoder)
     : candidate === "packed_v3"
       ? (firstUse ? createPackedV3Encoder(stringLane) : state.packedV3Encoder)
       : candidate === "packed_v4"
         ? (firstUse ? createPackedV4Encoder(v4Utf8Writer, v4StringDedupe) : state.packedV4Encoder)
-        : undefined;
+        : candidate === "fast_shared"
+          ? (firstUse ? createFastSharedEncoder(fastTransport!) : state.fastEncoder)
+          : undefined;
   if (pattern === "COLD" && candidate === "packed") (encoder as PackedViewEncoder).resetKnownNativeState();
   const componentId = firstUse && workload === "component_heavy"
     ? createComponentId(host)
     : candidate === "direct" ? state.directComponentId
       : candidate === "packed" ? state.packedComponentId
         : candidate === "packed_v3" ? state.packedV3ComponentId
-          : state.packedV4ComponentId;
+          : candidate === "packed_v4" ? state.packedV4ComponentId
+            : state.fastComponentId;
   const constructionStarted = now();
   const baseView = candidate === "direct" ? state.directBase!
     : candidate === "packed" ? state.packedBase!
       : candidate === "packed_v3" ? state.packedV3Base!
-        : state.packedV4Base!;
+        : candidate === "packed_v4" ? state.packedV4Base!
+          : state.fastBase!;
   const isWideParentMode = pattern === "WIDE_PARENT_ONE_EDIT" || pattern === "WIDE_PARENT_INSERT" || pattern === "WIDE_PARENT_REMOVE";
   let retainedView: View;
-  if (isWideParentMode && candidate !== "packed_v3" && candidate !== "packed_v4") {
+  if (candidate === "fast_shared" && workload === "wide_grid_cell_edit" && pattern === "WIDE_PARENT_ONE_EDIT") {
+    const row = Math.floor(Math.max(1, Math.ceil((size - 1) / 4)) / 2);
+    retainedView = replaceFastSharedGridCell(state.fastBase!, row, 0, View.text(`grid-edited-${index}`));
+  } else if (candidate === "fast_shared" && pattern === "WIDE_PARENT_ONE_EDIT") {
+    retainedView = replaceFastSharedAxisChild(state.fastBase!, index % Math.max(1, size), View.text(`edited-${index}`));
+  } else if (candidate === "fast_shared" && pattern === "WIDE_PARENT_INSERT") {
+    retainedView = spliceFastSharedAxisChildren(state.fastBase!, Math.floor(size / 2), 0, [View.text(`inserted-${index}`)]);
+  } else if (candidate === "fast_shared" && pattern === "WIDE_PARENT_REMOVE") {
+    retainedView = spliceFastSharedAxisChildren(state.fastBase!, Math.floor(size / 2), 1, []);
+  } else if (isWideParentMode && candidate !== "packed_v3" && candidate !== "packed_v4" && candidate !== "fast_shared") {
     retainedView = wideParentMutation(workload, size, pattern, index);
   } else if ((candidate === "packed_v3" || candidate === "packed_v4") && workload === "wide_grid_cell_edit" && pattern === "WIDE_PARENT_ONE_EDIT") {
     const row = Math.floor(Math.max(1, Math.ceil((size - 1) / 4)) / 2);
@@ -535,7 +591,8 @@ function runSample(
         candidate === "direct" ? state.directShared
           : candidate === "packed" ? state.packedShared
             : candidate === "packed_v3" ? state.packedV3Shared
-              : state.packedV4Shared,
+              : candidate === "packed_v4" ? state.packedV4Shared
+                : state.fastShared,
         componentId);
   }
   if (pattern === "TEXT_METADATA_PATCH") retainedView = retainedView.noWrap();
@@ -545,6 +602,7 @@ function runSample(
   const packedBefore = packedEncoderSnapshot();
   const packedV3Before = packedV3Snapshot();
   const packedV4Before = packedV4Snapshot();
+  const fastBefore = fastSharedSnapshot();
   const cpuBefore = process.cpuUsage();
   const heapBefore = process.memoryUsage().heapUsed;
   const rssBefore = process.memoryUsage().rss;
@@ -554,8 +612,12 @@ function runSample(
   let encodingStarted = 0;
   let nativeStarted = 0;
   if (candidate === "direct") {
-    renderDirect(host, retainedView);
-    native = now() - commitStarted;
+    renderDirect(host, retainedView, {
+      encodingStarted: () => { encodingStarted = now(); },
+      encodingFinished: () => { if (encodingStarted !== 0) { encoding += now() - encodingStarted; encodingStarted = 0; } },
+      nativeStarted: () => { nativeStarted = now(); },
+      nativeFinished: () => { if (nativeStarted !== 0) { native += now() - nativeStarted; nativeStarted = 0; } },
+    });
   } else if (candidate === "packed") {
     renderPackedView(encoder as PackedViewEncoder, retainedView, (words, strings) => (host as PackedHost).tuiPerfPackedRender(words, strings), {
       encodingStarted: () => { encodingStarted = now(); },
@@ -592,7 +654,7 @@ function runSample(
         nativeFinished: () => { if (nativeStarted !== 0) { native += now() - nativeStarted; nativeStarted = 0; } },
       },
     );
-  } else {
+  } else if (candidate === "packed_v4") {
     const packedHost = host as PackedHost;
     if (packedHost.tuiPerfV4PackedRenderRef === undefined || packedHost.tuiPerfV4PackedRender === undefined) {
       throw new Error("native addon lacks Packed V4 methods");
@@ -609,6 +671,48 @@ function runSample(
         nativeFinished: () => { if (nativeStarted !== 0) { native += now() - nativeStarted; nativeStarted = 0; } },
       },
     );
+  } else if (candidate === "fast_shared") {
+    const hooks = {
+      encodingStarted: () => { encodingStarted = now(); },
+      encodingFinished: () => { if (encodingStarted !== 0) { encoding += now() - encodingStarted; encodingStarted = 0; } },
+      nativeStarted: () => { nativeStarted = now(); },
+      nativeFinished: () => { if (nativeStarted !== 0) { native += now() - nativeStarted; nativeStarted = 0; } },
+    };
+    const useV3Fallback = pattern === "COLD" || pattern === "FIRST_USE" || pattern === "REBUILT_EQUIVALENT";
+    if (useV3Fallback) {
+      recordFastSharedFallback();
+      const fallbackEncoder = firstUse ? createPackedV3Encoder(stringLane) : state.fastFallbackV3Encoder!;
+      const fallbackHost = host as PackedHost;
+      renderPackedV3View(
+        fallbackEncoder,
+        retainedView,
+        (words, bytes, strings) => {
+          if (stringLane === "strings") fallbackHost.tuiPerfV3PackedRenderStrings!(words, strings);
+          else fallbackHost.tuiPerfV3PackedRender!(words, bytes);
+        },
+        (generation, packedRef) => fallbackHost.tuiPerfV3PackedRenderRef!(generation, packedRef),
+        hooks,
+      );
+    } else {
+      try {
+        (encoder as FastSharedEncoder).render(retainedView, { ...hooks, cacheMiss: () => undefined });
+      } catch (error) {
+        if (!isFastUnsupported(error) && !isFastCacheMiss(error)) throw error;
+        recordFastSharedFallback();
+        const fallbackEncoder = state.fastFallbackV3Encoder!;
+        const fallbackHost = host as PackedHost;
+        renderPackedV3View(
+          fallbackEncoder,
+          retainedView,
+          (words, bytes, strings) => {
+            if (stringLane === "strings") fallbackHost.tuiPerfV3PackedRenderStrings!(words, strings);
+            else fallbackHost.tuiPerfV3PackedRender!(words, bytes);
+          },
+          (generation, packedRef) => fallbackHost.tuiPerfV3PackedRenderRef!(generation, packedRef),
+          hooks,
+        );
+      }
+    }
   }
 
   const commit = now() - commitStarted;
@@ -622,7 +726,9 @@ function runSample(
     ? perfNative.tuiPerfV3ViewBridgeCacheSize?.() ?? 0
     : candidate === "packed_v4"
       ? perfNative.tuiPerfV4ViewBridgeCacheSize?.() ?? 0
-      : perfNative.tuiPerfViewBridgeCacheSize?.() ?? 0;
+      : candidate === "fast_shared"
+        ? 0
+        : perfNative.tuiPerfViewBridgeCacheSize?.() ?? 0;
   const nativeSemanticCacheSize = perfNative.tuiPerfViewBridgeCacheSize?.() ?? 0;
   const nativePackedSlotPages = candidate === "packed_v3" ? perfNative.tuiPerfV3PackedSlotPages?.() ?? 0 : 0;
   const nativeAfter = nativeCounters();
@@ -630,12 +736,17 @@ function runSample(
   const counterTarget = candidate === "direct" ? state.directCounters
     : candidate === "packed" ? state.packedCounters
       : candidate === "packed_v3" ? state.packedV3Counters
-        : state.packedV4Counters;
+        : candidate === "packed_v4" ? state.packedV4Counters
+          : state.fastCounters;
   addCounters(counterTarget, diffCounters(nativeBefore, nativeAfter));
   if (candidate === "packed") addCounters(state.packedCounters, diffCounters(packedBefore, packedAfter));
   if (candidate === "packed_v3") addCounters(state.packedV3Counters, diffCounters(packedV3Before, packedV3Snapshot()));
   if (candidate === "packed_v4") addCounters(state.packedV4Counters, diffCounters(packedV4Before, packedV4Snapshot()));
-  if (firstUse) host.dispose();
+  if (candidate === "fast_shared") addCounters(state.fastCounters, diffCounters(fastBefore, fastSharedSnapshot()));
+  if (firstUse) {
+    if (fastTransport !== undefined) fastTransport.close();
+    host.dispose();
+  }
   if (warmup) return { nodeCount: 0, total: 0, commit: 0, forcedFrame: 0, construction: 0, encoding: 0, native: 0, cpuUserUs: 0, cpuSystemUs: 0, heapDelta: 0, rssDelta: 0, scratchCapacity: 0, byteScratchCapacity: 0, nativeCacheSize: 0, nativeSemanticCacheSize: 0, nativePackedSlotPages: 0 };
   const scratchCapacity = candidate === "packed" ? (encoder as PackedViewEncoder).scratchCapacity()
     : candidate === "packed_v3" ? (encoder as PackedV3Encoder).wordScratchCapacity
@@ -652,6 +763,10 @@ type CaseState = {
   readonly packedHost: PackedHost;
   readonly packedV3Host: PackedHost;
   readonly packedV4Host: PackedHost;
+  readonly fastHost?: PackedHost;
+  readonly fastTransport?: FastSharedTransport;
+  readonly fastEncoder?: FastSharedEncoder;
+  readonly fastFallbackV3Encoder?: PackedV3Encoder;
   readonly packedEncoder: PackedViewEncoder;
   readonly packedV3Encoder: PackedV3Encoder;
   readonly packedV4Encoder: PackedV4Encoder;
@@ -659,18 +774,22 @@ type CaseState = {
   readonly packedCounters: Record<string, number>;
   readonly packedV3Counters: Record<string, number>;
   readonly packedV4Counters: Record<string, number>;
+  readonly fastCounters: Record<string, number>;
   readonly directBase?: View;
   readonly packedBase?: View;
   readonly packedV3Base?: View;
   readonly packedV4Base?: View;
+  readonly fastBase?: View;
   readonly directShared?: View;
   readonly packedShared?: View;
   readonly packedV3Shared?: View;
   readonly packedV4Shared?: View;
+  readonly fastShared?: View;
   readonly directComponentId?: number;
   readonly packedComponentId?: number;
   readonly packedV3ComponentId?: number;
   readonly packedV4ComponentId?: number;
+  readonly fastComponentId?: number;
 };
 
 function makeCaseState(workload: Workload, size: number, pattern: Pattern): CaseState {
@@ -678,15 +797,24 @@ function makeCaseState(workload: Workload, size: number, pattern: Pattern): Case
   const packedHost = createHost();
   const packedV3Host = createHost();
   const packedV4Host = createHost();
+  const fastHost = candidates.includes("fast_shared") ? createHost() : undefined;
+  const fastTransport = fastHost === undefined ? undefined : createFastSharedTransport(fastHost);
+  const fastEncoder = fastTransport === undefined ? undefined : createFastSharedEncoder(fastTransport);
+  const fastFallbackV3Encoder = fastHost === undefined ? undefined : createPackedV3Encoder(stringLane);
   const directComponentId = workload === "component_heavy" ? createComponentId(directHost) : undefined;
   const packedComponentId = workload === "component_heavy" ? createComponentId(packedHost) : undefined;
   const packedV3ComponentId = workload === "component_heavy" ? createComponentId(packedV3Host) : undefined;
   const packedV4ComponentId = workload === "component_heavy" ? createComponentId(packedV4Host) : undefined;
+  const fastComponentId = fastHost !== undefined && workload === "component_heavy" ? createComponentId(fastHost) : undefined;
   return {
     directHost,
     packedHost,
     packedV3Host,
     packedV4Host,
+    fastHost,
+    fastTransport,
+    fastEncoder,
+    fastFallbackV3Encoder,
     packedEncoder: createPackedViewEncoder(),
     packedV3Encoder: createPackedV3Encoder(stringLane),
     packedV4Encoder: createPackedV4Encoder(v4Utf8Writer, v4StringDedupe),
@@ -694,18 +822,22 @@ function makeCaseState(workload: Workload, size: number, pattern: Pattern): Case
     packedCounters: {},
     packedV3Counters: {},
     packedV4Counters: {},
+    fastCounters: {},
     directBase: workloadView(workload, size, directComponentId),
     packedBase: workloadView(workload, size, packedComponentId),
     packedV3Base: workloadView(workload, size, packedV3ComponentId),
     packedV4Base: workloadView(workload, size, packedV4ComponentId),
+    fastBase: fastHost === undefined ? undefined : workloadView(workload, size, fastComponentId),
     directShared: pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-direct") : undefined,
     packedShared: pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-packed") : undefined,
     packedV3Shared: pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-packed-v3") : undefined,
     packedV4Shared: pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-packed-v4") : undefined,
+    fastShared: fastHost === undefined ? undefined : pattern === "SHARED_PATH" || pattern === "LARGE_SHARED_SUBTREE_CUTOFF" || pattern === "SHARED_DEEP" ? tree(Math.max(2, Math.floor(size / 2)), "shared-fast") : undefined,
     directComponentId,
     packedComponentId,
     packedV3ComponentId,
     packedV4ComponentId,
+    fastComponentId,
   };
 }
 
@@ -738,6 +870,7 @@ function primePatchBases(pattern: Pattern, state: CaseState): void {
       (generation, packedRef) => host.tuiPerfV4PackedRenderRef!(generation, packedRef),
     );
   }
+  if (candidates.includes("fast_shared")) state.fastEncoder!.render(state.fastBase!);
 }
 
 function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern: Pattern, samples: readonly Sample[], state: CaseState, sha: string): void {
@@ -749,7 +882,8 @@ function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern:
   const native = samples.map((sample) => sample.native);
   const nodeCount = samples.find((sample) => sample.nodeCount > 0)?.nodeCount ?? size.nodes;
   const output = {
-    benchmark_version: "PERF-9",
+    benchmark_version: benchmarkVersion,
+    instrumentation: Bun.env.PERF_COUNTERS === "0" ? "timing" : "counter",
     candidate,
     workload,
     size: size.name,
@@ -758,14 +892,14 @@ function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern:
     git_sha: sha,
     git_dirty: gitDirty(),
     git_patch_sha256: gitDirty() ? gitPatchSha256() : undefined,
-    protocol_version: candidate === "packed_v4" ? 4 : candidate === "packed_v3" ? 2 : candidate === "packed" ? 1 : 0,
+    protocol_version: candidate === "packed_v4" ? 4 : candidate === "packed_v3" ? 2 : candidate === "packed" ? 1 : candidate === "fast_shared" ? 1 : 0,
     bridge_schema_version: 1,
-    string_lane: candidate === "packed_v4" ? "S1_UTF8_ARENA" : stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS",
+    string_lane: candidate === "fast_shared" ? "S1_NATIVE_SHARED_PAGE" : candidate === "packed_v4" ? "S1_UTF8_ARENA" : stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS",
     configured_string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS",
-    utf8_writer: candidate === "packed_v4" ? v4Utf8Writer : candidate === "packed_v3" && stringLane === "utf8" ? "TextEncoder.encodeInto" : null,
+    utf8_writer: candidate === "fast_shared" ? "TextEncoder.encodeInto(native-page)" : candidate === "packed_v4" ? v4Utf8Writer : candidate === "packed_v3" && stringLane === "utf8" ? "TextEncoder.encodeInto" : null,
     string_dedupe_policy: candidate === "packed_v4" ? v4StringDedupe : candidate === "packed_v3" ? "D0_content_all" : null,
-    native_string_storage: candidate === "packed_v4" ? "R0_per_string_owned" : candidate === "packed_v3" ? "per_use_owned" : null,
-    slab_page_bytes: null,
+    native_string_storage: candidate === "fast_shared" ? "R1_shared_page" : candidate === "packed_v4" ? "R0_per_string_owned" : candidate === "packed_v3" ? "per_use_owned" : null,
+    slab_page_bytes: candidate === "fast_shared" ? 65_536 : null,
     native_artifact_sha256: sha256("packages/iyon-runtime/native/iyon-native.node"),
     benchmark_source_sha256: sha256("packages/iyon-runtime/bench/tui_performance.ts"),
     warmup_iterations: warmupIterations,
@@ -796,7 +930,8 @@ function emitCase(candidate: Candidate, workload: Workload, size: Size, pattern:
     counters: candidate === "direct" ? state.directCounters
       : candidate === "packed" ? state.packedCounters
         : candidate === "packed_v3" ? state.packedV3Counters
-          : state.packedV4Counters,
+          : candidate === "packed_v4" ? state.packedV4Counters
+        : state.fastCounters,
     bun_version: Bun.version,
     rustc_version: runtimeVersion("rustc --version"),
     target: `${process.platform}-${process.arch}`,
@@ -819,6 +954,7 @@ function runCase(workload: Workload, size: Size, pattern: Pattern, sha: string):
   resetPackedEncoderCounters();
   resetPackedV3Counters();
   resetPackedV4Counters();
+  resetFastSharedCounters();
   perfNative.tuiPerfReset?.();
   for (let index = 0; index < warmupIterations; index += 1) {
     for (const candidate of candidateOrder(index)) runSample(candidate, pattern, workload, size.nodes, index, state, true);
@@ -826,9 +962,10 @@ function runCase(workload: Workload, size: Size, pattern: Pattern, sha: string):
   resetPackedEncoderCounters();
   resetPackedV3Counters();
   resetPackedV4Counters();
+  resetFastSharedCounters();
   perfNative.tuiPerfReset?.();
   const samples = new Map<Candidate, Sample[]>(candidates.map((candidate) => [candidate, []]));
-  const sampleCount = measurementCount(pattern);
+  const sampleCount = measurementCount(pattern, workload, size);
   for (let index = 0; index < sampleCount; index += 1) {
     for (const candidate of candidateOrder(index + warmupIterations)) samples.get(candidate)!.push(runSample(candidate, pattern, workload, size.nodes, index + warmupIterations, state, false));
   }
@@ -837,29 +974,36 @@ function runCase(workload: Workload, size: Size, pattern: Pattern, sha: string):
   state.packedHost.dispose();
   state.packedV3Host.dispose();
   state.packedV4Host.dispose();
+  state.fastTransport?.close();
+  state.fastHost?.dispose();
 }
 
 function runSyntheticTrace(sha: string): void {
-  const workload: Workload = "mixed_realistic";
+  const workload: Workload = "wide_column_one_edit";
   const size: Size = { name: "synthetic_trace", nodes: 2_000 };
   const state = makeCaseState(workload, size.nodes, "LARGE_SHARED_SUBTREE_CUTOFF");
   const totals = new Map<Candidate, number[]>(candidates.map((candidate) => [candidate, []]));
   resetPackedEncoderCounters();
   resetPackedV3Counters();
   resetPackedV4Counters();
+  resetFastSharedCounters();
   perfNative.tuiPerfReset?.();
   for (let index = 0; index < traceOperations; index += 1) {
-    const traceSlot = index % 50;
-    const mode: Pattern = traceSlot < 35
-      ? "LARGE_SHARED_SUBTREE_CUTOFF"
-      : traceSlot < 45
-        ? "IDENTICAL_IDENTITY"
-        : traceSlot < 49
-          ? "REBUILT_EQUIVALENT"
-          : "COLD";
+    const traceSlot = index % 100;
+    const mode: Pattern = traceSlot < 20
+      ? "IDENTICAL_IDENTITY"
+      : traceSlot < 75
+        ? "SHARED_PATH"
+        : traceSlot < 85
+          ? "SHARED_DEEP"
+          : traceSlot < 90
+            ? "WIDE_PARENT_ONE_EDIT"
+            : traceSlot < 98
+              ? "REBUILT_EQUIVALENT"
+              : "COLD";
     for (const candidate of candidateOrder(index)) totals.get(candidate)!.push(runSample(candidate, mode, workload, size.nodes, index, state, false).total);
   }
-  const output: Record<string, unknown> = { benchmark_version: "PERF-9", benchmark: "synthetic_trace", synthetic_trace: true, trace_operations: traceOperations, mix: "70% LARGE_SHARED_SUBTREE_CUTOFF, 20% IDENTICAL_IDENTITY, 8% REBUILT_EQUIVALENT, 2% COLD", git_sha: sha, git_dirty: gitDirty(), git_patch_sha256: gitDirty() ? gitPatchSha256() : undefined, protocol_version: 4, bridge_schema_version: 1, string_lane: "S1_UTF8_ARENA", configured_string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS", utf8_writer: v4Utf8Writer, string_dedupe_policy: v4StringDedupe, native_string_storage: "R0_per_string_owned", slab_page_bytes: null, native_artifact_sha256: sha256("packages/iyon-runtime/native/iyon-native.node"), benchmark_source_sha256: sha256("packages/iyon-runtime/bench/tui_performance.ts") };
+  const output: Record<string, unknown> = { benchmark_version: benchmarkVersion, instrumentation: Bun.env.PERF_COUNTERS === "0" ? "timing" : "counter", benchmark: "synthetic_trace", synthetic_trace: true, trace_operations: traceOperations, mix: "20% IDENTICAL_IDENTITY, 55% SHARED_PATH, 10% SHARED_DEEP, 5% WIDE_PARENT_ONE_EDIT, 8% REBUILT_EQUIVALENT, 2% COLD", git_sha: sha, git_dirty: gitDirty(), git_patch_sha256: gitDirty() ? gitPatchSha256() : undefined, protocol_version: "hybrid", bridge_schema_version: 1, string_lane: "candidate-specific", configured_string_lane: stringLane === "utf8" ? "S1_UTF8_ARENA" : "S2_MOVE_ONCE_STRINGS", utf8_writer: "candidate-specific", string_dedupe_policy: "candidate-specific", native_string_storage: "candidate-specific", slab_page_bytes: null, native_artifact_sha256: sha256("packages/iyon-runtime/native/iyon-native.node"), benchmark_source_sha256: sha256("packages/iyon-runtime/bench/tui_performance.ts") };
   for (const candidate of candidates) {
     const values = totals.get(candidate)!;
     output[`${candidate}_total_commit_ns`] = values.reduce((sum, value) => sum + value, 0);
@@ -869,6 +1013,9 @@ function runSyntheticTrace(sha: string): void {
   state.directHost.dispose();
   state.packedHost.dispose();
   state.packedV3Host.dispose();
+  state.packedV4Host.dispose();
+  state.fastTransport?.close();
+  state.fastHost?.dispose();
 }
 
 const sha = gitSha();

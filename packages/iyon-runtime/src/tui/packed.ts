@@ -524,8 +524,15 @@ export function createPackedViewEncoder(): PackedViewEncoder {
   return new PackedViewEncoder();
 }
 
-export function renderPackedView(encoder: PackedViewEncoder, view: View, invoke: PackedInvoke, hooks?: PackedRenderHooks): void {
-  encoder.render(nodeForBridge(view), invoke, hooks);
+export function renderPackedView(encoder: PackedViewEncoder, view: View, invoke: PackedInvoke, hooks: PackedRenderHooks = {}): void {
+  hooks.encodingStarted?.();
+  let node: BridgeViewNode;
+  try {
+    node = nodeForBridge(view);
+  } finally {
+    hooks.encodingFinished?.();
+  }
+  encoder.render(node, invoke, hooks);
 }
 
 function assertNever(value: never): never {

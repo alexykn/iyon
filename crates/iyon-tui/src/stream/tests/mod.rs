@@ -459,7 +459,7 @@ fn compile_stream_exact_text_matches_view_compiler_identically() {
             let text_view = View::styled_text(spans.clone()).into_view();
             let layout_block = compiler.compile(&text_view, width);
 
-            let total_len = spans.iter().map(|s| s.text.len() as u64).sum();
+            let total_len = spans.iter().map(|s| s.text().len() as u64).sum();
             let stream_view = StreamView::exact_text(
                 StreamRange::new(StreamOffset::ZERO, StreamOffset::new(total_len)),
                 spans.clone(),

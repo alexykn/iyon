@@ -93,6 +93,7 @@ export interface NativeAddon {
   tuiPerfV4ResetViewBridgeCache?: () => void;
   tuiPerfV4ViewBridgeCacheSize?: () => number;
   tuiPerfV4ViewBridgeGeneration?: () => number;
+  tuiPerfFastSharedAbi?: () => import("./tui/fast_shared.ts").FastSharedAbi;
 }
 
 export interface NativeTuiOutputContract { readonly output?: unknown; }
@@ -131,6 +132,7 @@ export interface NativeTuiHostContract {
   tuiPerfV3PackedRenderRef?(generation: number, packedRef: number): void;
   tuiPerfV4PackedRender?(words: Uint32Array, bytes: Uint8Array): void;
   tuiPerfV4PackedRenderRef?(generation: number, packedRef: number): void;
+  tuiPerfFastSharedAbi?(): import("./tui/fast_shared.ts").FastSharedAbi;
 }
 
 // This is the one static addon seam. The stage script materializes this exact

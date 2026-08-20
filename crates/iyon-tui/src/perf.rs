@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-#[cfg(feature = "perf-counters")]
+#[cfg(all(feature = "perf-counters", not(feature = "perf-timing")))]
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[repr(usize)]
@@ -90,10 +90,22 @@ pub enum Counter {
     PersistentSeqLeafClones,
     PersistentSeqBranchClones,
     PersistentSeqItemsIteratedDuringPatch,
+    FastTransactions,
+    FastOpsRead,
+    FastRefsResolved,
+    FastSeqNodesBuilt,
+    FastViewsBuilt,
+    FastPublications,
+    FastPagesRetained,
+    FastPagesReleased,
+    FastLivePageBytes,
+    FastLivePayloadBytes,
+    FastStatusCacheMiss,
+    FastStatusInvalid,
 }
 
 impl Counter {
-    pub const COUNT: usize = Self::PersistentSeqItemsIteratedDuringPatch as usize + 1;
+    pub const COUNT: usize = Self::FastStatusInvalid as usize + 1;
 
     const fn index(self) -> usize {
         self as usize
@@ -180,15 +192,27 @@ const NAMES: [&str; Counter::COUNT] = [
     "persistent_seq_leaf_clones",
     "persistent_seq_branch_clones",
     "persistent_seq_items_iterated_during_patch",
+    "fast_transactions",
+    "fast_ops_read",
+    "fast_refs_resolved",
+    "fast_seq_nodes_built",
+    "fast_views_built",
+    "fast_publications",
+    "fast_pages_retained",
+    "fast_pages_released",
+    "fast_live_page_bytes",
+    "fast_live_payload_bytes",
+    "fast_status_cache_miss",
+    "fast_status_invalid",
 ];
 
-#[cfg(feature = "perf-counters")]
+#[cfg(all(feature = "perf-counters", not(feature = "perf-timing")))]
 static VALUES: [AtomicU64; Counter::COUNT] = [const { AtomicU64::new(0) }; Counter::COUNT];
 
-#[cfg(all(test, feature = "perf-counters"))]
+#[cfg(all(test, feature = "perf-counters", not(feature = "perf-timing")))]
 static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-#[cfg(all(test, feature = "perf-counters"))]
+#[cfg(all(test, feature = "perf-counters", not(feature = "perf-timing")))]
 pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
     TEST_LOCK.lock().expect("performance test lock poisoned")
 }
@@ -222,7 +246,7 @@ impl PerfSnapshot {
 /// Clears all counters.
 #[inline]
 pub fn reset() {
-    #[cfg(feature = "perf-counters")]
+    #[cfg(all(feature = "perf-counters", not(feature = "perf-timing")))]
     for value in &VALUES {
         value.store(0, Ordering::Relaxed);
     }
@@ -237,25 +261,25 @@ pub fn inc(counter: Counter) {
 /// Adds a measured amount of work to one counter.
 #[inline(always)]
 pub fn add(counter: Counter, amount: u64) {
-    #[cfg(feature = "perf-counters")]
+    #[cfg(all(feature = "perf-counters", not(feature = "perf-timing")))]
     VALUES[counter.index()].fetch_add(amount, Ordering::Relaxed);
-    #[cfg(not(feature = "perf-counters"))]
+    #[cfg(any(not(feature = "perf-counters"), feature = "perf-timing"))]
     let _ = (counter, amount);
 }
 
 /// Sets a counter used as a current restart/offset gauge.
 #[inline(always)]
 pub fn set(counter: Counter, value: u64) {
-    #[cfg(feature = "perf-counters")]
+    #[cfg(all(feature = "perf-counters", not(feature = "perf-timing")))]
     VALUES[counter.index()].store(value, Ordering::Relaxed);
-    #[cfg(not(feature = "perf-counters"))]
+    #[cfg(any(not(feature = "perf-counters"), feature = "perf-timing"))]
     let _ = (counter, value);
 }
 
 /// Reads all counters atomically.
 #[inline]
 pub fn snapshot() -> PerfSnapshot {
-    #[cfg(feature = "perf-counters")]
+    #[cfg(all(feature = "perf-counters", not(feature = "perf-timing")))]
     {
         let mut values = [0; Counter::COUNT];
         for (index, value) in VALUES.iter().enumerate() {
@@ -264,7 +288,7 @@ pub fn snapshot() -> PerfSnapshot {
         PerfSnapshot { values }
     }
 
-    #[cfg(not(feature = "perf-counters"))]
+    #[cfg(any(not(feature = "perf-counters"), feature = "perf-timing"))]
     {
         PerfSnapshot::default()
     }
