@@ -76,6 +76,7 @@ fn c_type(argument: &ArgumentSpec, document: &AbiDocument) -> String {
             |name| format!("const {name} *"),
         ),
         "buffer_length" => "size_t".to_owned(),
+        "cstring_ephemeral" => "const char *".to_owned(),
         "i32" | "status_only" => "int32_t".to_owned(),
         "u8" => "uint8_t".to_owned(),
         "u16" => "uint16_t".to_owned(),
