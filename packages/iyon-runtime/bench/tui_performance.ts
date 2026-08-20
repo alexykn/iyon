@@ -162,8 +162,8 @@ function positiveEnv(name: string, fallback: number): number {
 
 function measurementCount(pattern: Pattern, workload: Workload, size: Size): number {
   if (Bun.env.PERF_MEASURED !== undefined) return measuredIterations;
-  if (pattern === "IDENTICAL_IDENTITY" && workload === "plain_text_column" && size.name === "small_view") return exactIterations;
-  if (pattern === "IDENTICAL_IDENTITY" || pattern === "TEXT_METADATA_PATCH" || pattern === "DECORATION_PATCH") return tinyIterations;
+  if (pattern === "IDENTICAL_IDENTITY") return exactIterations;
+  if (pattern === "TEXT_METADATA_PATCH" || pattern === "DECORATION_PATCH") return tinyIterations;
   return measuredIterations;
 }
 
