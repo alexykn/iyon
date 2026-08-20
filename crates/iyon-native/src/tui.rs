@@ -621,6 +621,7 @@ impl NativeTuiHost {
         if self.alive.swap(false, Ordering::AcqRel) {
             #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
             self.fast_shared.close();
+            self.fast_shared.unregister();
             self.host
                 .close()
                 .map_err(|error| crate::NativeError::internal(error.to_string()))?;
