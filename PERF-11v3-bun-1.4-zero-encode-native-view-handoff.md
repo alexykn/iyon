@@ -293,9 +293,19 @@ d14e9f4  test(tui): refresh ABI generator snapshot
 0913858  bench(tui): enforce exact identity controls
 ```
 
-The final Tranche 1 review also hardened the generated foundation: Rust output is formatted by the pinned Rust 1.97.1 `rustfmt` toolchain, with deterministic `prettyplease` fallback; schema validation rejects incompatible lowering/type pairs and missing buffer-used lanes; generated checked wrappers validate full 53-bit NodeId pairs, NativeRef ranges, pointer alignment, buffer capacity/element-width/used-count bounds, enum discriminants, cstring pointers, and panic containment; host-pointer imports and cstring lowering are generated for future slices. The current generated reference records generator BLAKE3 `c4ab26c23fac3bc43c5b8a4b6c75ca3ba1d79b78b4af58ab322f8fef5d9b6601`.
+The final Tranche 1 review also hardened the generated foundation: Rust output is formatted by the pinned Rust 1.97.1 `rustfmt` toolchain, with deterministic `prettyplease` fallback; schema validation rejects incompatible lowering/type pairs and missing buffer-used lanes; generated checked wrappers validate full 53-bit NodeId pairs, NativeRef ranges, pointer alignment, buffer capacity/element-width/used-count bounds, enum discriminants, cstring pointers, and panic containment; host-pointer imports and cstring lowering are generated for future slices. The current generated reference records generator BLAKE3 `fd3bcd32d6995e625fada939bf2fd398b6dac2ec14400458b75f612cdc4d0d6d`.
 
-**Tranche 1 status: COMPLETE.** Bun preflight (`§2.1–§2.4`) and generator bootstrap (`STEP 0.1–STEP 0.5`) are implemented, generated artifacts are checked in and deterministic, and the required Bun 1.4 controls/FFI probes pass. No production Native Shadow routing or Tranche 2 (`STEP 0.6–0.9`) work is claimed or enabled yet.
+**Tranche 1 status: COMPLETE.** Bun preflight (`§2.1–§2.4`) and generator bootstrap (`STEP 0.1–STEP 0.5`) are implemented, generated artifacts are checked in and deterministic, and the required Bun 1.4 controls/FFI probes pass. Production Native Shadow routing remains intentionally disabled until later tranches.
+
+## 2.6 Tranche 2 implementation record
+
+Tranche 2 (`STEP 0.6–STEP 0.9`) was reviewed against the full handoff and completed in commit `1559191bab6d05c53384d7bda394438de69b446b`.
+
+The review found and corrected four gaps in the local foundation: the generated Rust wrappers had only layout/count coverage, no conformance family was generated from the canonical schema, the real Bun probe exercised handwritten fixtures rather than generated conformance symbols, and the handoff still marked Tranche 2 as unstarted. The correction adds ten schema-driven conformance fixtures covering u8/u16/u32/i32/f32/f64, pointer, `buffer` + `buffer_length`, cstring, and a representative 16-scalar maximum arity. It emits native C functions, exact Bun `linkSymbols` signatures, C declarations, manifest/reference metadata, and generated tests from the same schema.
+
+Generated wrapper tests now prove handwritten implementation delegation, null/handle/NodeId/enum failure values, buffer capacity/alignment/used-count failures, and the i32/u32 result conventions. The Bun 1.4 probe loads the generated conformance pointer table from the staged N-API image and passes every scalar, pointer, same-TypedArray `buffer_length`, Unicode cstring, JIT, and sub-5 ns no-op check. The clean probe record is captured at source revision `1559191bab6d05c53384d7bda394438de69b446b`, with native artifact SHA-256 `28598f95a720d0963aa8f117a846101f92734f3605c466a51a8365e710cd206e`, schema BLAKE3 `d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951`, and generator BLAKE3 `fd3bcd32d6995e625fada939bf2fd398b6dac2ec14400458b75f612cdc4d0d6d`.
+
+**Tranche 2 status: COMPLETE.** The generated ABI and conformance calls pass layout, calling-convention, scalar, pointer, buffer, cstring, JIT, and failure tests. No semantic vertical-slice implementation or production Native Shadow routing is claimed; those begin with Tranche 3 (`STEP 0.10`).
 
 The canonical ABI input and generator sources are located at:
 
@@ -321,10 +331,12 @@ The checked-in generated ABI artifacts are:
 ```text
 crates/iyon-native/src/generated/view_abi_types.rs
 crates/iyon-native/src/generated/view_abi_exports.rs
+crates/iyon-native/src/generated/view_abi_conformance.rs
 crates/iyon-native/src/generated/view_abi_table.rs
 crates/iyon-native/include/iyon_view_abi.h
 crates/iyon-native/tests/generated_view_abi.rs
 packages/iyon-runtime/src/tui/generated/view_abi.ts
+packages/iyon-runtime/src/tui/generated/view_abi_conformance.ts
 packages/iyon-runtime/src/tui/generated/view_calls.ts
 packages/iyon-runtime/src/tui/generated/view_abi_manifest.json
 packages/iyon-runtime/tests/generated/view_abi_layout.test.ts
@@ -339,6 +351,8 @@ packages/iyon-runtime/bench/PERF-11-bun14-results.jsonl
 packages/iyon-runtime/bench/PERF-11-ffi-probe.json
 ```
 
+`PERF-11-ffi-probe.json` records the generated conformance function count (10), schema/generator hashes, clean source revision, native artifact hash, and passing unsigned/signed/floating scalar, maximum-arity, pointer, same-TypedArray buffer-length, cstring, JIT, and sub-5 ns checks.
+
 The exact Bun 1.4 baseline record contains 651 JSONL records: 650 normal records across direct, packed/V2, V3, V4, and FastShared, plus one 100-operation synthetic trace. Normal cases use 50 warmups, 500 measured iterations, and 10,000 exact-identity iterations. Every record includes Bun `1.4.0`, revision `34cbb9a40b4bd1bd767d134a7065e66c2432a676`, `git_dirty: false`, and matching benchmark-source/native-artifact hashes. The final control run was captured at clean source revision `060d9c688953a9f909e8a118761188fb35d251cc`. Its benchmark-source SHA-256 is `56748dff51f0af681e94b896e6bbcca96fc7d6aa18d952886ac9c67ead93dd36`, and the timing native artifact SHA-256 is `637ccf6720726486b2c3cd789288e52f2ed5701d789673cf516afe2bed266e37`. The run used `PERF_COUNTERS=0`, `PERF_WARMUP=50`, `PERF_NORMAL=500`, `PERF_EXACT=10000`, the two sizes, thirteen selected workloads, five required patterns, and a separate 100-operation synthetic trace.
 
 Regenerate or verify the artifacts with:
@@ -350,7 +364,7 @@ bun run check:tui-abi
 
 `check:tui-abi` renders into a temporary directory and compares every generated artifact byte-for-byte with the checked-in files. The authoritative CI check also runs `git diff --exit-code` on the generated paths.
 
-Documentation commits recording the handoff and review state are `1e56c92`, `ad82d5a`, `4715436`, `46889ff`, `31ee207`, `153eef2`, `5239a94`, `d14e9f4`, and the benchmark commits `7bf0d41`, `97722e7`, `060d9c6`, and `0913858`.
+Documentation commits recording the handoff and review state are `1e56c92`, `ad82d5a`, `4715436`, `46889ff`, `31ee207`, `153eef2`, `5239a94`, `d14e9f4`, and the benchmark commits `7bf0d41`, `97722e7`, `060d9c6`, and `0913858`. Tranche 2 implementation is `1559191`.
 
 ---
 

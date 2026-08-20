@@ -523,7 +523,10 @@ pub fn layout_tests(document: &AbiDocument, schema_hash: &str, generator_hash: &
         for argument in &function.args {
             output.push_str(&format!("    let _ = {};\n", argument.name));
         }
-        output.push_str(&format!("    {}\n}}\n\n", test_stub_value(function.return_type.as_str(), index)));
+        output.push_str(&format!(
+            "    {}\n}}\n\n",
+            test_stub_value(function.return_type.as_str(), index)
+        ));
     }
     output.push_str("#[test]\nfn generated_function_count_is_stable() {\n");
     output.push_str(&format!(
@@ -560,7 +563,10 @@ fn test_stub_value(return_type: &str, index: usize) -> String {
 }
 
 fn conformance_test_call(spec: &crate::model::ConformanceSpec) -> String {
-    let symbol = format!("generated_conformance::iyon_abi_conformance_{}_v1", spec.name);
+    let symbol = format!(
+        "generated_conformance::iyon_abi_conformance_{}_v1",
+        spec.name
+    );
     match spec.operation.as_str() {
         "position_weighted_sum" => {
             let args = spec
@@ -576,8 +582,7 @@ fn conformance_test_call(spec: &crate::model::ConformanceSpec) -> String {
                 .enumerate()
                 .map(|(index, _)| {
                     (index as u32 + 1)
-                        * [3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59]
-                            [index]
+                        * [3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59][index]
                 })
                 .sum::<u32>();
             if matches!(spec.return_type.as_str(), "f32" | "f64") {

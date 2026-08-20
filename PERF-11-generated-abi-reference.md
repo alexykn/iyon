@@ -1,11 +1,11 @@
-<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951; generator_blake3 = 96ec2f1ad0ee36f4d1f5352aeac7f6eb649dbfef93482a946523580365c505f9 -->
+<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951; generator_blake3 = fd3bcd32d6995e625fada939bf2fd398b6dac2ec14400458b75f612cdc4d0d6d -->
 
 # PERF-11 generated ABI reference
 
 > This file is generated. Do not edit it directly.
 
 - Schema BLAKE3: `d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951`
-- Generator BLAKE3: `96ec2f1ad0ee36f4d1f5352aeac7f6eb649dbfef93482a946523580365c505f9`
+- Generator BLAKE3: `fd3bcd32d6995e625fada939bf2fd398b6dac2ec14400458b75f612cdc4d0d6d`
 - ABI: `iyon_tui_view` v1
 - Semantic schema: v1
 - Minimum Bun: `1.4.0`

@@ -52,10 +52,7 @@ pub fn conformance_bindings(
             .join(", ");
         output.push_str(&format!(
             "    {}: {{ ptr: abi.{}, args: [{}], returns: {:?} }},\n",
-            spec.name,
-            spec.name,
-            args,
-            spec.return_type
+            spec.name, spec.name, args, spec.return_type
         ));
     }
     output.push_str("  } as const);\n}\n");
@@ -161,7 +158,10 @@ test("generated ABI manifest is pinned and ordered", () => {{
             .map(|argument| format!("{:?}", argument))
             .collect::<Vec<_>>()
             .join(", ");
-        output.push_str(&format!("    [{:?}, {:?}, [{args}]],\n", spec.name, spec.return_type));
+        output.push_str(&format!(
+            "    [{:?}, {:?}, [{args}]],\n",
+            spec.name, spec.return_type
+        ));
     }
     output.push_str("  ]);\n});\n\ntest(\"generated ABI signatures and POD layouts are pinned\", () => {\n  expect(manifest.abi.qualified_bun).toBe(\"1.4.0\");\n  expect(manifest.abi.result_encoding).toBe(\"u32_high_bit_status\");\n  expect(manifest.pods.map((item) => [item.name, item.size, item.align])).toEqual([\n");
     for pod in &document.pods {
@@ -264,7 +264,9 @@ fn ts_type(argument: &ArgumentSpec, document: &AbiDocument) -> &'static str {
 
 fn ts_return(return_type: &str) -> &'static str {
     match return_type {
-        "i32" | "status_only" | "u32" | "ViewRefResult" | "native_ref_result" | "f32" | "f64" => "number",
+        "i32" | "status_only" | "u32" | "ViewRefResult" | "native_ref_result" | "f32" | "f64" => {
+            "number"
+        }
         other => panic!("unsupported generated TS return {other}"),
     }
 }

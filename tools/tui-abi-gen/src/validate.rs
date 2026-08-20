@@ -268,7 +268,10 @@ fn validate_conformance(conformance: &ConformanceSpec) -> Result<(), ValidationE
             conformance.name
         ));
     }
-    if !matches!(conformance.return_type.as_str(), "u32" | "i32" | "f32" | "f64") {
+    if !matches!(
+        conformance.return_type.as_str(),
+        "u32" | "i32" | "f32" | "f64"
+    ) {
         return invalid(format!(
             "conformance {} has unsupported return type {}",
             conformance.name, conformance.return_type
@@ -296,12 +299,13 @@ fn validate_conformance(conformance: &ConformanceSpec) -> Result<(), ValidationE
                     !matches!(arg.as_str(), "u8" | "u16" | "u32" | "i32" | "f32" | "f64")
                 })
                 || conformance.args.windows(2).any(|args| args[0] != args[1])
-                || conformance.return_type != match conformance.args[0].as_str() {
-                    "i32" => "i32",
-                    "f32" => "f32",
-                    "f64" => "f64",
-                    _ => "u32",
-                }
+                || conformance.return_type
+                    != match conformance.args[0].as_str() {
+                        "i32" => "i32",
+                        "f32" => "f32",
+                        "f64" => "f64",
+                        _ => "u32",
+                    }
             {
                 return invalid(format!(
                     "conformance {} has an invalid weighted scalar signature",
