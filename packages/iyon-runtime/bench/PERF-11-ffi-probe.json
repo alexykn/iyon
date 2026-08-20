@@ -1,6 +1,6 @@
 {
   "probe": "bun14_ffi_probe.ts",
-  "git_sha": "1559191bab6d05c53384d7bda394438de69b446b",
+  "git_sha": "c4c213220f946fc3098b124ac13531b5c5e7f4b5",
   "git_dirty": false,
   "bun_version": "1.4.0",
   "bun_revision": "34cbb9a40b4bd1bd767d134a7065e66c2432a676",
@@ -14,7 +14,7 @@
   "link_symbols": true,
   "c_function": true,
   "jit_enabled": true,
-  "noop_average_ns": 4.5101168,
+  "noop_average_ns": 4.3863582,
   "noop_sub_5ns": true,
   "u32_8_position_weighted_signature": "pass",
   "i32_4_position_weighted_signature": "pass",
