@@ -67,6 +67,10 @@ pub fn validate(
             || function.hotness.is_empty()
             || function.implementation.is_empty()
             || function.fallback.is_empty()
+            || function.ownership.is_empty()
+            || function.borrow_duration.is_empty()
+            || function.thread_affinity.is_empty()
+            || function.benchmark_registration.is_empty()
         {
             return invalid(format!(
                 "function {} has an empty ABI property",
@@ -77,6 +81,20 @@ pub fn validate(
             return invalid(format!(
                 "implementation {} must be snake_case",
                 function.implementation
+            ));
+        }
+        if function.borrow_duration != "call"
+            || function.thread_affinity != "owner_thread"
+            || function.max_input_count > 1_000_000
+            || function.max_buffer_bytes > 16 * 1024 * 1024
+            || function
+                .arity_specializations
+                .iter()
+                .any(|arity| *arity > 16)
+        {
+            return invalid(format!(
+                "function {} has unsupported ownership, lifetime, thread, or bound policy",
+                function.name
             ));
         }
         if !matches!(
@@ -150,6 +168,12 @@ pub fn validate(
         if variable_buffers > 1 {
             return invalid(format!(
                 "function {} has more than one variable buffer in tranche 1",
+                function.name
+            ));
+        }
+        if variable_buffers > 0 && function.max_buffer_bytes == 0 {
+            return invalid(format!(
+                "buffer function {} must declare max_buffer_bytes",
                 function.name
             ));
         }

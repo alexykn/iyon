@@ -105,6 +105,16 @@ pub struct FunctionSpec {
     pub hotness: String,
     pub implementation: String,
     pub fallback: String,
+    pub ownership: String,
+    pub borrow_duration: String,
+    pub thread_affinity: String,
+    pub may_allocate_native_memory: bool,
+    pub mutates_host_state: bool,
+    pub max_buffer_bytes: u64,
+    pub max_input_count: u32,
+    #[serde(default)]
+    pub arity_specializations: Vec<u32>,
+    pub benchmark_registration: String,
     #[serde(rename = "return")]
     pub return_type: String,
     #[serde(rename = "arg", default)]

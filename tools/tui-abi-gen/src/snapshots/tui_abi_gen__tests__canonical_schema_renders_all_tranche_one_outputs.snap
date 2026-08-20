@@ -60,12 +60,23 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
           "type": "RuntimePtr"
         }
       ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "ffi.noop",
+      "borrow_duration": "call",
       "fallback": "none",
       "family": "runtime",
       "hotness": "probe",
       "implementation": "runtime_noop_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 0,
+      "may_allocate_native_memory": false,
+      "mutates_host_state": false,
       "name": "runtime_noop",
-      "return": "u32"
+      "ownership": "runtime_owned",
+      "return": "u32",
+      "thread_affinity": "owner_thread"
     },
     {
       "args": [
@@ -82,12 +93,23 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
           "type": "ViewRef"
         }
       ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "view.render_ref",
+      "borrow_duration": "call",
       "fallback": "v4",
       "family": "render_ref",
       "hotness": "critical",
       "implementation": "view_render_ref_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": false,
+      "mutates_host_state": false,
       "name": "view_render_ref",
-      "return": "ViewRefResult"
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
     },
     {
       "args": [
@@ -116,12 +138,23 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
           "type": "u32"
         }
       ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "view.spacer_create",
+      "borrow_duration": "call",
       "fallback": "v4",
       "family": "constructor",
       "hotness": "warm",
       "implementation": "view_spacer_create_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
       "name": "view_spacer_create",
-      "return": "ViewRefResult"
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
     },
     {
       "args": [
@@ -162,12 +195,23 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
           "type": "HorizontalAlign"
         }
       ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "view.text_layout_patch_root",
+      "borrow_duration": "call",
       "fallback": "v4",
       "family": "scalar_patch",
       "hotness": "critical",
       "implementation": "view_text_layout_patch_root_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
       "name": "view_text_layout_patch_root",
-      "return": "ViewRefResult"
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
     },
     {
       "args": [
@@ -256,12 +300,23 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
           "type": "ViewRef"
         }
       ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "view.common_patch_root",
+      "borrow_duration": "call",
       "fallback": "v4",
       "family": "scalar_patch",
       "hotness": "critical",
       "implementation": "view_common_patch_root_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
       "name": "view_common_patch_root",
-      "return": "ViewRefResult"
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
     },
     {
       "args": [
@@ -296,12 +351,31 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
           "type": "u32"
         }
       ],
+      "arity_specializations": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "benchmark_registration": "view.axis_create_buffer",
+      "borrow_duration": "call",
       "fallback": "v4",
       "family": "constructor",
       "hotness": "warm",
       "implementation": "view_axis_create_buffer_impl",
+      "max_buffer_bytes": 4194304,
+      "max_input_count": 1000000,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
       "name": "view_axis_create_buffer",
-      "return": "ViewRefResult"
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
     },
     {
       "args": [
@@ -324,12 +398,21 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
           "type": "u32"
         }
       ],
+      "arity_specializations": [],
+      "benchmark_registration": "lifecycle.release_many",
+      "borrow_duration": "call",
       "fallback": "none",
       "family": "lifecycle",
       "hotness": "cold",
       "implementation": "view_release_many_impl",
+      "max_buffer_bytes": 524288,
+      "max_input_count": 131072,
+      "may_allocate_native_memory": false,
+      "mutates_host_state": false,
       "name": "view_release_many",
-      "return": "i32"
+      "ownership": "runtime_owned",
+      "return": "i32",
+      "thread_affinity": "owner_thread"
     }
   ],
   "generated_outputs": [
@@ -384,5 +467,5 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
       "valid": "1..0x7fffffff"
     }
   ],
-  "schema_blake3": "1ca0fdeba92ffd1a195a4898f5629f1f10f849155f8b8b80b03fe1bd050030a8"
+  "schema_blake3": "bb04c4b5ded9f38d04dd850fed1d99f76bd781a51ab04f140ab35fa14273bf29"
 }

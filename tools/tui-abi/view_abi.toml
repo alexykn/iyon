@@ -77,6 +77,15 @@ family = "runtime"
 hotness = "probe"
 implementation = "runtime_noop_impl"
 fallback = "none"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = false
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 0
+arity_specializations = [1]
+benchmark_registration = "ffi.noop"
 return = "u32"
 
 [[function.arg]]
@@ -90,6 +99,15 @@ family = "render_ref"
 hotness = "critical"
 implementation = "view_render_ref_impl"
 fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = false
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 1
+arity_specializations = [1]
+benchmark_registration = "view.render_ref"
 return = "ViewRefResult"
 
 [[function.arg]]
@@ -108,6 +126,15 @@ family = "constructor"
 hotness = "warm"
 implementation = "view_spacer_create_impl"
 fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 1
+arity_specializations = [1]
+benchmark_registration = "view.spacer_create"
 return = "ViewRefResult"
 
 [[function.arg]]
@@ -136,6 +163,15 @@ family = "scalar_patch"
 hotness = "critical"
 implementation = "view_text_layout_patch_root_impl"
 fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 1
+arity_specializations = [1]
+benchmark_registration = "view.text_layout_patch_root"
 return = "ViewRefResult"
 
 [[function.arg]]
@@ -174,6 +210,15 @@ family = "scalar_patch"
 hotness = "critical"
 implementation = "view_common_patch_root_impl"
 fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 1
+arity_specializations = [1]
+benchmark_registration = "view.common_patch_root"
 return = "ViewRefResult"
 
 [[function.arg]]
@@ -252,6 +297,15 @@ family = "constructor"
 hotness = "warm"
 implementation = "view_axis_create_buffer_impl"
 fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 4_194_304
+max_input_count = 1_000_000
+arity_specializations = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+benchmark_registration = "view.axis_create_buffer"
 return = "ViewRefResult"
 
 [[function.arg]]
@@ -285,6 +339,15 @@ family = "lifecycle"
 hotness = "cold"
 implementation = "view_release_many_impl"
 fallback = "none"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = false
+mutates_host_state = false
+max_buffer_bytes = 524_288
+max_input_count = 131_072
+arity_specializations = []
+benchmark_registration = "lifecycle.release_many"
 return = "i32"
 
 [[function.arg]]
