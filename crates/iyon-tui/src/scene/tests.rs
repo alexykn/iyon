@@ -818,7 +818,7 @@ impl PlainText for View {
     fn view_plain_text(&self) -> String {
         match self.kind() {
             crate::presentation::ir::ViewKind::Text(text) => {
-                text.spans.iter().map(|span| span.text.as_str()).collect()
+                text.spans.iter().map(|span| span.text()).collect()
             }
             crate::presentation::ir::ViewKind::Column(column) => column
                 .children

@@ -12,6 +12,7 @@ import { nodeForBridge, replaceAxisChildForPackedTransport, replaceGridCellForPa
 import { packedMeta, packedSequenceMeta, type CanonicalDecoration, type CanonicalStyle, type PackedGridCell, type PackedLineage } from "./packed_v3_meta.ts";
 import { PersistentSeq, type PersistentSeqNode } from "./persistent_seq.ts";
 
+const collectCounters = Bun.env.PERF_COUNTERS !== "0";
 const HEADER_WORDS = 10;
 const U32 = 0x1_0000_0000;
 const MAX_LOCAL = 0x7fff_ffff;
@@ -100,7 +101,7 @@ class StringLane {
     if (typeof value !== "string") throw new TypeError("packed V3 string must be a string");
     const index = this.#values.length;
     this.#values.push(value);
-    counters.packed_v3_string_count += 1;
+    if (collectCounters) counters.packed_v3_string_count += 1;
     return index;
   }
   finish(): readonly string[] { return this.#values; }
@@ -131,7 +132,7 @@ class WordWriter {
     const next = new Uint32Array(size);
     next.set(this.#buffer);
     this.#buffer = next;
-    counters.packed_v3_word_buffer_grows += 1;
+    if (collectCounters) counters.packed_v3_word_buffer_grows += 1;
   }
 }
 
@@ -158,8 +159,8 @@ class ByteArena {
     this.#cursor += resultOfEncode.written;
     const result = [start, resultOfEncode.written] as const;
     this.#indices.set(value, result);
-    counters.packed_v3_string_count += 1;
-    counters.packed_v3_utf8_bytes += resultOfEncode.written;
+    if (collectCounters) counters.packed_v3_string_count += 1;
+    if (collectCounters) counters.packed_v3_utf8_bytes += resultOfEncode.written;
     return result;
   }
   finish(): Uint8Array { return this.#buffer.subarray(0, this.#cursor); }
@@ -171,7 +172,7 @@ class ByteArena {
     const next = new Uint8Array(size);
     next.set(this.#buffer);
     this.#buffer = next;
-    counters.packed_v3_byte_buffer_grows += 1;
+    if (collectCounters) counters.packed_v3_byte_buffer_grows += 1;
   }
 }
 
@@ -243,8 +244,8 @@ export class PackedV3Encoder {
     words[7] = this.#definitions;
     words[8] = 1;
     words[9] = 0;
-    counters.packed_v3_words_used += words.length;
-    counters.packed_v3_bytes_used += this.#stringLane === "utf8" ? this.#bytes.finish().length : 0;
+    if (collectCounters) counters.packed_v3_words_used += words.length;
+    if (collectCounters) counters.packed_v3_bytes_used += this.#stringLane === "utf8" ? this.#bytes.finish().length : 0;
     return {
       words,
       bytes: this.#bytes.finish(),
@@ -261,20 +262,20 @@ export class PackedV3Encoder {
     this.#touchedSequences = [];
   }
 
-  render(root: View, invoke: PackedV3Invoke, invokeRef: PackedV3InvokeRef, hooks: PackedV3Hooks = {}): void {
-    const node = nodeForBridge(root);
+  render(root: View | BridgeViewNode, invoke: PackedV3Invoke, invokeRef: PackedV3InvokeRef, hooks: PackedV3Hooks = {}): void {
+    const node = "schema" in root ? root : nodeForBridge(root);
     const meta = packedMeta(node);
     let resynchronize = false;
     if (meta.publishedGeneration === transportGeneration) {
       const ref = this.ensureViewRef(meta);
-      counters.packed_v3_exact_ref_fast_hits += 1;
+      if (collectCounters) counters.packed_v3_exact_ref_fast_hits += 1;
       hooks.nativeStarted?.();
       try {
         invokeRef(transportGeneration, ref);
         return;
       } catch (error) {
         if (!isPackedV3CacheMiss(error)) throw error;
-        counters.packed_v3_cache_resyncs += 1;
+        if (collectCounters) counters.packed_v3_cache_resyncs += 1;
         this.#touchedViews = [];
         this.#touchedSequences = [];
         this.invalidateGeneration();
@@ -284,7 +285,7 @@ export class PackedV3Encoder {
       }
     }
     if (!resynchronize && nextTransportRef >= PACKED_V3.wireLocalBit - 256) {
-      counters.packed_v3_cache_resyncs += 1;
+      if (collectCounters) counters.packed_v3_cache_resyncs += 1;
       this.invalidateGeneration();
       resynchronize = true;
     }
@@ -305,13 +306,13 @@ export class PackedV3Encoder {
         this.#touchedViews = [];
         this.#touchedSequences = [];
         if (!isPackedV3CacheMiss(error)) throw error;
-        counters.packed_v3_cache_resyncs += 1;
+        if (collectCounters) counters.packed_v3_cache_resyncs += 1;
         this.invalidateGeneration();
       } finally {
         hooks.nativeFinished?.();
       }
     }
-    counters.packed_v3_cold_retries += 1;
+    if (collectCounters) counters.packed_v3_cold_retries += 1;
     hooks.encodingStarted?.();
     let coldTransaction: PackedV3Transaction;
     try {
@@ -347,15 +348,15 @@ export class PackedV3Encoder {
   }
 
   private compileView(node: BridgeViewNode, cold: boolean): number {
-    counters.packed_v3_compile_objects_visited += 1;
+    if (collectCounters) counters.packed_v3_compile_objects_visited += 1;
     const meta = packedMeta(node);
     if (!cold && meta.publishedGeneration === transportGeneration) {
-      counters.packed_v3_persistent_refs += 1;
+      if (collectCounters) counters.packed_v3_persistent_refs += 1;
       return this.ensureViewRef(meta);
     }
     if (meta.visitEpoch === this.#epoch) {
       if (meta.state === "visiting") throw new Error(`packed V3 cyclic semantic dependency at NodeId ${node.id}`);
-      counters.packed_v3_local_refs += 1;
+      if (collectCounters) counters.packed_v3_local_refs += 1;
       return localRef(meta.localDefIndex);
     }
     meta.visitEpoch = this.#epoch;
@@ -373,7 +374,7 @@ export class PackedV3Encoder {
       this.emitPatch(ref, node, base, patch.kind, patch.mask, values);
       meta.state = "emitted";
       this.#touchedViews.push(node);
-      counters.packed_v3_patch_view_defs += 1;
+      if (collectCounters) counters.packed_v3_patch_view_defs += 1;
       return localRef(meta.localDefIndex);
     }
     const ref = this.ensureViewRef(meta);
@@ -382,7 +383,7 @@ export class PackedV3Encoder {
     this.emitFull(ref, node, dependencies);
     meta.state = "emitted";
     this.#touchedViews.push(node);
-    counters.packed_v3_full_view_defs += 1;
+    if (collectCounters) counters.packed_v3_full_view_defs += 1;
     return localRef(meta.localDefIndex);
   }
 
@@ -425,12 +426,12 @@ export class PackedV3Encoder {
   private compileSequence(node: PersistentSeqNode<BridgeLayoutChild>, kind: number, cold: boolean): number {
     const meta = packedSequenceMeta(node);
     if (!cold && meta.publishedGeneration === transportGeneration) {
-      counters.packed_v3_persistent_refs += 1;
+      if (collectCounters) counters.packed_v3_persistent_refs += 1;
       return this.ensureSequenceRef(meta);
     }
     if (meta.visitEpoch === this.#epoch) {
       if (meta.state === "visiting") throw new Error("packed V3 cyclic sequence dependency");
-      counters.packed_v3_local_refs += 1;
+      if (collectCounters) counters.packed_v3_local_refs += 1;
       return localRef(meta.localDefIndex);
     }
     meta.visitEpoch = this.#epoch;
@@ -440,7 +441,7 @@ export class PackedV3Encoder {
       const values = node.items.map((item) => ({ item, view: this.compileView(item.child, cold) }));
       meta.localDefIndex = this.#definitions++;
       this.emitSequenceLeaf(ref, kind, node.aggregate, values);
-      counters.packed_v3_seq_leaf_defs += 1;
+      if (collectCounters) counters.packed_v3_seq_leaf_defs += 1;
     } else {
       let cumulative = 0;
       const children = node.children.map((child) => {
@@ -449,7 +450,7 @@ export class PackedV3Encoder {
       });
       meta.localDefIndex = this.#definitions++;
       this.emitSequenceBranch(ref, kind, node.height, node.aggregate, children);
-      counters.packed_v3_seq_branch_defs += 1;
+      if (collectCounters) counters.packed_v3_seq_branch_defs += 1;
     }
     meta.state = "emitted";
     this.#touchedSequences.push(node);
@@ -522,12 +523,12 @@ export class PackedV3Encoder {
   private compileGridSequence(node: PersistentSeqNode<PackedGridCell>, cold: boolean): number {
     const meta = packedSequenceMeta(node);
     if (!cold && meta.publishedGeneration === transportGeneration) {
-      counters.packed_v3_persistent_refs += 1;
+      if (collectCounters) counters.packed_v3_persistent_refs += 1;
       return this.ensureSequenceRef(meta);
     }
     if (meta.visitEpoch === this.#epoch) {
       if (meta.state === "visiting") throw new Error("packed V3 cyclic grid sequence dependency");
-      counters.packed_v3_local_refs += 1;
+      if (collectCounters) counters.packed_v3_local_refs += 1;
       return localRef(meta.localDefIndex);
     }
     meta.visitEpoch = this.#epoch;
@@ -537,7 +538,7 @@ export class PackedV3Encoder {
       const values = node.items.map((item) => ({ item, view: this.compileView(item.view, cold) }));
       meta.localDefIndex = this.#definitions++;
       this.emitGridSequenceLeaf(ref, node.aggregate, values);
-      counters.packed_v3_seq_leaf_defs += 1;
+      if (collectCounters) counters.packed_v3_seq_leaf_defs += 1;
     } else {
       let cumulative = 0;
       const children = node.children.map((child) => {
@@ -546,7 +547,7 @@ export class PackedV3Encoder {
       });
       meta.localDefIndex = this.#definitions++;
       this.emitGridSequenceBranch(ref, node.height, node.aggregate, children);
-      counters.packed_v3_seq_branch_defs += 1;
+      if (collectCounters) counters.packed_v3_seq_branch_defs += 1;
     }
     meta.state = "emitted";
     this.#touchedSequences.push(node);
@@ -602,8 +603,8 @@ export class PackedV3Encoder {
     }
     if (candidate === undefined) return undefined;
     const publishedBase = candidate;
-    counters.packed_v3_lineage_steps += lineageSteps + 1;
-    if (lineageSteps > 0) counters.packed_v3_patch_chains_collapsed += 1;
+    if (collectCounters) counters.packed_v3_lineage_steps += lineageSteps + 1;
+    if (lineageSteps > 0) if (collectCounters) counters.packed_v3_patch_chains_collapsed += 1;
     if (lineageKind === "text") {
       const target = node.kind === BRIDGE_VIEW_KIND.decorated ? node.child : node;
       const source = publishedBase.kind === BRIDGE_VIEW_KIND.decorated ? publishedBase.child : publishedBase;
@@ -776,7 +777,14 @@ export function createPackedV3Encoder(stringLane: PackedV3StringLane = "utf8"): 
 export function replacePackedAxisChild(view: View, index: number, child: View): View { return replaceAxisChildForPackedTransport(view, index, child); }
 export function splicePackedAxisChildren(view: View, index: number, removeCount: number, children: readonly View[]): View { return spliceAxisChildrenForPackedTransport(view, index, removeCount, children); }
 export function replacePackedGridCell(view: View, row: number, column: number, child: View): View { return replaceGridCellForPackedTransport(view, row, column, child); }
-export function renderPackedV3View(encoder: PackedV3Encoder, view: View, invoke: PackedV3Invoke, invokeRef: PackedV3InvokeRef, hooks?: PackedV3Hooks): void {
-  encoder.render(view, invoke, invokeRef, hooks);
+export function renderPackedV3View(encoder: PackedV3Encoder, view: View, invoke: PackedV3Invoke, invokeRef: PackedV3InvokeRef, hooks: PackedV3Hooks = {}): void {
+  hooks.encodingStarted?.();
+  let node: BridgeViewNode;
+  try {
+    node = nodeForBridge(view);
+  } finally {
+    hooks.encodingFinished?.();
+  }
+  encoder.render(node, invoke, invokeRef, hooks);
 }
 function assertNever(value: never): never { throw new Error(`unsupported packed V3 View kind ${(value as { readonly kind?: unknown }).kind ?? "unknown"}`); }

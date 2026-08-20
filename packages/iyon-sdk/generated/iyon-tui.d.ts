@@ -2182,6 +2182,8 @@ declare module "iyon:tui" {
   export type presentation__api__text__HorizontalAlign__Start = Record<string, unknown>;
   // iyon-tui::presentation::api::text::Text [MirrorValue / T5]
   export type presentation__api__text__Text = Record<string, unknown>;
+  // iyon-tui::presentation::api::text::TextSpan::from_shared_utf8 [NativeSync / T5]
+  export function presentation__api__text__TextSpan__from_shared_utf8(...args: readonly unknown[]): unknown;
   // iyon-tui::presentation::api::text::TextSpan::plain [NativeAsync / T5]
   export function presentation__api__text__TextSpan__plain(...args: readonly unknown[]): Promise<unknown>;
   // iyon-tui::presentation::api::text::TextSpan::style [NativeAsync / T5]

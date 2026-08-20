@@ -573,6 +573,6 @@ mod tests {
         let ViewKind::Text(text) = view.kind() else {
             panic!("expected text");
         };
-        &text.spans[0].text
+        text.spans[0].text()
     }
 }

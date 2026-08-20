@@ -283,22 +283,22 @@ impl ProjectedText {
         let mut cursor = content_range.start;
         let mut runs: Vec<ProjectedTextRun> = Vec::new();
         for span in spans {
-            if span.text.is_empty() {
+            if span.text().is_empty() {
                 continue;
             }
             let start = cursor;
-            cursor = cursor.saturating_add(span.text.len() as u64);
+            cursor = cursor.saturating_add(span.text().len() as u64);
             if let Some(previous) = runs.last_mut()
                 && previous.style == span.style
                 && previous.style_facts == span.style_facts
                 && previous.owned.end == start
             {
-                previous.display.push_str(&span.text);
+                previous.display.push_str(span.text());
                 previous.owned.end = cursor;
                 previous.exact_visible = Some(StreamRange::new(previous.owned.start, cursor));
             } else {
                 runs.push(ProjectedTextRun {
-                    display: span.text,
+                    display: span.text().to_owned(),
                     style: span.style,
                     style_facts: span.style_facts,
                     owned: StreamRange::new(start, cursor),

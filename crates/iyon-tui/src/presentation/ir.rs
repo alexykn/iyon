@@ -13,7 +13,7 @@ use crate::{
     perf::{self, Counter},
 };
 
-#[cfg(feature = "perf-counters")]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 use super::api::GridTrack;
 use super::api::{
     style::{
@@ -599,7 +599,7 @@ impl<T: SequenceAggregate + Clone> SeqNode<T> {
 }
 
 /// Common-field inputs for the benchmark/native retained constructor.
-#[cfg(all(feature = "perf-counters", feature = "native-host"))]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 #[doc(hidden)]
 #[derive(Clone)]
 pub enum RetainedSizeRule {
@@ -607,7 +607,7 @@ pub enum RetainedSizeRule {
     Fill,
 }
 
-#[cfg(all(feature = "perf-counters", feature = "native-host"))]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct RetainedDecoration {
@@ -626,21 +626,21 @@ pub struct RetainedDecoration {
 }
 
 /// Opaque retained axis sequence accepted by the benchmark/native transport.
-#[cfg(feature = "perf-counters")]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct RetainedAxis {
     kind: RetainedAxisKind,
 }
 
-#[cfg(feature = "perf-counters")]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 #[derive(Clone)]
 enum RetainedAxisKind {
     Row(PersistentSeq<RowChild>),
     Column(PersistentSeq<ColumnChild>),
 }
 
-#[cfg(feature = "perf-counters")]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 #[doc(hidden)]
 #[derive(Clone)]
 pub enum RetainedAxisTrack {
@@ -651,14 +651,14 @@ pub enum RetainedAxisTrack {
     ContentMax(u16),
 }
 
-#[cfg(feature = "perf-counters")]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 #[doc(hidden)]
 pub struct RetainedAxisChild {
     pub track: RetainedAxisTrack,
     pub view: View,
 }
 
-#[cfg(feature = "perf-counters")]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 impl RetainedAxis {
     pub fn leaf(horizontal: bool, items: Vec<RetainedAxisChild>) -> Self {
         if horizontal {
@@ -765,7 +765,7 @@ impl RetainedAxis {
     }
 }
 
-#[cfg(feature = "perf-counters")]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 fn retained_track(track: RetainedAxisTrack) -> TrackSize {
     match track {
         RetainedAxisTrack::Content => TrackSize::Content { max: None },
@@ -777,7 +777,7 @@ fn retained_track(track: RetainedAxisTrack) -> TrackSize {
 }
 
 /// Opaque retained grid-cell sequence accepted by the benchmark/native transport.
-#[cfg(feature = "perf-counters")]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct RetainedGridCells {
@@ -786,7 +786,7 @@ pub struct RetainedGridCells {
     max_column: usize,
 }
 
-#[cfg(feature = "perf-counters")]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 #[doc(hidden)]
 pub struct RetainedGridCell {
     pub row: usize,
@@ -798,7 +798,7 @@ pub struct RetainedGridCell {
     pub view: View,
 }
 
-#[cfg(feature = "perf-counters")]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 impl RetainedGridCells {
     pub fn leaf(items: Vec<RetainedGridCell>) -> Self {
         let max_row = items
@@ -1050,7 +1050,7 @@ impl View {
 
     /// Retains a private transport object for exactly as long as this
     /// immutable semantic View remains reachable.
-    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     #[doc(hidden)]
     pub fn retain_transport_payload(self, payload: Arc<dyn std::any::Any + Send + Sync>) -> Self {
         Self {
@@ -1073,7 +1073,7 @@ impl View {
         self.flags().contains_component_slot()
     }
 
-    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     #[doc(hidden)]
     pub fn retained_axis_horizontal(&self) -> Option<bool> {
         match self.kind() {
@@ -1083,7 +1083,7 @@ impl View {
         }
     }
 
-    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     #[doc(hidden)]
     pub fn retained_axis_gap(&self) -> Option<u16> {
         match self.kind() {
@@ -1096,7 +1096,7 @@ impl View {
     /// Applies a retained axis patch while preserving the base node's common
     /// fields. The sequence is already validated and structurally shared by
     /// the V3 decoder; only the immutable root node is replaced.
-    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     #[doc(hidden)]
     pub fn patch_retained_axis(self, sequence: RetainedAxis, gap: u16) -> Self {
         let kind = sequence.into_kind(gap);
@@ -1107,7 +1107,7 @@ impl View {
 
     /// Applies a retained grid-cell patch while preserving the grid's
     /// persistent track vectors and all common node fields.
-    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     #[doc(hidden)]
     pub fn patch_retained_grid(self, cells: RetainedGridCells) -> Result<Self, String> {
         let sequence = cells.cells;
@@ -1127,7 +1127,7 @@ impl View {
     /// Returns text layout metadata without inspecting the retained span
     /// payload. The V3 patch decoder uses this to validate metadata-only
     /// patches in O(1) with respect to text size.
-    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     #[doc(hidden)]
     pub fn retained_text_layout(&self) -> Option<(WrapMode, HorizontalAlign)> {
         match self.kind() {

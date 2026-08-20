@@ -15,11 +15,11 @@ use crate::presentation::ir::{
     ClampRowsView, ColumnChild, ColumnView, ContainerNode, Decoration, HangingView, HeightRule,
     PersistentSeq, RowView, View, ViewKind, ViewNodeParts, WidthRule,
 };
-#[cfg(all(feature = "perf-counters", feature = "native-host"))]
+#[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 use crate::presentation::ir::{RetainedDecoration, RetainedSizeRule};
 
 impl View {
-    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     #[doc(hidden)]
     pub fn from_retained_text(
         spans: Vec<TextSpan>,
@@ -41,7 +41,7 @@ impl View {
         })
     }
 
-    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     #[doc(hidden)]
     pub fn from_retained_decoration(child: View, parts: RetainedDecoration) -> Self {
         let width = match parts.width {
@@ -98,7 +98,7 @@ impl View {
         })
     }
 
-    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     #[doc(hidden)]
     pub fn from_retained_hanging(
         prefix: View,
@@ -115,7 +115,7 @@ impl View {
         }))))
     }
 
-    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     #[doc(hidden)]
     pub fn from_retained_container(child: View) -> Self {
         let width = child.width();
@@ -130,7 +130,7 @@ impl View {
         })
     }
 
-    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     #[doc(hidden)]
     pub fn from_retained_clamp(child: View, max_rows: u16, overflow: OverflowIndicator) -> Self {
         let width = child.width();
@@ -149,7 +149,7 @@ impl View {
         })
     }
 
-    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     #[doc(hidden)]
     pub fn from_retained_component(raw_id: u64) -> Self {
         Self::native_component(raw_id)
@@ -583,7 +583,7 @@ mod tests {
         let ViewKind::Text(text) = view.kind() else {
             panic!("expected text view");
         };
-        assert_eq!(text.spans[0].text, "owned");
+        assert_eq!(text.spans[0].text(), "owned");
     }
 
     #[derive(Debug)]
