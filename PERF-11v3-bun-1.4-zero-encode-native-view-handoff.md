@@ -303,7 +303,7 @@ Tranche 2 (`STEP 0.6–STEP 0.9`) was reviewed against the full handoff and comp
 
 The review found and corrected four gaps in the local foundation: the generated Rust wrappers had only layout/count coverage, no conformance family was generated from the canonical schema, the real Bun probe exercised handwritten fixtures rather than generated conformance symbols, and the handoff still marked Tranche 2 as unstarted. The correction adds ten schema-driven conformance fixtures covering u8/u16/u32/i32/f32/f64, pointer, `buffer` + `buffer_length`, cstring, and a representative 16-scalar maximum arity. It emits native C functions, exact Bun `linkSymbols` signatures, C declarations, manifest/reference metadata, and generated tests from the same schema.
 
-Generated wrapper tests now prove handwritten implementation delegation, null/handle/NodeId/enum failure values, buffer capacity/alignment/used-count failures, and the i32/u32 result conventions. The Bun 1.4 probe loads the generated conformance pointer table from the staged N-API image and passes every scalar, pointer, same-TypedArray `buffer_length`, Unicode cstring, JIT, and sub-5 ns no-op check. The clean probe record is captured at source revision `1559191bab6d05c53384d7bda394438de69b446b`, with native artifact SHA-256 `28598f95a720d0963aa8f117a846101f92734f3605c466a51a8365e710cd206e`, schema BLAKE3 `d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951`, and generator BLAKE3 `fd3bcd32d6995e625fada939bf2fd398b6dac2ec14400458b75f612cdc4d0d6d`.
+Generated wrapper tests now prove handwritten implementation delegation, null/handle/NodeId/enum failure values, buffer capacity/alignment/used-count failures, and the i32/u32 result conventions. The Bun 1.4 probe loads the generated conformance pointer table from the staged N-API image and passes every scalar, pointer, same-TypedArray `buffer_length`, Unicode cstring, JIT, and sub-5 ns no-op check. The clean probe record is captured at source revision `c4c213220f946fc3098b124ac13531b5c5e7f4b5`, with native artifact SHA-256 `28598f95a720d0963aa8f117a846101f92734f3605c466a51a8365e710cd206e`, schema BLAKE3 `d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951`, and generator BLAKE3 `fd3bcd32d6995e625fada939bf2fd398b6dac2ec14400458b75f612cdc4d0d6d`.
 
 **Tranche 2 status: COMPLETE.** The generated ABI and conformance calls pass layout, calling-convention, scalar, pointer, buffer, cstring, JIT, and failure tests. No semantic vertical-slice implementation or production Native Shadow routing is claimed; those begin with Tranche 3 (`STEP 0.10`).
 
@@ -364,7 +364,7 @@ bun run check:tui-abi
 
 `check:tui-abi` renders into a temporary directory and compares every generated artifact byte-for-byte with the checked-in files. The authoritative CI check also runs `git diff --exit-code` on the generated paths.
 
-Documentation commits recording the handoff and review state are `1e56c92`, `ad82d5a`, `4715436`, `46889ff`, `31ee207`, `153eef2`, `5239a94`, `d14e9f4`, and the benchmark commits `7bf0d41`, `97722e7`, `060d9c6`, and `0913858`. Tranche 2 implementation is `1559191`.
+Documentation commits recording the handoff and review state are `1e56c92`, `ad82d5a`, `4715436`, `46889ff`, `31ee207`, `153eef2`, `5239a94`, `d14e9f4`, and the benchmark commits `7bf0d41`, `97722e7`, `060d9c6`, and `0913858`. Tranche 2 implementation is `1559191`, with final conformance evidence correction `c4c2132`.
 
 ---
 
