@@ -463,7 +463,7 @@ function runSample(
 ): Sample {
   const firstUse = pattern === "FIRST_USE";
   const host = firstUse ? createHost() : candidate === "direct" ? state.directHost : candidate === "packed" ? state.packedHost : state.packedV3Host;
-  const encoder = candidate === "packed" ? (firstUse ? createPackedViewEncoder() : state.packedEncoder) : candidate === "packed_v3" ? (firstUse ? createPackedV3Encoder() : state.packedV3Encoder) : undefined;
+  const encoder = candidate === "packed" ? (firstUse ? createPackedViewEncoder() : state.packedEncoder) : candidate === "packed_v3" ? (firstUse ? createPackedV3Encoder(stringLane) : state.packedV3Encoder) : undefined;
   if (pattern === "COLD" && candidate === "packed") (encoder as PackedViewEncoder).resetKnownNativeState();
   const componentId = firstUse && workload === "component_heavy" ? createComponentId(host) : candidate === "direct" ? state.directComponentId : candidate === "packed" ? state.packedComponentId : state.packedV3ComponentId;
   const constructionStarted = now();
