@@ -283,6 +283,7 @@ cfa15fb  bench(tui): refresh Bun 1.4 FFI qualification
 0fd00f1  bench(tui): pin final Bun 1.4 control revision
 3173972  build(tui): retain ABI schema source spans
 c3c7a49  build(tui): generate checked ABI wrapper shells
+3c4fcb0  build(tui): validate generated native reference handles
 ```
 
 The canonical ABI input and generator sources are located at:
