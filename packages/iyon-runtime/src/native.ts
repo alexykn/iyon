@@ -86,6 +86,10 @@ export interface NativeAddon {
   NativePlainProjector?: new () => { dispose(): void; project(text: string): object };
   NativeViewSlot?: new (initial: object) => { dispose(): void; revision(): number; componentId(): number | null; setView(view: object): void; setAnimation(frames: object[], intervalMs: number): void; setAnimationAtCycleBoundary(frames: object[], intervalMs: number): void; stopAnimation(view: object): void };
   NativeScrollPane?: new (initial: object) => { dispose(): void; componentId(): number | null; setContent(view: object): void; followEnd(): void };
+  tuiPerfV3ResetViewBridgeCache?: () => void;
+  tuiPerfV3ViewBridgeCacheSize?: () => number;
+  tuiPerfV3PackedSlotPages?: () => number;
+  tuiPerfV3ViewBridgeGeneration?: () => number;
 }
 
 export interface NativeTuiOutputContract { readonly output?: unknown; }
@@ -119,6 +123,9 @@ export interface NativeTuiHostContract {
   scrollPane(initial: object): object;
   styleAt(row: number, column: number): object | null;
   cellXOfText(row: number, text: string): number | null;
+  tuiPerfV3PackedRender?(words: Uint32Array, bytes: Uint8Array): void;
+  tuiPerfV3PackedRenderStrings?(words: Uint32Array, strings: readonly string[]): void;
+  tuiPerfV3PackedRenderRef?(generation: number, packedRef: number): void;
 }
 
 // This is the one static addon seam. The stage script materializes this exact

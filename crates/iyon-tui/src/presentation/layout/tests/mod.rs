@@ -34,7 +34,7 @@ fn row_view(children: Vec<RowChild>, gap: u16) -> View {
         style_states: Default::default(),
         style_facts: Default::default(),
         kind: crate::presentation::ir::ViewKind::Row(Arc::new(crate::presentation::ir::RowView {
-            children: children.into(),
+            children: crate::presentation::ir::PersistentSeq::from_vec(children),
             gap,
             vertical_align: VerticalAlign::Top,
         })),

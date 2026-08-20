@@ -54,10 +54,30 @@ pub enum Counter {
     NapiPackedDefsDecoded,
     NapiPackedWordsRead,
     NapiPackedStringBytesCopied,
+    NapiV3Transactions,
+    NapiV3ExactRefCalls,
+    NapiV3PersistentRefUpgrades,
+    NapiV3PersistentRefMisses,
+    NapiV3LocalRefResolves,
+    NapiV3FullViewsBuilt,
+    NapiV3ViewsPatched,
+    NapiV3SeqNodesBuilt,
+    NapiV3SeqNodesReused,
+    NapiV3CacheLockAcquisitions,
+    NapiV3CachePublications,
+    NapiV3WordsRead,
+    NapiV3BytesRead,
+    NapiV3Utf8Validations,
+    NapiV3HostMutations,
+    PersistentSeqFlattenCalls,
+    PersistentSeqNodesAllocated,
+    PersistentSeqLeafClones,
+    PersistentSeqBranchClones,
+    PersistentSeqItemsIteratedDuringPatch,
 }
 
 impl Counter {
-    pub const COUNT: usize = Self::NapiPackedStringBytesCopied as usize + 1;
+    pub const COUNT: usize = Self::PersistentSeqItemsIteratedDuringPatch as usize + 1;
 
     const fn index(self) -> usize {
         self as usize
@@ -108,6 +128,26 @@ const NAMES: [&str; Counter::COUNT] = [
     "napi_packed_defs_decoded",
     "napi_packed_words_read",
     "napi_packed_string_bytes_copied",
+    "napi_v3_transactions",
+    "napi_v3_exact_ref_calls",
+    "napi_v3_persistent_ref_upgrades",
+    "napi_v3_persistent_ref_misses",
+    "napi_v3_local_ref_resolves",
+    "napi_v3_full_views_built",
+    "napi_v3_views_patched",
+    "napi_v3_seq_nodes_built",
+    "napi_v3_seq_nodes_reused",
+    "napi_v3_cache_lock_acquisitions",
+    "napi_v3_cache_publications",
+    "napi_v3_words_read",
+    "napi_v3_bytes_read",
+    "napi_v3_utf8_validations",
+    "napi_v3_host_mutations",
+    "persistent_seq_flatten_calls",
+    "persistent_seq_nodes_allocated",
+    "persistent_seq_leaf_clones",
+    "persistent_seq_branch_clones",
+    "persistent_seq_items_iterated_during_patch",
 ];
 
 #[cfg(feature = "perf-counters")]

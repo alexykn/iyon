@@ -9,14 +9,152 @@ use super::{
         BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleFacts, StyleRef, StyleSpec,
         StyleStateKey, StyleStateValue, StyleStates, TextAttribute,
     },
-    text::{Text, TextSpan},
+    text::{HorizontalAlign, Text, TextSpan, WrapMode},
 };
 use crate::presentation::ir::{
     ClampRowsView, ColumnChild, ColumnView, ContainerNode, Decoration, HangingView, HeightRule,
-    RowView, View, ViewKind, ViewNodeParts, WidthRule,
+    PersistentSeq, RowView, View, ViewKind, ViewNodeParts, WidthRule,
 };
+#[cfg(all(feature = "perf-counters", feature = "native-host"))]
+use crate::presentation::ir::{RetainedDecoration, RetainedSizeRule};
 
 impl View {
+    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[doc(hidden)]
+    pub fn from_retained_text(
+        spans: Vec<TextSpan>,
+        wrap: WrapMode,
+        align: HorizontalAlign,
+    ) -> Self {
+        Self::from_node(ViewNodeParts {
+            width: WidthRule::Fit,
+            height: HeightRule::Fit,
+            decoration: Decoration::default(),
+            style_states: StyleStates::default(),
+            style_facts: StyleFacts::default(),
+            kind: ViewKind::Text(Arc::new(crate::presentation::ir::TextView {
+                spans: spans.into(),
+                wrap,
+                align,
+                cursor: None,
+            })),
+        })
+    }
+
+    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[doc(hidden)]
+    pub fn from_retained_decoration(child: View, parts: RetainedDecoration) -> Self {
+        let width = match parts.width {
+            Some(RetainedSizeRule::Fit) => WidthRule::Fit,
+            Some(RetainedSizeRule::Fill) => WidthRule::Fill,
+            None => child.width(),
+        };
+        let height = match parts.height {
+            Some(RetainedSizeRule::Fit) => HeightRule::Fit,
+            Some(RetainedSizeRule::Fill) => HeightRule::Fill,
+            None => child.height(),
+        };
+        let mut decoration = child.decoration().clone();
+        if let Some(padding) = parts.padding {
+            decoration.padding = padding;
+        }
+        if let Some(background) = parts.background {
+            decoration.surface_background = Some(background);
+        }
+        if let Some(foreground) = parts.foreground {
+            decoration
+                .text_style
+                .overlay(&StyleSpec::new().foreground(foreground));
+        }
+        if let Some(border) = parts.border {
+            decoration.border = Some(border);
+        }
+        if parts.style.theme.is_some() {
+            decoration.text_style = parts.style;
+        } else {
+            decoration.text_style.overlay(&parts.style.local);
+        }
+        if let Some(min_width) = parts.min_width {
+            decoration.bounds.width.min = min_width;
+        }
+        if let Some(max_width) = parts.max_width {
+            decoration.bounds.width.max = max_width;
+        }
+        if let Some(min_height) = parts.min_height {
+            decoration.bounds.height.min = min_height;
+        }
+        if let Some(max_height) = parts.max_height {
+            decoration.bounds.height.max = max_height;
+        }
+        let mut style_states = child.view_style_states().clone();
+        for (key, value) in parts.style_states {
+            style_states.set(key, value);
+        }
+        child.map_node(|node| {
+            node.width = width;
+            node.height = height;
+            node.decoration = decoration;
+            node.style_states = style_states;
+        })
+    }
+
+    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[doc(hidden)]
+    pub fn from_retained_hanging(
+        prefix: View,
+        continuation: View,
+        body: View,
+    ) -> Result<Self, String> {
+        if continuation.contains_component_identity() {
+            return Err("hanging continuation cannot contain component identity".to_owned());
+        }
+        Ok(Self::new_kind(ViewKind::Hanging(Arc::new(HangingView {
+            prefix,
+            continuation_prefix: continuation,
+            body,
+        }))))
+    }
+
+    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[doc(hidden)]
+    pub fn from_retained_container(child: View) -> Self {
+        let width = child.width();
+        let height = child.height();
+        Self::from_node(ViewNodeParts {
+            width,
+            height,
+            decoration: Decoration::default(),
+            style_states: StyleStates::default(),
+            style_facts: StyleFacts::default(),
+            kind: ViewKind::Container(Arc::new(ContainerNode { child })),
+        })
+    }
+
+    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[doc(hidden)]
+    pub fn from_retained_clamp(child: View, max_rows: u16, overflow: OverflowIndicator) -> Self {
+        let width = child.width();
+        let height = child.height();
+        Self::from_node(ViewNodeParts {
+            width,
+            height,
+            decoration: Decoration::default(),
+            style_states: StyleStates::default(),
+            style_facts: StyleFacts::default(),
+            kind: ViewKind::ClampRows(Arc::new(ClampRowsView {
+                child,
+                max_rows,
+                overflow,
+            })),
+        })
+    }
+
+    #[cfg(all(feature = "perf-counters", feature = "native-host"))]
+    #[doc(hidden)]
+    pub fn from_retained_component(raw_id: u64) -> Self {
+        Self::native_component(raw_id)
+    }
+
     pub(crate) fn new_kind(kind: ViewKind) -> Self {
         Self::from_node(ViewNodeParts {
             width: WidthRule::Fit,
@@ -57,7 +195,7 @@ impl View {
         let (children, gap, vertical_align) = horizontal.into_parts();
 
         Self::new_kind(ViewKind::Row(Arc::new(RowView {
-            children: children.into(),
+            children: PersistentSeq::from_vec(children),
             gap,
             vertical_align,
         })))
@@ -71,7 +209,7 @@ impl View {
         let (children, gap) = vertical.into_parts();
 
         Self::new_kind(ViewKind::Column(Arc::new(ColumnView {
-            children: children.into(),
+            children: PersistentSeq::from_vec(children),
             gap,
         })))
     }
@@ -125,11 +263,12 @@ impl View {
 
     pub(crate) fn column(children: Vec<View>, gap: u16) -> Self {
         Self::new_kind(ViewKind::Column(Arc::new(ColumnView {
-            children: children
-                .into_iter()
-                .map(ColumnChild::content)
-                .collect::<Vec<_>>()
-                .into(),
+            children: PersistentSeq::from_vec(
+                children
+                    .into_iter()
+                    .map(ColumnChild::content)
+                    .collect::<Vec<_>>(),
+            ),
             gap,
         })))
     }
@@ -352,6 +491,30 @@ impl View {
     /// Sets the maximum outer height this View may receive.
     pub fn max_height(self, height: u16) -> Self {
         self.map_node(|node| node.decoration.bounds.height.max = height)
+    }
+
+    /// Applies text layout metadata while retaining the existing text payload.
+    /// This is used by retained transports and keeps span storage shared.
+    #[doc(hidden)]
+    pub fn with_text_layout(self, wrap: WrapMode, align: HorizontalAlign) -> Self {
+        self.with_text_layout_patch(Some(wrap), Some(align))
+    }
+
+    /// Applies only the supplied text layout fields, preserving all others.
+    #[doc(hidden)]
+    pub fn with_text_layout_patch(
+        self,
+        wrap: Option<WrapMode>,
+        align: Option<HorizontalAlign>,
+    ) -> Self {
+        self.map_text(|text| {
+            if let Some(wrap) = wrap {
+                text.wrap = wrap;
+            }
+            if let Some(align) = align {
+                text.align = align;
+            }
+        })
     }
 }
 

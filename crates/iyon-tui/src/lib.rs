@@ -219,6 +219,13 @@ pub use presentation::api::{
 
 #[cfg(feature = "native-host")]
 pub use presentation::ir::WeakView;
+#[cfg(feature = "native-host")]
+#[cfg(feature = "perf-counters")]
+pub use presentation::ir::{
+    RetainedAxis, RetainedAxisChild, RetainedAxisTrack, RetainedGridCell, RetainedGridCells,
+};
+#[cfg(all(feature = "perf-counters", feature = "native-host"))]
+pub use presentation::ir::{RetainedDecoration, RetainedSizeRule};
 pub use stream::{StreamPane, TextStream};
 
 // Internal modules and unit tests may use the short names without making
