@@ -209,6 +209,25 @@ pub fn validate(
                 function.name
             ));
         }
+        for argument in &function.args {
+            if !matches!(argument.lowering.as_str(), "buffer" | "pod_slice") {
+                continue;
+            }
+            let Some(element_size) = buffer_element_size(argument, document) else {
+                return invalid(format!(
+                    "buffer argument {}.{} has no fixed element size",
+                    function.name, argument.name
+                ));
+            };
+            let required_bytes =
+                u64::from(function.max_input_count).saturating_mul(u64::from(element_size));
+            if required_bytes > function.max_buffer_bytes {
+                return invalid(format!(
+                    "buffer function {} permits {} bytes but max_buffer_bytes is {}",
+                    function.name, required_bytes, function.max_buffer_bytes
+                ));
+            }
+        }
     }
 
     Ok(())
@@ -273,6 +292,21 @@ fn validate_type(
         ));
     }
     Ok(())
+}
+
+fn buffer_element_size(
+    argument: &crate::model::ArgumentSpec,
+    document: &AbiDocument,
+) -> Option<u32> {
+    if argument.type_name == "u32[]" {
+        return Some(4);
+    }
+    let pod_name = argument.type_name.strip_suffix("[]")?;
+    document
+        .pods
+        .iter()
+        .find(|pod| pod.name == pod_name)
+        .map(|pod| pod.size)
 }
 
 fn validate_pod(pod: &PodSpec) -> Result<(), ValidationError> {
