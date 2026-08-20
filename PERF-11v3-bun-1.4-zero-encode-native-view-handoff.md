@@ -275,6 +275,7 @@ The Tranche 1 implementation is recorded in these commits:
 36f8091  bench(tui): record Bun 1.4 tranche baseline
 ee12b51  build(tui): declare generated ABI policy metadata
 afd2d39  bench(tui): record Bun 1.4 FFI probe
+da9be23  fix(tui): align Bun 1.4 ABI tranche with handoff
 ```
 
 The canonical ABI input and generator sources are located at:
@@ -290,6 +291,10 @@ tools/tui-abi-gen/src/render_typescript.rs
 tools/tui-abi-gen/src/render_header.rs
 tools/tui-abi-gen/src/render_manifest.rs
 tools/tui-abi-gen/templates/generated_banner.txt
+tools/tui-abi-gen/templates/generated_typescript_bindings_header.txt
+tools/tui-abi-gen/templates/generated_typescript_calls_header.txt
+tools/tui-abi-gen/templates/generated_c_header_preamble.txt
+tools/tui-abi-gen/templates/generated_reference_header.txt
 ```
 
 The checked-in generated ABI artifacts are:
@@ -314,6 +319,8 @@ The Bun 1.4 control and FFI qualification records are separate from the generate
 packages/iyon-runtime/bench/PERF-11-bun14-results.jsonl
 packages/iyon-runtime/bench/PERF-11-ffi-probe.json
 ```
+
+The exact Bun 1.4 baseline record contains 651 JSONL records: 650 normal records across direct, packed/V2, V3, V4, and FastShared, plus one 100-operation synthetic trace. Normal cases use 50 warmups, 500 measured iterations, and 10,000 exact-identity iterations. Every record includes Bun `1.4.0`, revision `34cbb9a40b4bd1bd767d134a7065e66c2432a676`, `git_dirty: false`, and matching benchmark-source/native-artifact hashes.
 
 Regenerate or verify the artifacts with:
 
