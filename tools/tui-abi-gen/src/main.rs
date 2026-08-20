@@ -190,7 +190,7 @@ fn render_outputs(
     );
     outputs.insert(
         GENERATOR_OUTPUTS[1].to_owned(),
-        render_rust::exports(&document, &schema_hash, &generator_hash),
+        render_rust::exports(&document, &bridge_schema, &schema_hash, &generator_hash),
     );
     outputs.insert(
         GENERATOR_OUTPUTS[2].to_owned(),
