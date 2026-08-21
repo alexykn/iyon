@@ -610,6 +610,23 @@ impl NativeViewRuntime {
         Ok(())
     }
 
+    fn acquire_lease(&mut self, reference: u32, view: View) -> Result<(), u32> {
+        let Some(slot) = self.slots.get_mut(&reference) else {
+            return Err(FAST_CACHE_MISS);
+        };
+        if slot.kind != NativeViewKindTag::View {
+            return Err(FAST_INVALID);
+        }
+        let Some(count) = slot.js_lease_count.checked_add(1) else {
+            return Err(FAST_FALLBACK);
+        };
+        if slot.leased.is_none() {
+            slot.leased = Some(view);
+        }
+        slot.js_lease_count = count;
+        Ok(())
+    }
+
     fn resolve_ref(&mut self, reference: u32) -> Result<(View, bool), u32> {
         let Some(slot) = self.slots.get_mut(&reference) else {
             return Err(FAST_CACHE_MISS);
@@ -723,7 +740,9 @@ impl NativeViewRuntime {
         if let Some(reference) = self.node_refs.get(&node_id).copied() {
             match self.resolve_ref(reference) {
                 Ok((view, has_lease)) => {
-                    if !has_lease {
+                    if has_lease {
+                        self.acquire_lease(reference, view)?;
+                    } else {
                         self.ensure_lease(reference, view)?;
                     }
                     return Ok(reference);
@@ -2009,6 +2028,10 @@ mod tests {
             1
         );
         assert_eq!(
+            unsafe { generated_exports::iyon_view_release_many_v1(pointer, &reference, 4, 1) },
+            1
+        );
+        assert_eq!(
             unsafe { generated_exports::iyon_view_render_ref_v1(pointer, reference) },
             FAST_CACHE_MISS
         );
@@ -2021,6 +2044,39 @@ mod tests {
         let bulk_ref = runtime.publish_bulk(41, view.clone()).expect("bulk ref");
         assert_eq!(runtime.ref_for_node_id(41), Ok(bulk_ref));
         assert_eq!(runtime.resolve_ref(bulk_ref), Ok((view, true)));
+    }
+
+    #[test]
+    fn repeated_node_id_lookups_acquire_independent_leases() {
+        let mut runtime = runtime();
+        let view = View::spacer(3);
+        let reference = runtime.publish_bulk(41, view.clone()).expect("bulk ref");
+        assert_eq!(runtime.ref_for_node_id(41), Ok(reference));
+        assert_eq!(runtime.ref_for_node_id(41), Ok(reference));
+        assert_eq!(
+            runtime
+                .slots
+                .get(&reference)
+                .map(|slot| slot.js_lease_count),
+            Some(2)
+        );
+
+        assert_eq!(runtime.release_many(&reference, 1), Ok(1));
+        assert_eq!(
+            runtime
+                .slots
+                .get(&reference)
+                .map(|slot| slot.js_lease_count),
+            Some(1)
+        );
+        assert_eq!(runtime.release_many(&reference, 1), Ok(1));
+        assert_eq!(
+            runtime
+                .slots
+                .get(&reference)
+                .map(|slot| slot.js_lease_count),
+            Some(0)
+        );
     }
 
     #[test]
@@ -2276,6 +2332,29 @@ mod tests {
         };
         assert!(grid_replaced < 0x8000_0000);
         assert_eq!(runtime.resolve_ref(base_grid), Ok((grid, true)));
+
+        let path_grid_replaced = unsafe {
+            generated_exports::iyon_view_grid_set_cell_path_v1(
+                pointer,
+                base_grid,
+                PATH_ROOT_REF,
+                0,
+                8,
+                0,
+                1,
+                0,
+                1,
+                0,
+                1,
+                0,
+                1,
+                0,
+                0,
+                0,
+                child_ref,
+            )
+        };
+        assert!(path_grid_replaced < 0x8000_0000);
 
         let path_root = unsafe { generated_exports::iyon_path_root_v1(pointer) };
         let path_replaced = unsafe {
