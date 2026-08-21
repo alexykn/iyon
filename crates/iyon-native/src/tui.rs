@@ -1822,6 +1822,101 @@ struct ViewDecoder {
     active: HashSet<u64>,
 }
 
+fn is_known_view_kind(kind: u32) -> bool {
+    matches!(
+        kind,
+        VIEW_KIND_TEXT
+            | VIEW_KIND_DIFF
+            | VIEW_KIND_SPACER
+            | VIEW_KIND_ROW
+            | VIEW_KIND_COLUMN
+            | VIEW_KIND_HANGING
+            | VIEW_KIND_GRID
+            | VIEW_KIND_CONTAINER
+            | VIEW_KIND_CLAMP
+            | VIEW_KIND_CONTENT_MAX
+            | VIEW_KIND_COMPONENT
+            | VIEW_KIND_DECORATED
+    )
+}
+
+fn has_cached_node_payload(value: &Object<'_>) -> Result<bool> {
+    [
+        "spans",
+        "hunks",
+        "rows",
+        "children",
+        "columns",
+        "child",
+        "prefix",
+        "continuation",
+        "body",
+        "handle",
+        "decoration",
+    ]
+    .into_iter()
+    .map(|field| {
+        value
+            .get::<Unknown>(field)
+            .map(|property| property.is_some())
+    })
+    .try_fold(false, |found, property| {
+        property.map(|present| found || present)
+    })
+}
+
+fn validate_cached_node_header(value: &Object<'_>, kind: u32) -> Result<()> {
+    match kind {
+        VIEW_KIND_TEXT => {
+            required_prop::<Array>(value, "spans")?;
+            required_prop::<u32>(value, "wrap")?;
+            required_prop::<u32>(value, "align")?;
+        }
+        VIEW_KIND_DIFF => {
+            required_prop::<Array>(value, "hunks")?;
+        }
+        VIEW_KIND_SPACER => {
+            required_u16(value, "rows")?;
+        }
+        VIEW_KIND_ROW | VIEW_KIND_COLUMN => {
+            required_u16(value, "gap")?;
+            required_prop::<Array>(value, "children")?;
+        }
+        VIEW_KIND_HANGING => {
+            required_prop::<Object>(value, "prefix")?;
+            required_prop::<Object>(value, "continuation")?;
+            required_prop::<Object>(value, "body")?;
+        }
+        VIEW_KIND_GRID => {
+            required_prop::<Array>(value, "columns")?;
+            required_prop::<Array>(value, "rows")?;
+            required_u16(value, "columnGap")?;
+            required_u16(value, "rowGap")?;
+        }
+        VIEW_KIND_CONTAINER => {
+            required_prop::<Object>(value, "child")?;
+        }
+        VIEW_KIND_CLAMP => {
+            required_prop::<Object>(value, "child")?;
+            required_u16(value, "maxRows")?;
+            required_prop::<Object>(value, "overflow")?;
+        }
+        VIEW_KIND_CONTENT_MAX => {
+            required_prop::<Object>(value, "child")?;
+            required_u16(value, "maxRows")?;
+        }
+        VIEW_KIND_COMPONENT => {
+            required_positive_u64(value, "handle")?;
+        }
+        VIEW_KIND_DECORATED => {
+            required_prop::<Object>(value, "child")?;
+            required_prop::<Object>(value, "decoration")?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 impl ViewDecoder {
     fn decode(&mut self, value: Object<'_>) -> Result<View> {
         let node_id = required_u64(&value, "id")?;
@@ -1838,6 +1933,13 @@ impl ViewDecoder {
                 "unsupported TUI View bridge schema {schema}, expected {VIEW_BRIDGE_SCHEMA_VERSION}"
             )));
         }
+        let kind = required_prop::<u32>(&value, "kind")?;
+        if !is_known_view_kind(kind) && !has_cached_node_payload(&value)? {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unknown numeric TUI View node kind {kind}"
+            )));
+        }
+        validate_cached_node_header(&value, kind)?;
         let cached = with_view_runtime(&self.cache, |cache| {
             cache
                 .nodes
