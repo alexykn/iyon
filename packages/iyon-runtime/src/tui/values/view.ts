@@ -954,15 +954,12 @@ export function nativeTextRecipe(view: View): {
   readonly wrap: number;
   readonly align: number;
 } | undefined {
-  const backing = view[kBacking];
-  if (
-    backing.state !== 1
-    || backing.createKind !== "text"
-    || backing.spans === undefined
-    || backing.wrap === undefined
-    || backing.align === undefined
-  ) return undefined;
-  return { spans: backing.spans, wrap: backing.wrap, align: backing.align };
+  const recipe = pendingTextRecipe(view);
+  return recipe === undefined ? undefined : {
+    spans: recipe.spans,
+    wrap: recipe.wrap,
+    align: recipe.align,
+  };
 }
 
 /** Returns a pending spacer recipe without materializing its bridge node. */
