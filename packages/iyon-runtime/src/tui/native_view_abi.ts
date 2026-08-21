@@ -38,17 +38,27 @@ import {
   editTxnAddTextLayout,
   editTxnCommitRender,
   editTxnAbort,
+  styleAtomCreateCstring,
+  styleCreateBits,
+  viewTextCreateCstring,
+  viewTextCreateUtf8,
+  viewTextCreateCstring2,
+  viewTextCreateCstring3,
+  viewTextCreateCstring4,
   type ViewAbiSymbols,
 } from "./generated/view_calls.ts";
 import {
   BRIDGE_VIEW_KIND,
   type BridgeViewNode,
+  type StyleNode,
+  type ColorNode,
 } from "./ir.ts";
 import {
   nativePathLineage,
   nativeScalarPatch,
   nativeAxisRecipe,
   nativeSpacerRecipe,
+  nativeTextRecipe,
   nodeForBridge,
   nodeIdPair,
   viewNodeId,
@@ -101,6 +111,10 @@ let cachedSession: NativeViewAbiSession | undefined;
 const PATH_REFS = new WeakMap<NativeViewAbiSession, WeakMap<object, number>>();
 const PATH_SHAPE_REFS = new WeakMap<NativeViewAbiSession, Map<string, number>>();
 const SINGLE_REF_RELEASE = new Uint32Array(1);
+const TEXT_ENCODER = new TextEncoder();
+const STYLE_REFS = new WeakMap<NativeViewAbiSession, WeakMap<object, number>>();
+const STYLE_ATOM_REFS = new WeakMap<NativeViewAbiSession, Map<string, number>>();
+const TEXT_SCRATCH = new WeakMap<NativeViewAbiSession, Uint8Array>();
 const ABI_FUNCTION_NAMES = [
   "runtimeNoop",
   "viewRenderRef",
@@ -141,6 +155,13 @@ const ABI_FUNCTION_NAMES = [
   "editTxnAddTextLayout",
   "editTxnCommitRender",
   "editTxnAbort",
+  "styleAtomCreateCstring",
+  "styleCreateBits",
+  "viewTextCreateCstring",
+  "viewTextCreateUtf8",
+  "viewTextCreateCstring2",
+  "viewTextCreateCstring3",
+  "viewTextCreateCstring4",
 ] as const;
 
 function isValidPointer(value: unknown): value is Pointer {
@@ -217,6 +238,13 @@ export function nativeViewAbiSession(): NativeViewAbiSession | undefined {
     editTxnAddTextLayout: bootstrap.functions.editTxnAddTextLayout as Pointer,
     editTxnCommitRender: bootstrap.functions.editTxnCommitRender as Pointer,
     editTxnAbort: bootstrap.functions.editTxnAbort as Pointer,
+    styleAtomCreateCstring: bootstrap.functions.styleAtomCreateCstring as Pointer,
+    styleCreateBits: bootstrap.functions.styleCreateBits as Pointer,
+    viewTextCreateCstring: bootstrap.functions.viewTextCreateCstring as Pointer,
+    viewTextCreateUtf8: bootstrap.functions.viewTextCreateUtf8 as Pointer,
+    viewTextCreateCstring2: bootstrap.functions.viewTextCreateCstring2 as Pointer,
+    viewTextCreateCstring3: bootstrap.functions.viewTextCreateCstring3 as Pointer,
+    viewTextCreateCstring4: bootstrap.functions.viewTextCreateCstring4 as Pointer,
   };
   const linked = linkViewAbi(pointers);
   const runtime = bootstrap.runtime_ptr as Pointer;
@@ -241,6 +269,130 @@ export function nativeViewRefForNodeId(view: View): number | undefined {
   if (session === undefined) return undefined;
   const [nodeIdLow, nodeIdHigh] = nodeIdPair(view);
   return viewRefForNodeId(session.symbols, session.runtime, nodeIdLow, nodeIdHigh);
+}
+
+/** Materializes one pending text span through the direct cstring/buffer ABI. */
+export function tryNativeTextCreateRender(
+  host: NativeViewRenderHost,
+  next: View,
+): number | undefined {
+  const recipe = nativeTextRecipe(next);
+  if (recipe === undefined || recipe.spans.length === 0 || recipe.spans.length > 4) return undefined;
+  const hostPointer = host.tuiViewAbiHostPointer?.();
+  if (!isValidPointer(hostPointer)) return undefined;
+  const session = nativeViewAbiSession();
+  if (session === undefined) return undefined;
+  let nextRef: number | undefined;
+  try {
+    const styleRefs: number[] = [];
+    for (const span of recipe.spans) {
+      const styleRef = nativeStyleRef(session, span.style);
+      if (styleRef === undefined) return undefined;
+      styleRefs.push(styleRef);
+    }
+    const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
+    const hasEmbeddedNul = recipe.spans.some((span) => span.text.indexOf("\0") !== -1);
+    if (hasEmbeddedNul && recipe.spans.length !== 1) return undefined;
+    if (!hasEmbeddedNul) {
+      const span = recipe.spans;
+      switch (span.length) {
+        case 1:
+          nextRef = viewTextCreateCstring(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, span[0]!.text, styleRefs[0]!, recipe.wrap, recipe.align);
+          break;
+        case 2:
+          nextRef = viewTextCreateCstring2(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, span[0]!.text, styleRefs[0]!, span[1]!.text, styleRefs[1]!, recipe.wrap, recipe.align);
+          break;
+        case 3:
+          nextRef = viewTextCreateCstring3(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, span[0]!.text, styleRefs[0]!, span[1]!.text, styleRefs[1]!, span[2]!.text, styleRefs[2]!, recipe.wrap, recipe.align);
+          break;
+        case 4:
+          nextRef = viewTextCreateCstring4(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, span[0]!.text, styleRefs[0]!, span[1]!.text, styleRefs[1]!, span[2]!.text, styleRefs[2]!, span[3]!.text, styleRefs[3]!, recipe.wrap, recipe.align);
+          break;
+      }
+    } else {
+      const span = recipe.spans[0]!;
+      const bytes = TEXT_ENCODER.encode(span.text);
+      let scratch = TEXT_SCRATCH.get(session);
+      if (scratch === undefined || scratch.length < bytes.length) {
+        scratch = new Uint8Array(Math.max(bytes.length, 64));
+        TEXT_SCRATCH.set(session, scratch);
+      }
+      scratch.set(bytes.subarray(0, bytes.length));
+      nextRef = viewTextCreateUtf8(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, bytes.length, styleRefs[0]!, recipe.wrap, recipe.align);
+    }
+    if (nextRef === undefined) return undefined;
+    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    if (status !== 0) {
+      releaseNativeViewRef(session, nextRef);
+      return undefined;
+    }
+    return nextRef;
+  } catch (error) {
+    if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  }
+}
+
+function nativeStyleRef(session: NativeViewAbiSession, style: StyleNode | undefined): number | undefined {
+  if (style === undefined) return 0;
+  let refs = STYLE_REFS.get(session);
+  if (refs === undefined) {
+    refs = new WeakMap<object, number>();
+    STYLE_REFS.set(session, refs);
+  }
+  const cached = refs.get(style);
+  if (cached !== undefined) return cached;
+  const present = { value: 0 };
+  const truth = { value: 0 };
+  const attributes: Record<string, number> = {
+    bold: 1,
+    dim: 2,
+    italic: 4,
+    underline: 8,
+    reversed: 16,
+    strikethrough: 32,
+  };
+  for (const [name, enabled] of Object.entries(style.attributes)) {
+    const bit = attributes[name];
+    if (bit === undefined) return undefined;
+    present.value |= bit;
+    if (enabled) truth.value |= bit;
+  }
+  const foreground = style.foreground === undefined ? 0 : nativeStyleAtom(session, styleColorAtom(style.foreground));
+  const background = style.background === undefined ? 0 : nativeStyleAtom(session, styleColorAtom(style.background));
+  const theme = style.theme === undefined ? 0 : nativeStyleAtom(session, `theme:${style.theme}`);
+  if (foreground === undefined || background === undefined || theme === undefined) return undefined;
+  const reference = styleCreateBits(
+    session.symbols,
+    session.runtime,
+    0,
+    present.value,
+    truth.value,
+    foreground,
+    background,
+    theme,
+  );
+  refs.set(style, reference);
+  return reference;
+}
+
+function nativeStyleAtom(session: NativeViewAbiSession, value: string): number | undefined {
+  if (value.indexOf("\0") !== -1) return undefined;
+  let refs = STYLE_ATOM_REFS.get(session);
+  if (refs === undefined) {
+    refs = new Map<string, number>();
+    STYLE_ATOM_REFS.set(session, refs);
+  }
+  const cached = refs.get(value);
+  if (cached !== undefined) return cached;
+  const reference = styleAtomCreateCstring(session.symbols, session.runtime, value);
+  refs.set(value, reference);
+  return reference;
+}
+
+function styleColorAtom(color: ColorNode): string {
+  return typeof color === "string" ? color : `ansi:${color.value}`;
 }
 
 /**

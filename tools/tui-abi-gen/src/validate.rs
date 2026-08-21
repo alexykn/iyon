@@ -117,7 +117,14 @@ pub fn validate(
         }
         if !matches!(
             function.return_type.as_str(),
-            "u32" | "i32" | "ViewRefResult" | "PathRefResult" | "status_only" | "native_ref_result"
+            "u32"
+                | "i32"
+                | "ViewRefResult"
+                | "PathRefResult"
+                | "StyleRefResult"
+                | "StyleAtomRefResult"
+                | "status_only"
+                | "native_ref_result"
         ) {
             return invalid(format!(
                 "function {} has unsupported return type {}",
@@ -398,7 +405,7 @@ fn validate_type(
     function_name: &str,
 ) -> Result<(), ValidationError> {
     let primitive = matches!(type_name, "u8" | "u16" | "u32" | "i32" | "f32" | "f64");
-    let builtin = matches!(type_name, "u32[]" | "NodeId" | "string");
+    let builtin = matches!(type_name, "u8[]" | "u32[]" | "NodeId" | "string");
     let pod = type_name
         .strip_suffix("[]")
         .is_some_and(|name| document.pods.iter().any(|item| item.name == name));
@@ -459,6 +466,9 @@ fn buffer_element_size(
     argument: &crate::model::ArgumentSpec,
     document: &AbiDocument,
 ) -> Option<u32> {
+    if argument.type_name == "u8[]" {
+        return Some(1);
+    }
     if argument.type_name == "u32[]" {
         return Some(4);
     }

@@ -660,6 +660,15 @@ export class View {
   }
 
   private decorate(decoration: Partial<DecorationNode>): View {
+    const textRecipe = pendingTextRecipe(this);
+    const stylePatch = pendingTextStylePatch(decoration);
+    if (textRecipe !== undefined && stylePatch !== undefined) {
+      const spans = Object.freeze(textRecipe.spans.map((span) => Object.freeze({
+        ...span,
+        style: mergeStyles(span.style ?? emptyStyle(), stylePatch),
+      })));
+      return new View(pendingTextBacking(spans, textRecipe.wrap, textRecipe.align));
+    }
     const scalar = scalarCommonFields(decoration);
     if (scalar !== undefined && this[kBacking].state !== 0) {
       const existing = nativeScalarPatch(this);
@@ -738,6 +747,28 @@ function pendingTextRecipe(view: View): { readonly base: View; readonly spans: r
     return base === undefined ? undefined : { base: base.base, spans: base.spans, wrap: backing.wrap, align: backing.align };
   }
   return undefined;
+}
+
+function pendingTextStylePatch(decoration: Partial<DecorationNode>): StyleNode | undefined {
+  if (decoration.border !== undefined || decoration.padding !== undefined || decoration.styleStates !== undefined) return undefined;
+  const style = decoration.style;
+  const patch: StyleNode = {
+    ...(style?.theme === undefined ? {} : { theme: style.theme }),
+    ...(decoration.foreground === undefined && style?.foreground === undefined
+      ? {}
+      : { foreground: decoration.foreground ?? style?.foreground }),
+    ...(decoration.background === undefined && style?.background === undefined
+      ? {}
+      : { background: decoration.background ?? style?.background }),
+    attributes: { ...(style?.attributes ?? {}) },
+  };
+  if (
+    patch.theme === undefined
+    && patch.foreground === undefined
+    && patch.background === undefined
+    && Object.keys(patch.attributes).length === 0
+  ) return undefined;
+  return patch;
 }
 
 function scalarCommonFields(decoration: Partial<DecorationNode>): Omit<NativeCommonPatch, "kind" | "base"> | undefined {
@@ -915,6 +946,23 @@ export function nativeAxisRecipe(view: View): {
     gap: backing.axisGap,
     children: backing.axisChildren.map((child) => ({ view: child.view, trackWord: axisTrackWord(child) })),
   };
+}
+
+/** Returns a pending text recipe without materializing its bridge node. */
+export function nativeTextRecipe(view: View): {
+  readonly spans: readonly TextSpanNode[];
+  readonly wrap: number;
+  readonly align: number;
+} | undefined {
+  const backing = view[kBacking];
+  if (
+    backing.state !== 1
+    || backing.createKind !== "text"
+    || backing.spans === undefined
+    || backing.wrap === undefined
+    || backing.align === undefined
+  ) return undefined;
+  return { spans: backing.spans, wrap: backing.wrap, align: backing.align };
 }
 
 /** Returns a pending spacer recipe without materializing its bridge node. */

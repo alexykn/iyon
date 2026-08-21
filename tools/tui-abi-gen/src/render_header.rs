@@ -140,7 +140,8 @@ fn c_primitive_type(type_name: &str) -> &'static str {
 fn c_return(return_type: &str) -> &'static str {
     match return_type {
         "i32" | "status_only" => "int32_t",
-        "u32" | "ViewRefResult" | "PathRefResult" | "native_ref_result" => "uint32_t",
+        "u32" | "ViewRefResult" | "PathRefResult" | "StyleRefResult" | "StyleAtomRefResult"
+        | "native_ref_result" => "uint32_t",
         "f32" => "float",
         "f64" => "double",
         other => panic!("unsupported generated C return {other}"),

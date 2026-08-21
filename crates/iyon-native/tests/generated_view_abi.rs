@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801
-// generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de
+// schema_blake3 = 2e4b86b766ff8db783e86905756b496e09f137e29bb0b36dc54dfa3834ebf809
+// generator_blake3 = a7337dcff858f38ae2b177f87758637fc2fcf2bb1d0ec1b1286722b66d00f052
 #[allow(dead_code)]
 pub struct NativeViewRuntime;
 
@@ -833,9 +833,167 @@ pub unsafe extern "Rust" fn edit_txn_abort_impl(
     138
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn style_atom_create_cstring_impl(
+    runtime: *mut NativeViewRuntime,
+    value: *const ::core::ffi::c_char,
+) -> u32 {
+    let _ = runtime;
+    let _ = value;
+    0x127
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn style_create_bits_impl(
+    runtime: *mut NativeViewRuntime,
+    flags: u32,
+    attribute_present: u32,
+    attribute_true: u32,
+    foreground_ref: u32,
+    background_ref: u32,
+    theme_atom_ref: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = flags;
+    let _ = attribute_present;
+    let _ = attribute_true;
+    let _ = foreground_ref;
+    let _ = background_ref;
+    let _ = theme_atom_ref;
+    0x128
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_cstring_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    text: *const ::core::ffi::c_char,
+    style_ref: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = node_id_low;
+    let _ = node_id_high;
+    let _ = text;
+    let _ = style_ref;
+    let _ = wrap;
+    let _ = align;
+    0x129
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_utf8_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    bytes: *const u8,
+    bytes_capacity: usize,
+    used_bytes: u32,
+    style_ref: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = node_id_low;
+    let _ = node_id_high;
+    let _ = bytes;
+    let _ = bytes_capacity;
+    let _ = used_bytes;
+    let _ = style_ref;
+    let _ = wrap;
+    let _ = align;
+    0x12a
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_cstring_2_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    text0: *const ::core::ffi::c_char,
+    style0: u32,
+    text1: *const ::core::ffi::c_char,
+    style1: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = node_id_low;
+    let _ = node_id_high;
+    let _ = text0;
+    let _ = style0;
+    let _ = text1;
+    let _ = style1;
+    let _ = wrap;
+    let _ = align;
+    0x12b
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_cstring_3_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    text0: *const ::core::ffi::c_char,
+    style0: u32,
+    text1: *const ::core::ffi::c_char,
+    style1: u32,
+    text2: *const ::core::ffi::c_char,
+    style2: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = node_id_low;
+    let _ = node_id_high;
+    let _ = text0;
+    let _ = style0;
+    let _ = text1;
+    let _ = style1;
+    let _ = text2;
+    let _ = style2;
+    let _ = wrap;
+    let _ = align;
+    0x12c
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_cstring_4_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    text0: *const ::core::ffi::c_char,
+    style0: u32,
+    text1: *const ::core::ffi::c_char,
+    style1: u32,
+    text2: *const ::core::ffi::c_char,
+    style2: u32,
+    text3: *const ::core::ffi::c_char,
+    style3: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = node_id_low;
+    let _ = node_id_high;
+    let _ = text0;
+    let _ = style0;
+    let _ = text1;
+    let _ = style1;
+    let _ = text2;
+    let _ = style2;
+    let _ = text3;
+    let _ = style3;
+    let _ = wrap;
+    let _ = align;
+    0x12d
+}
+
 #[test]
 fn generated_function_count_is_stable() {
-    assert_eq!(generated::FUNCTION_COUNT, 39);
+    assert_eq!(generated::FUNCTION_COUNT, 46);
 }
 
 #[test]

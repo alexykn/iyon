@@ -109,6 +109,13 @@ export interface NativeViewAbiBootstrap {
     editTxnAddTextLayout: number;
     editTxnCommitRender: number;
     editTxnAbort: number;
+    styleAtomCreateCstring: number;
+    styleCreateBits: number;
+    viewTextCreateCstring: number;
+    viewTextCreateUtf8: number;
+    viewTextCreateCstring2: number;
+    viewTextCreateCstring3: number;
+    viewTextCreateCstring4: number;
   };
 }
 

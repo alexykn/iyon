@@ -1,6 +1,6 @@
 //! Typed semantic text construction backed by the canonical View IR.
 
-use std::{fmt, sync::Arc};
+use std::{fmt, str, sync::Arc};
 
 use super::style::{
     BorderSpec, ColorSpec, Insets, OverflowIndicator, StyleFacts, StyleRef, StyleStateKey,
@@ -18,7 +18,13 @@ pub trait SharedUtf8Source: Send + Sync {
     fn as_str(&self) -> &str;
 }
 
+const INLINE_TEXT_CAPACITY: usize = 12;
+
 pub(crate) enum TextStorage {
+    Inline {
+        bytes: [u8; INLINE_TEXT_CAPACITY],
+        len: u8,
+    },
     Owned(String),
     #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
     Shared(Arc<dyn SharedUtf8Source>),
@@ -27,6 +33,10 @@ pub(crate) enum TextStorage {
 impl Clone for TextStorage {
     fn clone(&self) -> Self {
         match self {
+            Self::Inline { bytes, len } => Self::Inline {
+                bytes: *bytes,
+                len: *len,
+            },
             Self::Owned(text) => Self::Owned(text.clone()),
             #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
             Self::Shared(source) => Self::Shared(Arc::clone(source)),
@@ -50,8 +60,24 @@ impl PartialEq for TextStorage {
 }
 
 impl TextStorage {
+    fn from_string(text: String) -> Self {
+        let bytes = text.as_bytes();
+        if bytes.len() <= INLINE_TEXT_CAPACITY {
+            let mut inline = [0; INLINE_TEXT_CAPACITY];
+            inline[..bytes.len()].copy_from_slice(bytes);
+            return Self::Inline {
+                bytes: inline,
+                len: bytes.len() as u8,
+            };
+        }
+        Self::Owned(text)
+    }
+
     fn as_str(&self) -> &str {
         match self {
+            Self::Inline { bytes, len } => unsafe {
+                str::from_utf8_unchecked(&bytes[..*len as usize])
+            },
             Self::Owned(text) => text,
             #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
             Self::Shared(source) => source.as_str(),
@@ -73,16 +99,12 @@ impl TextSpan {
     }
 
     pub fn text_mut(&mut self) -> &mut String {
-        #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
-        if matches!(&self.text, TextStorage::Shared(_)) {
+        if !matches!(&self.text, TextStorage::Owned(_)) {
             self.text = TextStorage::Owned(self.text.as_str().to_owned());
         }
         match &mut self.text {
             TextStorage::Owned(text) => text,
-            #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
-            TextStorage::Shared(_) => {
-                unreachable!("shared text is materialized before mutable access")
-            }
+            _ => unreachable!("text storage is materialized before mutable access"),
         }
     }
 
@@ -96,7 +118,7 @@ impl TextSpan {
 
     pub fn plain(text: impl Into<String>) -> Self {
         Self {
-            text: TextStorage::Owned(text.into()),
+            text: TextStorage::from_string(text.into()),
             style: StyleRef::default(),
             style_facts: StyleFacts::default(),
         }
@@ -104,7 +126,7 @@ impl TextSpan {
 
     pub fn styled(text: impl Into<String>, style: impl Into<StyleRef>) -> Self {
         Self {
-            text: TextStorage::Owned(text.into()),
+            text: TextStorage::from_string(text.into()),
             style: style.into(),
             style_facts: StyleFacts::default(),
         }

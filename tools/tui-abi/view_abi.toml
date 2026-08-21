@@ -38,6 +38,24 @@ lifetime = "runtime"
 valid = "1..0x7fffffff"
 kind = "path"
 
+[[handle]]
+name = "StyleRef"
+rust = "u32"
+typescript = "number"
+nullable = false
+lifetime = "runtime"
+valid = "1..0x7fffffff"
+kind = "style"
+
+[[handle]]
+name = "StyleAtomRef"
+rust = "u32"
+typescript = "number"
+nullable = false
+lifetime = "runtime"
+valid = "1..0x7fffffff"
+kind = "style_atom"
+
 [[enum]]
 name = "WrapMode"
 source = "packages/iyon-runtime/src/tui/bridge-schema.json"
@@ -2219,6 +2237,386 @@ lowering = "runtime_ptr"
 name = "txn_ref"
 type = "EditTxnRef"
 lowering = "native_ref"
+
+[[function]]
+name = "style_atom_create_cstring"
+family = "style_atom"
+hotness = "warm"
+implementation = "style_atom_create_cstring_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 4096
+max_input_count = 1
+arity_specializations = []
+benchmark_registration = "style.atom_create_cstring"
+return = "StyleAtomRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "value"
+type = "string"
+lowering = "cstring_ephemeral"
+
+[[function]]
+name = "style_create_bits"
+family = "style_atom"
+hotness = "warm"
+implementation = "style_create_bits_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 1
+arity_specializations = []
+benchmark_registration = "style.create_bits"
+return = "StyleRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "flags"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "attribute_present"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "attribute_true"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "foreground_ref"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "background_ref"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "theme_atom_ref"
+type = "u32"
+lowering = "u32"
+
+[[function]]
+name = "view_text_create_cstring"
+family = "constructor"
+hotness = "warm"
+implementation = "view_text_create_cstring_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 1
+arity_specializations = [1]
+benchmark_registration = "view.text_create_cstring"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "text"
+type = "string"
+lowering = "cstring_ephemeral"
+
+[[function.arg]]
+name = "style_ref"
+type = "StyleRef"
+lowering = "u32"
+
+[[function.arg]]
+name = "wrap"
+type = "WrapMode"
+lowering = "u32"
+
+[[function.arg]]
+name = "align"
+type = "HorizontalAlign"
+lowering = "u32"
+
+[[function]]
+name = "view_text_create_utf8"
+family = "constructor"
+hotness = "warm"
+implementation = "view_text_create_utf8_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 16_777_216
+max_input_count = 1_000_000
+arity_specializations = [1]
+benchmark_registration = "view.text_create_utf8"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "bytes"
+type = "u8[]"
+lowering = "buffer"
+
+[[function.arg]]
+name = "bytes_capacity"
+type = "u32"
+lowering = "buffer_length"
+buffer_length_of = "bytes"
+
+[[function.arg]]
+name = "used_bytes"
+type = "u32"
+lowering = "buffer_used"
+
+[[function.arg]]
+name = "style_ref"
+type = "StyleRef"
+lowering = "u32"
+
+[[function.arg]]
+name = "wrap"
+type = "WrapMode"
+lowering = "u32"
+
+[[function.arg]]
+name = "align"
+type = "HorizontalAlign"
+lowering = "u32"
+
+[[function]]
+name = "view_text_create_cstring_2"
+family = "constructor"
+hotness = "warm"
+implementation = "view_text_create_cstring_2_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 2
+arity_specializations = [2]
+benchmark_registration = "view.text_create_cstring_2"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+[[function.arg]]
+name = "text0"
+type = "string"
+lowering = "cstring_ephemeral"
+[[function.arg]]
+name = "style0"
+type = "StyleRef"
+lowering = "u32"
+[[function.arg]]
+name = "text1"
+type = "string"
+lowering = "cstring_ephemeral"
+[[function.arg]]
+name = "style1"
+type = "StyleRef"
+lowering = "u32"
+[[function.arg]]
+name = "wrap"
+type = "WrapMode"
+lowering = "u32"
+[[function.arg]]
+name = "align"
+type = "HorizontalAlign"
+lowering = "u32"
+
+[[function]]
+name = "view_text_create_cstring_3"
+family = "constructor"
+hotness = "warm"
+implementation = "view_text_create_cstring_3_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 3
+arity_specializations = [3]
+benchmark_registration = "view.text_create_cstring_3"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+[[function.arg]]
+name = "text0"
+type = "string"
+lowering = "cstring_ephemeral"
+[[function.arg]]
+name = "style0"
+type = "StyleRef"
+lowering = "u32"
+[[function.arg]]
+name = "text1"
+type = "string"
+lowering = "cstring_ephemeral"
+[[function.arg]]
+name = "style1"
+type = "StyleRef"
+lowering = "u32"
+[[function.arg]]
+name = "text2"
+type = "string"
+lowering = "cstring_ephemeral"
+[[function.arg]]
+name = "style2"
+type = "StyleRef"
+lowering = "u32"
+[[function.arg]]
+name = "wrap"
+type = "WrapMode"
+lowering = "u32"
+[[function.arg]]
+name = "align"
+type = "HorizontalAlign"
+lowering = "u32"
+
+[[function]]
+name = "view_text_create_cstring_4"
+family = "constructor"
+hotness = "warm"
+implementation = "view_text_create_cstring_4_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 4
+arity_specializations = [4]
+benchmark_registration = "view.text_create_cstring_4"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+[[function.arg]]
+name = "text0"
+type = "string"
+lowering = "cstring_ephemeral"
+[[function.arg]]
+name = "style0"
+type = "StyleRef"
+lowering = "u32"
+[[function.arg]]
+name = "text1"
+type = "string"
+lowering = "cstring_ephemeral"
+[[function.arg]]
+name = "style1"
+type = "StyleRef"
+lowering = "u32"
+[[function.arg]]
+name = "text2"
+type = "string"
+lowering = "cstring_ephemeral"
+[[function.arg]]
+name = "style2"
+type = "StyleRef"
+lowering = "u32"
+[[function.arg]]
+name = "text3"
+type = "string"
+lowering = "cstring_ephemeral"
+[[function.arg]]
+name = "style3"
+type = "StyleRef"
+lowering = "u32"
+[[function.arg]]
+name = "wrap"
+type = "WrapMode"
+lowering = "u32"
+[[function.arg]]
+name = "align"
+type = "HorizontalAlign"
+lowering = "u32"
 
 [[conformance]]
 name = "u8_8"

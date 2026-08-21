@@ -1,11 +1,11 @@
-<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801; generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de -->
+<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = 2e4b86b766ff8db783e86905756b496e09f137e29bb0b36dc54dfa3834ebf809; generator_blake3 = a7337dcff858f38ae2b177f87758637fc2fcf2bb1d0ec1b1286722b66d00f052 -->
 
 # PERF-11 generated ABI reference
 
 > This file is generated. Do not edit it directly.
 
-- Schema BLAKE3: `823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801`
-- Generator BLAKE3: `9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de`
+- Schema BLAKE3: `2e4b86b766ff8db783e86905756b496e09f137e29bb0b36dc54dfa3834ebf809`
+- Generator BLAKE3: `a7337dcff858f38ae2b177f87758637fc2fcf2bb1d0ec1b1286722b66d00f052`
 - ABI: `iyon_tui_view` v1
 - Semantic schema: v1
 - Minimum Bun: `1.4.0`
@@ -18,6 +18,8 @@
 | `HostPtr` | `*mut NativeHost` | `Pointer` | `host` | `-` |
 | `ViewRef` | `u32` | `number` | `runtime` | `view` |
 | `PathRef` | `u32` | `number` | `runtime` | `path` |
+| `StyleRef` | `u32` | `number` | `runtime` | `style` |
+| `StyleAtomRef` | `u32` | `number` | `runtime` | `style_atom` |
 | `BuilderRef` | `u32` | `number` | `runtime` | `builder` |
 | `EditTxnRef` | `u32` | `number` | `runtime` | `edit_txn` |
 
@@ -88,6 +90,13 @@
 | `edit_txn_add_text_layout` | `edit_transaction` | `critical` | `status_only` | `v4` | `owner_thread` | `true` | `false` |
 | `edit_txn_commit_render` | `edit_transaction` | `critical` | `native_ref_result` | `v4` | `owner_thread` | `true` | `true` |
 | `edit_txn_abort` | `edit_transaction` | `cold` | `status_only` | `none` | `owner_thread` | `false` | `false` |
+| `style_atom_create_cstring` | `style_atom` | `warm` | `StyleAtomRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `style_create_bits` | `style_atom` | `warm` | `StyleRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_text_create_cstring` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_text_create_utf8` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_text_create_cstring_2` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_text_create_cstring_3` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_text_create_cstring_4` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 
 ## ABI conformance fixtures
 

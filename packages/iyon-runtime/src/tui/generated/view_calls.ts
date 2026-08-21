@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801
-// generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de
+// schema_blake3 = 2e4b86b766ff8db783e86905756b496e09f137e29bb0b36dc54dfa3834ebf809
+// generator_blake3 = a7337dcff858f38ae2b177f87758637fc2fcf2bb1d0ec1b1286722b66d00f052
 import type { Pointer } from "bun:ffi";
 import type { linkViewAbi } from "./view_abi";
 export type ViewAbiSymbols = ReturnType<typeof linkViewAbi>["symbols"];
@@ -205,5 +205,40 @@ export function editTxnCommitRender(symbols: ViewAbiSymbols, runtime: Pointer, h
 export function editTxnAbort(symbols: ViewAbiSymbols, runtime: Pointer, txn_ref: number): number {
   const result = symbols.editTxnAbort(runtime, txn_ref);
   return result;
+}
+
+export function styleAtomCreateCstring(symbols: ViewAbiSymbols, runtime: Pointer, value: string): number {
+  const result = symbols.styleAtomCreateCstring(runtime, value);
+  return checkedRef(result);
+}
+
+export function styleCreateBits(symbols: ViewAbiSymbols, runtime: Pointer, flags: number, attribute_present: number, attribute_true: number, foreground_ref: number, background_ref: number, theme_atom_ref: number): number {
+  const result = symbols.styleCreateBits(runtime, flags, attribute_present, attribute_true, foreground_ref, background_ref, theme_atom_ref);
+  return checkedRef(result);
+}
+
+export function viewTextCreateCstring(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, text: string, style_ref: number, wrap: number, align: number): number {
+  const result = symbols.viewTextCreateCstring(runtime, node_id_low, node_id_high, text, style_ref, wrap, align);
+  return checkedRef(result);
+}
+
+export function viewTextCreateUtf8(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, bytes: NodeJS.TypedArray | DataView, used_bytes: number, style_ref: number, wrap: number, align: number): number {
+  const result = symbols.viewTextCreateUtf8(runtime, node_id_low, node_id_high, bytes, bytes, used_bytes, style_ref, wrap, align);
+  return checkedRef(result);
+}
+
+export function viewTextCreateCstring2(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, text0: string, style0: number, text1: string, style1: number, wrap: number, align: number): number {
+  const result = symbols.viewTextCreateCstring2(runtime, node_id_low, node_id_high, text0, style0, text1, style1, wrap, align);
+  return checkedRef(result);
+}
+
+export function viewTextCreateCstring3(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, text0: string, style0: number, text1: string, style1: number, text2: string, style2: number, wrap: number, align: number): number {
+  const result = symbols.viewTextCreateCstring3(runtime, node_id_low, node_id_high, text0, style0, text1, style1, text2, style2, wrap, align);
+  return checkedRef(result);
+}
+
+export function viewTextCreateCstring4(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, text0: string, style0: number, text1: string, style1: number, text2: string, style2: number, text3: string, style3: number, wrap: number, align: number): number {
+  const result = symbols.viewTextCreateCstring4(runtime, node_id_low, node_id_high, text0, style0, text1, style1, text2, style2, text3, style3, wrap, align);
+  return checkedRef(result);
 }
 

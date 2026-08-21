@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801
-// generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de
+// schema_blake3 = 2e4b86b766ff8db783e86905756b496e09f137e29bb0b36dc54dfa3834ebf809
+// generator_blake3 = a7337dcff858f38ae2b177f87758637fc2fcf2bb1d0ec1b1286722b66d00f052
 // Generated C ABI wrappers. Semantic implementations are handwritten and linked below.
 use super::{NativeViewRuntime, NativeHost, AxisChildInputV1};
 pub mod generated_impls {
@@ -437,6 +437,92 @@ pub mod generated_impls {
     }
     unsafe extern "Rust" {
         pub fn edit_txn_abort_impl(runtime: *mut NativeViewRuntime, txn_ref: u32) -> i32;
+    }
+    unsafe extern "Rust" {
+        pub fn style_atom_create_cstring_impl(
+            runtime: *mut NativeViewRuntime,
+            value: *const ::core::ffi::c_char,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn style_create_bits_impl(
+            runtime: *mut NativeViewRuntime,
+            flags: u32,
+            attribute_present: u32,
+            attribute_true: u32,
+            foreground_ref: u32,
+            background_ref: u32,
+            theme_atom_ref: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_create_cstring_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            text: *const ::core::ffi::c_char,
+            style_ref: u32,
+            wrap: u32,
+            align: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_create_utf8_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            bytes: *const u8,
+            bytes_capacity: usize,
+            used_bytes: u32,
+            style_ref: u32,
+            wrap: u32,
+            align: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_create_cstring_2_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            text0: *const ::core::ffi::c_char,
+            style0: u32,
+            text1: *const ::core::ffi::c_char,
+            style1: u32,
+            wrap: u32,
+            align: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_create_cstring_3_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            text0: *const ::core::ffi::c_char,
+            style0: u32,
+            text1: *const ::core::ffi::c_char,
+            style1: u32,
+            text2: *const ::core::ffi::c_char,
+            style2: u32,
+            wrap: u32,
+            align: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_create_cstring_4_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            text0: *const ::core::ffi::c_char,
+            style0: u32,
+            text1: *const ::core::ffi::c_char,
+            style1: u32,
+            text2: *const ::core::ffi::c_char,
+            style2: u32,
+            text3: *const ::core::ffi::c_char,
+            style3: u32,
+            wrap: u32,
+            align: u32,
+        ) -> u32;
     }
 }
 
@@ -1999,5 +2085,269 @@ pub unsafe extern "C" fn iyon_edit_txn_abort_v1(
             })()
         },
         -127i32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_style_atom_create_cstring_v1(
+    runtime: *mut NativeViewRuntime,
+    value: *const ::core::ffi::c_char,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let value = generated_nonnull_const(value, 0x8000_0001u32)?;
+                Ok(unsafe { generated_impls::style_atom_create_cstring_impl(runtime, value) })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_style_create_bits_v1(
+    runtime: *mut NativeViewRuntime,
+    flags: u32,
+    attribute_present: u32,
+    attribute_true: u32,
+    foreground_ref: u32,
+    background_ref: u32,
+    theme_atom_ref: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::style_create_bits_impl(
+                        runtime,
+                        flags,
+                        attribute_present,
+                        attribute_true,
+                        foreground_ref,
+                        background_ref,
+                        theme_atom_ref,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_create_cstring_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    text: *const ::core::ffi::c_char,
+    style_ref: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let text = generated_nonnull_const(text, 0x8000_0001u32)?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_create_cstring_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        text,
+                        style_ref,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_create_utf8_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    bytes: *const u8,
+    bytes_capacity: usize,
+    used_bytes: u32,
+    style_ref: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let bytes = generated_buffer(bytes, bytes_capacity, 1, 16777216, 0x8000_0002u32)?;
+                let used_bytes =
+                    generated_buffer_used(used_bytes, bytes_capacity, 1, 1000000, 0x8000_0003u32)?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_create_utf8_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        bytes,
+                        bytes_capacity,
+                        used_bytes,
+                        style_ref,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_create_cstring_2_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    text0: *const ::core::ffi::c_char,
+    style0: u32,
+    text1: *const ::core::ffi::c_char,
+    style1: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let text0 = generated_nonnull_const(text0, 0x8000_0001u32)?;
+                let text1 = generated_nonnull_const(text1, 0x8000_0001u32)?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_create_cstring_2_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        text0,
+                        style0,
+                        text1,
+                        style1,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_create_cstring_3_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    text0: *const ::core::ffi::c_char,
+    style0: u32,
+    text1: *const ::core::ffi::c_char,
+    style1: u32,
+    text2: *const ::core::ffi::c_char,
+    style2: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let text0 = generated_nonnull_const(text0, 0x8000_0001u32)?;
+                let text1 = generated_nonnull_const(text1, 0x8000_0001u32)?;
+                let text2 = generated_nonnull_const(text2, 0x8000_0001u32)?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_create_cstring_3_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        text0,
+                        style0,
+                        text1,
+                        style1,
+                        text2,
+                        style2,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_create_cstring_4_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    text0: *const ::core::ffi::c_char,
+    style0: u32,
+    text1: *const ::core::ffi::c_char,
+    style1: u32,
+    text2: *const ::core::ffi::c_char,
+    style2: u32,
+    text3: *const ::core::ffi::c_char,
+    style3: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let text0 = generated_nonnull_const(text0, 0x8000_0001u32)?;
+                let text1 = generated_nonnull_const(text1, 0x8000_0001u32)?;
+                let text2 = generated_nonnull_const(text2, 0x8000_0001u32)?;
+                let text3 = generated_nonnull_const(text3, 0x8000_0001u32)?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_create_cstring_4_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        text0,
+                        style0,
+                        text1,
+                        style1,
+                        text2,
+                        style2,
+                        text3,
+                        style3,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
     )
 }
