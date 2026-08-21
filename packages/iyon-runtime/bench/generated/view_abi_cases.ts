@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
 // schema_blake3 = 7fce882a8b31b7dab23c5515ffde2626513fed07f46366e3d9869a966fe1ccb1
-// generator_blake3 = a32e416575faa290887b502f2a202006562af02cb1a05027ec41076f7b0a40d6
+// generator_blake3 = 6767bb7dce54c663ecaf7a84446e62ac37ca5f81733789e365918308bcee71b0
 export type GeneratedAbiBenchmarkCase = {
   name: string;
   family: string;
