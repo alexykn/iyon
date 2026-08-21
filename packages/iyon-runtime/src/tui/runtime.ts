@@ -10,7 +10,7 @@ import { NativeScrollPane } from "./scroll-pane.ts";
 import {
   nativeViewAbiSession,
   nativeViewRefForNodeId,
-  releaseNativeViewRefs,
+  releaseNativeViewRef,
   tryNativeScalarRender,
 } from "./native_view_abi.ts";
 import type {
@@ -115,7 +115,7 @@ export class Tui implements TuiRuntime {
         : nativeViewRefForNodeId(normalized.body);
     }
     if (previousNativeRef !== undefined && previousNativeRef !== nextNativeRef) {
-      releaseNativeViewRefs(nativeViewAbiSession(), [previousNativeRef]);
+      releaseNativeViewRef(nativeViewAbiSession(), previousNativeRef);
     }
     this.currentNativeRef = nextNativeRef;
     this.currentScene = normalized;
@@ -159,7 +159,7 @@ export class Tui implements TuiRuntime {
     if (this.closed) return;
     this.closed = true;
     try {
-      if (this.currentNativeRef !== undefined) releaseNativeViewRefs(nativeViewAbiSession(), [this.currentNativeRef]);
+      if (this.currentNativeRef !== undefined) releaseNativeViewRef(nativeViewAbiSession(), this.currentNativeRef);
     } finally {
       this.currentNativeRef = undefined;
       this.host.dispose();
@@ -169,7 +169,7 @@ export class Tui implements TuiRuntime {
   exit(): void {
     if (this.closed) return;
     try {
-      if (this.currentNativeRef !== undefined) releaseNativeViewRefs(nativeViewAbiSession(), [this.currentNativeRef]);
+      if (this.currentNativeRef !== undefined) releaseNativeViewRef(nativeViewAbiSession(), this.currentNativeRef);
     } finally {
       this.currentNativeRef = undefined;
       this.host.exit();

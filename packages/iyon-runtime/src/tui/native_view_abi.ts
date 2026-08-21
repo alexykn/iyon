@@ -28,6 +28,22 @@ export interface NativeViewRenderHost {
 }
 
 let cachedSession: NativeViewAbiSession | undefined;
+const SINGLE_REF_RELEASE = new Uint32Array(1);
+const ABI_FUNCTION_NAMES = [
+  "runtimeNoop",
+  "viewRenderRef",
+  "hostRenderRef",
+  "viewSpacerCreate",
+  "viewTextLayoutPatchRoot",
+  "viewCommonPatchRoot",
+  "viewAxisCreateBuffer",
+  "viewReleaseMany",
+  "viewRefForNodeId",
+] as const;
+
+function isValidPointer(value: unknown): value is Pointer {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
 
 /**
  * Links the generated first-slice ABI once for this Bun environment.
@@ -38,7 +54,12 @@ export function nativeViewAbiSession(): NativeViewAbiSession | undefined {
   if (cachedSession !== undefined) return cachedSession;
   const bootstrap = native.tuiViewAbiBootstrap?.();
   if (bootstrap === undefined) return undefined;
-  const rawPointers = Object.values(bootstrap.functions);
+  const functionsValue = bootstrap.functions as unknown;
+  if (functionsValue === null || typeof functionsValue !== "object") {
+    throw new Error("native View ABI bootstrap metadata is incompatible");
+  }
+  const functions = functionsValue as Record<string, unknown>;
+  const functionNames = Object.keys(functions);
   if (
     bootstrap.abi_name !== "iyon_tui_view"
     || bootstrap.abi_version !== 1
@@ -48,9 +69,9 @@ export function nativeViewAbiSession(): NativeViewAbiSession | undefined {
     || !Number.isSafeInteger(bootstrap.generation)
     || bootstrap.generation < 1
     || bootstrap.function_count !== manifest.functions.length
-    || !Number.isSafeInteger(bootstrap.runtime_ptr)
-    || bootstrap.runtime_ptr <= 0
-    || rawPointers.some((pointer) => !Number.isSafeInteger(pointer) || pointer <= 0)
+    || functionNames.length !== ABI_FUNCTION_NAMES.length
+    || ABI_FUNCTION_NAMES.some((name) => !functionNames.includes(name) || !isValidPointer(functions[name]))
+    || !isValidPointer(bootstrap.runtime_ptr)
   ) {
     throw new Error("native View ABI bootstrap metadata is incompatible");
   }
@@ -102,7 +123,7 @@ export function tryNativeScalarRender(
   next: View,
 ): number | undefined {
   const hostPointer = host.tuiViewAbiHostPointer?.();
-  if (hostPointer === undefined || hostPointer <= 0 || previousRef <= 0) return undefined;
+  if (!isValidPointer(hostPointer) || !isValidNativeRef(previousRef)) return undefined;
   const session = nativeViewAbiSession();
   if (session === undefined) return undefined;
 
@@ -118,21 +139,29 @@ export function tryNativeScalarRender(
     if (nextRef === undefined) return undefined;
     const status = hostRenderRef(session.symbols, session.runtime, hostPtr, nextRef);
     if (status !== 0) {
-      releaseNativeViewRefs(session, [nextRef]);
+      releaseNativeViewRef(session, nextRef);
       return undefined;
     }
     return nextRef;
-  } catch {
-    if (nextRef !== undefined) releaseNativeViewRefs(session, [nextRef]);
-    return undefined;
+  } catch (error) {
+    if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
   }
 }
 
-export function releaseNativeViewRefs(session: NativeViewAbiSession | undefined, refs: readonly number[]): void {
-  if (session === undefined || refs.length === 0) return;
-  const values = new Uint32Array(refs.length);
-  values.set(refs);
-  viewReleaseMany(session.symbols, session.runtime, values, values.length);
+export function releaseNativeViewRef(session: NativeViewAbiSession | undefined, ref: number): void {
+  if (session === undefined || !isValidNativeRef(ref)) return;
+  SINGLE_REF_RELEASE[0] = ref;
+  viewReleaseMany(session.symbols, session.runtime, SINGLE_REF_RELEASE, 1);
+}
+
+function isValidNativeRef(value: number): boolean {
+  return Number.isSafeInteger(value) && value > 0 && value < 0x8000_0000;
+}
+
+function isExpectedNativeStatus(error: unknown): boolean {
+  return error instanceof Error && /^native ABI status 0x[0-9a-f]+$/u.test(error.message);
 }
 
 function tryTextLayoutPatch(
