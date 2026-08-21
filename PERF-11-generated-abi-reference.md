@@ -1,10 +1,10 @@
-<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193; generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69 -->
+<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9; generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69 -->
 
 # PERF-11 generated ABI reference
 
 > This file is generated. Do not edit it directly.
 
-- Schema BLAKE3: `b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193`
+- Schema BLAKE3: `6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9`
 - Generator BLAKE3: `18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69`
 - ABI: `iyon_tui_view` v1
 - Semantic schema: v1
@@ -18,6 +18,7 @@
 | `HostPtr` | `*mut NativeHost` | `Pointer` | `host` | `-` |
 | `ViewRef` | `u32` | `number` | `runtime` | `view` |
 | `PathRef` | `u32` | `number` | `runtime` | `path` |
+| `EditTxnRef` | `u32` | `number` | `runtime` | `edit_txn` |
 
 ## POD buffers
 
@@ -63,6 +64,10 @@
 | `view_text_layout_patch_path_d2` | `path_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 | `view_text_layout_patch_path_d3` | `path_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 | `view_text_layout_patch_path_d4` | `path_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `edit_txn_begin` | `edit_transaction` | `critical` | `native_ref_result` | `v4` | `owner_thread` | `true` | `false` |
+| `edit_txn_add_text_layout` | `edit_transaction` | `critical` | `status_only` | `v4` | `owner_thread` | `true` | `false` |
+| `edit_txn_commit_render` | `edit_transaction` | `critical` | `native_ref_result` | `v4` | `owner_thread` | `true` | `true` |
+| `edit_txn_abort` | `edit_transaction` | `cold` | `status_only` | `none` | `owner_thread` | `false` | `false` |
 
 ## ABI conformance fixtures
 

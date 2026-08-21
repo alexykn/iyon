@@ -1211,6 +1211,232 @@
       "ownership": "runtime_owned",
       "return": "ViewRefResult",
       "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "base_root_ref",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "expected_edit_count",
+          "type": "u32"
+        }
+      ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "edit_txn.begin",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "edit_transaction",
+      "hotness": "critical",
+      "implementation": "edit_txn_begin_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 256,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "edit_txn_begin",
+      "ownership": "runtime_owned",
+      "return": "native_ref_result",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "txn_ref",
+          "type": "EditTxnRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "path_ref",
+          "type": "PathRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "path_depth",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "target_node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "target_node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "ancestor0_node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "ancestor0_node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "ancestor1_node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "ancestor1_node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "ancestor2_node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "ancestor2_node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "ancestor3_node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "ancestor3_node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        16
+      ],
+      "benchmark_registration": "edit_txn.add_text_layout",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "edit_transaction",
+      "hotness": "critical",
+      "implementation": "edit_txn_add_text_layout_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 4,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "edit_txn_add_text_layout",
+      "ownership": "runtime_owned",
+      "return": "status_only",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "host_ptr",
+          "name": "host",
+          "type": "HostPtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "txn_ref",
+          "type": "EditTxnRef"
+        }
+      ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "edit_txn.commit_render",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "edit_transaction",
+      "hotness": "critical",
+      "implementation": "edit_txn_commit_render_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": true,
+      "name": "edit_txn_commit_render",
+      "ownership": "host_mutating",
+      "return": "native_ref_result",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "txn_ref",
+          "type": "EditTxnRef"
+        }
+      ],
+      "arity_specializations": [],
+      "benchmark_registration": "edit_txn.abort",
+      "borrow_duration": "call",
+      "fallback": "none",
+      "family": "edit_transaction",
+      "hotness": "cold",
+      "implementation": "edit_txn_abort_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": false,
+      "mutates_host_state": false,
+      "name": "edit_txn_abort",
+      "ownership": "runtime_owned",
+      "return": "status_only",
+      "thread_affinity": "owner_thread"
     }
   ],
   "generated_outputs": [
@@ -1265,6 +1491,15 @@
       "rust": "u32",
       "typescript": "number",
       "valid": "1..0x7fffffff"
+    },
+    {
+      "kind": "edit_txn",
+      "lifetime": "runtime",
+      "name": "EditTxnRef",
+      "nullable": false,
+      "rust": "u32",
+      "typescript": "number",
+      "valid": "0x7fff0001..0x7fffffff"
     }
   ],
   "pods": [
@@ -1285,5 +1520,5 @@
       "size": 8
     }
   ],
-  "schema_blake3": "b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193"
+  "schema_blake3": "6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9"
 }

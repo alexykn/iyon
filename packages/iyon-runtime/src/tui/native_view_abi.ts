@@ -13,6 +13,10 @@ import {
   viewTextLayoutPatchPathD3,
   viewTextLayoutPatchPathD4,
   viewTextLayoutPatchRoot,
+  editTxnBegin,
+  editTxnAddTextLayout,
+  editTxnCommitRender,
+  editTxnAbort,
   type ViewAbiSymbols,
 } from "./generated/view_calls.ts";
 import {
@@ -40,6 +44,18 @@ export interface NativeViewRenderHost {
   readonly tuiViewAbiHostPointer?: () => number;
 }
 
+/**
+ * One typed transaction edit. `views` is ordered from changed leaf toward the
+ * new root, matching the fixed NodeId lanes in the generated ABI. It contains
+ * semantic identities only; no bridge nodes or transport arrays are retained.
+ */
+export interface NativeTextLayoutTransactionEdit {
+  readonly lineage: NativePathLineage;
+  readonly views: readonly View[];
+  readonly wrap: number;
+  readonly align: number;
+}
+
 let cachedSession: NativeViewAbiSession | undefined;
 const PATH_REFS = new WeakMap<NativeViewAbiSession, WeakMap<object, number>>();
 const PATH_SHAPE_REFS = new WeakMap<NativeViewAbiSession, Map<string, number>>();
@@ -61,6 +77,10 @@ const ABI_FUNCTION_NAMES = [
   "viewTextLayoutPatchPathD2",
   "viewTextLayoutPatchPathD3",
   "viewTextLayoutPatchPathD4",
+  "editTxnBegin",
+  "editTxnAddTextLayout",
+  "editTxnCommitRender",
+  "editTxnAbort",
 ] as const;
 
 function isValidPointer(value: unknown): value is Pointer {
@@ -114,6 +134,10 @@ export function nativeViewAbiSession(): NativeViewAbiSession | undefined {
     viewTextLayoutPatchPathD2: bootstrap.functions.viewTextLayoutPatchPathD2 as Pointer,
     viewTextLayoutPatchPathD3: bootstrap.functions.viewTextLayoutPatchPathD3 as Pointer,
     viewTextLayoutPatchPathD4: bootstrap.functions.viewTextLayoutPatchPathD4 as Pointer,
+    editTxnBegin: bootstrap.functions.editTxnBegin as Pointer,
+    editTxnAddTextLayout: bootstrap.functions.editTxnAddTextLayout as Pointer,
+    editTxnCommitRender: bootstrap.functions.editTxnCommitRender as Pointer,
+    editTxnAbort: bootstrap.functions.editTxnAbort as Pointer,
   };
   const linked = linkViewAbi(pointers);
   const runtime = bootstrap.runtime_ptr as Pointer;
@@ -188,6 +212,76 @@ export function tryNativeScalarRender(
     return nextRef;
   } catch (error) {
     if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Stages multiple typed text-layout edits and atomically installs their shared
+ * changed-path-trie result. The helper is intentionally explicit: broader
+ * public View-boundary routing belongs to Tranche 12, while Tranche 8 proves
+ * the native transaction lifecycle and shared-ancestor algorithm end to end.
+ */
+export function tryNativeEditTransactionRender(
+  host: NativeViewRenderHost,
+  previous: View,
+  previousRef: number,
+  edits: readonly NativeTextLayoutTransactionEdit[],
+): number | undefined {
+  if (edits.length === 0 || edits.length > 256 || !isValidNativeRef(previousRef)) return undefined;
+  const hostPointer = host.tuiViewAbiHostPointer?.();
+  if (!isValidPointer(hostPointer)) return undefined;
+  const session = nativeViewAbiSession();
+  if (session === undefined) return undefined;
+  let txnRef: number | undefined;
+  try {
+    txnRef = editTxnBegin(session.symbols, session.runtime, previousRef, edits.length);
+    for (const edit of edits) {
+      const depth = edit.lineage.depth;
+      if (depth < 0 || depth > 4 || edit.views.length !== depth + 1 || edit.lineage.baseNodeId !== viewNodeId(previous)) {
+        editTxnAbort(session.symbols, session.runtime, txnRef);
+        return undefined;
+      }
+      const pathRef = nativePathRefForLineage(session, edit.lineage);
+      const ids = edit.views.map((view) => nodeIdPair(view));
+      const [targetLow, targetHigh] = ids[0]!;
+      // Generated checked wrappers validate every fixed NodeId lane. Unused
+      // lanes carry the valid root identity and are ignored by native staging.
+      const fallbackId = ids[ids.length - 1]!;
+      const [ancestor0Low, ancestor0High] = ids[1] ?? fallbackId;
+      const [ancestor1Low, ancestor1High] = ids[2] ?? fallbackId;
+      const [ancestor2Low, ancestor2High] = ids[3] ?? fallbackId;
+      const [ancestor3Low, ancestor3High] = ids[4] ?? fallbackId;
+      const status = editTxnAddTextLayout(
+        session.symbols,
+        session.runtime,
+        txnRef,
+        pathRef,
+        depth,
+        targetLow,
+        targetHigh,
+        ancestor0Low,
+        ancestor0High,
+        ancestor1Low,
+        ancestor1High,
+        ancestor2Low,
+        ancestor2High,
+        ancestor3Low,
+        ancestor3High,
+        edit.wrap,
+        edit.align,
+      );
+      if (status !== 0) {
+        editTxnAbort(session.symbols, session.runtime, txnRef);
+        return undefined;
+      }
+    }
+    const result = editTxnCommitRender(session.symbols, session.runtime, hostPointer as Pointer, txnRef);
+    txnRef = undefined;
+    return result;
+  } catch (error) {
+    if (txnRef !== undefined) editTxnAbort(session.symbols, session.runtime, txnRef);
     if (isExpectedNativeStatus(error)) return undefined;
     throw error;
   }

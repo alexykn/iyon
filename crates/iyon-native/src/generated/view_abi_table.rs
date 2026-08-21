@@ -1,5 +1,5 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193
+// schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9
 // generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69
 #![allow(dead_code)]
 
@@ -260,6 +260,66 @@ pub static FUNCTIONS: &[FunctionDescriptor] = &[
         max_buffer_bytes: 0,
         max_input_count: 4,
         benchmark_registration: "view.text_layout_patch_path_d4",
+    },
+    FunctionDescriptor {
+        name: "edit_txn_begin",
+        symbol: "iyon_edit_txn_begin_v1",
+        family: "edit_transaction",
+        hotness: "critical",
+        fallback: "v4",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: true,
+        mutates_host_state: false,
+        max_buffer_bytes: 0,
+        max_input_count: 256,
+        benchmark_registration: "edit_txn.begin",
+    },
+    FunctionDescriptor {
+        name: "edit_txn_add_text_layout",
+        symbol: "iyon_edit_txn_add_text_layout_v1",
+        family: "edit_transaction",
+        hotness: "critical",
+        fallback: "v4",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: true,
+        mutates_host_state: false,
+        max_buffer_bytes: 0,
+        max_input_count: 4,
+        benchmark_registration: "edit_txn.add_text_layout",
+    },
+    FunctionDescriptor {
+        name: "edit_txn_commit_render",
+        symbol: "iyon_edit_txn_commit_render_v1",
+        family: "edit_transaction",
+        hotness: "critical",
+        fallback: "v4",
+        ownership: "host_mutating",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: true,
+        mutates_host_state: true,
+        max_buffer_bytes: 0,
+        max_input_count: 1,
+        benchmark_registration: "edit_txn.commit_render",
+    },
+    FunctionDescriptor {
+        name: "edit_txn_abort",
+        symbol: "iyon_edit_txn_abort_v1",
+        family: "edit_transaction",
+        hotness: "cold",
+        fallback: "none",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: false,
+        mutates_host_state: false,
+        max_buffer_bytes: 0,
+        max_input_count: 1,
+        benchmark_registration: "edit_txn.abort",
     },
 ];
 

@@ -1,11 +1,11 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193
+// schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9
 // generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69
 import { expect, test } from "bun:test";
 import manifest from "../../src/tui/generated/view_abi_manifest.json";
 
 test("generated ABI manifest is pinned and ordered", () => {
-  expect(manifest.schema_blake3).toBe("b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193");
+  expect(manifest.schema_blake3).toBe("6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9");
   expect(manifest.abi.version).toBe(1);
   expect(manifest.functions.map((item) => item.name)).toEqual([
     "runtime_noop",
@@ -24,6 +24,10 @@ test("generated ABI manifest is pinned and ordered", () => {
     "view_text_layout_patch_path_d2",
     "view_text_layout_patch_path_d3",
     "view_text_layout_patch_path_d4",
+    "edit_txn_begin",
+    "edit_txn_add_text_layout",
+    "edit_txn_commit_render",
+    "edit_txn_abort",
   ]);
   expect(manifest.conformance.map((item) => item.name)).toEqual([
     "u8_8",
@@ -77,5 +81,9 @@ test("generated ABI signatures and POD layouts are pinned", () => {
     ["runtime_ptr", "native_ref", "native_ref", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"],
     ["runtime_ptr", "native_ref", "native_ref", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"],
     ["runtime_ptr", "native_ref", "native_ref", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"],
+    ["runtime_ptr", "native_ref", "u32"],
+    ["runtime_ptr", "native_ref", "native_ref", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"],
+    ["runtime_ptr", "host_ptr", "native_ref"],
+    ["runtime_ptr", "native_ref"],
   ]);
 });

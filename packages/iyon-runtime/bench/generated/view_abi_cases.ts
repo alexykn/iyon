@@ -1,5 +1,5 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193
+// schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9
 // generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69
 export type GeneratedAbiBenchmarkCase = {
   name: string;
@@ -29,4 +29,8 @@ export const generatedAbiCases: readonly GeneratedAbiBenchmarkCase[] = [
   { name: "view_text_layout_patch_path_d2", family: "path_patch", hotness: "critical", benchmarkRegistration: "view.text_layout_patch_path_d2", scalarArgs: 11, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 2 },
   { name: "view_text_layout_patch_path_d3", family: "path_patch", hotness: "critical", benchmarkRegistration: "view.text_layout_patch_path_d3", scalarArgs: 13, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 3 },
   { name: "view_text_layout_patch_path_d4", family: "path_patch", hotness: "critical", benchmarkRegistration: "view.text_layout_patch_path_d4", scalarArgs: 15, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 4 },
+  { name: "edit_txn_begin", family: "edit_transaction", hotness: "critical", benchmarkRegistration: "edit_txn.begin", scalarArgs: 3, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 256 },
+  { name: "edit_txn_add_text_layout", family: "edit_transaction", hotness: "critical", benchmarkRegistration: "edit_txn.add_text_layout", scalarArgs: 16, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 4 },
+  { name: "edit_txn_commit_render", family: "edit_transaction", hotness: "critical", benchmarkRegistration: "edit_txn.commit_render", scalarArgs: 3, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 1 },
+  { name: "edit_txn_abort", family: "edit_transaction", hotness: "cold", benchmarkRegistration: "edit_txn.abort", scalarArgs: 2, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 1 },
 ];

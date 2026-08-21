@@ -4,7 +4,7 @@ use iyon_tui::{HorizontalAlign, Insets, RetainedPathStep, View, WrapMode};
 use napi::Env;
 use napi_derive::napi;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::ThreadId;
@@ -38,6 +38,7 @@ const SEMANTIC_VERSION: u32 = 1;
 const FAST_INVALID: u32 = 0x8000_0001;
 const FAST_CACHE_MISS: u32 = 0x8000_0004;
 const FAST_FALLBACK: u32 = 0x8000_0005;
+const FAST_INTERNAL: u32 = 0x8000_0006;
 const HOST_STATUS_OK: i32 = 0;
 const HOST_STATUS_CACHE_MISS: i32 = 1;
 const HOST_STATUS_INVALID: i32 = -1;
@@ -95,8 +96,13 @@ struct NativeViewSlot {
 // PathRefs occupy a disjoint valid-handle range so a ViewRef can never be
 // accepted as a path handle (and vice versa).
 const PATH_ROOT_REF: u32 = 0x4000_0001;
-const PATH_REF_LIMIT: u32 = 0x8000_0000;
+const EDIT_TXN_REF_START: u32 = 0x7fff_0001;
+const PATH_REF_LIMIT: u32 = EDIT_TXN_REF_START;
+const EDIT_TXN_REF_LIMIT: u32 = 0x8000_0000;
 const MAX_PATH_DEPTH: u32 = 128;
+const MAX_EDIT_COUNT: u32 = 256;
+const MAX_TXN_STAGED_OBJECTS: usize = 4_096;
+const MAX_NEW_TEXT_BYTES: u32 = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct PathKey {
@@ -111,6 +117,32 @@ struct PathNode {
     parent: u32,
     step: RetainedPathStep,
     depth: u32,
+}
+
+#[derive(Clone)]
+struct TextLayoutEdit {
+    path_ref: u32,
+    path_depth: u32,
+    // IDs are ordered from changed leaf toward the changed root. Unused
+    // entries are zero and are never interpreted by the transaction.
+    node_ids: [u64; 5],
+    wrap: WrapMode,
+    align: HorizontalAlign,
+}
+
+struct EditTrieNode {
+    step: Option<RetainedPathStep>,
+    node_id: Option<u64>,
+    edit: Option<TextLayoutEdit>,
+    children: Vec<usize>,
+}
+
+struct EditTxn {
+    base_root_ref: u32,
+    base_view: View,
+    expected_edit_count: u32,
+    staged_text_bytes: u32,
+    edits: Vec<TextLayoutEdit>,
 }
 
 #[repr(C)]
@@ -129,8 +161,10 @@ pub(super) struct NativeViewRuntime {
     node_refs: HashMap<u64, u32>,
     path_nodes: HashMap<u32, PathNode>,
     path_keys: HashMap<PathKey, u32>,
+    edit_txns: HashMap<u32, EditTxn>,
     next_native_ref: u32,
     next_path_ref: u32,
+    next_edit_txn_ref: u32,
     pub(super) generation: u32,
     #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
     pub(super) packed_v3: packed_v3::PackedState,
@@ -163,8 +197,10 @@ impl NativeViewRuntime {
                 },
             )]),
             path_keys: HashMap::new(),
+            edit_txns: HashMap::new(),
             next_native_ref: 1,
             next_path_ref: PATH_ROOT_REF + 1,
+            next_edit_txn_ref: EDIT_TXN_REF_LIMIT - 1,
             generation: 1,
             #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
             packed_v3: packed_v3::PackedState::new(),
@@ -268,6 +304,232 @@ impl NativeViewRuntime {
         }
         steps.reverse();
         Ok(steps)
+    }
+
+    fn allocate_edit_txn_ref(&mut self) -> Option<u32> {
+        while self.next_edit_txn_ref >= EDIT_TXN_REF_START {
+            let candidate = self.next_edit_txn_ref;
+            self.next_edit_txn_ref = self.next_edit_txn_ref.saturating_sub(1);
+            if candidate != 0 && !self.edit_txns.contains_key(&candidate) {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn begin_edit_txn(&mut self, base_root_ref: u32, expected_edit_count: u32) -> Result<u32, u32> {
+        if !is_valid_view_ref(base_root_ref)
+            || expected_edit_count == 0
+            || expected_edit_count > MAX_EDIT_COUNT
+        {
+            return Err(FAST_INVALID);
+        }
+        let Ok((base_view, _)) = self.resolve_ref(base_root_ref) else {
+            return Err(FAST_CACHE_MISS);
+        };
+        let reference = self.allocate_edit_txn_ref().ok_or(FAST_FALLBACK)?;
+        self.edit_txns.insert(
+            reference,
+            EditTxn {
+                base_root_ref,
+                base_view,
+                expected_edit_count,
+                staged_text_bytes: 0,
+                edits: Vec::with_capacity(expected_edit_count as usize),
+            },
+        );
+        Ok(reference)
+    }
+
+    fn add_text_layout_edit(
+        &mut self,
+        txn_ref: u32,
+        path_ref: u32,
+        path_depth: u32,
+        node_ids: [u64; 5],
+        wrap: WrapMode,
+        align: HorizontalAlign,
+    ) -> i32 {
+        if !is_valid_edit_txn_ref(txn_ref) {
+            return -1;
+        }
+        if path_depth > 4 || path_depth > MAX_PATH_DEPTH {
+            return 2;
+        }
+        let Ok(steps) = self.path_steps(path_ref) else {
+            return 1;
+        };
+        if steps.len() != path_depth as usize {
+            return -1;
+        }
+        let Some(txn) = self.edit_txns.get_mut(&txn_ref) else {
+            return 1;
+        };
+        if txn.edits.len() as u32 >= txn.expected_edit_count
+            || txn.edits.len() as u32 >= MAX_EDIT_COUNT
+            || txn.staged_text_bytes > MAX_NEW_TEXT_BYTES
+            || (txn.edits.len() + path_depth as usize + 1) > MAX_TXN_STAGED_OBJECTS
+        {
+            return 2;
+        }
+        if txn
+            .edits
+            .iter()
+            .any(|edit| edit.path_ref == path_ref && edit.path_depth == path_depth)
+        {
+            return -1;
+        }
+        txn.edits.push(TextLayoutEdit {
+            path_ref,
+            path_depth,
+            node_ids,
+            wrap,
+            align,
+        });
+        0
+    }
+
+    fn build_edit_trie(&self, txn: &EditTxn) -> Result<Vec<EditTrieNode>, u32> {
+        if txn.edits.is_empty() {
+            return Err(FAST_INVALID);
+        }
+        let mut trie = vec![EditTrieNode {
+            step: None,
+            node_id: None,
+            edit: None,
+            children: Vec::new(),
+        }];
+        for edit in &txn.edits {
+            let steps = self.path_steps(edit.path_ref)?;
+            if steps.len() != edit.path_depth as usize || edit.path_depth > 4 {
+                return Err(FAST_INVALID);
+            }
+            let root_id = edit.node_ids[edit.path_depth as usize];
+            if root_id == 0 {
+                return Err(FAST_INVALID);
+            }
+            set_trie_node_id(&mut trie[0], root_id)?;
+            let mut current = 0;
+            for (index, step) in steps.iter().copied().enumerate() {
+                let child = trie[current]
+                    .children
+                    .iter()
+                    .copied()
+                    .find(|candidate| trie[*candidate].step == Some(step));
+                let child = if let Some(child) = child {
+                    child
+                } else {
+                    if trie.len() >= MAX_TXN_STAGED_OBJECTS {
+                        return Err(FAST_FALLBACK);
+                    }
+                    let child = trie.len();
+                    trie.push(EditTrieNode {
+                        step: Some(step),
+                        node_id: None,
+                        edit: None,
+                        children: Vec::new(),
+                    });
+                    trie[current].children.push(child);
+                    child
+                };
+                let node_id = edit.node_ids[edit.path_depth as usize - index - 1];
+                if node_id == 0 {
+                    return Err(FAST_INVALID);
+                }
+                set_trie_node_id(&mut trie[child], node_id)?;
+                current = child;
+            }
+            if trie[current].edit.is_some() || !trie[current].children.is_empty() {
+                return Err(FAST_INVALID);
+            }
+            trie[current].edit = Some(edit.clone());
+        }
+        Ok(trie)
+    }
+
+    fn stage_edit_trie(
+        &self,
+        view: View,
+        trie: &[EditTrieNode],
+        index: usize,
+        staged: &mut Vec<(u64, View)>,
+    ) -> Result<View, u32> {
+        let node = &trie[index];
+        if let Some(edit) = node.edit.as_ref() {
+            if !node.children.is_empty() || node.node_id.is_none() {
+                return Err(FAST_INVALID);
+            }
+            let patched = view
+                .try_with_text_layout_patch(Some(edit.wrap), Some(edit.align))
+                .map_err(|_| FAST_INVALID)?;
+            staged.push((node.node_id.unwrap(), patched.clone()));
+            return Ok(patched);
+        }
+        if node.children.is_empty() || node.node_id.is_none() {
+            return Err(FAST_INVALID);
+        }
+        let mut patched = view.clone();
+        for &child_index in &node.children {
+            let step = trie[child_index].step.ok_or(FAST_INVALID)?;
+            let child = view.try_retained_child(step).map_err(|_| FAST_INVALID)?;
+            let rebuilt = self.stage_edit_trie(child, trie, child_index, staged)?;
+            patched = patched
+                .try_replace_retained_child(step, rebuilt)
+                .map_err(|_| FAST_INVALID)?;
+        }
+        staged.push((node.node_id.unwrap(), patched.clone()));
+        Ok(patched)
+    }
+
+    fn validate_staged_publication(&mut self, staged: &[(u64, View)]) -> Result<(), u32> {
+        let mut unique = HashSet::with_capacity(staged.len());
+        let mut new_refs = 0usize;
+        for (node_id, view) in staged {
+            if *node_id == 0 || !unique.insert(*node_id) {
+                return Err(FAST_INVALID);
+            }
+            if let Some(existing) = self
+                .nodes
+                .get(node_id)
+                .and_then(iyon_tui::WeakView::upgrade)
+                && existing != *view
+            {
+                return Err(FAST_INVALID);
+            }
+            if let Some(reference) = self.node_refs.get(node_id).copied() {
+                match self.resolve_ref(reference) {
+                    Ok((existing, _)) if existing != *view => return Err(FAST_INVALID),
+                    Ok(_) => {}
+                    Err(FAST_CACHE_MISS) => {
+                        self.node_refs.remove(node_id);
+                        new_refs += 1;
+                    }
+                    Err(error) => return Err(error),
+                }
+            } else {
+                new_refs += 1;
+            }
+        }
+        if new_refs > 0 && self.next_native_ref >= PATH_ROOT_REF.saturating_sub(new_refs as u32) {
+            return Err(FAST_FALLBACK);
+        }
+        Ok(())
+    }
+
+    fn publish_staged(&mut self, staged: Vec<(u64, View)>) -> Result<u32, u32> {
+        let last = staged.len().checked_sub(1).ok_or(FAST_INVALID)?;
+        let mut root_ref = 0;
+        for (index, (node_id, view)) in staged.into_iter().enumerate() {
+            let reference = if index == last {
+                self.publish(node_id, view)?
+            } else {
+                self.publish_bulk(node_id, view)?
+            };
+            if index == last {
+                root_ref = reference;
+            }
+        }
+        Ok(root_ref)
     }
 
     fn allocate_ref(&mut self) -> Option<u32> {
@@ -560,6 +822,10 @@ pub fn bootstrap(env: Env) -> napi::Result<Value> {
             "viewTextLayoutPatchPathD2": generated_exports::iyon_view_text_layout_patch_path_d2_v1 as *const () as usize as u64,
             "viewTextLayoutPatchPathD3": generated_exports::iyon_view_text_layout_patch_path_d3_v1 as *const () as usize as u64,
             "viewTextLayoutPatchPathD4": generated_exports::iyon_view_text_layout_patch_path_d4_v1 as *const () as usize as u64,
+            "editTxnBegin": generated_exports::iyon_edit_txn_begin_v1 as *const () as usize as u64,
+            "editTxnAddTextLayout": generated_exports::iyon_edit_txn_add_text_layout_v1 as *const () as usize as u64,
+            "editTxnCommitRender": generated_exports::iyon_edit_txn_commit_render_v1 as *const () as usize as u64,
+            "editTxnAbort": generated_exports::iyon_edit_txn_abort_v1 as *const () as usize as u64,
         },
     }))
 }
@@ -962,6 +1228,133 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d4_impl(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn edit_txn_begin_impl(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    expected_edit_count: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let result = runtime
+        .begin_edit_txn(base_root_ref, expected_edit_count)
+        .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn edit_txn_add_text_layout_impl(
+    runtime: *mut NativeViewRuntime,
+    txn_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> i32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return -1;
+    };
+    if path_depth > 4 {
+        return record_host_status(runtime, 2);
+    }
+    let ids = [
+        (target_node_id_low, target_node_id_high),
+        (ancestor0_node_id_low, ancestor0_node_id_high),
+        (ancestor1_node_id_low, ancestor1_node_id_high),
+        (ancestor2_node_id_low, ancestor2_node_id_high),
+        (ancestor3_node_id_low, ancestor3_node_id_high),
+    ];
+    let mut node_ids = [0_u64; 5];
+    for index in 0..=path_depth as usize {
+        let Ok(id) = node_id(ids[index].0, ids[index].1) else {
+            return record_host_status(runtime, -1);
+        };
+        node_ids[index] = id;
+    }
+    let Ok(wrap) = decode_wrap(wrap) else {
+        return record_host_status(runtime, -1);
+    };
+    let Ok(align) = decode_align(align) else {
+        return record_host_status(runtime, -1);
+    };
+    let status = runtime.add_text_layout_edit(txn_ref, path_ref, path_depth, node_ids, wrap, align);
+    record_host_status(runtime, status)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn edit_txn_commit_render_impl(
+    runtime: *mut NativeViewRuntime,
+    host: *mut NativeHost,
+    txn_ref: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Some(host) = (unsafe { host.as_ref() }) else {
+        return record_result(runtime, FAST_INVALID);
+    };
+    if !is_valid_edit_txn_ref(txn_ref) {
+        return record_result(runtime, FAST_INVALID);
+    }
+    if !host.alive.load(Ordering::Acquire) {
+        runtime.edit_txns.remove(&txn_ref);
+        return record_result(runtime, FAST_INVALID);
+    }
+    let Some(txn) = runtime.edit_txns.remove(&txn_ref) else {
+        return record_result(runtime, FAST_CACHE_MISS);
+    };
+    if txn.base_root_ref == 0 || txn.edits.is_empty() {
+        return record_result(runtime, FAST_INVALID);
+    }
+    let trie = match runtime.build_edit_trie(&txn) {
+        Ok(trie) => trie,
+        Err(error) => return record_result(runtime, error),
+    };
+    let mut staged = Vec::with_capacity(trie.len());
+    let root = match runtime.stage_edit_trie(txn.base_view, &trie, 0, &mut staged) {
+        Ok(root) => root,
+        Err(error) => return record_result(runtime, error),
+    };
+    if staged.is_empty() || staged.last().map(|(_, view)| view != &root).unwrap_or(true) {
+        return record_result(runtime, FAST_INVALID);
+    }
+    if let Err(error) = runtime.validate_staged_publication(&staged) {
+        return record_result(runtime, error);
+    }
+    if host.host.render(root).is_err() {
+        return record_result(runtime, FAST_INTERNAL);
+    }
+    let result = runtime.publish_staged(staged).unwrap_or(FAST_INTERNAL);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn edit_txn_abort_impl(
+    runtime: *mut NativeViewRuntime,
+    txn_ref: u32,
+) -> i32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return -1;
+    };
+    let status = if runtime.edit_txns.remove(&txn_ref).is_some() {
+        0
+    } else {
+        1
+    };
+    record_host_status(runtime, status)
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "Rust" fn view_spacer_create_impl(
     runtime: *mut NativeViewRuntime,
     node_id_low: u32,
@@ -1142,6 +1535,21 @@ fn is_valid_path_ref(reference: u32) -> bool {
     (PATH_ROOT_REF..PATH_REF_LIMIT).contains(&reference)
 }
 
+fn is_valid_edit_txn_ref(reference: u32) -> bool {
+    (EDIT_TXN_REF_START..EDIT_TXN_REF_LIMIT).contains(&reference)
+}
+
+fn set_trie_node_id(node: &mut EditTrieNode, node_id: u64) -> Result<(), u32> {
+    match node.node_id {
+        Some(existing) if existing != node_id => Err(FAST_INVALID),
+        Some(_) => Ok(()),
+        None => {
+            node.node_id = Some(node_id);
+            Ok(())
+        }
+    }
+}
+
 fn path_step_matches_kind(step_kind: u32, expected_view_kind: u32) -> bool {
     match step_kind {
         1 => expected_view_kind == 6,
@@ -1175,7 +1583,10 @@ fn decode_align(value: u32) -> Result<HorizontalAlign, ()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FAST_CACHE_MISS, FAST_INVALID, NativeViewRuntime, generated_exports};
+    use super::{
+        FAST_CACHE_MISS, FAST_INVALID, MAX_EDIT_COUNT, NativeViewRuntime, PATH_ROOT_REF,
+        generated_exports, is_valid_edit_txn_ref,
+    };
     use iyon_tui::{IntoView, View};
 
     fn runtime() -> NativeViewRuntime {
@@ -1336,6 +1747,83 @@ mod tests {
         assert!(patched < 0x8000_0000);
         assert!(runtime.nodes.contains_key(&2));
         assert!(runtime.nodes.contains_key(&3));
+    }
+
+    #[test]
+    fn edit_transaction_builds_one_shared_ancestor_for_two_text_edits() {
+        let mut runtime = runtime();
+        let base_view = View::vertical(|column| {
+            column.child(View::text("left"));
+            column.child(View::text("right"));
+        })
+        .into_view();
+        let base = runtime.publish(1, base_view).expect("base ref");
+        let pointer = &mut runtime as *mut NativeViewRuntime;
+        let path_root = unsafe { generated_exports::iyon_path_root_v1(pointer) };
+        let path0 = unsafe { generated_exports::iyon_path_child_v1(pointer, path_root, 4, 3, 0) };
+        let path1 = unsafe { generated_exports::iyon_path_child_v1(pointer, path_root, 4, 3, 1) };
+        let txn = unsafe { generated_exports::iyon_edit_txn_begin_v1(pointer, base, 2) };
+        assert!(is_valid_edit_txn_ref(txn));
+        assert_eq!(
+            unsafe {
+                generated_exports::iyon_edit_txn_add_text_layout_v1(
+                    pointer, txn, path0, 1, 11, 0, 21, 0, 21, 0, 21, 0, 21, 0, 3, 2,
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                generated_exports::iyon_edit_txn_add_text_layout_v1(
+                    pointer, txn, path1, 1, 12, 0, 21, 0, 21, 0, 21, 0, 21, 0, 3, 2,
+                )
+            },
+            0
+        );
+        let transaction = runtime.edit_txns.get(&txn).expect("transaction");
+        let trie = runtime.build_edit_trie(transaction).expect("trie");
+        assert_eq!(trie.len(), 3, "root plus two changed leaves");
+        let mut staged = Vec::new();
+        let root = runtime
+            .stage_edit_trie(transaction.base_view.clone(), &trie, 0, &mut staged)
+            .expect("staged root");
+        assert_eq!(staged.len(), 3, "shared root is rebuilt once");
+        assert_eq!(staged.last().map(|(_, view)| view), Some(&root));
+        assert!(staged.iter().any(|(id, _)| *id == 11));
+        assert!(staged.iter().any(|(id, _)| *id == 12));
+        assert_eq!(staged.last().map(|(id, _)| *id), Some(21));
+    }
+
+    #[test]
+    fn edit_transaction_abort_and_limits_leave_no_staged_state() {
+        let mut runtime = runtime();
+        let base = runtime
+            .publish(1, View::text("base").into_view())
+            .expect("base ref");
+        let pointer = &mut runtime as *mut NativeViewRuntime;
+        assert_eq!(
+            unsafe { generated_exports::iyon_edit_txn_begin_v1(pointer, base, 0) },
+            FAST_INVALID
+        );
+        assert_eq!(
+            unsafe { generated_exports::iyon_edit_txn_begin_v1(pointer, base, MAX_EDIT_COUNT + 1) },
+            FAST_INVALID
+        );
+        let txn = unsafe { generated_exports::iyon_edit_txn_begin_v1(pointer, base, 1) };
+        assert!(is_valid_edit_txn_ref(txn));
+        assert_eq!(
+            unsafe { generated_exports::iyon_edit_txn_abort_v1(pointer, txn) },
+            0
+        );
+        assert!(!runtime.edit_txns.contains_key(&txn));
+        assert_eq!(
+            unsafe { generated_exports::iyon_edit_txn_abort_v1(pointer, txn) },
+            1
+        );
+        assert_eq!(
+            unsafe { generated_exports::iyon_edit_txn_begin_v1(pointer, PATH_ROOT_REF, 1) },
+            FAST_INVALID
+        );
     }
 
     #[test]

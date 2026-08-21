@@ -1,5 +1,5 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193
+// schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9
 // generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69
 // Generated C ABI wrappers. Semantic implementations are handwritten and linked below.
 use super::{NativeViewRuntime, NativeHost, AxisChildInputV1};
@@ -176,6 +176,43 @@ pub mod generated_impls {
             wrap: u32,
             align: u32,
         ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn edit_txn_begin_impl(
+            runtime: *mut NativeViewRuntime,
+            base_root_ref: u32,
+            expected_edit_count: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn edit_txn_add_text_layout_impl(
+            runtime: *mut NativeViewRuntime,
+            txn_ref: u32,
+            path_ref: u32,
+            path_depth: u32,
+            target_node_id_low: u32,
+            target_node_id_high: u32,
+            ancestor0_node_id_low: u32,
+            ancestor0_node_id_high: u32,
+            ancestor1_node_id_low: u32,
+            ancestor1_node_id_high: u32,
+            ancestor2_node_id_low: u32,
+            ancestor2_node_id_high: u32,
+            ancestor3_node_id_low: u32,
+            ancestor3_node_id_high: u32,
+            wrap: u32,
+            align: u32,
+        ) -> i32;
+    }
+    unsafe extern "Rust" {
+        pub fn edit_txn_commit_render_impl(
+            runtime: *mut NativeViewRuntime,
+            host: *mut NativeHost,
+            txn_ref: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn edit_txn_abort_impl(runtime: *mut NativeViewRuntime, txn_ref: u32) -> i32;
     }
 }
 
@@ -883,5 +920,128 @@ pub unsafe extern "C" fn iyon_view_text_layout_patch_path_d4_v1(
             })()
         },
         0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_edit_txn_begin_v1(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    expected_edit_count: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let base_root_ref = generated_native_ref(base_root_ref, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::edit_txn_begin_impl(
+                        runtime,
+                        base_root_ref,
+                        expected_edit_count,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_edit_txn_add_text_layout_v1(
+    runtime: *mut NativeViewRuntime,
+    txn_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> i32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<i32, i32> {
+                let runtime = generated_nonnull(runtime, -1i32)?;
+                let txn_ref = generated_native_ref(txn_ref, -1i32)?;
+                let path_ref = generated_native_ref(path_ref, -1i32)?;
+                let (target_node_id_low, target_node_id_high) =
+                    generated_node_id(target_node_id_low, target_node_id_high, -1i32)?;
+                let (ancestor0_node_id_low, ancestor0_node_id_high) =
+                    generated_node_id(ancestor0_node_id_low, ancestor0_node_id_high, -1i32)?;
+                let (ancestor1_node_id_low, ancestor1_node_id_high) =
+                    generated_node_id(ancestor1_node_id_low, ancestor1_node_id_high, -1i32)?;
+                let (ancestor2_node_id_low, ancestor2_node_id_high) =
+                    generated_node_id(ancestor2_node_id_low, ancestor2_node_id_high, -1i32)?;
+                let (ancestor3_node_id_low, ancestor3_node_id_high) =
+                    generated_node_id(ancestor3_node_id_low, ancestor3_node_id_high, -1i32)?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], -1i32)?;
+                let align = generated_enum(align, &[1, 2, 3], -1i32)?;
+                Ok(unsafe {
+                    generated_impls::edit_txn_add_text_layout_impl(
+                        runtime,
+                        txn_ref,
+                        path_ref,
+                        path_depth,
+                        target_node_id_low,
+                        target_node_id_high,
+                        ancestor0_node_id_low,
+                        ancestor0_node_id_high,
+                        ancestor1_node_id_low,
+                        ancestor1_node_id_high,
+                        ancestor2_node_id_low,
+                        ancestor2_node_id_high,
+                        ancestor3_node_id_low,
+                        ancestor3_node_id_high,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        -127i32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_edit_txn_commit_render_v1(
+    runtime: *mut NativeViewRuntime,
+    host: *mut NativeHost,
+    txn_ref: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let host = generated_nonnull(host, 0x8000_0001u32)?;
+                let txn_ref = generated_native_ref(txn_ref, 0x8000_0001u32)?;
+                Ok(unsafe { generated_impls::edit_txn_commit_render_impl(runtime, host, txn_ref) })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_edit_txn_abort_v1(
+    runtime: *mut NativeViewRuntime,
+    txn_ref: u32,
+) -> i32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<i32, i32> {
+                let runtime = generated_nonnull(runtime, -1i32)?;
+                let txn_ref = generated_native_ref(txn_ref, -1i32)?;
+                Ok(unsafe { generated_impls::edit_txn_abort_impl(runtime, txn_ref) })
+            })()
+        },
+        -127i32,
     )
 }
