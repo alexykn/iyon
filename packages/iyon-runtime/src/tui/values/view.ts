@@ -446,7 +446,7 @@ export class View {
   ): View {
     if (steps.length > 4) throw new RangeError("native retained path depth must be at most 4");
     const nextNode = patchBridgeTextPath(nodeForBridge(view), steps, wrapCode(wrap), horizontalAlignCode(align));
-    let lineage: NativePathLineage = { baseNodeId: nodeForBridge(view).id, depth: 0 };
+    let lineage: NativePathLineage = Object.freeze({ baseNodeId: nodeForBridge(view).id, depth: 0 });
     for (const step of steps) lineage = nativePathChildLineage(view, lineage, step);
     return new View(nextNode, undefined, undefined, lineage);
   }
@@ -479,6 +479,12 @@ const nodes = new WeakMap<View, BridgeViewNode>();
 const nodeIdParts = new WeakMap<View, readonly [number, number]>();
 const nativePathLineages = new WeakMap<View, NativePathLineage>();
 
+function freezeNativePathLineage(lineage: NativePathLineage): NativePathLineage {
+  const parent = lineage.parent === undefined ? undefined : freezeNativePathLineage(lineage.parent);
+  const step = lineage.step === undefined ? undefined : Object.freeze({ ...lineage.step });
+  return Object.freeze({ baseNodeId: lineage.baseNodeId, parent, step, depth: lineage.depth });
+}
+
 /** Returns the one-time retained path lineage attached during construction. */
 export function nativePathLineage(view: View): NativePathLineage | undefined {
   return nativePathLineages.get(view);
@@ -492,14 +498,14 @@ export function nativePathChildLineage(
 ): NativePathLineage {
   const baseNodeId = nodeForBridge(base).id;
   if (parent !== undefined && parent.baseNodeId !== baseNodeId) throw new Error("native path lineage base mismatch");
-  const lineage = { baseNodeId, parent, step, depth: (parent?.depth ?? 0) + 1 } satisfies NativePathLineage;
-  return lineage;
+  const immutableStep = Object.freeze({ ...step });
+  return Object.freeze({ baseNodeId, parent, step: immutableStep, depth: (parent?.depth ?? 0) + 1 });
 }
 
 /** Attaches a root/child path lineage without retaining any child View. */
 export function attachNativePathLineage(view: View, lineage: NativePathLineage): void {
   if (lineage.baseNodeId === nodeForBridge(view).id) throw new Error("native path lineage base must be the previous root");
-  nativePathLineages.set(view, lineage);
+  nativePathLineages.set(view, freezeNativePathLineage(lineage));
 }
 
 /** Returns the cached u32 halves of a View's full safe-integer NodeId. */

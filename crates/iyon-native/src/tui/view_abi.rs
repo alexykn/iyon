@@ -95,6 +95,7 @@ struct NativeViewSlot {
 // PathRefs occupy a disjoint valid-handle range so a ViewRef can never be
 // accepted as a path handle (and vice versa).
 const PATH_ROOT_REF: u32 = 0x4000_0001;
+const PATH_REF_LIMIT: u32 = 0x8000_0000;
 const MAX_PATH_DEPTH: u32 = 128;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -192,7 +193,7 @@ impl NativeViewRuntime {
     }
 
     fn allocate_path_ref(&mut self) -> Option<u32> {
-        while self.next_path_ref < 0x8000_0000 {
+        while self.next_path_ref < PATH_REF_LIMIT {
             let candidate = self.next_path_ref;
             self.next_path_ref = self.next_path_ref.wrapping_add(1);
             if candidate != 0 && !self.path_nodes.contains_key(&candidate) {
@@ -213,6 +214,9 @@ impl NativeViewRuntime {
         expected_view_kind: u32,
         selector: u32,
     ) -> Result<u32, u32> {
+        if !is_valid_path_ref(parent) {
+            return Err(FAST_INVALID);
+        }
         let Some(parent_node) = self.path_nodes.get(&parent).copied() else {
             return Err(FAST_CACHE_MISS);
         };
@@ -247,6 +251,9 @@ impl NativeViewRuntime {
     }
 
     fn path_steps(&self, reference: u32) -> Result<Vec<RetainedPathStep>, u32> {
+        if !is_valid_path_ref(reference) {
+            return Err(FAST_INVALID);
+        }
         let Some(node) = self.path_nodes.get(&reference).copied() else {
             return Err(FAST_CACHE_MISS);
         };
@@ -688,8 +695,12 @@ fn publish_text_path(
     if path_depth > 4 || node_ids.len() != path_depth as usize + 1 {
         return FAST_INVALID;
     }
-    let Ok(steps) = runtime.path_steps(path_ref) else {
-        return FAST_CACHE_MISS;
+    if !is_valid_view_ref(base_root_ref) {
+        return FAST_INVALID;
+    }
+    let steps = match runtime.path_steps(path_ref) {
+        Ok(steps) => steps,
+        Err(error) => return error,
     };
     if steps.len() != path_depth as usize {
         return FAST_INVALID;
@@ -734,7 +745,7 @@ fn publish_text_path(
             Err(error) => return error,
         }
     }
-    record_result(runtime, root_ref)
+    root_ref
 }
 
 fn validate_path_publication(
@@ -800,7 +811,7 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_impl(
         (ancestor2_node_id_low, ancestor2_node_id_high),
         (ancestor3_node_id_low, ancestor3_node_id_high),
     ];
-    publish_text_path(
+    let result = publish_text_path(
         runtime,
         base_root_ref,
         path_ref,
@@ -808,7 +819,8 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_impl(
         &node_ids[..path_depth as usize + 1],
         wrap,
         align,
-    )
+    );
+    record_result(runtime, result)
 }
 
 #[unsafe(no_mangle)]
@@ -826,7 +838,7 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d1_impl(
     let Ok(runtime) = runtime_mut(runtime) else {
         return FAST_INVALID;
     };
-    publish_text_path(
+    let result = publish_text_path(
         runtime,
         base_root_ref,
         path_ref,
@@ -837,7 +849,8 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d1_impl(
         ],
         wrap,
         align,
-    )
+    );
+    record_result(runtime, result)
 }
 
 #[unsafe(no_mangle)]
@@ -857,7 +870,7 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d2_impl(
     let Ok(runtime) = runtime_mut(runtime) else {
         return FAST_INVALID;
     };
-    publish_text_path(
+    let result = publish_text_path(
         runtime,
         base_root_ref,
         path_ref,
@@ -869,7 +882,8 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d2_impl(
         ],
         wrap,
         align,
-    )
+    );
+    record_result(runtime, result)
 }
 
 #[unsafe(no_mangle)]
@@ -891,7 +905,7 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d3_impl(
     let Ok(runtime) = runtime_mut(runtime) else {
         return FAST_INVALID;
     };
-    publish_text_path(
+    let result = publish_text_path(
         runtime,
         base_root_ref,
         path_ref,
@@ -904,7 +918,8 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d3_impl(
         ],
         wrap,
         align,
-    )
+    );
+    record_result(runtime, result)
 }
 
 #[unsafe(no_mangle)]
@@ -928,7 +943,7 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d4_impl(
     let Ok(runtime) = runtime_mut(runtime) else {
         return FAST_INVALID;
     };
-    publish_text_path(
+    let result = publish_text_path(
         runtime,
         base_root_ref,
         path_ref,
@@ -942,7 +957,8 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d4_impl(
         ],
         wrap,
         align,
-    )
+    );
+    record_result(runtime, result)
 }
 
 #[unsafe(no_mangle)]
@@ -1116,6 +1132,14 @@ pub unsafe extern "Rust" fn view_release_many_impl(
         return -1;
     };
     runtime.release_many(refs, used_ref_count).unwrap_or(-1)
+}
+
+fn is_valid_view_ref(reference: u32) -> bool {
+    (1..PATH_ROOT_REF).contains(&reference)
+}
+
+fn is_valid_path_ref(reference: u32) -> bool {
+    (PATH_ROOT_REF..PATH_REF_LIMIT).contains(&reference)
 }
 
 fn path_step_matches_kind(step_kind: u32, expected_view_kind: u32) -> bool {
@@ -1338,6 +1362,26 @@ mod tests {
         assert!(!runtime.nodes.contains_key(&9));
         assert_eq!(
             unsafe { generated_exports::iyon_path_child_v1(pointer, root, 4, 1, 0) },
+            FAST_INVALID
+        );
+        assert!(base < super::PATH_ROOT_REF);
+        assert_eq!(
+            unsafe { generated_exports::iyon_path_child_v1(pointer, base, 4, 3, 0) },
+            FAST_INVALID
+        );
+        assert_eq!(
+            unsafe {
+                generated_exports::iyon_view_text_layout_patch_path_d1_v1(
+                    pointer, base, base, 2, 0, 3, 0, 3, 2,
+                )
+            },
+            FAST_INVALID
+        );
+        assert_eq!(
+            runtime
+                .status
+                .code
+                .load(std::sync::atomic::Ordering::Acquire),
             FAST_INVALID
         );
     }
