@@ -24,6 +24,7 @@ import {
   type BridgeViewNode,
   type BridgeViewNodeDraft,
   type ColorNode,
+  type TextSpanNode,
   type DecorationNode,
   type DiffHunkNode,
   type DiffLineNode,
@@ -41,6 +42,71 @@ import { PersistentSeq } from "../persistent_seq.ts";
 
 type ChildBuilder = readonly View[] | ((builder: ChildrenBuilder) => void);
 type CounterBox = { next: number };
+
+type PendingCreateKind = "text" | "spacer";
+type PendingPatchKind = "textLayout" | "common";
+
+/**
+ * Stable-shape private semantic backing. Pending values carry only the compact
+ * recipe needed by the generated/native route; BridgeViewNode is materialized
+ * lazily by nodeForBridge for the cold/direct compatibility path.
+ */
+interface ViewBacking {
+  readonly state: 0 | 1 | 2;
+  readonly nodeId: number;
+  readonly nodeIdLow: number;
+  readonly nodeIdHigh: number;
+  readonly nodeIdPair: readonly [number, number];
+  readonly node?: BridgeViewNode;
+  readonly createKind?: PendingCreateKind;
+  readonly spans?: readonly TextSpanNode[];
+  readonly rows?: number;
+  readonly wrap?: number;
+  readonly align?: number;
+  readonly patchKind?: PendingPatchKind;
+  readonly base?: View;
+  readonly mask?: number;
+  readonly paddingTopRight?: number;
+  readonly paddingBottomLeft?: number;
+  readonly widthRule?: number;
+  readonly heightRule?: number;
+  readonly minWidth?: number;
+  readonly maxWidth?: number;
+  readonly minHeight?: number;
+  readonly maxHeight?: number;
+}
+
+const PATCH_PADDING = 4;
+const PATCH_WIDTH = 8;
+const PATCH_HEIGHT = 16;
+const PATCH_MIN_WIDTH = 32;
+const PATCH_MAX_WIDTH = 64;
+const PATCH_MIN_HEIGHT = 128;
+const PATCH_MAX_HEIGHT = 256;
+const kBacking = Symbol("iyon:tui:view-backing");
+
+export interface NativeTextLayoutPatch {
+  readonly kind: "textLayout";
+  readonly base: View;
+  readonly wrap: number;
+  readonly align: number;
+}
+
+export interface NativeCommonPatch {
+  readonly kind: "common";
+  readonly base: View;
+  readonly mask: number;
+  readonly paddingTopRight: number;
+  readonly paddingBottomLeft: number;
+  readonly widthRule: number;
+  readonly heightRule: number;
+  readonly minWidth: number;
+  readonly maxWidth: number;
+  readonly minHeight: number;
+  readonly maxHeight: number;
+}
+
+export type NativeScalarPatch = NativeTextLayoutPatch | NativeCommonPatch;
 
 /** Native retained-path metadata; it stores selectors, never a View graph. */
 export interface NativePathStep {
@@ -86,6 +152,86 @@ const nodeIdCounter = globalRoot[NODE_ID_COUNTER] ??= { next: 1 };
 function nextNodeId(): number {
   if (nodeIdCounter.next > Number.MAX_SAFE_INTEGER) throw new Error("TUI View node identity exhausted");
   return nodeIdCounter.next++;
+}
+
+function makeBacking(
+  state: 0 | 1 | 2,
+  nodeId: number,
+  fields: Partial<ViewBacking> = {},
+): ViewBacking {
+  return Object.freeze({
+    state,
+    nodeId,
+    nodeIdLow: nodeId >>> 0,
+    nodeIdHigh: Math.floor(nodeId / 0x1_0000_0000),
+    nodeIdPair: Object.freeze([nodeId >>> 0, Math.floor(nodeId / 0x1_0000_0000)] as const),
+    node: fields.node,
+    createKind: fields.createKind,
+    spans: fields.spans,
+    rows: fields.rows,
+    wrap: fields.wrap,
+    align: fields.align,
+    patchKind: fields.patchKind,
+    base: fields.base,
+    mask: fields.mask,
+    paddingTopRight: fields.paddingTopRight,
+    paddingBottomLeft: fields.paddingBottomLeft,
+    widthRule: fields.widthRule,
+    heightRule: fields.heightRule,
+    minWidth: fields.minWidth,
+    maxWidth: fields.maxWidth,
+    minHeight: fields.minHeight,
+    maxHeight: fields.maxHeight,
+  });
+}
+
+function pendingTextBacking(spans: readonly TextSpanNode[], wrap: number, align: number): ViewBacking {
+  return makeBacking(1, nextNodeId(), {
+    createKind: "text",
+    spans,
+    wrap,
+    align,
+  });
+}
+
+function pendingSpacerBacking(rows: number): ViewBacking {
+  return makeBacking(1, nextNodeId(), { createKind: "spacer", rows });
+}
+
+function pendingTextPatchBacking(base: View, wrap: number, align: number): ViewBacking {
+  return makeBacking(2, nextNodeId(), {
+    patchKind: "textLayout",
+    base,
+    wrap,
+    align,
+  });
+}
+
+function pendingCommonPatchBacking(
+  base: View,
+  mask: number,
+  paddingTopRight: number,
+  paddingBottomLeft: number,
+  widthRule: number,
+  heightRule: number,
+  minWidth: number,
+  maxWidth: number,
+  minHeight: number,
+  maxHeight: number,
+): ViewBacking {
+  return makeBacking(2, nextNodeId(), {
+    patchKind: "common",
+    base,
+    mask,
+    paddingTopRight,
+    paddingBottomLeft,
+    widthRule,
+    heightRule,
+    minWidth,
+    maxWidth,
+    minHeight,
+    maxHeight,
+  });
 }
 
 export type OverflowIndicator =
@@ -169,11 +315,20 @@ export class ChildrenBuilder {
   gapValue(): number { return this.layoutGap; }
 }
 
-function withPrivateIdentity(node: BridgeViewNode | BridgeViewNodeDraft, lineage?: PackedLineage, seed?: PackedMetaSeed): BridgeViewNode {
+function withIdentity(
+  node: BridgeViewNode | BridgeViewNodeDraft,
+  id: number,
+  lineage?: PackedLineage,
+  seed?: PackedMetaSeed,
+): BridgeViewNode {
   const { id: _oldId, schema: _oldSchema, ...draft } = node as BridgeViewNode;
-  const result = freezeBridgeNode({ id: nextNodeId(), schema: VIEW_BRIDGE_SCHEMA_VERSION, ...draft } as BridgeViewNode);
+  const result = freezeBridgeNode({ id, schema: VIEW_BRIDGE_SCHEMA_VERSION, ...draft } as BridgeViewNode);
   registerPackedMeta(result, lineage, seed);
   return result;
+}
+
+function withPrivateIdentity(node: BridgeViewNode | BridgeViewNodeDraft, lineage?: PackedLineage, seed?: PackedMetaSeed): BridgeViewNode {
+  return withIdentity(node, nextNodeId(), lineage, seed);
 }
 
 function freezeColor(color: ColorNode | undefined): void {
@@ -265,15 +420,20 @@ function freezeBridgeNode(node: BridgeViewNode): BridgeViewNode {
 
 export class View {
   readonly kind = "view" as const;
+  readonly [kBacking]: ViewBacking;
+
   private constructor(
-    node: BridgeViewNode | BridgeViewNodeDraft,
+    nodeOrBacking: BridgeViewNode | BridgeViewNodeDraft | ViewBacking,
     lineage?: PackedLineage,
     seed?: PackedMetaSeed,
     nativePath?: NativePathLineage,
   ) {
-    const identity = withPrivateIdentity(node, lineage, seed);
-    nodes.set(this, identity);
-    nodeIdParts.set(this, [identity.id >>> 0, Math.floor(identity.id / 0x1_0000_0000)]);
+    const identity = isViewBacking(nodeOrBacking) ? undefined : withPrivateIdentity(nodeOrBacking, lineage, seed);
+    const backing = isViewBacking(nodeOrBacking)
+      ? nodeOrBacking
+      : makeBacking(0, identity!.id, { node: identity });
+    this[kBacking] = backing;
+    if (backing.node !== undefined) nodes.set(this, backing.node);
     if (nativePath !== undefined) nativePathLineages.set(this, nativePath);
     Object.freeze(this);
   }
@@ -289,19 +449,29 @@ export class View {
 
   static text(value: string): View {
     if (typeof value !== "string") throw new TypeError("View.text requires a string");
-    return new View({ kind: BRIDGE_VIEW_KIND.text, spans: [{ text: value }], wrap: BRIDGE_WRAP_MODE.wordThenGrapheme, align: BRIDGE_HORIZONTAL_ALIGN.start });
+    return new View(pendingTextBacking(
+      Object.freeze([{ text: value }]),
+      BRIDGE_WRAP_MODE.wordThenGrapheme,
+      BRIDGE_HORIZONTAL_ALIGN.start,
+    ));
   }
 
   static styledText(spans: readonly TextSpan[]): View {
-    return new View({ kind: BRIDGE_VIEW_KIND.text, spans: spans.map((span) => ({
+    const values = spans.map((span) => ({
       ...span.value,
       style: span.value.style === undefined ? undefined : cloneStyle(span.value.style),
-    })), wrap: BRIDGE_WRAP_MODE.wordThenGrapheme, align: BRIDGE_HORIZONTAL_ALIGN.start });
+    }));
+    Object.freeze(values);
+    return new View(pendingTextBacking(
+      values,
+      BRIDGE_WRAP_MODE.wordThenGrapheme,
+      BRIDGE_HORIZONTAL_ALIGN.start,
+    ));
   }
 
   static spacer(rows: number): View {
     validateU16(rows, "rows");
-    return new View({ kind: BRIDGE_VIEW_KIND.spacer, rows });
+    return new View(pendingSpacerBacking(rows));
   }
 
   static horizontal(children: ChildBuilder): View {
@@ -433,9 +603,9 @@ export class View {
   maxWidth(value: number): View { return this.decorate({ maxWidth: validateU16(value, "maxWidth") }); }
   minHeight(value: number): View { return this.decorate({ minHeight: validateU16(value, "minHeight") }); }
   maxHeight(value: number): View { return this.decorate({ maxHeight: validateU16(value, "maxHeight") }); }
-  wrap(mode: WrapMode): View { return this.mapText((text) => ({ ...text, wrap: wrapCode(mode) })); }
+  wrap(mode: WrapMode): View { return this.textLayoutPatch(wrapCode(mode), undefined); }
   noWrap(): View { return this.wrap("noWrap"); }
-  textAlign(align: HorizontalAlign): View { return this.mapText((text) => ({ ...text, align: horizontalAlignCode(align) })); }
+  textAlign(align: HorizontalAlign): View { return this.textLayoutPatch(undefined, horizontalAlignCode(align)); }
 
   /** Internal retained-path constructor; not part of the public semantic API. */
   static textLayoutAtNativePathForTransport(
@@ -457,6 +627,36 @@ export class View {
   }
 
   private decorate(decoration: Partial<DecorationNode>): View {
+    const scalar = scalarCommonFields(decoration);
+    if (scalar !== undefined && this[kBacking].state !== 0) {
+      const existing = nativeScalarPatch(this);
+      if (existing?.kind === "common") {
+        return new View(pendingCommonPatchBacking(
+          existing.base,
+          existing.mask | scalar.mask,
+          scalar.mask & PATCH_PADDING ? scalar.paddingTopRight : existing.paddingTopRight,
+          scalar.mask & PATCH_PADDING ? scalar.paddingBottomLeft : existing.paddingBottomLeft,
+          scalar.mask & PATCH_WIDTH ? scalar.widthRule : existing.widthRule,
+          scalar.mask & PATCH_HEIGHT ? scalar.heightRule : existing.heightRule,
+          scalar.mask & PATCH_MIN_WIDTH ? scalar.minWidth : existing.minWidth,
+          scalar.mask & PATCH_MAX_WIDTH ? scalar.maxWidth : existing.maxWidth,
+          scalar.mask & PATCH_MIN_HEIGHT ? scalar.minHeight : existing.minHeight,
+          scalar.mask & PATCH_MAX_HEIGHT ? scalar.maxHeight : existing.maxHeight,
+        ));
+      }
+      return new View(pendingCommonPatchBacking(
+        this,
+        scalar.mask,
+        scalar.paddingTopRight,
+        scalar.paddingBottomLeft,
+        scalar.widthRule,
+        scalar.heightRule,
+        scalar.minWidth,
+        scalar.maxWidth,
+        scalar.minHeight,
+        scalar.maxHeight,
+      ));
+    }
     const decorated = this.decoratedNode();
     const current = decorated === undefined ? emptyDecoration() : cloneDecoration(decorated.decoration);
     const child = decorated?.child ?? nodeForBridge(this);
@@ -464,19 +664,148 @@ export class View {
     return new View({ kind: BRIDGE_VIEW_KIND.decorated, child, decoration: cloneDecoration(next) }, { kind: "decoration", base: nodeForBridge(this) });
   }
 
-  private mapText(map: (text: Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>) => Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>): View {
+  private textLayoutPatch(wrap: number | undefined, align: number | undefined): View {
+    const recipe = pendingTextRecipe(this);
+    if (recipe !== undefined) {
+      return new View(pendingTextPatchBacking(
+        recipe.base,
+        wrap ?? recipe.wrap,
+        align ?? recipe.align,
+      ));
+    }
     const node = nodeForBridge(this);
-    if (node.kind === BRIDGE_VIEW_KIND.text) return new View(map(node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>), { kind: "text", base: node });
+    if (node.kind === BRIDGE_VIEW_KIND.text) {
+      return new View({ ...node, ...(wrap === undefined ? {} : { wrap }), ...(align === undefined ? {} : { align }) }, { kind: "text", base: node });
+    }
     if (node.kind === BRIDGE_VIEW_KIND.decorated && node.child.kind === BRIDGE_VIEW_KIND.text) {
       const decorated = node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.decorated }>;
-      return new View({ ...decorated, child: map(decorated.child as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.text }>) }, { kind: "text", base: node });
+      return new View({ ...decorated, child: { ...decorated.child, ...(wrap === undefined ? {} : { wrap }), ...(align === undefined ? {} : { align }) } }, { kind: "text", base: node });
     }
     return this;
   }
 }
 
+function isViewBacking(value: unknown): value is ViewBacking {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as Partial<ViewBacking>;
+  const nodeId = candidate.nodeId;
+  return (candidate.state === 0 || candidate.state === 1 || candidate.state === 2)
+    && Number.isSafeInteger(nodeId)
+    && nodeId !== undefined
+    && nodeId > 0;
+}
+
+function pendingTextRecipe(view: View): { readonly base: View; readonly spans: readonly TextSpanNode[]; readonly wrap: number; readonly align: number } | undefined {
+  const backing = view[kBacking];
+  if (backing.state === 1 && backing.createKind === "text" && backing.spans !== undefined && backing.wrap !== undefined && backing.align !== undefined) {
+    return { base: view, spans: backing.spans, wrap: backing.wrap, align: backing.align };
+  }
+  if (backing.state === 2 && backing.patchKind === "textLayout" && backing.base !== undefined && backing.wrap !== undefined && backing.align !== undefined) {
+    const base = pendingTextRecipe(backing.base);
+    return base === undefined ? undefined : { base: base.base, spans: base.spans, wrap: backing.wrap, align: backing.align };
+  }
+  return undefined;
+}
+
+function scalarCommonFields(decoration: Partial<DecorationNode>): Omit<NativeCommonPatch, "kind" | "base"> | undefined {
+  if (
+    decoration.background !== undefined
+    || decoration.foreground !== undefined
+    || decoration.border !== undefined
+    || (decoration.style !== undefined && (
+      decoration.style.theme !== undefined
+      || decoration.style.foreground !== undefined
+      || decoration.style.background !== undefined
+      || Object.keys(decoration.style.attributes).length > 0
+    ))
+    || (decoration.styleStates !== undefined && Object.keys(decoration.styleStates).length > 0)
+  ) return undefined;
+  let mask = 0;
+  let paddingTopRight = 0;
+  let paddingBottomLeft = 0;
+  if (decoration.padding !== undefined) {
+    mask |= PATCH_PADDING;
+    paddingTopRight = (decoration.padding.top | (decoration.padding.right << 16)) >>> 0;
+    paddingBottomLeft = (decoration.padding.bottom | (decoration.padding.left << 16)) >>> 0;
+  }
+  if (decoration.width !== undefined) mask |= PATCH_WIDTH;
+  if (decoration.height !== undefined) mask |= PATCH_HEIGHT;
+  if (decoration.minWidth !== undefined) mask |= PATCH_MIN_WIDTH;
+  if (decoration.maxWidth !== undefined) mask |= PATCH_MAX_WIDTH;
+  if (decoration.minHeight !== undefined) mask |= PATCH_MIN_HEIGHT;
+  if (decoration.maxHeight !== undefined) mask |= PATCH_MAX_HEIGHT;
+  if (mask === 0) return undefined;
+  return {
+    mask,
+    paddingTopRight,
+    paddingBottomLeft,
+    widthRule: decoration.width === "fit" ? 1 : decoration.width === "fill" ? 2 : 0,
+    heightRule: decoration.height === "fit" ? 1 : decoration.height === "fill" ? 2 : 0,
+    minWidth: decoration.minWidth ?? 0,
+    maxWidth: decoration.maxWidth ?? 0,
+    minHeight: decoration.minHeight ?? 0,
+    maxHeight: decoration.maxHeight ?? 0,
+  };
+}
+
+function materializeBacking(view: View, backing: ViewBacking): BridgeViewNode {
+  if (backing.state === 0 && backing.node !== undefined) return backing.node;
+  if (backing.state === 1 && backing.createKind === "text") {
+    if (backing.spans === undefined || backing.wrap === undefined || backing.align === undefined) throw new TypeError("invalid pending text backing");
+    return withIdentity(
+      { kind: BRIDGE_VIEW_KIND.text, spans: backing.spans, wrap: backing.wrap, align: backing.align },
+      backing.nodeId,
+    );
+  }
+  if (backing.state === 1 && backing.createKind === "spacer") {
+    if (backing.rows === undefined) throw new TypeError("invalid pending spacer backing");
+    return withIdentity({ kind: BRIDGE_VIEW_KIND.spacer, rows: backing.rows }, backing.nodeId);
+  }
+  if (backing.state === 2 && backing.patchKind === "textLayout") {
+    if (backing.base === undefined || backing.wrap === undefined || backing.align === undefined) throw new TypeError("invalid pending text patch backing");
+    const base = nodeForBridge(backing.base);
+    if (base.kind !== BRIDGE_VIEW_KIND.text) throw new TypeError("pending text patch base is not text");
+    return withIdentity({ ...base, wrap: backing.wrap, align: backing.align }, backing.nodeId);
+  }
+  if (backing.state === 2 && backing.patchKind === "common") {
+    if (
+      backing.base === undefined
+      || backing.mask === undefined
+      || backing.paddingTopRight === undefined
+      || backing.paddingBottomLeft === undefined
+      || backing.widthRule === undefined
+      || backing.heightRule === undefined
+      || backing.minWidth === undefined
+      || backing.maxWidth === undefined
+      || backing.minHeight === undefined
+      || backing.maxHeight === undefined
+    ) throw new TypeError("invalid pending common patch backing");
+    const decoration: DecorationNode = {
+      style: emptyStyle(),
+      ...(backing.mask & PATCH_PADDING ? {
+        padding: Object.freeze({
+          top: backing.paddingTopRight & 0xffff,
+          right: backing.paddingTopRight >>> 16,
+          bottom: backing.paddingBottomLeft & 0xffff,
+          left: backing.paddingBottomLeft >>> 16,
+        }),
+      } : {}),
+      ...(backing.mask & PATCH_WIDTH ? { width: backing.widthRule === 1 ? "fit" as const : "fill" as const } : {}),
+      ...(backing.mask & PATCH_HEIGHT ? { height: backing.heightRule === 1 ? "fit" as const : "fill" as const } : {}),
+      ...(backing.mask & PATCH_MIN_WIDTH ? { minWidth: backing.minWidth } : {}),
+      ...(backing.mask & PATCH_MAX_WIDTH ? { maxWidth: backing.maxWidth } : {}),
+      ...(backing.mask & PATCH_MIN_HEIGHT ? { minHeight: backing.minHeight } : {}),
+      ...(backing.mask & PATCH_MAX_HEIGHT ? { maxHeight: backing.maxHeight } : {}),
+    };
+    return withIdentity(
+      { kind: BRIDGE_VIEW_KIND.decorated, child: nodeForBridge(backing.base), decoration },
+      backing.nodeId,
+    );
+  }
+  throw new TypeError("invalid View backing");
+}
+
 const nodes = new WeakMap<View, BridgeViewNode>();
-const nodeIdParts = new WeakMap<View, readonly [number, number]>();
 const nativePathLineages = new WeakMap<View, NativePathLineage>();
 
 function freezeNativePathLineage(lineage: NativePathLineage): NativePathLineage {
@@ -496,7 +825,7 @@ export function nativePathChildLineage(
   parent: NativePathLineage | undefined,
   step: NativePathStep,
 ): NativePathLineage {
-  const baseNodeId = nodeForBridge(base).id;
+  const baseNodeId = viewNodeId(base);
   if (parent !== undefined && parent.baseNodeId !== baseNodeId) throw new Error("native path lineage base mismatch");
   const immutableStep = Object.freeze({ ...step });
   return Object.freeze({ baseNodeId, parent, step: immutableStep, depth: (parent?.depth ?? 0) + 1 });
@@ -504,24 +833,66 @@ export function nativePathChildLineage(
 
 /** Attaches a root/child path lineage without retaining any child View. */
 export function attachNativePathLineage(view: View, lineage: NativePathLineage): void {
-  if (lineage.baseNodeId === nodeForBridge(view).id) throw new Error("native path lineage base must be the previous root");
+  if (lineage.baseNodeId === viewNodeId(view)) throw new Error("native path lineage base must be the previous root");
   nativePathLineages.set(view, freezeNativePathLineage(lineage));
+}
+
+/** Returns the full semantic NodeId without materializing a bridge node. */
+export function viewNodeId(view: View): number {
+  return view[kBacking].nodeId;
+}
+
+/** Internal benchmark/diagnostic view of the compact backing state. */
+export function viewBackingState(view: View): 0 | 1 | 2 {
+  return view[kBacking].state;
+}
+
+/** Returns the compact pending/native patch, if this value has one. */
+export function nativeScalarPatch(view: View): NativeScalarPatch | undefined {
+  const backing = view[kBacking];
+  if (backing.state !== 2 || backing.base === undefined || backing.patchKind === undefined) return undefined;
+  if (backing.patchKind === "textLayout") {
+    if (backing.wrap === undefined || backing.align === undefined) return undefined;
+    return { kind: "textLayout", base: backing.base, wrap: backing.wrap, align: backing.align };
+  }
+  if (
+    backing.mask === undefined
+    || backing.paddingTopRight === undefined
+    || backing.paddingBottomLeft === undefined
+    || backing.widthRule === undefined
+    || backing.heightRule === undefined
+    || backing.minWidth === undefined
+    || backing.maxWidth === undefined
+    || backing.minHeight === undefined
+    || backing.maxHeight === undefined
+  ) return undefined;
+  return {
+    kind: "common",
+    base: backing.base,
+    mask: backing.mask,
+    paddingTopRight: backing.paddingTopRight,
+    paddingBottomLeft: backing.paddingBottomLeft,
+    widthRule: backing.widthRule,
+    heightRule: backing.heightRule,
+    minWidth: backing.minWidth,
+    maxWidth: backing.maxWidth,
+    minHeight: backing.minHeight,
+    maxHeight: backing.maxHeight,
+  };
 }
 
 /** Returns the cached u32 halves of a View's full safe-integer NodeId. */
 export function nodeIdPair(view: View): readonly [number, number] {
-  const cached = nodeIdParts.get(view);
-  if (cached !== undefined) return cached;
-  const id = nodeForBridge(view).id;
-  const pair: readonly [number, number] = [id >>> 0, Math.floor(id / 0x1_0000_0000)];
-  nodeIdParts.set(view, pair);
-  return pair;
+  return view[kBacking].nodeIdPair;
 }
 
 /** Private bridge access; the retained DAG is never part of the public API. */
 export function nodeForBridge(view: View): BridgeViewNode {
-  const node = nodes.get(view);
-  if (node === undefined) throw new TypeError("view is not a runtime semantic value");
+  const cached = nodes.get(view);
+  if (cached !== undefined) return cached;
+  const backing = view[kBacking];
+  const node = materializeBacking(view, backing);
+  nodes.set(view, node);
   return node;
 }
 
