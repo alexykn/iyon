@@ -4135,7 +4135,7 @@ Tranche 13 is implemented by the following committed changes:
 - `packages/iyon-runtime/src/tui/native_view_abi.ts` — structural axis/grid edits materialize new children through NativeRef rather than falling back when a changed child is new.
 - `packages/iyon-runtime/src/tui/runtime.ts` — closed TUI instances release their current JS scene reference.
 
-The final implementation commits are `5a4a258`, `fcb152d`, `d7c8ba4`, `3375fb8`, and `30d2925` (the benchmark artifact records the final pre-report source SHA `30d29251e7cfa79f30c18a9346477c39698ca7ef`).
+The final implementation commits are `5a4a258`, `fcb152d`, `d7c8ba4`, `3375fb8`, `30d2925`, and `7459519` (the benchmark artifact records source SHA `745951999a7d0c68fc07e88608b5e441d10f559d`).
 
 ## Authoritative run
 
@@ -4151,7 +4151,7 @@ Environment and ABI:
 Bun:                 1.4.0
 Bun revision:        34cbb9a40b4bd1bd767d134a7065e66c2432a676
 Target:               darwin-arm64
-Native artifact SHA: 5c0da3add9ae8f441aefaaad294237ac5bcb2d67786e0c8972d8564f4b88bd60
+Native artifact SHA: 958561c28955562f5b28cd5c71a241b9986e152bf8465df61a663a6eafbb598d
 Schema BLAKE3:       f7b30e32493e2e95f86541401308e5db64103bd8a7e694cbecbfe851040025d3
 Generator BLAKE3:    20435cb0e211e543dd671e6c86669cf3f205c8e77c5070f47f4d181a4a9d3c71
 ABI version:         1
@@ -4167,14 +4167,14 @@ Times below are median nanoseconds per case across the case medians; the complet
 
 | Set | Direct total | Native Shadow total | V4 total | Native Shadow result |
 |---|---:|---:|---:|---|
-| Normal retained (100) | 93,125 | 101,334 | 94,583 | 4.51% slower than direct |
-| Wide (3) | 38,644,584 | 32,989,666 | 32,975,333 | tied with V4; 14.6% faster than direct |
-| Cold (4) | 16,034,958 | 15,437,501 | 14,512,791 | 6.37% slower than V4 |
-| Path/transaction (4) | 127,292 | 132,917 | 103,916 | 27.9% slower than V4 |
+| Normal retained (100) | 90,833 | 93,750 | 93,916 | 2.03% slower than direct |
+| Wide (3) | 38,481,749 | 31,268,375 | 31,713,584 | 18.7% faster than direct |
+| Cold (4) | 15,389,125 | 13,472,833 | 13,917,916 | 2.55% faster than V4 |
+| Path/transaction (4) | 105,042 | 137,751 | 124,584 | 10.6% slower than V4 |
 
-Normal-matrix phase medians were: direct construction `53,666 ns`, commit `36,250 ns`, encoding `333 ns`; Native Shadow construction `52,875 ns`, commit/native route `42,083 ns`, structural encoding `0 ns`; V4 construction `52,958 ns`, commit `40,833 ns`, encoding `4,000 ns`. Total always remained construction plus complete commit; no phase was subtracted from the decision.
+Normal-matrix phase medians were: direct construction `50,459 ns`, commit `34,667 ns`, encoding `292 ns`; Native Shadow construction `48,708 ns`, commit/native route `41,125 ns`, structural encoding `0 ns`; V4 construction `51,416 ns`, commit `40,666 ns`, encoding `4,207 ns`. Total always remained construction plus complete commit; no phase was subtracted from the decision.
 
-The 100-operation trace totals were direct `12,575,252 ns`, Native Shadow `17,228,622 ns`, and V4 `13,170,717 ns`. Native Shadow was therefore `1.370x` the best prior candidate and did not reach the required 15% improvement.
+The 100-operation trace totals were direct `11,720,120 ns`, Native Shadow `17,510,991 ns`, and V4 `15,083,206 ns`. Native Shadow was therefore `1.494x` the best prior candidate (direct; `1.161x` V4) and did not reach the required 15% improvement.
 
 ## Routes and lifetime
 
@@ -4216,11 +4216,11 @@ Persistent-sequence evidence remains consistent with the tranche: the dedicated 
 The end-to-end rewrite is **rejected for default adoption**. The required gates failed:
 
 ```text
-normal matrix faster than direct:       failed (1.04513x)
-common regressions <= 3%:               failed (52 cases)
-exact no slower than V4:                failed (max 1.13046x)
-cold within 5% of V4:                   failed (max 1.06372x)
-trace >= 15% faster than best prior:   failed (1.37004x)
+normal matrix faster than direct:       failed (1.02034x)
+common regressions <= 3%:               failed (47 cases)
+exact no slower than V4:                failed (max 1.10440x)
+cold within 5% of V4:                   passed (max 0.97446x)
+trace >= 15% faster than best prior:   failed (1.49410x)
 lifetime audit:                         passed
 ```
 
