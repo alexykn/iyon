@@ -50,6 +50,7 @@ struct NativeViewSlot {
     node_id: u64,
     weak: iyon_tui::WeakView,
     leased: Option<View>,
+    js_lease_count: u32,
 }
 
 #[repr(C)]
@@ -101,6 +102,19 @@ impl NativeViewRuntime {
         None
     }
 
+    fn ensure_lease(&mut self, reference: u32, view: View) -> Result<(), u32> {
+        let Some(slot) = self.slots.get_mut(&reference) else {
+            return Err(FAST_CACHE_MISS);
+        };
+        if slot.js_lease_count == 0 {
+            slot.leased = Some(view);
+            slot.js_lease_count = 1;
+        } else if slot.leased.is_none() {
+            slot.leased = Some(view);
+        }
+        Ok(())
+    }
+
     fn resolve_ref(&mut self, reference: u32) -> Result<View, u32> {
         let Some(slot) = self.slots.get_mut(&reference) else {
             return Err(FAST_CACHE_MISS);
@@ -124,9 +138,7 @@ impl NativeViewRuntime {
         if let Some(reference) = self.node_refs.get(&node_id).copied() {
             match self.resolve_ref(reference) {
                 Ok(existing) if existing == view => {
-                    if let Some(slot) = self.slots.get_mut(&reference) {
-                        slot.leased = Some(existing);
-                    }
+                    self.ensure_lease(reference, existing)?;
                     return Ok(reference);
                 }
                 Ok(_) => return Err(FAST_INVALID),
@@ -159,6 +171,7 @@ impl NativeViewRuntime {
                 node_id,
                 weak,
                 leased: Some(view),
+                js_lease_count: 1,
             },
         );
         Ok(reference)
@@ -169,10 +182,15 @@ impl NativeViewRuntime {
             return Err(FAST_INVALID);
         }
         if let Some(reference) = self.node_refs.get(&node_id).copied() {
-            if self.resolve_ref(reference).is_ok() {
-                return Ok(reference);
+            match self.resolve_ref(reference) {
+                Ok(view) => {
+                    self.ensure_lease(reference, view)?;
+                    return Ok(reference);
+                }
+                Err(_) => {
+                    self.node_refs.remove(&node_id);
+                }
             }
-            self.node_refs.remove(&node_id);
         }
         let view = {
             let mut cache = self.cache.lock().map_err(|_| FAST_INTERNAL)?;
@@ -195,8 +213,11 @@ impl NativeViewRuntime {
                 .slots
                 .get_mut(&reference)
                 .map(|slot| {
-                    slot.leased = None;
-                    slot.weak.upgrade().is_none()
+                    slot.js_lease_count = slot.js_lease_count.saturating_sub(1);
+                    if slot.js_lease_count == 0 {
+                        slot.leased = None;
+                    }
+                    slot.js_lease_count == 0 && slot.weak.upgrade().is_none()
                 })
                 .unwrap_or(false);
             if remove_slot {
