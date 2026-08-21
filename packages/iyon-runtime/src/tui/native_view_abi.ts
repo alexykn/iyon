@@ -833,21 +833,21 @@ export function tryNativeAxisSetChildRender(
   let childRef: number | undefined;
   let nextRef: number | undefined;
   try {
-    childRef = nativeViewRefForNodeId(child);
+    childRef = tryNativeMaterialize(child);
     if (childRef === undefined) return undefined;
     const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
     nextRef = viewAxisSetChild(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, childIndex, trackWord, childRef);
     const status = installNativeRef(host, session, nextRef);
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
-      if (childRef !== undefined && childRef !== previousRef) releaseNativeViewRef(session, childRef);
+      releaseNativeViewRef(session, childRef);
       return undefined;
     }
-    if (childRef !== undefined && childRef !== previousRef) releaseNativeViewRef(session, childRef);
+    releaseNativeViewRef(session, childRef);
     return nextRef;
   } catch (error) {
     if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
-    if (childRef !== undefined && childRef !== previousRef) releaseNativeViewRef(session, childRef);
+    if (childRef !== undefined) releaseNativeViewRef(session, childRef);
     if (isExpectedNativeStatus(error)) return undefined;
     throw error;
   }
@@ -877,11 +877,11 @@ export function tryNativeAxisSpliceRender(
   let nextRef: number | undefined;
   try {
     for (const [childIndex, entry] of children.entries()) {
-      const childRef = nativeViewRefForNodeId(entry.view);
+      const childRef = tryNativeMaterialize(entry.view);
       if (childRef === undefined) return undefined;
       refs[childIndex * 2] = entry.trackWord ?? 0;
       refs[childIndex * 2 + 1] = childRef;
-      if (childRef !== previousRef) temporaryRefs.add(childRef);
+      temporaryRefs.add(childRef);
     }
     const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
     nextRef = viewAxisSpliceBuffer(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, index, removeCount, refs, children.length);
@@ -918,21 +918,21 @@ export function tryNativeGridSetCellRender(
   let childRef: number | undefined;
   let nextRef: number | undefined;
   try {
-    childRef = nativeViewRefForNodeId(child);
+    childRef = tryNativeMaterialize(child);
     if (childRef === undefined) return undefined;
     const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
     nextRef = viewGridSetCell(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, row, column, childRef);
     const status = installNativeRef(host, session, nextRef);
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
-      if (childRef !== undefined && childRef !== previousRef) releaseNativeViewRef(session, childRef);
+      releaseNativeViewRef(session, childRef);
       return undefined;
     }
-    if (childRef !== undefined && childRef !== previousRef) releaseNativeViewRef(session, childRef);
+    releaseNativeViewRef(session, childRef);
     return nextRef;
   } catch (error) {
     if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
-    if (childRef !== undefined && childRef !== previousRef) releaseNativeViewRef(session, childRef);
+    if (childRef !== undefined) releaseNativeViewRef(session, childRef);
     if (isExpectedNativeStatus(error)) return undefined;
     throw error;
   }
