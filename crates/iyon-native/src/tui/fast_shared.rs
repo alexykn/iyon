@@ -1,8 +1,5 @@
-use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::ptr::null_mut;
-use std::sync::atomic::AtomicPtr;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::thread::{self, ThreadId};
 
@@ -29,6 +26,7 @@ macro_rules! fast_perf_set {
     };
 }
 
+use super::view_abi::{NativeViewRuntime, runtime_is_registered};
 use super::{
     ALIGN_CENTER, ALIGN_END, ALIGN_START, DIFF_ADDITION, DIFF_CONTEXT, DIFF_DELETION,
     DIFF_TERMINATED, DIFF_UNTERMINATED, GRID_TRACK_CONTENT, GRID_TRACK_CONTENT_MAX,
@@ -58,11 +56,6 @@ const PAGE_FREE: u8 = 0;
 const PAGE_WRITING: u8 = 1;
 const PAGE_SEALED: u8 = 2;
 const PAGE_RETAINED: u8 = 3;
-const FAST_SESSION_SLOTS: usize = 1024;
-
-static FAST_SESSIONS: [AtomicPtr<FastSession>; FAST_SESSION_SLOTS] =
-    [const { AtomicPtr::new(null_mut()) }; FAST_SESSION_SLOTS];
-
 pub const FAST_OK: i32 = 0;
 pub const FAST_CACHE_MISS: i32 = 1;
 pub const FAST_BAD_SESSION: i32 = 2;
@@ -102,17 +95,13 @@ enum FastSlot {
     GridSequence(Weak<FastGridSequence>),
 }
 
-struct FastSlotTable {
+pub(super) struct FastSlotTable {
     pages: Vec<Option<Box<[FastSlot]>>>,
 }
 
 impl FastSlotTable {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self { pages: Vec::new() }
-    }
-
-    fn reset(&mut self) {
-        self.pages.clear();
     }
 
     fn page_offset(reference: u32) -> (usize, usize) {
@@ -413,15 +402,13 @@ impl FastError {
 
 pub struct FastSession {
     host_addr: usize,
+    runtime: usize,
     owner_thread: ThreadId,
     closed: AtomicBool,
-    handle: AtomicU32,
     generation: u32,
     sequence: u32,
     command: Box<[u8]>,
     pages: Vec<Arc<FastPage>>,
-    slots: FastSlotTable,
-    nodes: HashMap<u64, iyon_tui::WeakView>,
     staged: Vec<Option<FastStaged>>,
     publications: Vec<(u32, FastStaged)>,
     last_status: i32,
@@ -436,20 +423,18 @@ impl Drop for FastSession {
 }
 
 impl FastSession {
-    pub fn new(host: &mut iyon_tui::TuiHost) -> Self {
+    pub fn new(host: &mut iyon_tui::TuiHost, runtime: *mut NativeViewRuntime) -> Self {
         Self {
             host_addr: host as *mut iyon_tui::TuiHost as usize,
+            runtime: runtime as usize,
             owner_thread: thread::current().id(),
             closed: AtomicBool::new(false),
-            handle: AtomicU32::new(0),
             generation: 0,
             sequence: 0,
             command: vec![0; FAST_COMMAND_BYTES].into_boxed_slice(),
             pages: (0..FAST_PAGE_COUNT)
                 .map(|_| Arc::new(FastPage::new()))
                 .collect(),
-            slots: FastSlotTable::new(),
-            nodes: HashMap::new(),
             staged: Vec::new(),
             publications: Vec::new(),
             last_status: FAST_OK,
@@ -473,6 +458,8 @@ impl FastSession {
 
     pub fn descriptor(&self) -> serde_json::Value {
         serde_json::json!({
+            "runtime_ptr": self.runtime as usize as u64,
+            "host_ptr": self.host_addr as u64,
             "magic": FAST_ABI_MAGIC,
             "version": FAST_ABI_VERSION,
             "schema_version": VIEW_BRIDGE_SCHEMA_VERSION,
@@ -482,7 +469,6 @@ impl FastSession {
             "meta_offset": FAST_META_OFFSET,
             "max_ops": FAST_MAX_OPS,
             "page_bytes": FAST_PAGE_BYTES,
-            "session_handle": self.handle.load(Ordering::Acquire),
             "command_ptr": self.command.as_ptr() as usize as u64,
             "pages": self.pages.iter().enumerate().map(|(id, page)| serde_json::json!({
                 "id": id,
@@ -496,31 +482,32 @@ impl FastSession {
         })
     }
 
-    pub fn register(&mut self) -> Result<u32, ()> {
-        let pointer = self as *mut Self;
-        for (index, slot) in FAST_SESSIONS.iter().enumerate().skip(1) {
-            if slot
-                .compare_exchange(null_mut(), pointer, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                self.handle.store(index as u32, Ordering::Release);
-                return Ok(index as u32);
-            }
+    pub fn register(&mut self) -> Result<(), ()> {
+        if !runtime_is_registered(self.runtime) {
+            return Err(());
         }
-        Err(())
+        let runtime = unsafe { (self.runtime as *mut NativeViewRuntime).as_mut() }.ok_or(())?;
+        if !runtime.valid_on_owner_thread() {
+            return Err(());
+        }
+        let pointer = self as *mut Self as usize;
+        if runtime.fast_sessions.contains_key(&self.host_addr) {
+            return Err(());
+        }
+        runtime.fast_sessions.insert(self.host_addr, pointer);
+        Ok(())
     }
 
     pub fn unregister(&self) {
-        let handle = self.handle.load(Ordering::Acquire);
-        if handle != 0 {
-            let slot = &FAST_SESSIONS[handle as usize];
-            let _ = slot.compare_exchange(
-                self as *const Self as *mut Self,
-                null_mut(),
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            );
-            self.handle.store(0, Ordering::Release);
+        if !runtime_is_registered(self.runtime) {
+            return;
+        }
+        let Some(runtime) = (unsafe { (self.runtime as *mut NativeViewRuntime).as_mut() }) else {
+            return;
+        };
+        if runtime.fast_sessions.get(&self.host_addr) == Some(&(self as *const Self as usize)) {
+            runtime.fast_sessions.remove(&self.host_addr);
+            runtime.fast_slots.remove(&self.host_addr);
         }
     }
 
@@ -543,6 +530,22 @@ impl FastSession {
                 detail: 1,
             })
         }
+    }
+
+    fn runtime_mut(&self) -> Result<&'static mut NativeViewRuntime, FastError> {
+        self.assert_thread()?;
+        let runtime =
+            unsafe { (self.runtime as *mut NativeViewRuntime).as_mut() }.ok_or(FastError {
+                status: FAST_BAD_SESSION,
+                detail: 4,
+            })?;
+        if !runtime.valid_on_owner_thread() {
+            return Err(FastError {
+                status: FAST_BAD_SESSION,
+                detail: 5,
+            });
+        }
+        Ok(runtime)
     }
 
     fn control(&self) -> Result<FastControl, FastError> {
@@ -668,8 +671,10 @@ impl FastSession {
             if control.generation != expected || control.flags & 1 == 0 {
                 return Err(FastError::cache_miss());
             }
-            self.slots.reset();
-            self.nodes.clear();
+            self.runtime_mut()?.fast_slots.remove(&self.host_addr);
+            // A FastShared generation reset only invalidates transport-local
+            // refs. The environment semantic NodeId cache is retained so V3,
+            // V4, direct decode, and generated calls can recover the same View.
             self.generation = control.generation;
         } else if control.flags & 1 != 0 {
             return Err(FastError::batch());
@@ -768,6 +773,7 @@ impl FastSession {
             }
             transaction_node_ids.push(*node_id);
             if let Some(existing) = self
+                .runtime_mut()?
                 .nodes
                 .get(node_id)
                 .and_then(iyon_tui::WeakView::upgrade)
@@ -780,27 +786,33 @@ impl FastSession {
     }
 
     fn publish_publications(&mut self) -> Result<(), FastError> {
+        let runtime = self.runtime_mut()?;
         for (reference, value) in self.publications.drain(..) {
             fast_perf_inc!(FastPublications);
             match value {
                 FastStaged::View { node_id, view } => {
                     fast_perf_inc!(FastViewsBuilt);
                     if node_id != 0 {
-                        self.nodes.insert(node_id, view.downgrade());
+                        runtime
+                            .publish_bulk(node_id, view.clone())
+                            .map_err(|_| FastError::batch())?;
                     }
-                    self.slots
+                    runtime
+                        .fast_slots_for(self.host_addr)
                         .set(reference, FastSlot::View(view.downgrade()))
                         .map_err(|_| FastError::batch())?;
                 }
                 FastStaged::Sequence(sequence) => {
                     fast_perf_inc!(FastSeqNodesBuilt);
-                    self.slots
+                    runtime
+                        .fast_slots_for(self.host_addr)
                         .set(reference, FastSlot::Sequence(Arc::downgrade(&sequence)))
                         .map_err(|_| FastError::batch())?;
                 }
                 FastStaged::GridSequence(sequence) => {
                     fast_perf_inc!(FastSeqNodesBuilt);
-                    self.slots
+                    runtime
+                        .fast_slots_for(self.host_addr)
                         .set(reference, FastSlot::GridSequence(Arc::downgrade(&sequence)))
                         .map_err(|_| FastError::batch())?;
                 }
@@ -821,7 +833,10 @@ impl FastSession {
         if wire == 0 || wire >= LOCAL_BIT {
             return Err(FastError::cache_miss());
         }
-        Ok(self.slots.resolve_view(wire))
+        Ok(self
+            .runtime_mut()?
+            .fast_slots_for(self.host_addr)
+            .resolve_view(wire))
     }
 
     fn resolve_sequence(&self, wire: u32) -> Result<Arc<FastSequence>, FastError> {
@@ -836,7 +851,8 @@ impl FastSession {
         if wire == 0 || wire >= LOCAL_BIT {
             return Err(FastError::cache_miss());
         }
-        self.slots
+        self.runtime_mut()?
+            .fast_slots_for(self.host_addr)
             .resolve_sequence(wire)
             .ok_or_else(FastError::cache_miss)
     }
@@ -853,7 +869,8 @@ impl FastSession {
         if wire == 0 || wire >= LOCAL_BIT {
             return Err(FastError::batch());
         }
-        self.slots
+        self.runtime_mut()?
+            .fast_slots_for(self.host_addr)
             .resolve_grid_sequence(wire)
             .ok_or_else(FastError::cache_miss)
     }
@@ -1898,15 +1915,31 @@ fn decode_size_rule(value: u32) -> Result<Option<RetainedSizeRule>, FastError> {
     }
 }
 
-fn session_ptr(handle: u32) -> *mut FastSession {
-    FAST_SESSIONS
-        .get(handle as usize)
-        .map(|slot| slot.load(Ordering::Acquire))
-        .unwrap_or(null_mut())
+fn session_ptr(
+    runtime_pointer: *mut NativeViewRuntime,
+    host_pointer: *mut iyon_tui::TuiHost,
+) -> *mut FastSession {
+    let Some(runtime) = (unsafe { runtime_pointer.as_mut() }) else {
+        return std::ptr::null_mut();
+    };
+    if !runtime.valid_on_owner_thread() || host_pointer.is_null() {
+        return std::ptr::null_mut();
+    }
+    runtime
+        .fast_sessions
+        .get(&(host_pointer as usize))
+        .copied()
+        .map(|pointer| pointer as *mut FastSession)
+        .unwrap_or(std::ptr::null_mut())
 }
 
-pub fn render_ref(handle: u32, generation: u32, reference: u32) -> i32 {
-    let session = session_ptr(handle);
+pub fn render_ref(
+    runtime_pointer: *mut NativeViewRuntime,
+    host_pointer: *mut iyon_tui::TuiHost,
+    generation: u32,
+    reference: u32,
+) -> i32 {
+    let session = session_ptr(runtime_pointer, host_pointer);
     if session.is_null() {
         return FAST_BAD_SESSION;
     }
@@ -1918,14 +1951,10 @@ pub fn render_ref(handle: u32, generation: u32, reference: u32) -> i32 {
         if session.generation != generation {
             return FAST_CACHE_MISS;
         }
-        let Some(view) = session.slots.resolve_view(reference) else {
+        let Some(view) = session.resolve_view(reference).ok().flatten() else {
             return FAST_CACHE_MISS;
         };
-        let host = session.host_addr as *mut iyon_tui::TuiHost;
-        if host.is_null() {
-            return FAST_BAD_SESSION;
-        }
-        match unsafe { (&mut *host).render(view) } {
+        match unsafe { (&mut *host_pointer).render(view) } {
             Ok(()) => FAST_OK,
             Err(_) => FAST_INTERNAL,
         }
@@ -1934,8 +1963,11 @@ pub fn render_ref(handle: u32, generation: u32, reference: u32) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn iyon_fast_commit_v1(handle: u32) -> i32 {
-    let session = session_ptr(handle);
+pub unsafe extern "C" fn iyon_fast_commit_v1(
+    runtime: *mut NativeViewRuntime,
+    host: *mut iyon_tui::TuiHost,
+) -> i32 {
+    let session = session_ptr(runtime, host);
     if session.is_null() {
         return FAST_BAD_SESSION;
     }
@@ -1943,8 +1975,11 @@ pub unsafe extern "C" fn iyon_fast_commit_v1(handle: u32) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn iyon_fast_acquire_utf8_page_v1(handle: u32) -> i32 {
-    let session = session_ptr(handle);
+pub unsafe extern "C" fn iyon_fast_acquire_utf8_page_v1(
+    runtime: *mut NativeViewRuntime,
+    host: *mut iyon_tui::TuiHost,
+) -> i32 {
+    let session = session_ptr(runtime, host);
     if session.is_null() {
         return FAST_BAD_SESSION;
     }
@@ -1955,8 +1990,12 @@ pub unsafe extern "C" fn iyon_fast_acquire_utf8_page_v1(handle: u32) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn iyon_fast_release_client_page_v1(handle: u32, page_id: u32) -> i32 {
-    let session = session_ptr(handle);
+pub unsafe extern "C" fn iyon_fast_release_client_page_v1(
+    runtime: *mut NativeViewRuntime,
+    host: *mut iyon_tui::TuiHost,
+    page_id: u32,
+) -> i32 {
+    let session = session_ptr(runtime, host);
     if session.is_null() {
         return FAST_BAD_SESSION;
     }
@@ -1968,12 +2007,13 @@ pub unsafe extern "C" fn iyon_fast_release_client_page_v1(handle: u32, page_id: 
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn iyon_fast_render_ref_v1(
-    handle: u32,
+    runtime: *mut NativeViewRuntime,
+    host: *mut iyon_tui::TuiHost,
     generation: u32,
     reference: u32,
 ) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
-        render_ref(handle, generation, reference)
+        render_ref(runtime, host, generation, reference)
     }))
     .unwrap_or(FAST_INTERNAL)
 }

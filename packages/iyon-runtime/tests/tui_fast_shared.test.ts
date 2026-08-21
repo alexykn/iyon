@@ -50,6 +50,31 @@ describe("PERF-10 native shared-memory retained path", () => {
     }
   });
 
+  test("shares one environment runtime without cross-host FastShared ref collisions", () => {
+    if (!available()) return;
+    const first = new Host!(30, 4, true);
+    const second = new Host!(30, 4, true);
+    const firstTransport = createFastSharedTransport(first);
+    const secondTransport = createFastSharedTransport(second);
+    const firstEncoder = createFastSharedEncoder(firstTransport);
+    const secondEncoder = createFastSharedEncoder(secondTransport);
+    const firstView = View.text("first-host");
+    const secondView = View.text("second-host");
+    try {
+      firstEncoder.render(firstView);
+      secondEncoder.render(secondView);
+      firstTransport.renderRef(firstEncoder.generation, 1);
+      secondTransport.renderRef(secondEncoder.generation, 1);
+      expect(first.screenRows().join("\n")).toContain("first-host");
+      expect(second.screenRows().join("\n")).toContain("second-host");
+    } finally {
+      firstTransport.close();
+      secondTransport.close();
+      first.dispose();
+      second.dispose();
+    }
+  });
+
   test("applies retained axis and grid path copies without flattening", () => {
     if (!available()) return;
     const direct = new Host!(60, 12, true);

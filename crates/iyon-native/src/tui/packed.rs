@@ -1,8 +1,6 @@
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
-
 use napi::Status;
 use napi::bindgen_prelude::Result;
+use std::collections::HashSet;
 
 use iyon_tui::{
     BorderEdges, BorderGlyphs, BorderSpec, ColorSpec, DiffHunk, DiffLine, DiffLineNumber,
@@ -11,6 +9,7 @@ use iyon_tui::{
     WrapMode,
 };
 
+use super::ViewRuntimeHandle;
 use super::{
     ALIGN_CENTER, ALIGN_END, ALIGN_START, DIFF_ADDITION, DIFF_CONTEXT, DIFF_DELETION,
     DIFF_TERMINATED, DIFF_UNTERMINATED, GRID_TRACK_CONTENT, GRID_TRACK_CONTENT_MAX,
@@ -30,7 +29,7 @@ use super::{
     VERTICAL_CENTER, VERTICAL_TOP, VIEW_BRIDGE_SCHEMA_VERSION, VIEW_KIND_CLAMP, VIEW_KIND_COLUMN,
     VIEW_KIND_COMPONENT, VIEW_KIND_CONTAINER, VIEW_KIND_CONTENT_MAX, VIEW_KIND_DECORATED,
     VIEW_KIND_DIFF, VIEW_KIND_GRID, VIEW_KIND_HANGING, VIEW_KIND_ROW, VIEW_KIND_SPACER,
-    VIEW_KIND_TEXT, ViewBridgeCache, WRAP_GRAPHEME, WRAP_NO_WRAP, WRAP_WORD_THEN_GRAPHEME,
+    VIEW_KIND_TEXT, WRAP_GRAPHEME, WRAP_NO_WRAP, WRAP_WORD_THEN_GRAPHEME,
 };
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
@@ -72,7 +71,7 @@ fn add(counter: iyon_tui::perf::Counter, amount: usize) {
 pub(super) fn decode_one(
     words: &[u32],
     strings: &[String],
-    cache: Arc<Mutex<ViewBridgeCache>>,
+    cache: ViewRuntimeHandle,
 ) -> Result<View> {
     let mut transaction = PackedTransaction::new(words, strings, cache)?;
     let roots = transaction.decode_roots()?;
@@ -86,16 +85,12 @@ struct PackedTransaction<'a> {
     words: &'a [u32],
     strings: &'a [String],
     cursor: usize,
-    cache: Arc<Mutex<ViewBridgeCache>>,
+    cache: ViewRuntimeHandle,
     active: HashSet<u64>,
 }
 
 impl<'a> PackedTransaction<'a> {
-    fn new(
-        words: &'a [u32],
-        strings: &'a [String],
-        cache: Arc<Mutex<ViewBridgeCache>>,
-    ) -> Result<Self> {
+    fn new(words: &'a [u32], strings: &'a [String], cache: ViewRuntimeHandle) -> Result<Self> {
         if words.len() < 5 {
             return Err(invalid("packed transaction header is truncated"));
         }
@@ -187,13 +182,9 @@ impl<'a> PackedTransaction<'a> {
             ));
         }
 
-        let existing = {
-            let cache = self
-                .cache
-                .lock()
-                .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+        let existing = super::with_view_runtime(&self.cache, |cache| {
             cache.nodes.get(&id).and_then(iyon_tui::WeakView::upgrade)
-        };
+        })?;
         let view = if let Some(existing) = existing {
             if existing != candidate {
                 return Err(invalid(format!(
@@ -204,14 +195,12 @@ impl<'a> PackedTransaction<'a> {
         } else {
             candidate
         };
-        let mut cache = self
-            .cache
-            .lock()
-            .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
-        cache.nodes.insert(id, view.downgrade());
-        if cache.nodes.len() > 4096 && cache.nodes.len() % 256 == 0 {
-            cache.nodes.retain(|_, weak| weak.upgrade().is_some());
-        }
+        super::with_view_runtime(&self.cache, |cache| {
+            cache.nodes.insert(id, view.downgrade());
+            if cache.nodes.len() > 4096 && cache.nodes.len() % 256 == 0 {
+                cache.nodes.retain(|_, weak| weak.upgrade().is_some());
+            }
+        })?;
         inc(iyon_tui::perf::Counter::NapiPackedDefsDecoded);
         Ok(view)
     }
@@ -638,24 +627,16 @@ impl<'a> PackedTransaction<'a> {
     }
 
     fn cached(&mut self, id: u64) -> Result<View> {
-        let view = {
-            let cache = self
-                .cache
-                .lock()
-                .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+        let view = super::with_view_runtime(&self.cache, |cache| {
             cache.nodes.get(&id).and_then(iyon_tui::WeakView::upgrade)
-        };
+        })?;
         if let Some(view) = view {
             inc(iyon_tui::perf::Counter::NapiPackedRefHits);
             return Ok(view);
         }
-        {
-            let mut cache = self
-                .cache
-                .lock()
-                .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+        super::with_view_runtime(&self.cache, |cache| {
             cache.nodes.remove(&id);
-        }
+        })?;
         inc(iyon_tui::perf::Counter::NapiPackedRefMisses);
         Err(cache_miss(id))
     }

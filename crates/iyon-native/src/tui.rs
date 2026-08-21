@@ -1,9 +1,9 @@
 use napi::Env;
 use napi::bindgen_prelude::{Array, JsObjectValue, JsValue, Object, Result, Unknown, ValueType};
 use napi_derive::napi;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use iyon_tui::projection::ProjectionBuilder;
@@ -28,6 +28,9 @@ mod generated_view_abi_conformance {
 }
 
 mod view_abi;
+
+type ViewBridgeCache = view_abi::NativeViewRuntime;
+type ViewRuntimeHandle = view_abi::ViewRuntimeHandle;
 
 macro_rules! tui_perf_inc {
     ($counter:ident) => {
@@ -150,22 +153,14 @@ pub fn tui_perf_snapshot() -> Value {
 
 #[napi(js_name = "tuiViewBridgeEnvironmentCount")]
 pub fn tui_view_bridge_environment_count() -> i64 {
-    VIEW_BRIDGE_CACHES
-        .get()
-        .and_then(|caches| caches.lock().ok())
-        .map(|caches| caches.len() as i64)
-        .unwrap_or(0)
+    view_abi::runtime_environment_count()
 }
 
 #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
 #[napi(js_name = "tuiPerfResetViewBridgeCache")]
 pub fn tui_perf_reset_view_bridge_cache(env: Env) -> Result<()> {
     let cache = view_bridge_cache_for_env(&env)?;
-    cache
-        .lock()
-        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?
-        .nodes
-        .clear();
+    with_view_runtime(&cache, |runtime| runtime.nodes.clear())?;
     Ok(())
 }
 
@@ -173,11 +168,7 @@ pub fn tui_perf_reset_view_bridge_cache(env: Env) -> Result<()> {
 #[napi(js_name = "tuiPerfViewBridgeCacheSize")]
 pub fn tui_perf_view_bridge_cache_size(env: Env) -> Result<i64> {
     let cache = view_bridge_cache_for_env(&env)?;
-    let size = cache
-        .lock()
-        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?
-        .nodes
-        .len();
+    let size = with_view_runtime(&cache, |runtime| runtime.nodes.len())?;
     i64::try_from(size).map_err(|_| crate::NativeError::internal("view bridge cache size overflow"))
 }
 
@@ -185,11 +176,7 @@ pub fn tui_perf_view_bridge_cache_size(env: Env) -> Result<i64> {
 #[napi(js_name = "tuiPerfV3ResetViewBridgeCache")]
 pub fn tui_perf_v3_reset_view_bridge_cache(env: Env) -> Result<()> {
     let cache = view_bridge_cache_for_env(&env)?;
-    cache
-        .lock()
-        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?
-        .packed_v3
-        .reset_slots();
+    with_view_runtime(&cache, |runtime| runtime.packed_v3.reset_slots())?;
     Ok(())
 }
 
@@ -197,11 +184,7 @@ pub fn tui_perf_v3_reset_view_bridge_cache(env: Env) -> Result<()> {
 #[napi(js_name = "tuiPerfV3ViewBridgeCacheSize")]
 pub fn tui_perf_v3_view_bridge_cache_size(env: Env) -> Result<i64> {
     let cache = view_bridge_cache_for_env(&env)?;
-    let size = cache
-        .lock()
-        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?
-        .packed_v3
-        .slot_count();
+    let size = with_view_runtime(&cache, |runtime| runtime.packed_v3.slot_count())?;
     i64::try_from(size).map_err(|_| crate::NativeError::internal("packed V3 slot count overflow"))
 }
 
@@ -209,11 +192,7 @@ pub fn tui_perf_v3_view_bridge_cache_size(env: Env) -> Result<i64> {
 #[napi(js_name = "tuiPerfV3PackedSlotPages")]
 pub fn tui_perf_v3_packed_slot_pages(env: Env) -> Result<i64> {
     let cache = view_bridge_cache_for_env(&env)?;
-    let pages = cache
-        .lock()
-        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?
-        .packed_v3
-        .page_count();
+    let pages = with_view_runtime(&cache, |runtime| runtime.packed_v3.page_count())?;
     i64::try_from(pages).map_err(|_| crate::NativeError::internal("packed V3 page count overflow"))
 }
 
@@ -221,11 +200,10 @@ pub fn tui_perf_v3_packed_slot_pages(env: Env) -> Result<i64> {
 #[napi(js_name = "tuiPerfV4ResetViewBridgeCache")]
 pub fn tui_perf_v4_reset_view_bridge_cache(env: Env) -> Result<()> {
     let cache = view_bridge_cache_for_env(&env)?;
-    let mut cache = cache
-        .lock()
-        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
-    cache.nodes.clear();
-    cache.packed_v4.reset_slots();
+    with_view_runtime(&cache, |runtime| {
+        runtime.nodes.clear();
+        runtime.packed_v4.reset_slots();
+    })?;
     Ok(())
 }
 
@@ -233,11 +211,7 @@ pub fn tui_perf_v4_reset_view_bridge_cache(env: Env) -> Result<()> {
 #[napi(js_name = "tuiPerfV4ViewBridgeCacheSize")]
 pub fn tui_perf_v4_view_bridge_cache_size(env: Env) -> Result<i64> {
     let cache = view_bridge_cache_for_env(&env)?;
-    let size = cache
-        .lock()
-        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?
-        .packed_v4
-        .slot_count();
+    let size = with_view_runtime(&cache, |runtime| runtime.packed_v4.slot_count())?;
     i64::try_from(size).map_err(|_| crate::NativeError::internal("packed V4 slot count overflow"))
 }
 
@@ -245,26 +219,18 @@ pub fn tui_perf_v4_view_bridge_cache_size(env: Env) -> Result<i64> {
 #[napi(js_name = "tuiPerfV4ViewBridgeGeneration")]
 pub fn tui_perf_v4_view_bridge_generation(env: Env) -> Result<i64> {
     let cache = view_bridge_cache_for_env(&env)?;
-    Ok(i64::from(
-        cache
-            .lock()
-            .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?
-            .packed_v4
-            .generation,
-    ))
+    Ok(i64::from(with_view_runtime(&cache, |runtime| {
+        runtime.packed_v4.generation
+    })?))
 }
 
 #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
 #[napi(js_name = "tuiPerfV3ViewBridgeGeneration")]
 pub fn tui_perf_v3_view_bridge_generation(env: Env) -> Result<i64> {
     let cache = view_bridge_cache_for_env(&env)?;
-    Ok(i64::from(
-        cache
-            .lock()
-            .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?
-            .packed_v3
-            .generation,
-    ))
+    Ok(i64::from(with_view_runtime(&cache, |runtime| {
+        runtime.packed_v3.generation
+    })?))
 }
 
 mod tui_bridge_schema {
@@ -282,52 +248,23 @@ mod packed_v3;
 #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
 mod packed_v4;
 
-struct ViewBridgeCache {
-    nodes: HashMap<u64, iyon_tui::WeakView>,
-    #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
-    packed_v3: packed_v3::PackedState,
-    #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
-    packed_v4: packed_v4::PackedState,
+fn view_bridge_cache(value: &Object<'_>) -> Result<ViewRuntimeHandle> {
+    view_abi::runtime_handle_for_env(&Env::from_raw(value.value().env))
 }
 
-static VIEW_BRIDGE_CACHES: OnceLock<Mutex<HashMap<usize, Arc<Mutex<ViewBridgeCache>>>>> =
-    OnceLock::new();
-
-fn view_bridge_cache(value: &Object<'_>) -> Result<Arc<Mutex<ViewBridgeCache>>> {
-    view_bridge_cache_for_raw_env(value.value().env)
+fn view_bridge_cache_for_env(env: &Env) -> Result<ViewRuntimeHandle> {
+    view_abi::runtime_handle_for_env(env)
 }
 
-fn view_bridge_cache_for_env(env: &Env) -> Result<Arc<Mutex<ViewBridgeCache>>> {
-    view_bridge_cache_for_raw_env(env.raw())
+fn runtime_from_handle(runtime: &ViewRuntimeHandle) -> Result<&'static mut ViewBridgeCache> {
+    view_abi::runtime_from_handle(runtime)
 }
 
-fn view_bridge_cache_for_raw_env(env: napi::sys::napi_env) -> Result<Arc<Mutex<ViewBridgeCache>>> {
-    let key = env as usize;
-    let caches = VIEW_BRIDGE_CACHES.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut caches = caches
-        .lock()
-        .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
-    if let Some(cache) = caches.get(&key) {
-        return Ok(Arc::clone(cache));
-    }
-
-    let cache = Arc::new(Mutex::new(ViewBridgeCache {
-        nodes: HashMap::new(),
-        #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
-        packed_v3: packed_v3::PackedState::new(),
-        #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
-        packed_v4: packed_v4::PackedState::new(),
-    }));
-    let hook = napi::Env::from_raw(env).add_env_cleanup_hook(key, |key| {
-        if let Some(caches) = VIEW_BRIDGE_CACHES.get() {
-            if let Ok(mut caches) = caches.lock() {
-                caches.remove(&key);
-            }
-        }
-    })?;
-    let _ = hook;
-    caches.insert(key, Arc::clone(&cache));
-    Ok(cache)
+fn with_view_runtime<T>(
+    runtime: &ViewRuntimeHandle,
+    operation: impl FnOnce(&mut ViewBridgeCache) -> T,
+) -> Result<T> {
+    Ok(operation(runtime_from_handle(runtime)?))
 }
 
 #[napi]
@@ -682,7 +619,12 @@ pub struct NativeTuiHost {
 #[napi]
 impl NativeTuiHost {
     #[napi(constructor)]
-    pub fn new(width: Option<i64>, height: Option<i64>, headless: Option<bool>) -> Result<Self> {
+    pub fn new(
+        env: Env,
+        width: Option<i64>,
+        height: Option<i64>,
+        headless: Option<bool>,
+    ) -> Result<Self> {
         let width = width.unwrap_or(80);
         let height = height.unwrap_or(24);
         let width = u16::try_from(width)
@@ -694,11 +636,13 @@ impl NativeTuiHost {
                 .map_err(|error| crate::NativeError::internal(error.to_string()))?,
         );
         #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
-        let mut fast_shared = Box::new(fast_shared::FastSession::new(&mut host));
+        let runtime = view_abi::runtime_ptr_for_env(&env)?;
         #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
-        fast_shared
-            .register()
-            .map_err(|_| crate::NativeError::internal("FastShared session table is full"))?;
+        let mut fast_shared = Box::new(fast_shared::FastSession::new(&mut host, runtime));
+        #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
+        fast_shared.register().map_err(|_| {
+            crate::NativeError::internal("FastShared runtime host registry is full")
+        })?;
         Ok(Self {
             host,
             alive: AtomicBool::new(true),
@@ -1614,7 +1558,7 @@ fn decode_view(value: &Object<'_>) -> Result<View> {
 }
 
 struct ViewDecoder {
-    cache: Arc<Mutex<ViewBridgeCache>>,
+    cache: ViewRuntimeHandle,
     active: HashSet<u64>,
 }
 
@@ -1628,27 +1572,19 @@ impl ViewDecoder {
         }
         tui_perf_inc!(NapiViewNodesSeen);
 
-        let cached = {
-            let cache = self
-                .cache
-                .lock()
-                .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+        let cached = with_view_runtime(&self.cache, |cache| {
             cache
                 .nodes
                 .get(&node_id)
                 .and_then(iyon_tui::WeakView::upgrade)
-        };
+        })?;
         if let Some(view) = cached {
             tui_perf_inc!(NapiViewCacheHits);
             return Ok(view);
         }
-        {
-            let mut cache = self
-                .cache
-                .lock()
-                .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+        with_view_runtime(&self.cache, |cache| {
             cache.nodes.remove(&node_id);
-        }
+        })?;
         tui_perf_inc!(NapiViewCacheMisses);
 
         let schema = required_prop::<u32>(&value, "schema")?;
@@ -1666,14 +1602,12 @@ impl ViewDecoder {
         self.active.remove(&node_id);
         let view = result?;
 
-        let mut cache = self
-            .cache
-            .lock()
-            .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
-        cache.nodes.insert(node_id, view.downgrade());
-        if cache.nodes.len() > 4096 && cache.nodes.len() % 256 == 0 {
-            cache.nodes.retain(|_, weak| weak.upgrade().is_some());
-        }
+        with_view_runtime(&self.cache, |cache| {
+            cache.nodes.insert(node_id, view.downgrade());
+            if cache.nodes.len() > 4096 && cache.nodes.len() % 256 == 0 {
+                cache.nodes.retain(|_, weak| weak.upgrade().is_some());
+            }
+        })?;
         Ok(view)
     }
 

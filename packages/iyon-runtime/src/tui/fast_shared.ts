@@ -70,7 +70,8 @@ export type FastSharedAbi = {
   readonly meta_offset: number;
   readonly max_ops: number;
   readonly page_bytes: number;
-  readonly session_handle: number;
+  readonly runtime_ptr: number;
+  readonly host_ptr: number;
   readonly command_ptr: number;
   readonly pages: readonly FastSharedAbiPage[];
   readonly commit_ptr: number;
@@ -79,7 +80,7 @@ export type FastSharedAbi = {
   readonly render_ref_ptr: number;
 };
 
-type FastCall = (session: number, ...args: number[]) => number;
+type FastCall = (runtime: Pointer, host: Pointer, ...args: number[]) => number;
 
 type FastHooks = {
   readonly encodingStarted?: () => void;
@@ -142,7 +143,7 @@ export class FastSharedError extends Error {
 }
 
 function callPointer(pointer: number, args: readonly string[]): FastCall {
-  return CFunction({ ptr: pointer as Pointer, args: ["u32", ...args] as never, returns: "i32" }) as unknown as FastCall;
+  return CFunction({ ptr: pointer as Pointer, args: ["ptr", "ptr", ...args] as never, returns: "i32" }) as unknown as FastCall;
 }
 
 function validateAbi(abi: FastSharedAbi): void {
@@ -150,7 +151,7 @@ function validateAbi(abi: FastSharedAbi): void {
   if (abi.magic !== FAST_ABI_MAGIC || abi.version !== FAST_ABI_VERSION || abi.schema_version !== 1 || abi.control_words !== FAST_CONTROL_WORDS || abi.op_words !== FAST_OP_WORDS || abi.command_bytes !== FAST_COMMAND_BYTES || abi.meta_offset !== FAST_META_OFFSET) {
     throw new Error("ION_FAST_SHARED_ABI_MISMATCH");
   }
-  if (!Number.isSafeInteger(abi.session_handle) || abi.session_handle <= 0 || !Number.isSafeInteger(abi.command_ptr)) throw new Error("ION_FAST_SHARED_HANDLE_INVALID");
+  if (![abi.runtime_ptr, abi.host_ptr].every((value) => Number.isSafeInteger(value) && value > 0) || !Number.isSafeInteger(abi.command_ptr)) throw new Error("ION_FAST_SHARED_HANDLE_INVALID");
   if (abi.pages.length === 0 || abi.pages.some((page) => page.bytes <= 0 || !Number.isSafeInteger(page.ptr))) throw new Error("ION_FAST_SHARED_PAGE_INVALID");
   if (![abi.commit_ptr, abi.acquire_ptr, abi.release_ptr, abi.render_ref_ptr].every((value) => Number.isSafeInteger(value) && value > 0)) throw new Error("ION_FAST_SHARED_FUNCTION_POINTER_INVALID");
 }
@@ -161,7 +162,8 @@ export class FastSharedTransport {
   readonly control: Uint32Array;
   readonly meta: Uint32Array;
   private readonly pages: readonly Uint8Array[];
-  readonly sessionHandle: number;
+  readonly runtimePtr: Pointer;
+  readonly hostPtr: Pointer;
   private host: FastSharedHost | undefined;
   private readonly commitCall: FastCall;
   private readonly acquireCall: FastCall;
@@ -179,7 +181,8 @@ export class FastSharedTransport {
     validateAbi(abi);
     this.host = host;
     this.abi = abi;
-    this.sessionHandle = abi.session_handle;
+    this.runtimePtr = abi.runtime_ptr as Pointer;
+    this.hostPtr = abi.host_ptr as Pointer;
     this.command = new Uint8Array(toArrayBuffer(abi.command_ptr as Pointer, 0, abi.command_bytes));
     this.control = new Uint32Array(this.command.buffer, this.command.byteOffset, FAST_CONTROL_WORDS);
     this.meta = new Uint32Array(this.command.buffer, this.command.byteOffset + FAST_META_OFFSET, (FAST_COMMAND_BYTES - FAST_META_OFFSET) / 4);
@@ -249,7 +252,7 @@ export class FastSharedTransport {
     validateUtf16(value);
     if (value.length === 0) return [0, 0];
     if (this.pageId < 0) {
-      const pageId = this.acquireCall(this.sessionHandle);
+      const pageId = this.acquireCall(this.runtimePtr, this.hostPtr);
       if (pageId < 0 || pageId >= this.pages.length) throw new FastSharedError({ code: pageId < 0 ? -pageId : 5 });
       this.pageId = pageId;
       this.byteCursor = 0;
@@ -276,7 +279,7 @@ export class FastSharedTransport {
     this.control[7] = this.byteCursor;
     this.control[9] = this.metaCursor * 4;
     if (collectCounters) counters.fast_shared_commits += 1;
-    const code = this.commitCall(this.sessionHandle);
+    const code = this.commitCall(this.runtimePtr, this.hostPtr);
     if (code !== 0) throw new FastSharedError({ code, detail: this.control[12] });
     if (collectCounters && this.pageId >= 0) counters.fast_shared_page_seals += 1;
     this.pageId = -1;
@@ -286,14 +289,14 @@ export class FastSharedTransport {
 
   renderRef(generation: number, reference: number): FastSharedStatus {
     if (this.closed) throw new FastSharedError({ code: 2 });
-    const code = this.renderRefCall(this.sessionHandle, generation >>> 0, reference >>> 0);
+    const code = this.renderRefCall(this.runtimePtr, this.hostPtr, generation >>> 0, reference >>> 0);
     if (code !== 0) throw new FastSharedError({ code });
     return { code };
   }
 
   releaseWritingPage(): void {
     if (this.closed) return;
-    if (this.pageId >= 0) this.releaseCall(this.sessionHandle, this.pageId);
+    if (this.pageId >= 0) this.releaseCall(this.runtimePtr, this.hostPtr, this.pageId);
     this.pageId = -1;
     this.byteCursor = 0;
   }
