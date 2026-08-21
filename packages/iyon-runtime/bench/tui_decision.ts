@@ -409,6 +409,11 @@ async function runSample(candidate: Candidate, testCase: Case, index: number): P
   } finally {
     tui?.close();
     host?.dispose();
+    // V4's benchmark slot table is environment-scoped rather than host-
+    // scoped. Explicitly drop it after the candidate host closes so the final
+    // lifetime audit measures the candidate's post-disposal state, not the
+    // benchmark oracle's retained bulk cache.
+    if (candidate === "packed_v4") native.tuiPerfV4ResetViewBridgeCache?.();
   }
   const afterSnapshot = abiSnapshot();
   const snapshot: Record<string, number> = {};
