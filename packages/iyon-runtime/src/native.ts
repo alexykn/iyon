@@ -142,7 +142,7 @@ export interface NativeAddon {
   echoString(value: string): string;
   echoBuffer(value: Buffer): Buffer;
   tuiSmoke(): string;
-  tuiViewAbiBootstrap?(): NativeViewAbiBootstrap;
+  tuiViewAbiBootstrap?: (pruneExpired?: boolean) => NativeViewAbiBootstrap;
   tuiPerfAbiProbe?(): {
     noop_ptr: number;
     u32_8_ptr: number;
