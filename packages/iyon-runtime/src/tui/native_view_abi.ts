@@ -254,7 +254,13 @@ export function tryNativeAxisCreate(
   gap: number,
   children: readonly NativeAxisBuilderChild[],
 ): number | undefined {
-  if (!Number.isInteger(gap) || gap < 0 || gap > 65_535 || children.length > NATIVE_BUILDER_MAX_CHILDREN) return undefined;
+  if (
+    !Number.isInteger(gap)
+    || gap < 0
+    || gap > 65_535
+    || children.length > NATIVE_BUILDER_MAX_CHILDREN
+    || !nativeColdGraphWithinLimit(next)
+  ) return undefined;
   const session = nativeViewAbiSession();
   if (session === undefined) return undefined;
   const refs: number[] = [];
