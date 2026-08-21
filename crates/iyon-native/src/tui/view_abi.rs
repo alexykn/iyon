@@ -2459,6 +2459,16 @@ fn text_view_from_owned(text: String, style: StyleRef, wrap: u32, align: u32) ->
     text_view_from_spans(vec![TextSpan::styled(text, style)], wrap, align)
 }
 
+fn cstring_to_owned(pointer: *const std::ffi::c_char, maximum_bytes: u32) -> Result<String, u32> {
+    let bytes = unsafe { CStr::from_ptr(pointer) }.to_bytes();
+    if bytes.len() > maximum_bytes as usize {
+        return Err(FAST_FALLBACK);
+    }
+    str::from_utf8(bytes)
+        .map(str::to_owned)
+        .map_err(|_| FAST_INVALID)
+}
+
 fn cstring_text_spans(
     runtime: &NativeViewRuntime,
     inputs: &[(*const std::ffi::c_char, u32)],
@@ -2466,10 +2476,7 @@ fn cstring_text_spans(
     inputs
         .iter()
         .map(|(pointer, style_ref)| {
-            let text = unsafe { CStr::from_ptr(*pointer) }
-                .to_str()
-                .map(str::to_owned)
-                .map_err(|_| FAST_INVALID)?;
+            let text = cstring_to_owned(*pointer, MAX_NEW_TEXT_BYTES)?;
             let style = runtime.style_for_ref(*style_ref)?;
             Ok(TextSpan::styled(text, style))
         })
@@ -2546,10 +2553,7 @@ pub unsafe extern "Rust" fn view_text_create_cstring_impl(
     let Ok(node_id) = node_id(node_id_low, node_id_high) else {
         return FAST_INVALID;
     };
-    let Ok(text) = (unsafe { CStr::from_ptr(text) })
-        .to_str()
-        .map(str::to_owned)
-    else {
+    let Ok(text) = cstring_to_owned(text, MAX_NEW_TEXT_BYTES) else {
         return record_result(runtime, FAST_INVALID);
     };
     let result = runtime
