@@ -358,8 +358,8 @@ function renderV4(
   );
 }
 
-function abiSnapshot(): Record<string, number> {
-  const snapshot = native.tuiViewAbiBootstrap?.().diagnostics;
+function abiSnapshot(pruneExpired = false): Record<string, number> {
+  const snapshot = native.tuiViewAbiBootstrap?.(pruneExpired).diagnostics;
   if (snapshot === undefined) return {};
   return Object.fromEntries(Object.entries(snapshot).filter((entry): entry is [string, number] => typeof entry[1] === "number"));
 }
@@ -538,7 +538,7 @@ async function runRealisticTrace(): Promise<Record<string, unknown>> {
   };
 }
 
-function decisionGates(results: readonly Record<string, unknown>[]): Record<string, unknown> {
+function decisionGates(results: readonly Record<string, unknown>[], trace: Record<string, unknown>): Record<string, unknown> {
   const normal = results.filter((result) => (modes as readonly string[]).includes(String(result.mode)) && !String(result.label).startsWith("wide_") && !String(result.label).startsWith("cold_") && !String(result.label).startsWith("path_") && !String(result.label).startsWith("transaction_"));
   const ratios: number[] = [];
   let regressionsOverThreePercent = 0;
@@ -581,6 +581,16 @@ function decisionGates(results: readonly Record<string, unknown>[]): Record<stri
     exact_native_shadow_over_v4_max_ratio: Math.max(...exactRatios, 0),
     cold_native_shadow_within_five_percent_of_v4: coldRatios.every((ratio) => ratio <= 1.05),
     cold_native_shadow_over_v4_max_ratio: Math.max(...coldRatios, 0),
+    trace_native_shadow_over_best_prior_ratio: (() => {
+      const totals = trace.totals_ns as Record<string, number>;
+      const bestPrior = Math.min(totals.direct ?? Number.POSITIVE_INFINITY, totals.packed_v4 ?? Number.POSITIVE_INFINITY);
+      return bestPrior === 0 || !Number.isFinite(bestPrior) ? 0 : (totals.native_shadow ?? 0) / bestPrior;
+    })(),
+    trace_at_least_fifteen_percent_faster: (() => {
+      const totals = trace.totals_ns as Record<string, number>;
+      const bestPrior = Math.min(totals.direct ?? Number.POSITIVE_INFINITY, totals.packed_v4 ?? Number.POSITIVE_INFINITY);
+      return bestPrior > 0 && (totals.native_shadow ?? Number.POSITIVE_INFINITY) <= bestPrior * 0.85;
+    })(),
   };
 }
 
@@ -611,7 +621,7 @@ for (const result of results) {
 }
 const collectGarbage = (Bun as unknown as { gc?: (force?: boolean) => void }).gc;
 collectGarbage?.(true);
-const finalRuntimeSnapshot = abiSnapshot();
+const finalRuntimeSnapshot = abiSnapshot(true);
 const lifetimeAudit = {
   passed: (finalRuntimeSnapshot.leased_slots ?? 0) === 0
     && (finalRuntimeSnapshot.builders ?? 0) === 0
@@ -641,7 +651,7 @@ const output = {
   wide_matrix: wideSizes,
   cold_guardrail: coldSizes,
   cases: results,
-  decision_gates: decisionGates(results),
+  decision_gates: decisionGates(results, trace),
   realistic_trace: trace,
   route_counts: routeCounts,
   phase_scope: {

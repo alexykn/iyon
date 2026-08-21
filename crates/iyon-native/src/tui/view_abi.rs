@@ -977,6 +977,39 @@ impl NativeViewRuntime {
         self.builders.clear();
     }
 
+    pub(super) fn prune_expired(&mut self) {
+        let expired_nodes = self
+            .nodes
+            .iter()
+            .filter_map(|(node_id, weak)| (weak.upgrade().is_none()).then_some(*node_id))
+            .collect::<Vec<_>>();
+        for node_id in expired_nodes {
+            self.nodes.remove(&node_id);
+            if let Some(reference) = self.node_refs.remove(&node_id)
+                && self
+                    .slots
+                    .get(&reference)
+                    .is_some_and(|slot| slot.js_lease_count == 0)
+            {
+                self.slots.remove(&reference);
+            }
+        }
+        let expired_refs = self
+            .slots
+            .iter()
+            .filter_map(|(reference, slot)| {
+                (slot.js_lease_count == 0 && slot.weak.upgrade().is_none()).then_some(*reference)
+            })
+            .collect::<Vec<_>>();
+        for reference in expired_refs {
+            if let Some(slot) = self.slots.remove(&reference)
+                && self.node_refs.get(&slot.node_id) == Some(&reference)
+            {
+                self.node_refs.remove(&slot.node_id);
+            }
+        }
+    }
+
     fn release_many(&mut self, refs: *const u32, used_count: u32) -> Result<i32, i32> {
         for index in 0..used_count as usize {
             let reference = unsafe { refs.add(index).read() };
@@ -1089,8 +1122,11 @@ pub(super) fn abort_all_edit_txns(pointer: *mut NativeViewRuntime) {
 }
 
 #[napi(js_name = "tuiViewAbiBootstrap")]
-pub fn bootstrap(env: Env) -> napi::Result<Value> {
+pub fn bootstrap(env: Env, prune_expired: Option<bool>) -> napi::Result<Value> {
     let runtime = runtime_for_env(&env)?;
+    if prune_expired.unwrap_or(false) {
+        unsafe { &mut *runtime }.prune_expired();
+    }
     let diagnostics = unsafe { &*runtime }.diagnostic_counts();
     let diagnostics = serde_json::json!({
         "semantic_cache_entries": diagnostics.0,
