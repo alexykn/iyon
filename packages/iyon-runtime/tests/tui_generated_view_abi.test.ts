@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import type { Pointer } from "bun:ffi";
 
 import { native } from "../src/native.ts";
 import { nativeViewAbiSession } from "../src/tui/native_view_abi.ts";
-import { runtimeNoop, viewCommonPatchRoot, viewRefForNodeId, viewRenderRef, viewReleaseMany, viewSpacerCreate, viewTextLayoutPatchRoot } from "../src/tui/generated/view_calls.ts";
+import { hostRenderRef, runtimeNoop, viewCommonPatchRoot, viewRefForNodeId, viewRenderRef, viewReleaseMany, viewSpacerCreate, viewTextLayoutPatchRoot } from "../src/tui/generated/view_calls.ts";
 import { nodeForBridge, nodeIdPair, View } from "../src/tui/values/view.ts";
 
 type AbiHost = {
   render(view: object): void;
+  tuiViewAbiHostPointer(): number;
   screenRows(): string[];
   dispose(): void;
 };
@@ -17,11 +19,29 @@ describe("PERF-11 generated vertical slice", () => {
   test("links the generated ABI and keeps the runtime pointer stable", () => {
     const session = nativeViewAbiSession();
     if (session === undefined) return;
-    expect(session.abi.function_count).toBe(8);
+    expect(session.abi.function_count).toBe(9);
     expect(session.abi.runtime_ptr).toBeGreaterThan(0);
     expect(session.symbols).toBeDefined();
     expect(nativeViewAbiSession()?.abi.runtime_ptr ?? 0).toBe(session.abi.runtime_ptr);
     expect(runtimeNoop(session.symbols, session.runtime)).toBe(1);
+  });
+
+  test("renders an existing native ref through the generated host call", () => {
+    if (Host === undefined) return;
+    const session = nativeViewAbiSession();
+    if (session === undefined) return;
+    const host = new Host(8, 4, true);
+    const view = View.spacer(2);
+    try {
+      host.render(nodeForBridge(view));
+      const [nodeIdLow, nodeIdHigh] = nodeIdPair(view);
+      const reference = viewRefForNodeId(session.symbols, session.runtime, nodeIdLow, nodeIdHigh);
+      expect(hostRenderRef(session.symbols, session.runtime, host.tuiViewAbiHostPointer() as unknown as Pointer, reference)).toBe(0);
+      expect(host.screenRows()).toEqual(["        ", "        ", "        ", "        "]);
+      viewReleaseMany(session.symbols, session.runtime, new Uint32Array([reference]), 1);
+    } finally {
+      host.dispose();
+    }
   });
 
   test("creates, resolves, publishes, and releases a native spacer", () => {

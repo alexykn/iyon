@@ -357,6 +357,26 @@ cross-host FastShared reference-isolation test
 
 **Tranche 4 status: COMPLETE.** The environment runtime/cache boundary is unified and lifetime-tested. Production Native Shadow routing remains intentionally disabled; generated semantic routing, PathRefs, pending/fused backing, edit transactions, builders, and host-boundary migration remain later tranches.
 
+## 2.9 Tranche 5 implementation record
+
+Tranche 5 (`§22 PERF-11.3`) adds the first production retained routing on top of the unified Tranche 4 runtime. The canonical schema now includes the generated `host_render_ref` host-mutating function alongside the existing exact lookup, `render_ref`, text-layout, and common-field scalar operations. Rust/C/TypeScript bindings, the manifest, ABI reference, layout tests, conformance wrappers, and benchmark registry are regenerated from the schema; the generator layout fixture also covers host-pointer signatures and delegation.
+
+`NativeTuiHost` exposes one stable opaque host pointer for the generated call. The pointer targets the N-API-owned host allocation, while `dispose()` tombstones the host before closing its inner terminal. Native `host_render_ref` validates the environment runtime, host lifetime, owner thread, and NativeRef before installing the immutable native View in one host mutation; it returns an `i32` status and records the status cell without changing the one-word scalar View result ABI.
+
+The TypeScript runtime retains the existing immutable public `View` identity and direct bridge as the authoritative fallback. After the initial authoritative direct render publishes the root into the environment cache, `Tui.render` attempts generated host installation for supported retained edits: raw-text wrap/alignment changes use `view_text_layout_patch_root`, and root padding/fit/fill/min/max decoration changes use `view_common_patch_root`. The generated path passes only the runtime pointer, stable host pointer, NativeRef, cached NodeId halves, and scalar fields. Unsupported shapes, stale refs, or failed generated calls fall back to the existing direct decoder; a successful root replacement releases the previous root lease. Exact repeated installation of the same immutable body/history remains an early O(1) return, and close/exit drain the current root lease before host teardown.
+
+The Tranche 5 verification artifacts are:
+
+```text
+packages/iyon-runtime/src/tui/native_view_abi.ts
+packages/iyon-runtime/tests/tui_native_scalar.test.ts
+packages/iyon-runtime/bench/tui_abi_scalar.ts
+```
+
+The generated ABI count is now 9. Under Bun `1.4.0` revision `34cbb9a40b4bd1bd767d134a7065e66c2432a676`, the scalar boundary benchmark records zero structural encoding bytes/records for exact/ref and scalar retained calls; its final clean record is `packages/iyon-runtime/bench/PERF-11.3-generated-scalar.json`.
+
+**Tranche 5 status: COMPLETE.** Exact identity, generated host installation, text-layout root edits, supported common-field root edits, fallback behavior, lease cleanup, generated host-pointer conformance, and the Bun 1.4 scalar boundary benchmark pass. Path lenses, tiny backing/lazy fusion, transactions, builders, broader host-boundary migration, and production Native Shadow adoption remain later tranches.
+
 The canonical ABI input and generator sources are located at:
 
 ```text

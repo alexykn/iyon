@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 7fce882a8b31b7dab23c5515ffde2626513fed07f46366e3d9869a966fe1ccb1
-// generator_blake3 = 6767bb7dce54c663ecaf7a84446e62ac37ca5f81733789e365918308bcee71b0
+// schema_blake3 = e533d64e5293b56a70b81e67a9aee34c17cdfd0a9d1199420cfcb263b2d0f470
+// generator_blake3 = 55f2f1590b18e72152621b4c5272e892f224c5d3b4e4d10e489551129f713903
 #![allow(dead_code)]
 
 #[derive(Clone, Copy, Debug)]
@@ -50,6 +50,21 @@ pub static FUNCTIONS: &[FunctionDescriptor] = &[
         max_buffer_bytes: 0,
         max_input_count: 1,
         benchmark_registration: "view.render_ref",
+    },
+    FunctionDescriptor {
+        name: "host_render_ref",
+        symbol: "iyon_host_render_ref_v1",
+        family: "render_ref",
+        hotness: "critical",
+        fallback: "none",
+        ownership: "host_mutating",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: false,
+        mutates_host_state: true,
+        max_buffer_bytes: 0,
+        max_input_count: 1,
+        benchmark_registration: "view.host_render_ref",
     },
     FunctionDescriptor {
         name: "view_spacer_create",

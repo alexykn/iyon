@@ -1,3 +1,4 @@
+use super::NativeTuiHost;
 use crate::NativeError;
 use iyon_tui::{HorizontalAlign, Insets, View, WrapMode};
 use napi::Env;
@@ -17,6 +18,10 @@ use super::{packed_v3, packed_v4};
 mod generated_types;
 pub use generated_types::AxisChildInputV1;
 
+// The generated ABI keeps the host handle opaque. It is the stable N-API
+// NativeTuiHost allocation, not the movable inner TuiHost value.
+pub(super) type NativeHost = NativeTuiHost;
+
 mod generated_exports {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -33,6 +38,10 @@ const SEMANTIC_VERSION: u32 = 1;
 const FAST_INVALID: u32 = 0x8000_0001;
 const FAST_CACHE_MISS: u32 = 0x8000_0004;
 const FAST_FALLBACK: u32 = 0x8000_0005;
+const HOST_STATUS_OK: i32 = 0;
+const HOST_STATUS_CACHE_MISS: i32 = 1;
+const HOST_STATUS_INVALID: i32 = -1;
+const HOST_STATUS_INTERNAL: i32 = -3;
 
 const PATCH_PADDING: u32 = 4;
 const PATCH_WIDTH: u32 = 8;
@@ -425,6 +434,7 @@ pub fn bootstrap(env: Env) -> napi::Result<Value> {
         "functions": {
             "runtimeNoop": generated_exports::iyon_runtime_noop_v1 as *const () as usize as u64,
             "viewRenderRef": generated_exports::iyon_view_render_ref_v1 as *const () as usize as u64,
+            "hostRenderRef": generated_exports::iyon_host_render_ref_v1 as *const () as usize as u64,
             "viewSpacerCreate": generated_exports::iyon_view_spacer_create_v1 as *const () as usize as u64,
             "viewTextLayoutPatchRoot": generated_exports::iyon_view_text_layout_patch_root_v1 as *const () as usize as u64,
             "viewCommonPatchRoot": generated_exports::iyon_view_common_patch_root_v1 as *const () as usize as u64,
@@ -454,6 +464,11 @@ fn record_result(runtime: &NativeViewRuntime, result: u32) -> u32 {
     runtime.status.record(result, 0)
 }
 
+fn record_host_status(runtime: &NativeViewRuntime, status: i32) -> i32 {
+    runtime.status.record(status as u32, 0);
+    status
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "Rust" fn runtime_noop_impl(runtime: *mut NativeViewRuntime) -> u32 {
     let Ok(runtime) = runtime_mut(runtime) else {
@@ -475,6 +490,33 @@ pub unsafe extern "Rust" fn view_render_ref_impl(
         Err(error) => error,
     };
     record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn host_render_ref_impl(
+    runtime: *mut NativeViewRuntime,
+    host: *mut NativeHost,
+    base: u32,
+) -> i32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return HOST_STATUS_INVALID;
+    };
+    let status = {
+        let Some(host) = (unsafe { host.as_ref() }) else {
+            return record_host_status(runtime, HOST_STATUS_INVALID);
+        };
+        if !host.alive.load(Ordering::Acquire) {
+            return record_host_status(runtime, HOST_STATUS_INVALID);
+        }
+        let Ok((view, _)) = runtime.resolve_ref(base) else {
+            return record_host_status(runtime, HOST_STATUS_CACHE_MISS);
+        };
+        match host.host.render(view) {
+            Ok(()) => HOST_STATUS_OK,
+            Err(_) => HOST_STATUS_INTERNAL,
+        }
+    };
+    record_host_status(runtime, status)
 }
 
 #[unsafe(no_mangle)]

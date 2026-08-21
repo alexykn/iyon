@@ -7,6 +7,12 @@ import { History } from "./history.ts";
 import { TextInput } from "./text-input.ts";
 import { ViewSlot } from "./component.ts";
 import { NativeScrollPane } from "./scroll-pane.ts";
+import {
+  nativeViewAbiSession,
+  nativeViewRefForNodeId,
+  releaseNativeViewRefs,
+  tryNativeScalarRender,
+} from "./native_view_abi.ts";
 import type {
   OutputHandle,
   ScrollPane,
@@ -24,6 +30,7 @@ export class Tui implements TuiRuntime {
   private readonly width: number;
   private readonly height: number;
   private currentScene?: Scene;
+  private currentNativeRef?: number;
 
   private constructor(host: NativeTuiHostContract, width: number, height: number) {
     this.host = host;
@@ -95,7 +102,22 @@ export class Tui implements TuiRuntime {
       const history = (normalized.history as unknown as { nativeObject(): object }).nativeObject() as { isDetached?: () => boolean };
       if (history.isDetached?.() === true) this.host.setHistory(history as object);
     }
-    this.host.render(nodeForBridge(normalized.body));
+    const previousBody = this.currentScene?.body;
+    const previousNativeRef = this.currentNativeRef;
+    let nextNativeRef = previousBody === undefined || previousNativeRef === undefined
+      ? undefined
+      : tryNativeScalarRender(this.host, previousBody, previousNativeRef, normalized.body);
+
+    if (nextNativeRef === undefined) {
+      this.host.render(nodeForBridge(normalized.body));
+      nextNativeRef = this.host.tuiViewAbiHostPointer === undefined
+        ? undefined
+        : nativeViewRefForNodeId(normalized.body);
+    }
+    if (previousNativeRef !== undefined && previousNativeRef !== nextNativeRef) {
+      releaseNativeViewRefs(nativeViewAbiSession(), [previousNativeRef]);
+    }
+    this.currentNativeRef = nextNativeRef;
     this.currentScene = normalized;
   }
 
@@ -136,13 +158,23 @@ export class Tui implements TuiRuntime {
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    this.host.dispose();
+    try {
+      if (this.currentNativeRef !== undefined) releaseNativeViewRefs(nativeViewAbiSession(), [this.currentNativeRef]);
+    } finally {
+      this.currentNativeRef = undefined;
+      this.host.dispose();
+    }
   }
 
   exit(): void {
     if (this.closed) return;
-    this.host.exit();
-    this.closed = true;
+    try {
+      if (this.currentNativeRef !== undefined) releaseNativeViewRefs(nativeViewAbiSession(), [this.currentNativeRef]);
+    } finally {
+      this.currentNativeRef = undefined;
+      this.host.exit();
+      this.closed = true;
+    }
   }
 
   setTheme(theme: import("./values/theme.ts").Theme): void {

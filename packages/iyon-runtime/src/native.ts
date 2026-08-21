@@ -72,6 +72,7 @@ export interface NativeViewAbiBootstrap {
   functions: {
     runtimeNoop: number;
     viewRenderRef: number;
+    hostRenderRef: number;
     viewSpacerCreate: number;
     viewTextLayoutPatchRoot: number;
     viewCommonPatchRoot: number;
@@ -152,6 +153,7 @@ export interface NativeTuiHostContract {
   route(output: NativeTuiOutputContract, routeId: string): void;
   interceptPaste(input: object, routeId: string): void;
   render(view: object): void;
+  tuiViewAbiHostPointer?(): number;
   dispatchKey(key: string, modifiers?: readonly string[]): void;
   dispatchPaste(text: string): void;
   forwardPaste(text: string): void;
