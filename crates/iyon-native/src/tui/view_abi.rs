@@ -115,12 +115,12 @@ impl NativeViewRuntime {
         Ok(())
     }
 
-    fn resolve_ref(&mut self, reference: u32) -> Result<View, u32> {
+    fn resolve_ref(&mut self, reference: u32) -> Result<(View, bool), u32> {
         let Some(slot) = self.slots.get_mut(&reference) else {
             return Err(FAST_CACHE_MISS);
         };
         if let Some(view) = slot.leased.clone() {
-            return Ok(view);
+            return Ok((view, true));
         }
         let Some(view) = slot.weak.upgrade() else {
             let node_id = slot.node_id;
@@ -128,7 +128,7 @@ impl NativeViewRuntime {
             self.slots.remove(&reference);
             return Err(FAST_CACHE_MISS);
         };
-        Ok(view)
+        Ok((view, false))
     }
 
     fn publish(&mut self, node_id: u64, view: View) -> Result<u32, u32> {
@@ -137,8 +137,10 @@ impl NativeViewRuntime {
         }
         if let Some(reference) = self.node_refs.get(&node_id).copied() {
             match self.resolve_ref(reference) {
-                Ok(existing) if existing == view => {
-                    self.ensure_lease(reference, existing)?;
+                Ok((existing, has_lease)) if existing == view => {
+                    if !has_lease {
+                        self.ensure_lease(reference, existing)?;
+                    }
                     return Ok(reference);
                 }
                 Ok(_) => return Err(FAST_INVALID),
@@ -183,8 +185,10 @@ impl NativeViewRuntime {
         }
         if let Some(reference) = self.node_refs.get(&node_id).copied() {
             match self.resolve_ref(reference) {
-                Ok(view) => {
-                    self.ensure_lease(reference, view)?;
+                Ok((view, has_lease)) => {
+                    if !has_lease {
+                        self.ensure_lease(reference, view)?;
+                    }
                     return Ok(reference);
                 }
                 Err(_) => {
@@ -393,7 +397,7 @@ pub unsafe extern "Rust" fn view_text_layout_patch_root_impl(
     let Ok(align) = decode_align(align) else {
         return FAST_INVALID;
     };
-    let Ok(base_view) = runtime.resolve_ref(base) else {
+    let Ok((base_view, _)) = runtime.resolve_ref(base) else {
         return FAST_CACHE_MISS;
     };
     let Ok(patched) = base_view.try_with_text_layout_patch(Some(wrap), Some(align)) else {
@@ -434,7 +438,7 @@ pub unsafe extern "Rust" fn view_common_patch_root_impl(
     if runtime.resolve_ref(decoration_ref).is_err() {
         return FAST_CACHE_MISS;
     }
-    let Ok(base_view) = runtime.resolve_ref(base) else {
+    let Ok((base_view, _)) = runtime.resolve_ref(base) else {
         return FAST_CACHE_MISS;
     };
     let mut patched = base_view;
