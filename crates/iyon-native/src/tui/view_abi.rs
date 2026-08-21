@@ -145,6 +145,17 @@ struct EditTxn {
     edits: Vec<TextLayoutEdit>,
 }
 
+struct StagedPublicationEntry {
+    node_id: u64,
+    view: View,
+    reference: u32,
+}
+
+struct StagedPublication {
+    entries: Vec<StagedPublicationEntry>,
+    next_native_ref: u32,
+}
+
 #[repr(C)]
 pub(super) struct NativeViewRuntime {
     pub magic: u32,
@@ -481,55 +492,95 @@ impl NativeViewRuntime {
         Ok(patched)
     }
 
-    fn validate_staged_publication(&mut self, staged: &[(u64, View)]) -> Result<(), u32> {
+    /// Validates all logical publication failures and reserves the NativeRefs
+    /// without exposing them. The returned plan is committed only after the
+    /// host accepts the new root, so a host error cannot leave published refs
+    /// for an uninstalled View.
+    fn prepare_staged_publication(
+        &mut self,
+        staged: Vec<(u64, View)>,
+    ) -> Result<StagedPublication, u32> {
         let mut unique = HashSet::with_capacity(staged.len());
-        let mut new_refs = 0usize;
+        let mut planned_refs = HashSet::with_capacity(staged.len());
+        let mut next_native_ref = self.next_native_ref;
+        let mut entries = Vec::with_capacity(staged.len());
+
         for (node_id, view) in staged {
-            if *node_id == 0 || !unique.insert(*node_id) {
+            if node_id == 0 || !unique.insert(node_id) {
                 return Err(FAST_INVALID);
             }
             if let Some(existing) = self
                 .nodes
-                .get(node_id)
+                .get(&node_id)
                 .and_then(iyon_tui::WeakView::upgrade)
-                && existing != *view
+                && existing != view
             {
                 return Err(FAST_INVALID);
             }
-            if let Some(reference) = self.node_refs.get(node_id).copied() {
+
+            let reference = if let Some(reference) = self.node_refs.get(&node_id).copied() {
                 match self.resolve_ref(reference) {
-                    Ok((existing, _)) if existing != *view => return Err(FAST_INVALID),
-                    Ok(_) => {}
+                    Ok((existing, _)) if existing != view => return Err(FAST_INVALID),
+                    Ok(_) => reference,
                     Err(FAST_CACHE_MISS) => {
-                        self.node_refs.remove(node_id);
-                        new_refs += 1;
+                        self.node_refs.remove(&node_id);
+                        reserve_staged_ref(&self.slots, &mut planned_refs, &mut next_native_ref)?
                     }
                     Err(error) => return Err(error),
                 }
             } else {
-                new_refs += 1;
-            }
+                reserve_staged_ref(&self.slots, &mut planned_refs, &mut next_native_ref)?
+            };
+            entries.push(StagedPublicationEntry {
+                node_id,
+                view,
+                reference,
+            });
         }
-        if new_refs > 0 && self.next_native_ref >= PATH_ROOT_REF.saturating_sub(new_refs as u32) {
-            return Err(FAST_FALLBACK);
+
+        if entries.is_empty() {
+            return Err(FAST_INVALID);
         }
-        Ok(())
+        Ok(StagedPublication {
+            entries,
+            next_native_ref,
+        })
     }
 
-    fn publish_staged(&mut self, staged: Vec<(u64, View)>) -> Result<u32, u32> {
-        let last = staged.len().checked_sub(1).ok_or(FAST_INVALID)?;
-        let mut root_ref = 0;
-        for (index, (node_id, view)) in staged.into_iter().enumerate() {
-            let reference = if index == last {
-                self.publish(node_id, view)?
-            } else {
-                self.publish_bulk(node_id, view)?
-            };
-            if index == last {
-                root_ref = reference;
+    /// Commits a previously prepared plan. All semantic error conditions were
+    /// checked before host installation; this phase only installs the plan's
+    /// already-reserved entries and cannot return a recoverable ABI status.
+    fn commit_staged_publication(&mut self, publication: StagedPublication) -> u32 {
+        let root_ref = publication
+            .entries
+            .last()
+            .map(|entry| entry.reference)
+            .unwrap_or(0);
+        let last_index = publication.entries.len().saturating_sub(1);
+        self.next_native_ref = publication.next_native_ref;
+        for (index, entry) in publication.entries.into_iter().enumerate() {
+            let is_root = index == last_index;
+            if self.node_refs.get(&entry.node_id) == Some(&entry.reference) {
+                if is_root {
+                    let _ = self.ensure_lease(entry.reference, entry.view);
+                }
+                continue;
             }
+            let weak = entry.view.downgrade();
+            self.nodes.insert(entry.node_id, weak.clone());
+            self.node_refs.insert(entry.node_id, entry.reference);
+            self.slots.insert(
+                entry.reference,
+                NativeViewSlot {
+                    node_id: entry.node_id,
+                    weak,
+                    leased: is_root.then_some(entry.view),
+                    js_lease_count: u32::from(is_root),
+                    kind: NativeViewKindTag::View,
+                },
+            );
         }
-        Ok(root_ref)
+        root_ref
     }
 
     fn allocate_ref(&mut self) -> Option<u32> {
@@ -1343,13 +1394,14 @@ pub unsafe extern "Rust" fn edit_txn_commit_render_impl(
     if staged.is_empty() || staged.last().map(|(_, view)| view != &root).unwrap_or(true) {
         return record_result(runtime, FAST_INVALID);
     }
-    if let Err(error) = runtime.validate_staged_publication(&staged) {
-        return record_result(runtime, error);
-    }
+    let publication = match runtime.prepare_staged_publication(staged) {
+        Ok(publication) => publication,
+        Err(error) => return record_result(runtime, error),
+    };
     if host.host.render(root).is_err() {
         return record_result(runtime, FAST_INTERNAL);
     }
-    let result = runtime.publish_staged(staged).unwrap_or(FAST_INTERNAL);
+    let result = runtime.commit_staged_publication(publication);
     record_result(runtime, result)
 }
 
@@ -1543,6 +1595,21 @@ pub unsafe extern "Rust" fn view_release_many_impl(
         return -1;
     };
     runtime.release_many(refs, used_ref_count).unwrap_or(-1)
+}
+
+fn reserve_staged_ref(
+    slots: &HashMap<u32, NativeViewSlot>,
+    planned: &mut HashSet<u32>,
+    next: &mut u32,
+) -> Result<u32, u32> {
+    while *next < PATH_ROOT_REF {
+        let candidate = *next;
+        *next = (*next).saturating_add(1);
+        if candidate != 0 && !slots.contains_key(&candidate) && planned.insert(candidate) {
+            return Ok(candidate);
+        }
+    }
+    Err(FAST_FALLBACK)
 }
 
 fn is_valid_view_ref(reference: u32) -> bool {
