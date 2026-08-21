@@ -1,5 +1,5 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 0e958fc44a24679d0503ae6606bcf1529e0b7caf5eed48097ddbe2ade7d60ef6
+// schema_blake3 = f7b30e32493e2e95f86541401308e5db64103bd8a7e694cbecbfe851040025d3
 // generator_blake3 = 20435cb0e211e543dd671e6c86669cf3f205c8e77c5070f47f4d181a4a9d3c71
 #[allow(dead_code)]
 pub struct NativeViewRuntime;
@@ -908,6 +908,108 @@ pub unsafe extern "Rust" fn view_text_create_utf8_impl(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_utf8_2_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    bytes: *const u8,
+    bytes_capacity: usize,
+    used_bytes: u32,
+    span0_bytes: u32,
+    style0: u32,
+    span1_bytes: u32,
+    style1: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = node_id_low;
+    let _ = node_id_high;
+    let _ = bytes;
+    let _ = bytes_capacity;
+    let _ = used_bytes;
+    let _ = span0_bytes;
+    let _ = style0;
+    let _ = span1_bytes;
+    let _ = style1;
+    let _ = wrap;
+    let _ = align;
+    0x12b
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_utf8_3_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    bytes: *const u8,
+    bytes_capacity: usize,
+    used_bytes: u32,
+    span0_bytes: u32,
+    style0: u32,
+    span1_bytes: u32,
+    style1: u32,
+    span2_bytes: u32,
+    style2: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = node_id_low;
+    let _ = node_id_high;
+    let _ = bytes;
+    let _ = bytes_capacity;
+    let _ = used_bytes;
+    let _ = span0_bytes;
+    let _ = style0;
+    let _ = span1_bytes;
+    let _ = style1;
+    let _ = span2_bytes;
+    let _ = style2;
+    let _ = wrap;
+    let _ = align;
+    0x12c
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_utf8_4_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    bytes: *const u8,
+    bytes_capacity: usize,
+    used_bytes: u32,
+    span0_bytes: u32,
+    style0: u32,
+    span1_bytes: u32,
+    style1: u32,
+    span2_bytes: u32,
+    style2: u32,
+    span3_bytes: u32,
+    style3: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = node_id_low;
+    let _ = node_id_high;
+    let _ = bytes;
+    let _ = bytes_capacity;
+    let _ = used_bytes;
+    let _ = span0_bytes;
+    let _ = style0;
+    let _ = span1_bytes;
+    let _ = style1;
+    let _ = span2_bytes;
+    let _ = style2;
+    let _ = span3_bytes;
+    let _ = style3;
+    let _ = wrap;
+    let _ = align;
+    0x12d
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "Rust" fn view_text_create_cstring_2_impl(
     runtime: *mut NativeViewRuntime,
     node_id_low: u32,
@@ -928,7 +1030,7 @@ pub unsafe extern "Rust" fn view_text_create_cstring_2_impl(
     let _ = style1;
     let _ = wrap;
     let _ = align;
-    0x12b
+    0x12e
 }
 
 #[unsafe(no_mangle)]
@@ -956,7 +1058,7 @@ pub unsafe extern "Rust" fn view_text_create_cstring_3_impl(
     let _ = style2;
     let _ = wrap;
     let _ = align;
-    0x12c
+    0x12f
 }
 
 #[unsafe(no_mangle)]
@@ -988,12 +1090,12 @@ pub unsafe extern "Rust" fn view_text_create_cstring_4_impl(
     let _ = style3;
     let _ = wrap;
     let _ = align;
-    0x12d
+    0x130
 }
 
 #[test]
 fn generated_function_count_is_stable() {
-    assert_eq!(generated::FUNCTION_COUNT, 46);
+    assert_eq!(generated::FUNCTION_COUNT, 49);
 }
 
 #[test]

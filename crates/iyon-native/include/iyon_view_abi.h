@@ -1,5 +1,5 @@
 /* DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. */
-/* schema_blake3 = 0e958fc44a24679d0503ae6606bcf1529e0b7caf5eed48097ddbe2ade7d60ef6 */
+/* schema_blake3 = f7b30e32493e2e95f86541401308e5db64103bd8a7e694cbecbfe851040025d3 */
 /* generator_blake3 = 20435cb0e211e543dd671e6c86669cf3f205c8e77c5070f47f4d181a4a9d3c71 */
 #ifndef IYON_VIEW_ABI_H
 #define IYON_VIEW_ABI_H
@@ -118,6 +118,12 @@ uint32_t iyon_style_create_bits_v1(NativeViewRuntime * runtime, uint32_t flags, 
 uint32_t iyon_view_text_create_cstring_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, const char * text, uint32_t style_ref, uint32_t wrap, uint32_t align);
 
 uint32_t iyon_view_text_create_utf8_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, const uint8_t * bytes, size_t bytes_capacity, uint32_t used_bytes, uint32_t style_ref, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_view_text_create_utf8_2_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, const uint8_t * bytes, size_t bytes_capacity, uint32_t used_bytes, uint32_t span0_bytes, uint32_t style0, uint32_t span1_bytes, uint32_t style1, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_view_text_create_utf8_3_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, const uint8_t * bytes, size_t bytes_capacity, uint32_t used_bytes, uint32_t span0_bytes, uint32_t style0, uint32_t span1_bytes, uint32_t style1, uint32_t span2_bytes, uint32_t style2, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_view_text_create_utf8_4_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, const uint8_t * bytes, size_t bytes_capacity, uint32_t used_bytes, uint32_t span0_bytes, uint32_t style0, uint32_t span1_bytes, uint32_t style1, uint32_t span2_bytes, uint32_t style2, uint32_t span3_bytes, uint32_t style3, uint32_t wrap, uint32_t align);
 
 uint32_t iyon_view_text_create_cstring_2_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, const char * text0, uint32_t style0, const char * text1, uint32_t style1, uint32_t wrap, uint32_t align);
 

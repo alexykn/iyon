@@ -1,5 +1,5 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 0e958fc44a24679d0503ae6606bcf1529e0b7caf5eed48097ddbe2ade7d60ef6
+// schema_blake3 = f7b30e32493e2e95f86541401308e5db64103bd8a7e694cbecbfe851040025d3
 // generator_blake3 = 20435cb0e211e543dd671e6c86669cf3f205c8e77c5070f47f4d181a4a9d3c71
 #![allow(dead_code)]
 
@@ -665,6 +665,51 @@ pub static FUNCTIONS: &[FunctionDescriptor] = &[
         max_buffer_bytes: 16777216,
         max_input_count: 16777216,
         benchmark_registration: "view.text_create_utf8",
+    },
+    FunctionDescriptor {
+        name: "view_text_create_utf8_2",
+        symbol: "iyon_view_text_create_utf8_2_v1",
+        family: "constructor",
+        hotness: "warm",
+        fallback: "v4",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: true,
+        mutates_host_state: false,
+        max_buffer_bytes: 16777216,
+        max_input_count: 16777216,
+        benchmark_registration: "view.text_create_utf8_2",
+    },
+    FunctionDescriptor {
+        name: "view_text_create_utf8_3",
+        symbol: "iyon_view_text_create_utf8_3_v1",
+        family: "constructor",
+        hotness: "warm",
+        fallback: "v4",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: true,
+        mutates_host_state: false,
+        max_buffer_bytes: 16777216,
+        max_input_count: 16777216,
+        benchmark_registration: "view.text_create_utf8_3",
+    },
+    FunctionDescriptor {
+        name: "view_text_create_utf8_4",
+        symbol: "iyon_view_text_create_utf8_4_v1",
+        family: "constructor",
+        hotness: "warm",
+        fallback: "v4",
+        ownership: "runtime_owned",
+        borrow_duration: "call",
+        thread_affinity: "owner_thread",
+        may_allocate_native_memory: true,
+        mutates_host_state: false,
+        max_buffer_bytes: 16777216,
+        max_input_count: 16777216,
+        benchmark_registration: "view.text_create_utf8_4",
     },
     FunctionDescriptor {
         name: "view_text_create_cstring_2",

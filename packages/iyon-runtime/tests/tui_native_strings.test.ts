@@ -3,9 +3,14 @@ import { describe, expect, test } from "bun:test";
 import { native } from "../src/native.ts";
 import { AppHarness, StyleSpec, Tui, View, TextSpan } from "../src/tui/index.ts";
 import { nodeForBridge } from "../src/tui/values/view.ts";
-import { nativeViewAbiSession } from "../src/tui/native_view_abi.ts";
+import {
+  nativeViewAbiSession,
+  releaseNativeViewRef,
+  tryNativeTextCreateRender,
+} from "../src/tui/native_view_abi.ts";
 
 type HostContract = {
+  tuiViewAbiHostPointer(): number;
   render(view: object): void;
   screenRows(): string[];
   dispose(): void;
@@ -26,8 +31,15 @@ describe("PERF-11.9 native strings and style atoms", () => {
         TextSpan.styled(" three", new StyleSpec().underline()),
       ]),
       View.text("left\0right"),
+      View.styledText([
+        TextSpan.styled("left\0", new StyleSpec().bold()),
+        TextSpan.styled("right\0✓", new StyleSpec().italic()),
+      ]),
     ];
     try {
+      const multiSpanRef = tryNativeTextCreateRender(oracle, values[3]!);
+      expect(multiSpanRef).toBeGreaterThan(0);
+      releaseNativeViewRef(nativeViewAbiSession(), multiSpanRef!);
       for (const value of values) {
         tui.render({ body: value });
         oracle.render(nodeForBridge(value));

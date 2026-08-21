@@ -42,6 +42,9 @@ import {
   styleCreateBits,
   viewTextCreateCstring,
   viewTextCreateUtf8,
+  viewTextCreateUtf82,
+  viewTextCreateUtf83,
+  viewTextCreateUtf84,
   viewTextCreateCstring2,
   viewTextCreateCstring3,
   viewTextCreateCstring4,
@@ -71,6 +74,7 @@ import {
   NATIVE_COLD_MAX_DEPTH,
   NATIVE_COLD_MAX_NODES,
   NATIVE_SMALL_AXIS_ARITY_MAX,
+  NATIVE_TEXT_MAX_BYTES,
 } from "./native_view_policy.ts";
 
 export interface NativeViewAbiSession {
@@ -159,6 +163,9 @@ const ABI_FUNCTION_NAMES = [
   "styleCreateBits",
   "viewTextCreateCstring",
   "viewTextCreateUtf8",
+  "viewTextCreateUtf82",
+  "viewTextCreateUtf83",
+  "viewTextCreateUtf84",
   "viewTextCreateCstring2",
   "viewTextCreateCstring3",
   "viewTextCreateCstring4",
@@ -242,6 +249,9 @@ export function nativeViewAbiSession(): NativeViewAbiSession | undefined {
     styleCreateBits: bootstrap.functions.styleCreateBits as Pointer,
     viewTextCreateCstring: bootstrap.functions.viewTextCreateCstring as Pointer,
     viewTextCreateUtf8: bootstrap.functions.viewTextCreateUtf8 as Pointer,
+    viewTextCreateUtf82: bootstrap.functions.viewTextCreateUtf82 as Pointer,
+    viewTextCreateUtf83: bootstrap.functions.viewTextCreateUtf83 as Pointer,
+    viewTextCreateUtf84: bootstrap.functions.viewTextCreateUtf84 as Pointer,
     viewTextCreateCstring2: bootstrap.functions.viewTextCreateCstring2 as Pointer,
     viewTextCreateCstring3: bootstrap.functions.viewTextCreateCstring3 as Pointer,
     viewTextCreateCstring4: bootstrap.functions.viewTextCreateCstring4 as Pointer,
@@ -292,7 +302,6 @@ export function tryNativeTextCreateRender(
     }
     const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
     const hasEmbeddedNul = recipe.spans.some((span) => span.text.indexOf("\0") !== -1);
-    if (hasEmbeddedNul && recipe.spans.length !== 1) return undefined;
     if (!hasEmbeddedNul) {
       const span = recipe.spans;
       switch (span.length) {
@@ -310,15 +319,35 @@ export function tryNativeTextCreateRender(
           break;
       }
     } else {
-      const span = recipe.spans[0]!;
-      const bytes = TEXT_ENCODER.encode(span.text);
+      const encoded = recipe.spans.map((span) => TEXT_ENCODER.encode(span.text));
+      const totalBytes = encoded.reduce((total, bytes) => total + bytes.length, 0);
+      if (totalBytes > NATIVE_TEXT_MAX_BYTES) return undefined;
       let scratch = TEXT_SCRATCH.get(session);
-      if (scratch === undefined || scratch.length < bytes.length) {
-        scratch = new Uint8Array(Math.max(bytes.length, 64));
+      if (scratch === undefined || scratch.length < totalBytes) {
+        scratch = new Uint8Array(Math.max(totalBytes, 64));
         TEXT_SCRATCH.set(session, scratch);
       }
-      scratch.set(bytes.subarray(0, bytes.length));
-      nextRef = viewTextCreateUtf8(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, bytes.length, styleRefs[0]!, recipe.wrap, recipe.align);
+      const spanBytes: number[] = [];
+      let offset = 0;
+      for (const bytes of encoded) {
+        scratch.set(bytes, offset);
+        spanBytes.push(bytes.length);
+        offset += bytes.length;
+      }
+      switch (recipe.spans.length) {
+        case 1:
+          nextRef = viewTextCreateUtf8(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, totalBytes, styleRefs[0]!, recipe.wrap, recipe.align);
+          break;
+        case 2:
+          nextRef = viewTextCreateUtf82(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, totalBytes, spanBytes[0]!, styleRefs[0]!, spanBytes[1]!, styleRefs[1]!, recipe.wrap, recipe.align);
+          break;
+        case 3:
+          nextRef = viewTextCreateUtf83(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, totalBytes, spanBytes[0]!, styleRefs[0]!, spanBytes[1]!, styleRefs[1]!, spanBytes[2]!, styleRefs[2]!, recipe.wrap, recipe.align);
+          break;
+        case 4:
+          nextRef = viewTextCreateUtf84(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, totalBytes, spanBytes[0]!, styleRefs[0]!, spanBytes[1]!, styleRefs[1]!, spanBytes[2]!, styleRefs[2]!, spanBytes[3]!, styleRefs[3]!, recipe.wrap, recipe.align);
+          break;
+      }
     }
     if (nextRef === undefined) return undefined;
     const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);

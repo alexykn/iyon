@@ -1,5 +1,5 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 0e958fc44a24679d0503ae6606bcf1529e0b7caf5eed48097ddbe2ade7d60ef6
+// schema_blake3 = f7b30e32493e2e95f86541401308e5db64103bd8a7e694cbecbfe851040025d3
 // generator_blake3 = 20435cb0e211e543dd671e6c86669cf3f205c8e77c5070f47f4d181a4a9d3c71
 export type GeneratedAbiBenchmarkCase = {
   name: string;
@@ -56,6 +56,9 @@ export const generatedAbiCases: readonly GeneratedAbiBenchmarkCase[] = [
   { name: "style_create_bits", family: "style_atom", hotness: "warm", benchmarkRegistration: "style.create_bits", scalarArgs: 7, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 1 },
   { name: "view_text_create_cstring", family: "constructor", hotness: "warm", benchmarkRegistration: "view.text_create_cstring", scalarArgs: 7, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 1 },
   { name: "view_text_create_utf8", family: "constructor", hotness: "warm", benchmarkRegistration: "view.text_create_utf8", scalarArgs: 7, hasBuffer: true, maxBufferBytes: 16777216, maxInputCount: 16777216 },
+  { name: "view_text_create_utf8_2", family: "constructor", hotness: "warm", benchmarkRegistration: "view.text_create_utf8_2", scalarArgs: 10, hasBuffer: true, maxBufferBytes: 16777216, maxInputCount: 16777216 },
+  { name: "view_text_create_utf8_3", family: "constructor", hotness: "warm", benchmarkRegistration: "view.text_create_utf8_3", scalarArgs: 12, hasBuffer: true, maxBufferBytes: 16777216, maxInputCount: 16777216 },
+  { name: "view_text_create_utf8_4", family: "constructor", hotness: "warm", benchmarkRegistration: "view.text_create_utf8_4", scalarArgs: 14, hasBuffer: true, maxBufferBytes: 16777216, maxInputCount: 16777216 },
   { name: "view_text_create_cstring_2", family: "constructor", hotness: "warm", benchmarkRegistration: "view.text_create_cstring_2", scalarArgs: 9, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 2 },
   { name: "view_text_create_cstring_3", family: "constructor", hotness: "warm", benchmarkRegistration: "view.text_create_cstring_3", scalarArgs: 11, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 3 },
   { name: "view_text_create_cstring_4", family: "constructor", hotness: "warm", benchmarkRegistration: "view.text_create_cstring_4", scalarArgs: 13, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 4 },

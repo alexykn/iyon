@@ -1,5 +1,5 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 0e958fc44a24679d0503ae6606bcf1529e0b7caf5eed48097ddbe2ade7d60ef6
+// schema_blake3 = f7b30e32493e2e95f86541401308e5db64103bd8a7e694cbecbfe851040025d3
 // generator_blake3 = 20435cb0e211e543dd671e6c86669cf3f205c8e77c5070f47f4d181a4a9d3c71
 import { linkSymbols, type Pointer } from "bun:ffi";
 export type NativeAbiPointers = {
@@ -46,6 +46,9 @@ export type NativeAbiPointers = {
   styleCreateBits: Pointer;
   viewTextCreateCstring: Pointer;
   viewTextCreateUtf8: Pointer;
+  viewTextCreateUtf82: Pointer;
+  viewTextCreateUtf83: Pointer;
+  viewTextCreateUtf84: Pointer;
   viewTextCreateCstring2: Pointer;
   viewTextCreateCstring3: Pointer;
   viewTextCreateCstring4: Pointer;
@@ -96,6 +99,9 @@ export function linkViewAbi(abi: NativeAbiPointers) {
     styleCreateBits: { ptr: abi.styleCreateBits, args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
     viewTextCreateCstring: { ptr: abi.viewTextCreateCstring, args: ["ptr", "u32", "u32", "cstring", "u32", "u32", "u32"], returns: "u32" },
     viewTextCreateUtf8: { ptr: abi.viewTextCreateUtf8, args: ["ptr", "u32", "u32", "buffer", "buffer_length", "u32", "u32", "u32", "u32"], returns: "u32" },
+    viewTextCreateUtf82: { ptr: abi.viewTextCreateUtf82, args: ["ptr", "u32", "u32", "buffer", "buffer_length", "u32", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
+    viewTextCreateUtf83: { ptr: abi.viewTextCreateUtf83, args: ["ptr", "u32", "u32", "buffer", "buffer_length", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
+    viewTextCreateUtf84: { ptr: abi.viewTextCreateUtf84, args: ["ptr", "u32", "u32", "buffer", "buffer_length", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
     viewTextCreateCstring2: { ptr: abi.viewTextCreateCstring2, args: ["ptr", "u32", "u32", "cstring", "u32", "cstring", "u32", "u32", "u32"], returns: "u32" },
     viewTextCreateCstring3: { ptr: abi.viewTextCreateCstring3, args: ["ptr", "u32", "u32", "cstring", "u32", "cstring", "u32", "cstring", "u32", "u32", "u32"], returns: "u32" },
     viewTextCreateCstring4: { ptr: abi.viewTextCreateCstring4, args: ["ptr", "u32", "u32", "cstring", "u32", "cstring", "u32", "cstring", "u32", "cstring", "u32", "u32", "u32"], returns: "u32" },

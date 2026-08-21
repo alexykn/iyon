@@ -574,6 +574,862 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
         },
         {
           "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "gap",
+          "type": "u32"
+        }
+      ],
+      "arity_specializations": [
+        0
+      ],
+      "benchmark_registration": "view.row_create_0",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_row_create_0_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 0,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_row_create_0",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "gap",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track0",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child0",
+          "type": "ViewRef"
+        }
+      ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "view.row_create_1",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_row_create_1_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_row_create_1",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "gap",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track0",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child0",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track1",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child1",
+          "type": "ViewRef"
+        }
+      ],
+      "arity_specializations": [
+        2
+      ],
+      "benchmark_registration": "view.row_create_2",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_row_create_2_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 2,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_row_create_2",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "gap",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track0",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child0",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track1",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child1",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track2",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child2",
+          "type": "ViewRef"
+        }
+      ],
+      "arity_specializations": [
+        3
+      ],
+      "benchmark_registration": "view.row_create_3",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_row_create_3_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 3,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_row_create_3",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "gap",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track0",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child0",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track1",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child1",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track2",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child2",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track3",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child3",
+          "type": "ViewRef"
+        }
+      ],
+      "arity_specializations": [
+        4
+      ],
+      "benchmark_registration": "view.row_create_4",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_row_create_4_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 4,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_row_create_4",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "gap",
+          "type": "u32"
+        }
+      ],
+      "arity_specializations": [
+        0
+      ],
+      "benchmark_registration": "view.column_create_0",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_column_create_0_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 0,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_column_create_0",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "gap",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track0",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child0",
+          "type": "ViewRef"
+        }
+      ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "view.column_create_1",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_column_create_1_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_column_create_1",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "gap",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track0",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child0",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track1",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child1",
+          "type": "ViewRef"
+        }
+      ],
+      "arity_specializations": [
+        2
+      ],
+      "benchmark_registration": "view.column_create_2",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_column_create_2_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 2,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_column_create_2",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "gap",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track0",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child0",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track1",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child1",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track2",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child2",
+          "type": "ViewRef"
+        }
+      ],
+      "arity_specializations": [
+        3
+      ],
+      "benchmark_registration": "view.column_create_3",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_column_create_3_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 3,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_column_create_3",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "gap",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track0",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child0",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track1",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child1",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track2",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child2",
+          "type": "ViewRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track3",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child3",
+          "type": "ViewRef"
+        }
+      ],
+      "arity_specializations": [
+        4
+      ],
+      "benchmark_registration": "view.column_create_4",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_column_create_4_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 4,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_column_create_4",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "axis_kind",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "expected_children",
+          "type": "u32"
+        }
+      ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "builder.axis_begin",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "builder",
+      "hotness": "warm",
+      "implementation": "axis_builder_begin_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 524288,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "axis_builder_begin",
+      "ownership": "runtime_owned",
+      "return": "native_ref_result",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "builder_ref",
+          "type": "BuilderRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "track_word",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "child_ref",
+          "type": "ViewRef"
+        }
+      ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "builder.axis_push",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "builder",
+      "hotness": "warm",
+      "implementation": "axis_builder_push_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 524288,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "axis_builder_push",
+      "ownership": "runtime_owned",
+      "return": "status_only",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "builder_ref",
+          "type": "BuilderRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "gap",
+          "type": "u32"
+        }
+      ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "builder.axis_finish",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "builder",
+      "hotness": "warm",
+      "implementation": "axis_builder_finish_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 524288,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "axis_builder_finish",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "native_ref",
+          "name": "builder_ref",
+          "type": "BuilderRef"
+        }
+      ],
+      "arity_specializations": [],
+      "benchmark_registration": "builder.axis_abort",
+      "borrow_duration": "call",
+      "fallback": "none",
+      "family": "builder",
+      "hotness": "cold",
+      "implementation": "axis_builder_abort_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": false,
+      "mutates_host_state": false,
+      "name": "axis_builder_abort",
+      "ownership": "runtime_owned",
+      "return": "status_only",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
           "lowering": "native_ref",
           "name": "base_axis_ref",
           "type": "ViewRef"
@@ -1887,6 +2743,812 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
       "ownership": "runtime_owned",
       "return": "status_only",
       "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "value",
+          "type": "string"
+        }
+      ],
+      "arity_specializations": [],
+      "benchmark_registration": "style.atom_create_cstring",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "style_atom",
+      "hotness": "warm",
+      "implementation": "style_atom_create_cstring_impl",
+      "max_buffer_bytes": 4096,
+      "max_input_count": 1,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "style_atom_create_cstring",
+      "ownership": "runtime_owned",
+      "return": "StyleAtomRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "flags",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "attribute_present",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "attribute_true",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "foreground_ref",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "background_ref",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "theme_atom_ref",
+          "type": "u32"
+        }
+      ],
+      "arity_specializations": [],
+      "benchmark_registration": "style.create_bits",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "style_atom",
+      "hotness": "warm",
+      "implementation": "style_create_bits_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "style_create_bits",
+      "ownership": "runtime_owned",
+      "return": "StyleRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style_ref",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "view.text_create_cstring",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_cstring_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_cstring",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer",
+          "name": "bytes",
+          "type": "u8[]"
+        },
+        {
+          "buffer_length_of": "bytes",
+          "lowering": "buffer_length",
+          "name": "bytes_capacity",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer_used",
+          "name": "used_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style_ref",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "view.text_create_utf8",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_utf8_impl",
+      "max_buffer_bytes": 16777216,
+      "max_input_count": 16777216,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_utf8",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer",
+          "name": "bytes",
+          "type": "u8[]"
+        },
+        {
+          "buffer_length_of": "bytes",
+          "lowering": "buffer_length",
+          "name": "bytes_capacity",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer_used",
+          "name": "used_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span0_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style0",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span1_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style1",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        2
+      ],
+      "benchmark_registration": "view.text_create_utf8_2",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_utf8_2_impl",
+      "max_buffer_bytes": 16777216,
+      "max_input_count": 16777216,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_utf8_2",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer",
+          "name": "bytes",
+          "type": "u8[]"
+        },
+        {
+          "buffer_length_of": "bytes",
+          "lowering": "buffer_length",
+          "name": "bytes_capacity",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer_used",
+          "name": "used_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span0_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style0",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span1_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style1",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span2_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style2",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        3
+      ],
+      "benchmark_registration": "view.text_create_utf8_3",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_utf8_3_impl",
+      "max_buffer_bytes": 16777216,
+      "max_input_count": 16777216,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_utf8_3",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer",
+          "name": "bytes",
+          "type": "u8[]"
+        },
+        {
+          "buffer_length_of": "bytes",
+          "lowering": "buffer_length",
+          "name": "bytes_capacity",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer_used",
+          "name": "used_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span0_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style0",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span1_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style1",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span2_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style2",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span3_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style3",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        4
+      ],
+      "benchmark_registration": "view.text_create_utf8_4",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_utf8_4_impl",
+      "max_buffer_bytes": 16777216,
+      "max_input_count": 16777216,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_utf8_4",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text0",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style0",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text1",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style1",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        2
+      ],
+      "benchmark_registration": "view.text_create_cstring_2",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_cstring_2_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 2,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_cstring_2",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text0",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style0",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text1",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style1",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text2",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style2",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        3
+      ],
+      "benchmark_registration": "view.text_create_cstring_3",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_cstring_3_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 3,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_cstring_3",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text0",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style0",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text1",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style1",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text2",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style2",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text3",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style3",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        4
+      ],
+      "benchmark_registration": "view.text_create_cstring_4",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_cstring_4_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 4,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_cstring_4",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
     }
   ],
   "generated_outputs": [
@@ -1904,7 +3566,7 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
     "crates/iyon-native/tests/generated_view_abi.rs",
     "PERF-11-generated-abi-reference.md"
   ],
-  "generator_blake3": "6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91",
+  "generator_blake3": "20435cb0e211e543dd671e6c86669cf3f205c8e77c5070f47f4d181a4a9d3c71",
   "handles": [
     {
       "kind": null,
@@ -1943,6 +3605,33 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
       "valid": "1..0x7fffffff"
     },
     {
+      "kind": "style",
+      "lifetime": "runtime",
+      "name": "StyleRef",
+      "nullable": false,
+      "rust": "u32",
+      "typescript": "number",
+      "valid": "1..0x7fffffff"
+    },
+    {
+      "kind": "style_atom",
+      "lifetime": "runtime",
+      "name": "StyleAtomRef",
+      "nullable": false,
+      "rust": "u32",
+      "typescript": "number",
+      "valid": "1..0x7fffffff"
+    },
+    {
+      "kind": "builder",
+      "lifetime": "runtime",
+      "name": "BuilderRef",
+      "nullable": false,
+      "rust": "u32",
+      "typescript": "number",
+      "valid": "0x7ffe0001..0x7fff0001"
+    },
+    {
       "kind": "edit_txn",
       "lifetime": "runtime",
       "name": "EditTxnRef",
@@ -1970,5 +3659,5 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
       "size": 8
     }
   ],
-  "schema_blake3": "d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914"
+  "schema_blake3": "f7b30e32493e2e95f86541401308e5db64103bd8a7e694cbecbfe851040025d3"
 }

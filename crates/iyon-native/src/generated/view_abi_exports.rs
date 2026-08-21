@@ -1,5 +1,5 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 0e958fc44a24679d0503ae6606bcf1529e0b7caf5eed48097ddbe2ade7d60ef6
+// schema_blake3 = f7b30e32493e2e95f86541401308e5db64103bd8a7e694cbecbfe851040025d3
 // generator_blake3 = 20435cb0e211e543dd671e6c86669cf3f205c8e77c5070f47f4d181a4a9d3c71
 // Generated C ABI wrappers. Semantic implementations are handwritten and linked below.
 use super::{NativeViewRuntime, NativeHost, AxisChildInputV1};
@@ -475,6 +475,60 @@ pub mod generated_impls {
             bytes_capacity: usize,
             used_bytes: u32,
             style_ref: u32,
+            wrap: u32,
+            align: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_create_utf8_2_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            bytes: *const u8,
+            bytes_capacity: usize,
+            used_bytes: u32,
+            span0_bytes: u32,
+            style0: u32,
+            span1_bytes: u32,
+            style1: u32,
+            wrap: u32,
+            align: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_create_utf8_3_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            bytes: *const u8,
+            bytes_capacity: usize,
+            used_bytes: u32,
+            span0_bytes: u32,
+            style0: u32,
+            span1_bytes: u32,
+            style1: u32,
+            span2_bytes: u32,
+            style2: u32,
+            wrap: u32,
+            align: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_create_utf8_4_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            bytes: *const u8,
+            bytes_capacity: usize,
+            used_bytes: u32,
+            span0_bytes: u32,
+            style0: u32,
+            span1_bytes: u32,
+            style1: u32,
+            span2_bytes: u32,
+            style2: u32,
+            span3_bytes: u32,
+            style3: u32,
             wrap: u32,
             align: u32,
         ) -> u32;
@@ -2204,6 +2258,162 @@ pub unsafe extern "C" fn iyon_view_text_create_utf8_v1(
                         bytes_capacity,
                         used_bytes,
                         style_ref,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_create_utf8_2_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    bytes: *const u8,
+    bytes_capacity: usize,
+    used_bytes: u32,
+    span0_bytes: u32,
+    style0: u32,
+    span1_bytes: u32,
+    style1: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let bytes = generated_buffer(bytes, bytes_capacity, 1, 16777216, 0x8000_0002u32)?;
+                let used_bytes =
+                    generated_buffer_used(used_bytes, bytes_capacity, 1, 16777216, 0x8000_0003u32)?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_create_utf8_2_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        bytes,
+                        bytes_capacity,
+                        used_bytes,
+                        span0_bytes,
+                        style0,
+                        span1_bytes,
+                        style1,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_create_utf8_3_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    bytes: *const u8,
+    bytes_capacity: usize,
+    used_bytes: u32,
+    span0_bytes: u32,
+    style0: u32,
+    span1_bytes: u32,
+    style1: u32,
+    span2_bytes: u32,
+    style2: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let bytes = generated_buffer(bytes, bytes_capacity, 1, 16777216, 0x8000_0002u32)?;
+                let used_bytes =
+                    generated_buffer_used(used_bytes, bytes_capacity, 1, 16777216, 0x8000_0003u32)?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_create_utf8_3_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        bytes,
+                        bytes_capacity,
+                        used_bytes,
+                        span0_bytes,
+                        style0,
+                        span1_bytes,
+                        style1,
+                        span2_bytes,
+                        style2,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_create_utf8_4_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    bytes: *const u8,
+    bytes_capacity: usize,
+    used_bytes: u32,
+    span0_bytes: u32,
+    style0: u32,
+    span1_bytes: u32,
+    style1: u32,
+    span2_bytes: u32,
+    style2: u32,
+    span3_bytes: u32,
+    style3: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let bytes = generated_buffer(bytes, bytes_capacity, 1, 16777216, 0x8000_0002u32)?;
+                let used_bytes =
+                    generated_buffer_used(used_bytes, bytes_capacity, 1, 16777216, 0x8000_0003u32)?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_create_utf8_4_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        bytes,
+                        bytes_capacity,
+                        used_bytes,
+                        span0_bytes,
+                        style0,
+                        span1_bytes,
+                        style1,
+                        span2_bytes,
+                        style2,
+                        span3_bytes,
+                        style3,
                         wrap,
                         align,
                     )

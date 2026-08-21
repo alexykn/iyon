@@ -113,6 +113,9 @@ export interface NativeViewAbiBootstrap {
     styleCreateBits: number;
     viewTextCreateCstring: number;
     viewTextCreateUtf8: number;
+    viewTextCreateUtf82: number;
+    viewTextCreateUtf83: number;
+    viewTextCreateUtf84: number;
     viewTextCreateCstring2: number;
     viewTextCreateCstring3: number;
     viewTextCreateCstring4: number;
