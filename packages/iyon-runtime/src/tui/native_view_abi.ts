@@ -575,6 +575,7 @@ export function tryNativeColdRender(host: NativeViewRenderHost, next: View): num
     || !nativeColdGraphWithinLimit(next)
   ) return undefined;
   const refs: number[] = [];
+  let nextRef: number | undefined;
   try {
     for (const child of recipe.children) {
       const reference = nativeColdRefForView(session, child.view);
@@ -582,17 +583,19 @@ export function tryNativeColdRender(host: NativeViewRenderHost, next: View): num
       refs.push(reference);
     }
     const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
-    const nextRef = recipe.children.length <= NATIVE_SMALL_AXIS_ARITY_MAX
+    nextRef = recipe.children.length <= NATIVE_SMALL_AXIS_ARITY_MAX
       ? createSmallAxis(session, recipe.horizontal, nodeIdLow, nodeIdHigh, recipe.gap, recipe.children, refs)
       : createAxisWithBuilder(session, recipe.horizontal ? 1 : 2, nodeIdLow, nodeIdHigh, recipe.gap, recipe.children, refs);
     if (nextRef === undefined) return undefined;
     const status = installNativeRef(host, session, nextRef);
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
+      nextRef = undefined;
       return undefined;
     }
     return nextRef;
   } catch (error) {
+    if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
     if (isExpectedNativeStatus(error)) return undefined;
     throw error;
   } finally {
@@ -823,6 +826,7 @@ export function tryNativeAxisSpliceRender(
   // when the used count is zero; the spare pair is ignored by native code.
   const refs = new Uint32Array(Math.max(children.length * 2, 2));
   const temporaryRefs = new Set<number>();
+  let nextRef: number | undefined;
   try {
     for (const [childIndex, entry] of children.entries()) {
       const childRef = nativeViewRefForNodeId(entry.view);
@@ -835,16 +839,18 @@ export function tryNativeAxisSpliceRender(
       if (childRef !== previousRef) temporaryRefs.add(childRef);
     }
     const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
-    const nextRef = viewAxisSpliceBuffer(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, index, removeCount, refs, children.length);
+    nextRef = viewAxisSpliceBuffer(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, index, removeCount, refs, children.length);
     const status = installNativeRef(host, session, nextRef);
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
+      nextRef = undefined;
       for (const childRef of temporaryRefs) releaseNativeViewRef(session, childRef);
       return undefined;
     }
     for (const childRef of temporaryRefs) releaseNativeViewRef(session, childRef);
     return nextRef;
   } catch (error) {
+    if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
     for (const childRef of temporaryRefs) releaseNativeViewRef(session, childRef);
     if (isExpectedNativeStatus(error)) return undefined;
     throw error;
