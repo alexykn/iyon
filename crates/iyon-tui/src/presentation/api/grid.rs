@@ -53,7 +53,7 @@
 //! # let _ = view;
 //! ```
 
-use std::num::NonZeroU16;
+use std::{collections::HashMap, num::NonZeroU16, sync::Arc};
 
 use super::{style::VerticalAlign, text::HorizontalAlign, view::IntoView};
 use crate::presentation::ir::{GridCellView, GridView, PersistentSeq, TrackSize, View};
@@ -268,12 +268,20 @@ fn lower_grid(grid: Grid) -> GridView {
 
     debug_assert_grid_non_overlapping(&columns, &rows, &cells);
 
+    let cell_indices = Arc::new(
+        cells
+            .iter()
+            .enumerate()
+            .map(|(index, cell)| ((cell.row, cell.column), index))
+            .collect::<HashMap<_, _>>(),
+    );
     GridView {
         columns: PersistentSeq::from_vec(columns),
         rows: PersistentSeq::from_vec(rows),
         column_gap: grid.column_gap,
         row_gap: grid.row_gap,
         cells: PersistentSeq::from_vec(cells),
+        cell_indices,
     }
 }
 

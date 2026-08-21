@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9
-// generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69
+// schema_blake3 = d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914
+// generator_blake3 = 6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91
 // Generated C ABI wrappers. Semantic implementations are handwritten and linked below.
 use super::{NativeViewRuntime, NativeHost, AxisChildInputV1};
 pub mod generated_impls {
@@ -64,6 +64,83 @@ pub mod generated_impls {
             children: *const AxisChildInputV1,
             children_capacity_bytes: usize,
             used_child_count: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_axis_set_child_impl(
+            runtime: *mut NativeViewRuntime,
+            base_axis_ref: u32,
+            node_id_low: u32,
+            node_id_high: u32,
+            child_index: u32,
+            track_word: u32,
+            child_ref: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_axis_splice_buffer_impl(
+            runtime: *mut NativeViewRuntime,
+            base_axis_ref: u32,
+            node_id_low: u32,
+            node_id_high: u32,
+            index: u32,
+            remove_count: u32,
+            children: *const AxisChildInputV1,
+            children_capacity_bytes: usize,
+            used_child_count: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_grid_set_cell_impl(
+            runtime: *mut NativeViewRuntime,
+            base_grid_ref: u32,
+            node_id_low: u32,
+            node_id_high: u32,
+            row: u32,
+            column: u32,
+            child_ref: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_axis_set_child_path_impl(
+            runtime: *mut NativeViewRuntime,
+            base_root_ref: u32,
+            path_ref: u32,
+            path_depth: u32,
+            target_node_id_low: u32,
+            target_node_id_high: u32,
+            ancestor0_node_id_low: u32,
+            ancestor0_node_id_high: u32,
+            ancestor1_node_id_low: u32,
+            ancestor1_node_id_high: u32,
+            ancestor2_node_id_low: u32,
+            ancestor2_node_id_high: u32,
+            ancestor3_node_id_low: u32,
+            ancestor3_node_id_high: u32,
+            axis_index: u32,
+            track_word: u32,
+            child_ref: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_grid_set_cell_path_impl(
+            runtime: *mut NativeViewRuntime,
+            base_root_ref: u32,
+            path_ref: u32,
+            path_depth: u32,
+            target_node_id_low: u32,
+            target_node_id_high: u32,
+            ancestor0_node_id_low: u32,
+            ancestor0_node_id_high: u32,
+            ancestor1_node_id_low: u32,
+            ancestor1_node_id_high: u32,
+            ancestor2_node_id_low: u32,
+            ancestor2_node_id_high: u32,
+            ancestor3_node_id_low: u32,
+            ancestor3_node_id_high: u32,
+            grid_row: u32,
+            grid_column: u32,
+            child_ref: u32,
         ) -> u32;
     }
     unsafe extern "Rust" {
@@ -512,6 +589,280 @@ pub unsafe extern "C" fn iyon_view_axis_create_buffer_v1(
                         children,
                         children_capacity_bytes,
                         used_child_count,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_axis_set_child_v1(
+    runtime: *mut NativeViewRuntime,
+    base_axis_ref: u32,
+    node_id_low: u32,
+    node_id_high: u32,
+    child_index: u32,
+    track_word: u32,
+    child_ref: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let base_axis_ref = generated_native_ref(base_axis_ref, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let child_ref = generated_native_ref(child_ref, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_axis_set_child_impl(
+                        runtime,
+                        base_axis_ref,
+                        node_id_low,
+                        node_id_high,
+                        child_index,
+                        track_word,
+                        child_ref,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_axis_splice_buffer_v1(
+    runtime: *mut NativeViewRuntime,
+    base_axis_ref: u32,
+    node_id_low: u32,
+    node_id_high: u32,
+    index: u32,
+    remove_count: u32,
+    children: *const AxisChildInputV1,
+    children_capacity_bytes: usize,
+    used_child_count: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let base_axis_ref = generated_native_ref(base_axis_ref, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let children = generated_buffer(
+                    children,
+                    children_capacity_bytes,
+                    8,
+                    4194304,
+                    0x8000_0002u32,
+                )?;
+                let used_child_count = generated_buffer_used(
+                    used_child_count,
+                    children_capacity_bytes,
+                    8,
+                    524288,
+                    0x8000_0003u32,
+                )?;
+                Ok(unsafe {
+                    generated_impls::view_axis_splice_buffer_impl(
+                        runtime,
+                        base_axis_ref,
+                        node_id_low,
+                        node_id_high,
+                        index,
+                        remove_count,
+                        children,
+                        children_capacity_bytes,
+                        used_child_count,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_grid_set_cell_v1(
+    runtime: *mut NativeViewRuntime,
+    base_grid_ref: u32,
+    node_id_low: u32,
+    node_id_high: u32,
+    row: u32,
+    column: u32,
+    child_ref: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let base_grid_ref = generated_native_ref(base_grid_ref, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let child_ref = generated_native_ref(child_ref, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_grid_set_cell_impl(
+                        runtime,
+                        base_grid_ref,
+                        node_id_low,
+                        node_id_high,
+                        row,
+                        column,
+                        child_ref,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_axis_set_child_path_v1(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    axis_index: u32,
+    track_word: u32,
+    child_ref: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let base_root_ref = generated_native_ref(base_root_ref, 0x8000_0001u32)?;
+                let path_ref = generated_native_ref(path_ref, 0x8000_0001u32)?;
+                let (target_node_id_low, target_node_id_high) =
+                    generated_node_id(target_node_id_low, target_node_id_high, 0x8000_0001u32)?;
+                let (ancestor0_node_id_low, ancestor0_node_id_high) = generated_node_id(
+                    ancestor0_node_id_low,
+                    ancestor0_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor1_node_id_low, ancestor1_node_id_high) = generated_node_id(
+                    ancestor1_node_id_low,
+                    ancestor1_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor2_node_id_low, ancestor2_node_id_high) = generated_node_id(
+                    ancestor2_node_id_low,
+                    ancestor2_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor3_node_id_low, ancestor3_node_id_high) = generated_node_id(
+                    ancestor3_node_id_low,
+                    ancestor3_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let child_ref = generated_native_ref(child_ref, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_axis_set_child_path_impl(
+                        runtime,
+                        base_root_ref,
+                        path_ref,
+                        path_depth,
+                        target_node_id_low,
+                        target_node_id_high,
+                        ancestor0_node_id_low,
+                        ancestor0_node_id_high,
+                        ancestor1_node_id_low,
+                        ancestor1_node_id_high,
+                        ancestor2_node_id_low,
+                        ancestor2_node_id_high,
+                        ancestor3_node_id_low,
+                        ancestor3_node_id_high,
+                        axis_index,
+                        track_word,
+                        child_ref,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_grid_set_cell_path_v1(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    grid_row: u32,
+    grid_column: u32,
+    child_ref: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let base_root_ref = generated_native_ref(base_root_ref, 0x8000_0001u32)?;
+                let path_ref = generated_native_ref(path_ref, 0x8000_0001u32)?;
+                let (target_node_id_low, target_node_id_high) =
+                    generated_node_id(target_node_id_low, target_node_id_high, 0x8000_0001u32)?;
+                let (ancestor0_node_id_low, ancestor0_node_id_high) = generated_node_id(
+                    ancestor0_node_id_low,
+                    ancestor0_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor1_node_id_low, ancestor1_node_id_high) = generated_node_id(
+                    ancestor1_node_id_low,
+                    ancestor1_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor2_node_id_low, ancestor2_node_id_high) = generated_node_id(
+                    ancestor2_node_id_low,
+                    ancestor2_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor3_node_id_low, ancestor3_node_id_high) = generated_node_id(
+                    ancestor3_node_id_low,
+                    ancestor3_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let child_ref = generated_native_ref(child_ref, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_grid_set_cell_path_impl(
+                        runtime,
+                        base_root_ref,
+                        path_ref,
+                        path_depth,
+                        target_node_id_low,
+                        target_node_id_high,
+                        ancestor0_node_id_low,
+                        ancestor0_node_id_high,
+                        ancestor1_node_id_low,
+                        ancestor1_node_id_high,
+                        ancestor2_node_id_low,
+                        ancestor2_node_id_high,
+                        ancestor3_node_id_low,
+                        ancestor3_node_id_high,
+                        grid_row,
+                        grid_column,
+                        child_ref,
                     )
                 })
             })()

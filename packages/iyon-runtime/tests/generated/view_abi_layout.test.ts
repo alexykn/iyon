@@ -1,11 +1,11 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9
-// generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69
+// schema_blake3 = d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914
+// generator_blake3 = 6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91
 import { expect, test } from "bun:test";
 import manifest from "../../src/tui/generated/view_abi_manifest.json";
 
 test("generated ABI manifest is pinned and ordered", () => {
-  expect(manifest.schema_blake3).toBe("6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9");
+  expect(manifest.schema_blake3).toBe("d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914");
   expect(manifest.abi.version).toBe(1);
   expect(manifest.functions.map((item) => item.name)).toEqual([
     "runtime_noop",
@@ -15,6 +15,11 @@ test("generated ABI manifest is pinned and ordered", () => {
     "view_text_layout_patch_root",
     "view_common_patch_root",
     "view_axis_create_buffer",
+    "view_axis_set_child",
+    "view_axis_splice_buffer",
+    "view_grid_set_cell",
+    "view_axis_set_child_path",
+    "view_grid_set_cell_path",
     "view_release_many",
     "view_ref_for_node_id",
     "path_root",
@@ -72,6 +77,11 @@ test("generated ABI signatures and POD layouts are pinned", () => {
     ["runtime_ptr", "native_ref", "u32", "u32", "u32", "u32"],
     ["runtime_ptr", "native_ref", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "native_ref"],
     ["runtime_ptr", "u32", "u32", "u32", "u32", "pod_slice", "buffer_length", "buffer_used"],
+    ["runtime_ptr", "native_ref", "u32", "u32", "u32", "u32", "native_ref"],
+    ["runtime_ptr", "native_ref", "u32", "u32", "u32", "u32", "pod_slice", "buffer_length", "buffer_used"],
+    ["runtime_ptr", "native_ref", "u32", "u32", "u32", "u32", "native_ref"],
+    ["runtime_ptr", "native_ref", "native_ref", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "native_ref"],
+    ["runtime_ptr", "native_ref", "native_ref", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "native_ref"],
     ["runtime_ptr", "buffer", "buffer_length", "buffer_used"],
     ["runtime_ptr", "u32", "u32"],
     ["runtime_ptr"],

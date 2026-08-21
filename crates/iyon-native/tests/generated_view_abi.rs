@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9
-// generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69
+// schema_blake3 = d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914
+// generator_blake3 = 6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91
 #[allow(dead_code)]
 pub struct NativeViewRuntime;
 
@@ -140,6 +140,150 @@ pub unsafe extern "Rust" fn view_axis_create_buffer_impl(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_axis_set_child_impl(
+    runtime: *mut NativeViewRuntime,
+    base_axis_ref: u32,
+    node_id_low: u32,
+    node_id_high: u32,
+    child_index: u32,
+    track_word: u32,
+    child_ref: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = base_axis_ref;
+    let _ = node_id_low;
+    let _ = node_id_high;
+    let _ = child_index;
+    let _ = track_word;
+    let _ = child_ref;
+    0x107
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_axis_splice_buffer_impl(
+    runtime: *mut NativeViewRuntime,
+    base_axis_ref: u32,
+    node_id_low: u32,
+    node_id_high: u32,
+    index: u32,
+    remove_count: u32,
+    children: *const AxisChildInputV1,
+    children_capacity_bytes: usize,
+    used_child_count: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = base_axis_ref;
+    let _ = node_id_low;
+    let _ = node_id_high;
+    let _ = index;
+    let _ = remove_count;
+    let _ = children;
+    let _ = children_capacity_bytes;
+    let _ = used_child_count;
+    0x108
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_grid_set_cell_impl(
+    runtime: *mut NativeViewRuntime,
+    base_grid_ref: u32,
+    node_id_low: u32,
+    node_id_high: u32,
+    row: u32,
+    column: u32,
+    child_ref: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = base_grid_ref;
+    let _ = node_id_low;
+    let _ = node_id_high;
+    let _ = row;
+    let _ = column;
+    let _ = child_ref;
+    0x109
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_axis_set_child_path_impl(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    axis_index: u32,
+    track_word: u32,
+    child_ref: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = base_root_ref;
+    let _ = path_ref;
+    let _ = path_depth;
+    let _ = target_node_id_low;
+    let _ = target_node_id_high;
+    let _ = ancestor0_node_id_low;
+    let _ = ancestor0_node_id_high;
+    let _ = ancestor1_node_id_low;
+    let _ = ancestor1_node_id_high;
+    let _ = ancestor2_node_id_low;
+    let _ = ancestor2_node_id_high;
+    let _ = ancestor3_node_id_low;
+    let _ = ancestor3_node_id_high;
+    let _ = axis_index;
+    let _ = track_word;
+    let _ = child_ref;
+    0x10a
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_grid_set_cell_path_impl(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    grid_row: u32,
+    grid_column: u32,
+    child_ref: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = base_root_ref;
+    let _ = path_ref;
+    let _ = path_depth;
+    let _ = target_node_id_low;
+    let _ = target_node_id_high;
+    let _ = ancestor0_node_id_low;
+    let _ = ancestor0_node_id_high;
+    let _ = ancestor1_node_id_low;
+    let _ = ancestor1_node_id_high;
+    let _ = ancestor2_node_id_low;
+    let _ = ancestor2_node_id_high;
+    let _ = ancestor3_node_id_low;
+    let _ = ancestor3_node_id_high;
+    let _ = grid_row;
+    let _ = grid_column;
+    let _ = child_ref;
+    0x10b
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "Rust" fn view_release_many_impl(
     runtime: *mut NativeViewRuntime,
     refs: *const u32,
@@ -150,7 +294,7 @@ pub unsafe extern "Rust" fn view_release_many_impl(
     let _ = refs;
     let _ = refs_capacity_bytes;
     let _ = used_ref_count;
-    107
+    112
 }
 
 #[unsafe(no_mangle)]
@@ -162,13 +306,13 @@ pub unsafe extern "Rust" fn view_ref_for_node_id_impl(
     let _ = runtime;
     let _ = node_id_low;
     let _ = node_id_high;
-    0x108
+    0x10d
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "Rust" fn path_root_impl(runtime: *mut NativeViewRuntime) -> u32 {
     let _ = runtime;
-    0x109
+    0x10e
 }
 
 #[unsafe(no_mangle)]
@@ -184,7 +328,7 @@ pub unsafe extern "Rust" fn path_child_impl(
     let _ = step_kind;
     let _ = expected_view_kind;
     let _ = selector;
-    0x10a
+    0x10f
 }
 
 #[unsafe(no_mangle)]
@@ -222,7 +366,7 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_impl(
     let _ = ancestor3_node_id_high;
     let _ = wrap;
     let _ = align;
-    0x10b
+    0x110
 }
 
 #[unsafe(no_mangle)]
@@ -246,7 +390,7 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d1_impl(
     let _ = ancestor0_node_id_high;
     let _ = wrap;
     let _ = align;
-    0x10c
+    0x111
 }
 
 #[unsafe(no_mangle)]
@@ -274,7 +418,7 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d2_impl(
     let _ = ancestor1_node_id_high;
     let _ = wrap;
     let _ = align;
-    0x10d
+    0x112
 }
 
 #[unsafe(no_mangle)]
@@ -306,7 +450,7 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d3_impl(
     let _ = ancestor2_node_id_high;
     let _ = wrap;
     let _ = align;
-    0x10e
+    0x113
 }
 
 #[unsafe(no_mangle)]
@@ -342,7 +486,7 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d4_impl(
     let _ = ancestor3_node_id_high;
     let _ = wrap;
     let _ = align;
-    0x10f
+    0x114
 }
 
 #[unsafe(no_mangle)]
@@ -354,7 +498,7 @@ pub unsafe extern "Rust" fn edit_txn_begin_impl(
     let _ = runtime;
     let _ = base_root_ref;
     let _ = expected_edit_count;
-    0x110
+    0x115
 }
 
 #[unsafe(no_mangle)]
@@ -392,7 +536,7 @@ pub unsafe extern "Rust" fn edit_txn_add_text_layout_impl(
     let _ = ancestor3_node_id_high;
     let _ = wrap;
     let _ = align;
-    117
+    122
 }
 
 #[unsafe(no_mangle)]
@@ -404,7 +548,7 @@ pub unsafe extern "Rust" fn edit_txn_commit_render_impl(
     let _ = runtime;
     let _ = host;
     let _ = txn_ref;
-    0x112
+    0x117
 }
 
 #[unsafe(no_mangle)]
@@ -414,12 +558,12 @@ pub unsafe extern "Rust" fn edit_txn_abort_impl(
 ) -> i32 {
     let _ = runtime;
     let _ = txn_ref;
-    119
+    124
 }
 
 #[test]
 fn generated_function_count_is_stable() {
-    assert_eq!(generated::FUNCTION_COUNT, 20);
+    assert_eq!(generated::FUNCTION_COUNT, 25);
 }
 
 #[test]
@@ -594,7 +738,7 @@ fn generated_wrappers_reject_invalid_inputs_and_delegate() {
                 1,
             )
         },
-        107
+        112
     );
     assert_eq!(
         unsafe { generated_exports::iyon_runtime_noop_v1(core::ptr::null_mut()) },
@@ -658,7 +802,7 @@ fn generated_wrappers_reject_invalid_inputs_and_delegate() {
     );
     assert_eq!(
         unsafe { generated_exports::iyon_view_ref_for_node_id_v1(runtime_ptr, 1, 0) },
-        0x108
+        0x10d
     );
     assert_eq!(
         unsafe { generated_exports::iyon_view_ref_for_node_id_v1(runtime_ptr, 0, 0) },
