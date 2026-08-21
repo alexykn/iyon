@@ -1272,6 +1272,49 @@ mod tests {
     }
 
     #[test]
+    fn stale_path_base_returns_cache_miss_then_recovers_once() {
+        let mut runtime = runtime();
+        let base = runtime
+            .publish(
+                1,
+                View::vertical(|column| {
+                    column.child(View::text("hello"));
+                })
+                .into_view(),
+            )
+            .expect("base ref");
+        let pointer = &mut runtime as *mut NativeViewRuntime;
+        let root = unsafe { generated_exports::iyon_path_root_v1(pointer) };
+        let path = unsafe { generated_exports::iyon_path_child_v1(pointer, root, 4, 3, 0) };
+        assert_eq!(runtime.release_many(&base, 1), Ok(1));
+        assert_eq!(
+            unsafe {
+                generated_exports::iyon_view_text_layout_patch_path_d1_v1(
+                    pointer, base, path, 2, 0, 3, 0, 3, 2,
+                )
+            },
+            FAST_CACHE_MISS
+        );
+        let recovered = runtime
+            .publish(
+                1,
+                View::vertical(|column| {
+                    column.child(View::text("hello"));
+                })
+                .into_view(),
+            )
+            .expect("recovered base ref");
+        let patched = unsafe {
+            generated_exports::iyon_view_text_layout_patch_path_d1_v1(
+                pointer, recovered, path, 2, 0, 3, 0, 3, 2,
+            )
+        };
+        assert!(patched < 0x8000_0000);
+        assert!(runtime.nodes.contains_key(&2));
+        assert!(runtime.nodes.contains_key(&3));
+    }
+
+    #[test]
     fn path_validation_rejects_wrong_parent_kind_and_preserves_publication() {
         let mut runtime = runtime();
         let base = runtime
