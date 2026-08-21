@@ -765,7 +765,11 @@ function materializeBacking(view: View, backing: ViewBacking): BridgeViewNode {
     if (backing.base === undefined || backing.wrap === undefined || backing.align === undefined) throw new TypeError("invalid pending text patch backing");
     const base = nodeForBridge(backing.base);
     if (base.kind !== BRIDGE_VIEW_KIND.text) throw new TypeError("pending text patch base is not text");
-    return withIdentity({ ...base, wrap: backing.wrap, align: backing.align }, backing.nodeId);
+    return withIdentity(
+      { ...base, wrap: backing.wrap, align: backing.align },
+      backing.nodeId,
+      { kind: "text", base },
+    );
   }
   if (backing.state === 2 && backing.patchKind === "common") {
     if (
@@ -797,9 +801,11 @@ function materializeBacking(view: View, backing: ViewBacking): BridgeViewNode {
       ...(backing.mask & PATCH_MIN_HEIGHT ? { minHeight: backing.minHeight } : {}),
       ...(backing.mask & PATCH_MAX_HEIGHT ? { maxHeight: backing.maxHeight } : {}),
     };
+    const base = nodeForBridge(backing.base);
     return withIdentity(
-      { kind: BRIDGE_VIEW_KIND.decorated, child: nodeForBridge(backing.base), decoration },
+      { kind: BRIDGE_VIEW_KIND.decorated, child: base, decoration },
       backing.nodeId,
+      { kind: "decoration", base },
     );
   }
   throw new TypeError("invalid View backing");

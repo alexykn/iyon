@@ -235,7 +235,7 @@ describe("PERF-8 retained packed V3 smokes", () => {
     }
   });
 
-  test("V3 collapses unpublished lineage to a published base", () => {
+  test("V3 preserves fused text lineage through a published base", () => {
     if (!available()) return;
     const direct = new Host!(40, 4, true);
     const packed = new Host!(40, 4, true);
@@ -248,7 +248,7 @@ describe("PERF-8 retained packed V3 smokes", () => {
       render(encoder, packed, second);
       direct.render(nodeForDirectBridge(second));
       expect(packed.screenRows()).toEqual(direct.screenRows());
-      expect(packedV3Snapshot().packed_v3_patch_chains_collapsed).toBeGreaterThan(0);
+      expect(packedV3Snapshot().packed_v3_patch_view_defs).toBeGreaterThan(0);
     } finally {
       direct.dispose();
       packed.dispose();
