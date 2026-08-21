@@ -623,7 +623,7 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
     "crates/iyon-native/tests/generated_view_abi.rs",
     "PERF-11-generated-abi-reference.md"
   ],
-  "generator_blake3": "a32e416575faa290887b502f2a202006562af02cb1a05027ec41076f7b0a40d6",
+  "generator_blake3": "6767bb7dce54c663ecaf7a84446e62ac37ca5f81733789e365918308bcee71b0",
   "handles": [
     {
       "kind": null,
