@@ -2439,6 +2439,7 @@ impl TuiHost {
         // environment-scoped weak caches can observe expiry after disposal.
         inner.running.state.body = View::spacer(0);
         inner.running.host_set_body(View::spacer(0));
+        inner.running.host_clear_retained_views();
         inner.closed = true;
         if let HostBackend::Real(backend) = &mut inner.backend {
             ignore_terminal_shutdown_error(backend.restore())?;

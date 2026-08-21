@@ -221,6 +221,7 @@ export class Tui implements TuiRuntime {
       if (this.currentNativeRef !== undefined) releaseNativeViewRef(nativeViewAbiSession(), this.currentNativeRef);
     } finally {
       this.currentNativeRef = undefined;
+      this.currentScene = undefined;
       this.host.dispose();
     }
   }

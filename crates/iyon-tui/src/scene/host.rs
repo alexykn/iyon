@@ -183,6 +183,10 @@ impl Default for SceneHost {
 }
 
 impl SceneHost {
+    pub(crate) fn clear_retained_views(&mut self) {
+        self.layout_cache = LayoutCache::default();
+    }
+
     pub(crate) fn next_tick_deadline(&self) -> Option<Instant> {
         self.ticker.next_deadline()
     }

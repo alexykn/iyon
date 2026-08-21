@@ -109,6 +109,10 @@ where
         self.invalidate_frame();
     }
 
+    pub(crate) fn host_clear_retained_views(&mut self) {
+        self.scene_host.clear_retained_views();
+    }
+
     pub(crate) fn host_set_body(&mut self, body: View) {
         if self.scene.body() == &body {
             self.body_dirty = false;
