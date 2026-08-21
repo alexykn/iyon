@@ -201,6 +201,9 @@ pub(super) struct NativeViewRuntime {
     next_path_ref: u32,
     next_builder_ref: u32,
     next_edit_txn_ref: u32,
+    stale_removals: u64,
+    release_batches: u64,
+    released_refs: u64,
     pub(super) generation: u32,
     #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
     pub(super) packed_v3: packed_v3::PackedState,
@@ -243,6 +246,9 @@ impl NativeViewRuntime {
             next_path_ref: PATH_ROOT_REF + 1,
             next_builder_ref: BUILDER_REF_LIMIT - 1,
             next_edit_txn_ref: EDIT_TXN_REF_LIMIT - 1,
+            stale_removals: 0,
+            release_batches: 0,
+            released_refs: 0,
             generation: 1,
             #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
             packed_v3: packed_v3::PackedState::new(),
@@ -985,13 +991,16 @@ impl NativeViewRuntime {
             .collect::<Vec<_>>();
         for node_id in expired_nodes {
             self.nodes.remove(&node_id);
+            self.stale_removals = self.stale_removals.saturating_add(1);
             if let Some(reference) = self.node_refs.remove(&node_id)
                 && self
                     .slots
                     .get(&reference)
                     .is_some_and(|slot| slot.js_lease_count == 0)
             {
-                self.slots.remove(&reference);
+                if self.slots.remove(&reference).is_some() {
+                    self.stale_removals = self.stale_removals.saturating_add(1);
+                }
             }
         }
         let expired_refs = self
@@ -1002,15 +1011,18 @@ impl NativeViewRuntime {
             })
             .collect::<Vec<_>>();
         for reference in expired_refs {
-            if let Some(slot) = self.slots.remove(&reference)
-                && self.node_refs.get(&slot.node_id) == Some(&reference)
-            {
-                self.node_refs.remove(&slot.node_id);
+            if let Some(slot) = self.slots.remove(&reference) {
+                self.stale_removals = self.stale_removals.saturating_add(1);
+                if self.node_refs.get(&slot.node_id) == Some(&reference) {
+                    self.node_refs.remove(&slot.node_id);
+                }
             }
         }
     }
 
     fn release_many(&mut self, refs: *const u32, used_count: u32) -> Result<i32, i32> {
+        self.release_batches = self.release_batches.saturating_add(1);
+        self.released_refs = self.released_refs.saturating_add(u64::from(used_count));
         for index in 0..used_count as usize {
             let reference = unsafe { refs.add(index).read() };
             let remove_slot = self
@@ -1128,6 +1140,17 @@ pub fn bootstrap(env: Env, prune_expired: Option<bool>) -> napi::Result<Value> {
         unsafe { &mut *runtime }.prune_expired();
     }
     let diagnostics = unsafe { &*runtime }.diagnostic_counts();
+    let runtime_state = unsafe { &*runtime };
+    let live_weak_upgrades = prune_expired
+        .unwrap_or(false)
+        .then(|| {
+            runtime_state
+                .nodes
+                .values()
+                .filter(|weak| weak.upgrade().is_some())
+                .count()
+        })
+        .unwrap_or(0);
     let diagnostics = serde_json::json!({
         "semantic_cache_entries": diagnostics.0,
         "native_ref_slots": diagnostics.1,
@@ -1139,8 +1162,12 @@ pub fn bootstrap(env: Env, prune_expired: Option<bool>) -> napi::Result<Value> {
         "styles": diagnostics.7,
         "fast_slot_tables": 0,
         "fast_slots": 0,
-        "generation": unsafe { &*runtime }.generation,
-        "alive": unsafe { &*runtime }.alive.load(Ordering::Acquire) != 0,
+        "stale_removals": runtime_state.stale_removals,
+        "release_batches": runtime_state.release_batches,
+        "released_refs": runtime_state.released_refs,
+        "live_weak_upgrades": live_weak_upgrades,
+        "generation": runtime_state.generation,
+        "alive": runtime_state.alive.load(Ordering::Acquire) != 0,
     });
     Ok(serde_json::json!({
         "runtime_ptr": runtime as usize as u64,
