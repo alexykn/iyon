@@ -323,7 +323,7 @@ The committed benchmark `packages/iyon-runtime/bench/PERF-11.1-generated-vertica
 
 ## 2.8 Tranche 4 implementation record
 
-Tranche 4 (`§22 PERF-11.2`) is implemented in commit `4784c89`. The environment runtime is now the single owner of semantic and native View lifetime state rather than a cache object plus transport-owned acceleration stores.
+Tranche 4 (`§22 PERF-11.2`) is implemented in commits `4784c89` and `f4f123c`. The environment runtime is now the single owner of semantic and native View lifetime state rather than a cache object plus transport-owned acceleration stores.
 
 The implementation changes are:
 
@@ -334,9 +334,10 @@ NativeViewRuntime
     generated NativeView slots and NodeId -> NativeRef mapping
     V3/V4 packed state and FastShared slot state
     FastShared host-pointer -> session registry
+    status code/detail cell for failure diagnostics
 ```
 
-Direct structured decoding, V2 packed decoding, V3, V4, generated ABI operations, and FastShared all obtain the same environment runtime handle. Owner-thread paths access the stable runtime directly; the old `Arc<Mutex<ViewBridgeCache>>` hot-path lock is gone. Runtime cleanup marks the header dead before removing the environment handle, and the generated pointer remains valid only for the environment lifetime.
+Direct structured decoding, V2 packed decoding, V3, V4, generated ABI operations, and FastShared all obtain the same environment runtime handle. Generated results also record their status code in the runtime status cell while retaining the one-word return ABI. Owner-thread paths access the stable runtime directly; the old `Arc<Mutex<ViewBridgeCache>>` hot-path lock is gone. Runtime cleanup marks the header dead before removing the environment handle, and the generated pointer remains valid only for the environment lifetime.
 
 V3, V4, and FastShared View publications now call the runtime's weak-only bulk publication path. That path validates NodeId collisions and reuses or creates the same native View lease table used by generated calls. A bulk publication does not create a JS lease; `view_ref_for_node_id` acquires a counted lease when JavaScript needs one. Transport generation resets clear only the host/transport-local FastShared slot table and leave the semantic cache and native View identities intact.
 
