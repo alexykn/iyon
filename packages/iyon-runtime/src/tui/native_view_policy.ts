@@ -5,3 +5,5 @@
  */
 export const NATIVE_SMALL_AXIS_ARITY_MAX = 4;
 export const NATIVE_BUILDER_MAX_CHILDREN = 524_288;
+export const NATIVE_COLD_MAX_NODES = 524_288;
+export const NATIVE_COLD_MAX_DEPTH = 128;
