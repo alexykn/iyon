@@ -393,6 +393,16 @@ Verification includes deterministic `check:tui-abi`, generator tests, Rust forma
 
 **Tranche 6 status: COMPLETE.** Native PathRefs, selector validation, linked JS lineage, depth-specialized generated calls, NodeId-preserving path publication, persistent-structure path copying, cache/lifetime handling, direct parity, and Bun 1.4 benchmark evidence pass. The next tranche is Tranche 7 (`§22 PERF-11.5`), not part of this implementation.
 
+## 2.11 Tranche 7 implementation record
+
+Tranche 7 (`§22 PERF-11.5`) is implemented in commit `3cbc63e` (`perf(runtime): remove View command construction from retained updates`). `View` now carries one frozen, stable-shape private backing with its full NodeId and cached u32 halves. Plain/styled text and spacer constructors use compact `PendingCreate` recipes; scalar text-layout and common-decoration modifiers use `PendingPatch` recipes. Repeated scalar decoration modifiers merge into one mask and fixed packed fields, and repeated text-layout modifiers merge against the original text base. The backing retains no `BridgeViewNode` for these selected paths.
+
+`nodeForBridge` is now the explicit cold/direct compatibility boundary: it lazily materializes and freezes the rich bridge node with the already-assigned NodeId. The retained scalar router reads the pending patch directly, verifies the patch base by View identity, and sends the cached NodeId halves and fixed scalar fields through the existing generated root calls without reading either View's bridge node. Unsupported fluent operations and all existing direct/V3/V4 paths still materialize through the compatibility boundary and retain their previous semantics. Path routing retains its Tranche 6 structural oracle until the later transaction/builder tranches.
+
+The construction benchmark is `packages/iyon-runtime/bench/tui_abi_construction.ts`, with clean evidence in `packages/iyon-runtime/bench/PERF-11.5-native-construction.json`. It uses Bun `1.4.0`, revision `34cbb9a40b4bd1bd767d134a7065e66c2432a676`, source revision `3cbc63e15d7fb014ea81fb4130f1dead59e2829e`, and native artifact SHA-256 `1ea59233fa88d7f124ac37547ac0fb7c0433de946d30e0bc8ed7608baf04cb67`. Across `10,000` iterations and five repeats, forced bridge construction measured `5202.825 ns`, while lazy fused construction measured `1480.2 ns` per three-modifier chain. The selected lazy chain remains in pending state with zero bridge materializations before the native call; the end-to-end lazy fused retained route measured `2169.3875 ns`, versus `760.925 ns` for the direct immediate-native control. The latter is a call-only control, so the result does not claim lazy fusion beats native calls; it demonstrates that the JS rich bridge construction is removed rather than hidden. Structural encoding, command words, path arrays, and NodeId arrays remain zero.
+
+**Tranche 7 status: COMPLETE.** Stable compact backing, pending create/patch states, scalar common-field fusion, lazy bridge materialization, generated scalar routing without bridge reads, fallback preservation, and construction evidence pass. Native edit transactions, wider PersistentSeq/grid families, native builders, string/style specialization, and broader host-boundary migration remain later tranches.
+
 The canonical ABI input and generator sources are located at:
 
 ```text
