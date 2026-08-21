@@ -2,7 +2,7 @@
   "benchmark": "PERF-11.8-native-builders",
   "bun_version": "1.4.0",
   "bun_revision": "34cbb9a40b4bd1bd767d134a7065e66c2432a676",
-  "git_sha": "f4016b0100a226513c6a2d93a8c7f9c36c033dc8",
+  "git_sha": "6c72dc34a0526fba7fa39f25406f96fe10255343",
   "git_dirty": false,
   "native_artifact_sha256": "1eddb258ef473de9b74a571d70773d863475715738075e4b430df31ad30f28a2",
   "schema_blake3": "823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801",
@@ -26,10 +26,10 @@
     "v4": "pre-materialized direct bridge -> existing host decoder"
   },
   "results": {
-    "20": { "builder_median_ns": 32212.5, "v4_median_ns": 42950 },
-    "200": { "builder_median_ns": 110791.7, "v4_median_ns": 220962.5 },
-    "2000": { "builder_median_ns": 1302861.3333333333, "v4_median_ns": 2222541.6666666665 },
-    "10000": { "builder_median_ns": 6328459, "v4_median_ns": 12323292 }
+    "20": { "builder_median_ns": 49958.4, "v4_median_ns": 68137.5 },
+    "200": { "builder_median_ns": 185570.9, "v4_median_ns": 262912.5 },
+    "2000": { "builder_median_ns": 1236625, "v4_median_ns": 2126222 },
+    "10000": { "builder_median_ns": 7129125, "v4_median_ns": 12667292 }
   },
   "structural_encoding_ns": 0,
   "command_words_written": 0,
