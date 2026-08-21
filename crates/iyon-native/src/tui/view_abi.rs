@@ -1,4 +1,3 @@
-use super::{ViewBridgeCache, view_bridge_cache_for_env};
 use crate::NativeError;
 use iyon_tui::{HorizontalAlign, Insets, View, WrapMode};
 use napi::Env;
@@ -8,6 +7,11 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::ThreadId;
+
+#[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
+use super::fast_shared;
+#[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
+use super::{packed_v3, packed_v4};
 
 #[path = "../generated/view_abi_types.rs"]
 mod generated_types;
@@ -29,7 +33,6 @@ const SEMANTIC_VERSION: u32 = 1;
 const FAST_INVALID: u32 = 0x8000_0001;
 const FAST_CACHE_MISS: u32 = 0x8000_0004;
 const FAST_FALLBACK: u32 = 0x8000_0005;
-const FAST_INTERNAL: u32 = 0x8000_00ff;
 
 const PATCH_PADDING: u32 = 4;
 const PATCH_WIDTH: u32 = 8;
@@ -46,44 +49,76 @@ const PATCH_MASK: u32 = PATCH_PADDING
     | PATCH_MIN_HEIGHT
     | PATCH_MAX_HEIGHT;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeViewKindTag {
+    View = 1,
+}
+
 struct NativeViewSlot {
     node_id: u64,
     weak: iyon_tui::WeakView,
     leased: Option<View>,
     js_lease_count: u32,
+    kind: NativeViewKindTag,
 }
 
 #[repr(C)]
-pub struct NativeViewRuntime {
+pub(super) struct NativeViewRuntime {
     pub magic: u32,
     pub abi_version: u32,
     pub semantic_version: u32,
     pub alive: AtomicU32,
     owner_thread: ThreadId,
-    cache: Arc<Mutex<ViewBridgeCache>>,
+    // The semantic cache is deliberately owned by the environment runtime,
+    // not by a transport or host. All direct, packed, FastShared, and
+    // generated paths publish through this map.
+    pub(super) nodes: HashMap<u64, iyon_tui::WeakView>,
     slots: HashMap<u32, NativeViewSlot>,
     node_refs: HashMap<u64, u32>,
     next_native_ref: u32,
-    generation: u32,
+    pub(super) generation: u32,
+    #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
+    pub(super) packed_v3: packed_v3::PackedState,
+    #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
+    pub(super) packed_v4: packed_v4::PackedState,
+    #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
+    pub(super) fast_slots: HashMap<usize, fast_shared::FastSlotTable>,
+    #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
+    pub(super) fast_sessions: HashMap<usize, usize>,
 }
 
 impl NativeViewRuntime {
-    fn new(cache: Arc<Mutex<ViewBridgeCache>>) -> Self {
+    pub(super) fn new() -> Self {
         Self {
             magic: ABI_MAGIC,
             abi_version: ABI_VERSION,
             semantic_version: SEMANTIC_VERSION,
             alive: AtomicU32::new(1),
             owner_thread: std::thread::current().id(),
-            cache,
+            nodes: HashMap::new(),
             slots: HashMap::new(),
             node_refs: HashMap::new(),
             next_native_ref: 1,
             generation: 1,
+            #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
+            packed_v3: packed_v3::PackedState::new(),
+            #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
+            packed_v4: packed_v4::PackedState::new(),
+            #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
+            fast_slots: HashMap::new(),
+            #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
+            fast_sessions: HashMap::new(),
         }
     }
 
-    fn valid_on_owner_thread(&self) -> bool {
+    #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
+    pub(super) fn fast_slots_for(&mut self, host_addr: usize) -> &mut fast_shared::FastSlotTable {
+        self.fast_slots
+            .entry(host_addr)
+            .or_insert_with(fast_shared::FastSlotTable::new)
+    }
+
+    pub(super) fn valid_on_owner_thread(&self) -> bool {
         self.magic == ABI_MAGIC
             && self.abi_version == ABI_VERSION
             && self.semantic_version == SEMANTIC_VERSION
@@ -106,6 +141,9 @@ impl NativeViewRuntime {
         let Some(slot) = self.slots.get_mut(&reference) else {
             return Err(FAST_CACHE_MISS);
         };
+        if slot.kind != NativeViewKindTag::View {
+            return Err(FAST_INVALID);
+        }
         if slot.js_lease_count == 0 {
             slot.leased = Some(view);
             slot.js_lease_count = 1;
@@ -119,6 +157,9 @@ impl NativeViewRuntime {
         let Some(slot) = self.slots.get_mut(&reference) else {
             return Err(FAST_CACHE_MISS);
         };
+        if slot.kind != NativeViewKindTag::View {
+            return Err(FAST_INVALID);
+        }
         if let Some(view) = slot.leased.clone() {
             return Ok((view, true));
         }
@@ -153,19 +194,15 @@ impl NativeViewRuntime {
 
         let reference = self.allocate_ref().ok_or(FAST_FALLBACK)?;
         let weak = view.downgrade();
+        if let Some(existing) = self
+            .nodes
+            .get(&node_id)
+            .and_then(iyon_tui::WeakView::upgrade)
+            && existing != view
         {
-            let mut cache = self.cache.lock().map_err(|_| FAST_INTERNAL)?;
-            if let Some(existing) = cache
-                .nodes
-                .get(&node_id)
-                .and_then(iyon_tui::WeakView::upgrade)
-            {
-                if existing != view {
-                    return Err(FAST_INVALID);
-                }
-            }
-            cache.nodes.insert(node_id, weak.clone());
+            return Err(FAST_INVALID);
         }
+        self.nodes.insert(node_id, weak.clone());
         self.node_refs.insert(node_id, reference);
         self.slots.insert(
             reference,
@@ -174,6 +211,49 @@ impl NativeViewRuntime {
                 weak,
                 leased: Some(view),
                 js_lease_count: 1,
+                kind: NativeViewKindTag::View,
+            },
+        );
+        Ok(reference)
+    }
+
+    // Bulk V2/V3/V4 and FastShared definitions do not represent a live JS
+    // backing, so they receive a weak-only lease. The generated path can
+    // reacquire the same NativeRef later through the semantic NodeId cache.
+    pub(super) fn publish_bulk(&mut self, node_id: u64, view: View) -> Result<u32, u32> {
+        if node_id == 0 {
+            return Err(FAST_INVALID);
+        }
+        if let Some(reference) = self.node_refs.get(&node_id).copied() {
+            match self.resolve_ref(reference) {
+                Ok((existing, _)) if existing == view => return Ok(reference),
+                Ok(_) => return Err(FAST_INVALID),
+                Err(FAST_CACHE_MISS) => {
+                    self.node_refs.remove(&node_id);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        if let Some(existing) = self
+            .nodes
+            .get(&node_id)
+            .and_then(iyon_tui::WeakView::upgrade)
+            && existing != view
+        {
+            return Err(FAST_INVALID);
+        }
+        let reference = self.allocate_ref().ok_or(FAST_FALLBACK)?;
+        let weak = view.downgrade();
+        self.nodes.insert(node_id, weak.clone());
+        self.node_refs.insert(node_id, reference);
+        self.slots.insert(
+            reference,
+            NativeViewSlot {
+                node_id,
+                weak,
+                leased: None,
+                js_lease_count: 0,
+                kind: NativeViewKindTag::View,
             },
         );
         Ok(reference)
@@ -196,16 +276,12 @@ impl NativeViewRuntime {
                 }
             }
         }
-        let view = {
-            let mut cache = self.cache.lock().map_err(|_| FAST_INTERNAL)?;
-            let Some(weak) = cache.nodes.get(&node_id).cloned() else {
-                return Err(FAST_CACHE_MISS);
-            };
-            let Some(view) = weak.upgrade() else {
-                cache.nodes.remove(&node_id);
-                return Err(FAST_CACHE_MISS);
-            };
-            view
+        let Some(weak) = self.nodes.get(&node_id).cloned() else {
+            return Err(FAST_CACHE_MISS);
+        };
+        let Some(view) = weak.upgrade() else {
+            self.nodes.remove(&node_id);
+            return Err(FAST_CACHE_MISS);
         };
         self.publish(node_id, view)
     }
@@ -236,44 +312,78 @@ impl NativeViewRuntime {
     }
 }
 
-static RUNTIME_POINTERS: OnceLock<Mutex<HashMap<usize, usize>>> = OnceLock::new();
+pub(super) type ViewRuntimeHandle = Arc<NativeViewRuntime>;
 
-fn runtime_pointers() -> &'static Mutex<HashMap<usize, usize>> {
-    RUNTIME_POINTERS.get_or_init(|| Mutex::new(HashMap::new()))
+static RUNTIME_HANDLES: OnceLock<Mutex<HashMap<usize, ViewRuntimeHandle>>> = OnceLock::new();
+
+fn runtime_handles() -> &'static Mutex<HashMap<usize, ViewRuntimeHandle>> {
+    RUNTIME_HANDLES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn runtime_for_env(env: &Env) -> napi::Result<*mut NativeViewRuntime> {
+pub(super) fn runtime_handle_for_env(env: &Env) -> napi::Result<ViewRuntimeHandle> {
     let env_key = env.raw() as usize;
-    let mut pointers = runtime_pointers()
+    let mut handles = runtime_handles()
         .lock()
         .map_err(|_| NativeError::internal("native View ABI runtime registry is poisoned"))?;
-    if let Some(pointer) = pointers.get(&env_key).copied() {
-        return Ok(pointer as *mut NativeViewRuntime);
+    if let Some(runtime) = handles.get(&env_key) {
+        return Ok(Arc::clone(runtime));
     }
-    let cache = view_bridge_cache_for_env(env)?;
-    let runtime = Box::new(NativeViewRuntime::new(cache));
-    let pointer = Box::into_raw(runtime);
-    pointers.insert(env_key, pointer as usize);
-    let cleanup_pointer = pointer as usize;
-    if let Err(error) = env.add_env_cleanup_hook(cleanup_pointer, |cleanup_pointer| {
-        if let Some(registry) = RUNTIME_POINTERS.get()
-            && let Ok(mut pointers) = registry.lock()
+    let runtime = Arc::new(NativeViewRuntime::new());
+    let cleanup_key = env_key;
+    let cleanup_runtime = Arc::clone(&runtime);
+    env.add_env_cleanup_hook(cleanup_key, move |_| {
+        cleanup_runtime.alive.store(0, Ordering::Release);
+        if let Some(registry) = RUNTIME_HANDLES.get()
+            && let Ok(mut handles) = registry.lock()
         {
-            pointers.retain(|_, pointer| *pointer != cleanup_pointer);
+            handles.remove(&cleanup_key);
         }
-        unsafe {
-            let runtime = &*(cleanup_pointer as *const NativeViewRuntime);
-            runtime.alive.store(0, Ordering::Release);
-            drop(Box::from_raw(cleanup_pointer as *mut NativeViewRuntime));
-        }
-    }) {
-        pointers.remove(&env_key);
-        unsafe {
-            drop(Box::from_raw(pointer));
-        }
-        return Err(error);
+    })?;
+    handles.insert(env_key, Arc::clone(&runtime));
+    Ok(runtime)
+}
+
+pub(super) fn runtime_ptr_for_env(env: &Env) -> napi::Result<*mut NativeViewRuntime> {
+    let runtime = runtime_handle_for_env(env)?;
+    Ok(Arc::as_ptr(&runtime) as *mut NativeViewRuntime)
+}
+
+pub(super) fn runtime_environment_count() -> i64 {
+    RUNTIME_HANDLES
+        .get()
+        .and_then(|handles| handles.lock().ok())
+        .map(|handles| handles.len() as i64)
+        .unwrap_or(0)
+}
+
+pub(super) fn runtime_is_registered(pointer: usize) -> bool {
+    RUNTIME_HANDLES
+        .get()
+        .and_then(|handles| handles.lock().ok())
+        .is_some_and(|handles| {
+            handles
+                .values()
+                .any(|runtime| Arc::as_ptr(runtime) as usize == pointer)
+        })
+}
+
+pub(super) fn runtime_from_handle(
+    handle: &ViewRuntimeHandle,
+) -> napi::Result<&'static mut NativeViewRuntime> {
+    let runtime = unsafe { (Arc::as_ptr(handle) as *mut NativeViewRuntime).as_mut() }
+        .ok_or_else(|| NativeError::internal("native View runtime pointer is null"))?;
+    if !runtime.valid_on_owner_thread() {
+        return Err(NativeError::coded(
+            napi::Status::Closing,
+            "ION_VIEW_RUNTIME_INVALID",
+            "native View runtime is disposed or called from the wrong thread",
+        ));
     }
-    Ok(pointer)
+    Ok(runtime)
+}
+
+pub(super) fn runtime_for_env(env: &Env) -> napi::Result<*mut NativeViewRuntime> {
+    runtime_ptr_for_env(env)
 }
 
 #[napi(js_name = "tuiViewAbiBootstrap")]
@@ -545,15 +655,10 @@ fn decode_align(value: u32) -> Result<HorizontalAlign, ()> {
 #[cfg(test)]
 mod tests {
     use super::{FAST_CACHE_MISS, NativeViewRuntime, generated_exports};
-    use crate::tui::ViewBridgeCache;
     use iyon_tui::{IntoView, View};
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
 
     fn runtime() -> NativeViewRuntime {
-        NativeViewRuntime::new(Arc::new(Mutex::new(ViewBridgeCache {
-            nodes: HashMap::new(),
-        })))
+        NativeViewRuntime::new()
     }
 
     #[test]
@@ -578,6 +683,15 @@ mod tests {
             unsafe { generated_exports::iyon_view_render_ref_v1(pointer, reference) },
             FAST_CACHE_MISS
         );
+    }
+
+    #[test]
+    fn bulk_publication_reuses_the_environment_native_ref_table() {
+        let mut runtime = runtime();
+        let view = View::spacer(3);
+        let bulk_ref = runtime.publish_bulk(41, view.clone()).expect("bulk ref");
+        assert_eq!(runtime.ref_for_node_id(41), Ok(bulk_ref));
+        assert_eq!(runtime.resolve_ref(bulk_ref), Ok((view, true)));
     }
 
     #[test]

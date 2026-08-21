@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 
 use napi::bindgen_prelude::Result;
 
@@ -11,6 +11,7 @@ use iyon_tui::{
     VerticalAlign, View, WrapMode,
 };
 
+use super::ViewRuntimeHandle;
 use super::{
     ALIGN_CENTER, ALIGN_END, ALIGN_START, DIFF_ADDITION, DIFF_CONTEXT, DIFF_DELETION,
     DIFF_TERMINATED, DIFF_UNTERMINATED, GRID_TRACK_CONTENT, GRID_TRACK_CONTENT_MAX,
@@ -30,8 +31,7 @@ use super::{
     VERTICAL_BOTTOM, VERTICAL_CENTER, VERTICAL_TOP, VIEW_BRIDGE_SCHEMA_VERSION, VIEW_KIND_CLAMP,
     VIEW_KIND_COLUMN, VIEW_KIND_COMPONENT, VIEW_KIND_CONTAINER, VIEW_KIND_CONTENT_MAX,
     VIEW_KIND_DECORATED, VIEW_KIND_DIFF, VIEW_KIND_GRID, VIEW_KIND_HANGING, VIEW_KIND_ROW,
-    VIEW_KIND_SPACER, VIEW_KIND_TEXT, ViewBridgeCache, WRAP_GRAPHEME, WRAP_NO_WRAP,
-    WRAP_WORD_THEN_GRAPHEME,
+    VIEW_KIND_SPACER, VIEW_KIND_TEXT, WRAP_GRAPHEME, WRAP_NO_WRAP, WRAP_WORD_THEN_GRAPHEME,
 };
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
@@ -318,24 +318,20 @@ enum Staged {
     GridSequence(Arc<V3GridSequence>),
 }
 
-pub fn resolve_ref(
-    generation: i64,
-    packed_ref: i64,
-    cache: Arc<Mutex<ViewBridgeCache>>,
-) -> Result<View> {
+pub fn resolve_ref(generation: i64, packed_ref: i64, cache: ViewRuntimeHandle) -> Result<View> {
     inc(iyon_tui::perf::Counter::NapiV3ExactRefCalls);
     let generation =
         u32::try_from(generation).map_err(|_| invalid("packed V3 generation must fit in u32"))?;
     let packed_ref = persistent_ref(packed_ref)?;
-    let view = {
-        let cache = cache
-            .lock()
-            .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
-        if cache.packed_v3.generation != generation {
-            return Err(cache_miss(packed_ref));
-        }
-        cache.packed_v3.slots.view(packed_ref)
-    };
+    let (cache_generation, view) = super::with_view_runtime(&cache, |cache| {
+        (
+            cache.packed_v3.generation,
+            cache.packed_v3.slots.view(packed_ref),
+        )
+    })?;
+    if cache_generation != generation {
+        return Err(cache_miss(packed_ref));
+    }
     if let Some(view) = view {
         inc(iyon_tui::perf::Counter::NapiV3PersistentRefUpgrades);
         return Ok(view);
@@ -344,11 +340,7 @@ pub fn resolve_ref(
     Err(cache_miss(packed_ref))
 }
 
-pub fn decode_render(
-    words: &[u32],
-    bytes: &[u8],
-    cache: Arc<Mutex<ViewBridgeCache>>,
-) -> Result<View> {
+pub fn decode_render(words: &[u32], bytes: &[u8], cache: ViewRuntimeHandle) -> Result<View> {
     inc(iyon_tui::perf::Counter::NapiV3Transactions);
     let mut transaction = V3Transaction::new(words, bytes, None, cache)?;
     transaction.decode_definitions()?;
@@ -360,7 +352,7 @@ pub fn decode_render(
 pub fn decode_render_strings(
     words: &[u32],
     strings: Vec<String>,
-    cache: Arc<Mutex<ViewBridgeCache>>,
+    cache: ViewRuntimeHandle,
 ) -> Result<View> {
     inc(iyon_tui::perf::Counter::NapiV3Transactions);
     let mut transaction = V3Transaction::new(words, &[], Some(strings), cache)?;
@@ -377,7 +369,7 @@ struct V3Transaction<'a> {
     cursor: usize,
     definitions: Vec<Staged>,
     refs: HashSet<u32>,
-    cache: Arc<Mutex<ViewBridgeCache>>,
+    cache: ViewRuntimeHandle,
     slots: PackedSlotTable,
     generation: u32,
     cold: bool,
@@ -390,7 +382,7 @@ impl<'a> V3Transaction<'a> {
         words: &'a [u32],
         bytes: &'a [u8],
         strings: Option<Vec<String>>,
-        cache: Arc<Mutex<ViewBridgeCache>>,
+        cache: ViewRuntimeHandle,
     ) -> Result<Self> {
         if words.len() < 10 {
             return Err(invalid("packed V3 header is truncated"));
@@ -449,13 +441,9 @@ impl<'a> V3Transaction<'a> {
         if cold != (flags & PACKED_V3_RESET_GENERATION != 0) {
             return Err(invalid("packed V3 reset and cold-closure flags must agree"));
         }
-        let (cache_generation, slots) = {
-            inc(iyon_tui::perf::Counter::NapiV3CacheLockAcquisitions);
-            let cache = cache
-                .lock()
-                .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+        let (cache_generation, slots) = super::with_view_runtime(&cache, |cache| {
             (cache.packed_v3.generation, cache.packed_v3.slots.snapshot())
-        };
+        })?;
         if flags & PACKED_V3_RESET_GENERATION == 0 && generation != cache_generation {
             return Err(cache_miss(0));
         }
@@ -1422,11 +1410,7 @@ impl<'a> V3Transaction<'a> {
         // Arcs before mutating the live table so publication does not clone a
         // 4096-slot page merely because validation used a read snapshot.
         self.slots.reset();
-        inc(iyon_tui::perf::Counter::NapiV3CacheLockAcquisitions);
-        let mut cache = self
-            .cache
-            .lock()
-            .map_err(|_| crate::NativeError::internal("view bridge cache lock is poisoned"))?;
+        let cache = super::runtime_from_handle(&self.cache)?;
 
         // Validate every semantic identity before changing either cache. This
         // keeps publication atomic even when a malicious or stale transaction
@@ -1465,7 +1449,9 @@ impl<'a> V3Transaction<'a> {
             match value {
                 Staged::View { node_id, view } => {
                     if node_id != 0 {
-                        cache.nodes.insert(node_id, view.downgrade());
+                        cache
+                            .publish_bulk(node_id, view.clone())
+                            .map_err(|_| invalid("packed V3 native View publication failed"))?;
                     }
                     cache.packed_v3.slots.set(
                         reference,
