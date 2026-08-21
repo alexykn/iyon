@@ -12,7 +12,10 @@ import {
   nativeViewRefForNodeId,
   releaseNativeViewRef,
   tryNativeColdRender,
+  tryNativeMaterialize,
+  tryNativeStructuralRender,
   tryNativeTextCreateRender,
+  tryNativeViewBoundaryCreate,
   tryNativePathScalarRender,
   tryNativeScalarRender,
 } from "./native_view_abi.ts";
@@ -113,12 +116,18 @@ export class Tui implements TuiRuntime {
     if (nextNativeRef === undefined && previousBody !== undefined && previousNativeRef !== undefined) {
       nextNativeRef = tryNativePathScalarRender(this.host, previousBody, previousNativeRef, normalized.body);
     }
+    if (nextNativeRef === undefined && previousBody !== undefined && previousNativeRef !== undefined) {
+      nextNativeRef = tryNativeStructuralRender(this.host, previousBody, previousNativeRef, normalized.body);
+    }
 
     if (nextNativeRef === undefined) {
       nextNativeRef = tryNativeTextCreateRender(this.host, normalized.body);
     }
     if (nextNativeRef === undefined) {
       nextNativeRef = tryNativeColdRender(this.host, normalized.body);
+    }
+    if (nextNativeRef === undefined) {
+      nextNativeRef = tryNativeViewBoundaryCreate(this.host, normalized.body);
     }
     if (nextNativeRef === undefined) {
       this.host.render(nodeForBridge(normalized.body));
@@ -140,11 +149,27 @@ export class Tui implements TuiRuntime {
   }
 
   createViewSlot(initialView: import("./values/view.ts").View): ViewSlot {
-    return new ViewSlot(this.host.createViewSlot(nodeForBridge(initialView)));
+    const ref = tryNativeMaterialize(initialView);
+    if (ref !== undefined) {
+      try {
+        return new ViewSlot(this.host.createViewSlotRef(ref), initialView);
+      } finally {
+        releaseNativeViewRef(nativeViewAbiSession(), ref);
+      }
+    }
+    return new ViewSlot(this.host.createViewSlot(nodeForBridge(initialView)), initialView);
   }
 
   createScrollPane(initialView: import("./values/view.ts").View): ScrollPane {
-    return new NativeScrollPane(this.host.scrollPane(nodeForBridge(initialView)));
+    const ref = tryNativeMaterialize(initialView);
+    if (ref !== undefined) {
+      try {
+        return new NativeScrollPane(this.host.scrollPaneRef(ref), initialView);
+      } finally {
+        releaseNativeViewRef(nativeViewAbiSession(), ref);
+      }
+    }
+    return new NativeScrollPane(this.host.scrollPane(nodeForBridge(initialView)), initialView);
   }
 
   bindKey(key: string, routeId: string, modifiers?: readonly string[]): void {

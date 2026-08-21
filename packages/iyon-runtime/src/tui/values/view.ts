@@ -117,6 +117,11 @@ export interface NativeCommonPatch {
 
 export type NativeScalarPatch = NativeTextLayoutPatch | NativeCommonPatch;
 
+export type NativeStructuralEdit =
+  | { readonly kind: "axisSet"; readonly base: View; readonly child: View; readonly index: number; readonly trackWord: number }
+  | { readonly kind: "axisSplice"; readonly base: View; readonly children: readonly { readonly view: View; readonly trackWord: number }[]; readonly index: number; readonly removeCount: number }
+  | { readonly kind: "gridCell"; readonly base: View; readonly child: View; readonly row: number; readonly column: number };
+
 /** Native retained-path metadata; it stores selectors, never a View graph. */
 export interface NativePathStep {
   readonly kind: number;
@@ -566,6 +571,13 @@ export class View {
     const sequence = current.set(index, { ...item, child: nodeForBridge(child) });
     const next = new View({ ...node, children: node.children }, { kind: "axis", base: node }, { sequence });
     setPackedSequence(nodeForBridge(next), sequence);
+    nativeStructuralEdits.set(next, Object.freeze({
+      kind: "axisSet",
+      base: view,
+      child,
+      index,
+      trackWord: bridgeAxisTrackWord(item),
+    }));
     return next;
   }
 
@@ -577,6 +589,13 @@ export class View {
     const sequence = current.splice(index, removeCount, ...items);
     const next = new View({ ...node, children: node.children }, { kind: "axis", base: node }, { sequence });
     setPackedSequence(nodeForBridge(next), sequence);
+    nativeStructuralEdits.set(next, Object.freeze({
+      kind: "axisSplice",
+      base: view,
+      children: Object.freeze(children.map((child, childIndex) => Object.freeze({ view: child, trackWord: bridgeAxisTrackWord(items[childIndex]!) }))),
+      index,
+      removeCount,
+    }));
     return next;
   }
 
@@ -599,6 +618,7 @@ export class View {
       { gridCells: sequence, gridCellOffsets: baseMeta.gridCellOffsets },
     );
     setPackedGridCells(nodeForBridge(next), sequence);
+    nativeStructuralEdits.set(next, Object.freeze({ kind: "gridCell", base: view, child, row, column }));
     return next;
   }
 
@@ -887,6 +907,7 @@ function materializeBacking(view: View, backing: ViewBacking): BridgeViewNode {
 
 const nodes = new WeakMap<View, BridgeViewNode>();
 const nativePathLineages = new WeakMap<View, NativePathLineage>();
+const nativeStructuralEdits = new WeakMap<View, NativeStructuralEdit>();
 
 function freezeNativePathLineage(lineage: NativePathLineage): NativePathLineage {
   const parent = lineage.parent === undefined ? undefined : freezeNativePathLineage(lineage.parent);
@@ -1000,6 +1021,11 @@ export function nativeScalarPatch(view: View): NativeScalarPatch | undefined {
     minHeight: backing.minHeight,
     maxHeight: backing.maxHeight,
   };
+}
+
+/** Returns the retained structural operation, if one was recorded at construction. */
+export function nativeStructuralEdit(view: View): NativeStructuralEdit | undefined {
+  return nativeStructuralEdits.get(view);
 }
 
 /** Returns the cached u32 halves of a View's full safe-integer NodeId. */
@@ -1255,6 +1281,17 @@ function bridgeLayoutChild(entry: PendingAxisChild): BridgeLayoutChild {
     case BRIDGE_LAYOUT_CHILD_KIND.flex: return { kind: entry.kind, child: nodeForBridge(entry.view) };
     case BRIDGE_LAYOUT_CHILD_KIND.flexMax: return { kind: entry.kind, maxRows: entry.value ?? 0, child: nodeForBridge(entry.view) };
     case BRIDGE_LAYOUT_CHILD_KIND.contentMax: return { kind: entry.kind, maxRows: entry.value ?? 0, child: nodeForBridge(entry.view) };
+    default: throw new TypeError("unknown axis child kind");
+  }
+}
+
+function bridgeAxisTrackWord(entry: BridgeLayoutChild): number {
+  switch (entry.kind) {
+    case BRIDGE_LAYOUT_CHILD_KIND.normal: return 0;
+    case BRIDGE_LAYOUT_CHILD_KIND.contentMax: return (2 | ((entry.maxRows ?? 0) << 8)) >>> 0;
+    case BRIDGE_LAYOUT_CHILD_KIND.fixed: return (3 | ((entry.size ?? 0) << 8)) >>> 0;
+    case BRIDGE_LAYOUT_CHILD_KIND.flex: return (4 | (1 << 8)) >>> 0;
+    case BRIDGE_LAYOUT_CHILD_KIND.flexMax: return (5 | ((entry.maxRows ?? 0) << 8)) >>> 0;
     default: throw new TypeError("unknown axis child kind");
   }
 }

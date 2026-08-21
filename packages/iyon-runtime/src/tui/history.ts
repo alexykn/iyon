@@ -1,7 +1,7 @@
-import { nodeForBridge } from "./values/view.ts";
+import { nodeForBridge, type View } from "./values/view.ts";
+import { nativeViewAbiSession, releaseNativeViewRef, tryNativeMaterialize } from "./native_view_abi.ts";
 import { HandleBase, nativeTui } from "./handles.ts";
 import type { History as HistoryContract, HistoryLayout, TextStream } from "./types.ts";
-import type { View } from "./values/view.ts";
 
 export class History extends HandleBase<ReturnType<typeof nativeTui.history>, "history"> implements HistoryContract {
   constructor(nativeHandle = nativeTui.history()) { super("history", nativeHandle); }
@@ -11,11 +11,32 @@ export class History extends HandleBase<ReturnType<typeof nativeTui.history>, "h
   }
 
   push(view: View): number {
-    return this.call(() => this.nativeHandle.push(nodeForBridge(view)));
+    return this.call(() => {
+      const ref = tryNativeMaterialize(view);
+      if (ref !== undefined && this.nativeHandle.pushRef !== undefined) {
+        try {
+          return this.nativeHandle.pushRef(ref);
+        } finally {
+          releaseNativeViewRef(nativeViewAbiSession(), ref);
+        }
+      }
+      return this.nativeHandle.push(nodeForBridge(view));
+    });
   }
 
   freeze(unit: number, view: View): void {
-    this.call(() => this.nativeHandle.freeze(unit, nodeForBridge(view)));
+    this.call(() => {
+      const ref = tryNativeMaterialize(view);
+      if (ref !== undefined && this.nativeHandle.freezeRef !== undefined) {
+        try {
+          this.nativeHandle.freezeRef(unit, ref);
+        } finally {
+          releaseNativeViewRef(nativeViewAbiSession(), ref);
+        }
+        return;
+      }
+      this.nativeHandle.freeze(unit, nodeForBridge(view));
+    });
   }
 
   discardLive(unit: number): void {

@@ -1143,6 +1143,11 @@ fn runtime_mut(pointer: *mut NativeViewRuntime) -> Result<&'static mut NativeVie
     Ok(runtime)
 }
 
+pub(super) fn view_for_ref(pointer: *mut NativeViewRuntime, reference: u32) -> Result<View, u32> {
+    let runtime = runtime_mut(pointer)?;
+    runtime.resolve_ref(reference).map(|(view, _)| view)
+}
+
 fn node_id(low: u32, high: u32) -> Result<u64, u32> {
     if high > 0x001f_ffff || (high == 0 && low == 0) {
         return Err(FAST_INVALID);
