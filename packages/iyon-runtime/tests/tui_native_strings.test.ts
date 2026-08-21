@@ -31,6 +31,7 @@ describe("PERF-11.9 native strings and style atoms", () => {
         TextSpan.styled(" three", new StyleSpec().underline()),
       ]),
       View.text("left\0right"),
+      View.text("lone\ud800surrogate"),
       View.styledText([
         TextSpan.styled("left\0", new StyleSpec().bold()),
         TextSpan.styled("right\0✓", new StyleSpec().italic()),
