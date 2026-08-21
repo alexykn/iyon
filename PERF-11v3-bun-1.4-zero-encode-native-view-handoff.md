@@ -484,6 +484,38 @@ Verification includes `bun run check:tui-abi`, Bun typecheck, Rust formatting, g
 
 **Tranche 11 status: COMPLETE.** Cstring/buffer selection, Unicode and embedded-NUL semantics, immutable ownership, compact retained strings, style atom interning, fused text-style routing, one-to-four cstring span calls, direct parity, fallback behavior, and clean Bun 1.4 evidence pass.
 
+## 2.16 Tranche 12 implementation record
+
+Tranche 12 (`§22 PERF-11.10` and `§21`) is implemented in commit `18df263` (`perf(tui): route View boundaries through native refs`). The existing generated semantic ABI remains the single construction/patch path (49 functions); the tranche adds the missing production integration at every View-bearing boundary without inventing a second transport or changing the generated ABI contract.
+
+The unified runtime route is now explicit:
+
+```text
+same Tui root -> O(1) identity return
+existing root -> generated scalar root/path patch
+retained axis/grid lineage -> generated PersistentSeq structural edit
+pending text/spacer/axis -> generated text/constructor/builder materialization
+unsupported/stale/oversized -> existing V4/direct fallback
+```
+
+`tryNativeMaterialize`, `tryNativeViewBoundaryCreate`, `tryNativeViewBoundaryRender`, and `tryNativeStructuralRender` share the same environment runtime, NodeId cache, NativeRef leases, fallback status handling, and one-install discipline. Structural axis/grid transport records now retain only a compact immutable operation sidecar (`base`, child refs/Views, indexes, and track words); no bridge payload is reconstructed to select the generated operation. Cache misses are caught as expected native statuses before host mutation, so the authoritative V4/direct route remains the recovery path.
+
+The remaining View-bearing boundaries no longer require a `BridgeViewNode` on qualified native-ref inputs:
+
+```text
+Tui.render                         generated host install
+History.push / History.freeze     pushRef / freezeRef native-ref calls
+ViewSlot initial/setView          createViewSlotRef / setViewRef
+ViewSlot animation/stop           reusable Uint32Array ref lane + used count
+ScrollPane initial/setContent     scrollPaneRef / setContentRef
+```
+
+History, ViewSlot, and ScrollPane retain the existing object-based APIs as their explicit fallback. Native handles resolve a checked environment-local NativeRef to an immutable Rust `View`, perform the one state mutation, and retain no borrowed JS pointer. Animation frames use a reusable typed u32 ref buffer and an explicit used count; unsupported frames materialize through the old bridge path. Initial component/scroll-pane state follows the same materialize-or-fallback policy, and all temporary NativeRef leases are released after the target has taken its own immutable View ownership.
+
+Verification for Tranche 12 passed `bun run check:tui-abi`, Bun typecheck, Rust formatting, `cargo check -p iyon-native --features perf-packed-timing`, the full TUI Bun suite (78 tests), generator tests (7 passed), native unit tests (20 passed), generated ABI tests (5 passed), and the full `iyon-tui` library suite (721 passed, 1 ignored). Additional headless smoke coverage exercised History, ViewSlot animation/set, ScrollPane content updates, native initial creation, and structural axis fallback/recovery. The existing direct/V4, cache-lifetime, atomic-host-mutation, Unicode, and ownership tests remain green.
+
+**Tranche 12 status: COMPLETE.** Exact/scalar/path/structural/builder/V4 routing is integrated at `Tui.render` and all required generic View-bearing boundaries, with native-ref ownership, typed animation payloads, one cold recovery, and fallback semantics preserved.
+
 The canonical ABI input and generator sources are located at:
 
 ```text
