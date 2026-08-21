@@ -2,7 +2,7 @@
   "benchmark": "PERF-11.7-native-persistent-seq",
   "bun_version": "1.4.0",
   "bun_revision": "34cbb9a40b4bd1bd767d134a7065e66c2432a676",
-  "git_sha": "afe16bd4b03ee8d9266bc1f597956f60a3b944d7",
+  "git_sha": "eb0aabd3bb4fc88e128a05f7b08cd10296022110",
   "git_dirty": false,
   "native_artifact_sha256": "ddddf0f319872aa0e3d4e6851701ecb410745fd6408e2e10a30fba8e50b26ca8",
   "schema_blake3": "d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914",
@@ -23,24 +23,24 @@
   "persistent_seq_flatten_calls": 0,
   "results": {
     "2048": {
-      "replace_median_ns_per_render": 1025.41,
-      "insert_median_ns_per_render": 4205.83,
-      "remove_median_ns_per_render": 3875
+      "replace_median_ns_per_render": 1249.17,
+      "insert_median_ns_per_render": 4415,
+      "remove_median_ns_per_render": 4320
     },
     "10000": {
-      "replace_median_ns_per_render": 937.91,
-      "insert_median_ns_per_render": 3762.08,
-      "remove_median_ns_per_render": 3648.75
+      "replace_median_ns_per_render": 1052.5,
+      "insert_median_ns_per_render": 4543.75,
+      "remove_median_ns_per_render": 4325.42
     },
     "100000": {
-      "replace_median_ns_per_render": 1355.83,
-      "insert_median_ns_per_render": 4774.59,
-      "remove_median_ns_per_render": 5226.67
+      "replace_median_ns_per_render": 1477.08,
+      "insert_median_ns_per_render": 6045,
+      "remove_median_ns_per_render": 6020.84
     }
   },
   "scale_100000_over_2048": {
-    "replace": 1.3222,
-    "insert": 1.1352,
-    "remove": 1.3491
+    "replace": 1.1825,
+    "insert": 1.3692,
+    "remove": 1.3937
   }
 }

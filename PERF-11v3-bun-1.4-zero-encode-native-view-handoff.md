@@ -441,16 +441,16 @@ The native implementations resolve already-published child NativeRefs, validate 
 
 The two structural path functions use the same fixed five NodeId-pair lane discipline as Tranche 8: native walks the cached PathRef, applies the axis or grid operation at the target, rebuilds only the changed ancestors, preflights all NodeId publication, and commits the staged NativeRef plan. The TypeScript facade is `tryNativeAxisSetChildRender`, `tryNativeAxisSpliceRender`, and `tryNativeGridSetCellRender` in `packages/iyon-runtime/src/tui/native_view_abi.ts`; these pass only scalar refs/identities and the bounded child-ref POD lane, then perform one host installation. Broader automatic public-boundary routing remains intentionally deferred to Tranche 12.
 
-The clean Bun 1.4 wide-parent benchmark is `packages/iyon-runtime/bench/tui_abi_persistent_seq.ts`, with evidence in `packages/iyon-runtime/bench/PERF-11.7-native-persistent-seq.json`. It was captured at source revision `afe16bd4b03ee8d9266bc1f597956f60a3b944d7` with `git_dirty: false`, native artifact SHA-256 `ddddf0f319872aa0e3d4e6851701ecb410745fd6408e2e10a30fba8e50b26ca8`, schema BLAKE3 `d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914`, and generator BLAKE3 `6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91`. Under Bun `1.4.0` revision `34cbb9a40b4bd1bd767d134a7065e66c2432a676`, 50 warmups, 100 iterations, and five repeats, native semantic median costs were:
+The clean Bun 1.4 wide-parent benchmark is `packages/iyon-runtime/bench/tui_abi_persistent_seq.ts`, with evidence in `packages/iyon-runtime/bench/PERF-11.7-native-persistent-seq.json`. It was captured at source revision `eb0aabd3bb4fc88e128a05f7b08cd10296022110` with `git_dirty: false`, native artifact SHA-256 `ddddf0f319872aa0e3d4e6851701ecb410745fd6408e2e10a30fba8e50b26ca8`, schema BLAKE3 `d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914`, and generator BLAKE3 `6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91`. Under Bun `1.4.0` revision `34cbb9a40b4bd1bd767d134a7065e66c2432a676`, 50 warmups, 100 iterations, and five repeats, native semantic median costs were:
 
 ```text
 width       replace       insert        remove
-2,048       1,025.41 ns   4,205.83 ns   3,875.00 ns
-10,000        937.91 ns   3,762.08 ns   3,648.75 ns
-100,000     1,355.83 ns   4,774.59 ns   5,226.67 ns
+2,048       1,249.17 ns   4,415.00 ns   4,320.00 ns
+10,000       1,052.50 ns   4,543.75 ns   4,325.42 ns
+100,000     1,477.08 ns   6,045.00 ns   6,020.84 ns
 ```
 
-The benchmark uses the typed native structural call and excludes the separately-tested host paint/layout traversal so the persistent edit scaling is measured rather than hidden by rendering the entire wide parent. The 100,000/2,048 ratios are `1.3222x` replace, `1.1352x` insert, and `1.3491x` remove; `persistent_seq_flatten_calls`, structural encoding, command words, path arrays, and NodeId arrays are all exactly zero. Bun parity tests cover wide axis replace/insert/remove and grid cell replacement against direct rendering; native tests cover root and PathRef axis/grid publication plus preservation of the original persistent roots.
+The benchmark uses the typed native structural call and excludes the separately-tested host paint/layout traversal so the persistent edit scaling is measured rather than hidden by rendering the entire wide parent. The 100,000/2,048 ratios are `1.1825x` replace, `1.3692x` insert, and `1.3937x` remove; `persistent_seq_flatten_calls`, structural encoding, command words, path arrays, and NodeId arrays are all exactly zero. Bun parity tests cover wide axis replace/insert/remove and grid cell replacement against direct rendering; native tests cover root and PathRef axis/grid publication plus preservation of the original persistent roots.
 
 **Tranche 9 status: COMPLETE.** Persistent axis replacement/splice, grid cell path-copy, generated ABI bindings, NativeRef/NodeId validation, bounded POD splice input, direct host parity, wide benchmark evidence, and no-flattening gates pass. Native builders, string/style specialization, unified production routing, and broader View-boundary migration remain later named tranches.
 
