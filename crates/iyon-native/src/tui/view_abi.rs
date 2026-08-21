@@ -2720,7 +2720,8 @@ mod tests {
         AxisChildInputV1, FAST_CACHE_MISS, FAST_INVALID, MAX_EDIT_COUNT, NativeViewRuntime,
         PATH_ROOT_REF, generated_exports, is_valid_builder_ref, is_valid_edit_txn_ref,
     };
-    use iyon_tui::{GridTrack, IntoView, View};
+    use iyon_tui::{GridTrack, IntoView, TextSpan, View};
+    use std::ffi::CString;
 
     fn runtime() -> NativeViewRuntime {
         NativeViewRuntime::new()
@@ -2761,6 +2762,49 @@ mod tests {
         let bulk_ref = runtime.publish_bulk(41, view.clone()).expect("bulk ref");
         assert_eq!(runtime.ref_for_node_id(41), Ok(bulk_ref));
         assert_eq!(runtime.resolve_ref(bulk_ref), Ok((view, true)));
+    }
+
+    #[test]
+    fn generated_text_string_variants_preserve_unicode_and_embedded_nul() {
+        let mut runtime = runtime();
+        let pointer = &mut runtime as *mut NativeViewRuntime;
+        let cstring = CString::new("héllo ✓").expect("cstring text has no NUL");
+        let cstring_ref = unsafe {
+            generated_exports::iyon_view_text_create_cstring_v1(
+                pointer,
+                501,
+                0,
+                cstring.as_ptr(),
+                0,
+                1,
+                1,
+            )
+        };
+        let expected_cstring = View::styled_text([TextSpan::plain("héllo ✓")]).into_view();
+        assert_eq!(
+            runtime.resolve_ref(cstring_ref).map(|(view, _)| view),
+            Ok(expected_cstring)
+        );
+
+        let bytes = b"left\0right";
+        let buffer_ref = unsafe {
+            generated_exports::iyon_view_text_create_utf8_v1(
+                pointer,
+                502,
+                0,
+                bytes.as_ptr(),
+                bytes.len(),
+                bytes.len() as u32,
+                0,
+                1,
+                1,
+            )
+        };
+        let expected_buffer = View::styled_text([TextSpan::plain("left\0right")]).into_view();
+        assert_eq!(
+            runtime.resolve_ref(buffer_ref).map(|(view, _)| view),
+            Ok(expected_buffer)
+        );
     }
 
     #[test]
