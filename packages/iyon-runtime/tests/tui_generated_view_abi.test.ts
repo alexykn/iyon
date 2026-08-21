@@ -60,7 +60,8 @@ describe("PERF-11 generated vertical slice", () => {
       );
       expect(textChangedRef).toBeGreaterThan(0);
       host.render(nodeForBridge(textChanged));
-      direct.render(nodeForBridge(textChanged));
+      const directText = View.text("hello").noWrap().textAlign("center");
+      direct.render(nodeForBridge(directText));
       expect(host.screenRows()).toEqual(direct.screenRows());
       viewReleaseMany(session.symbols, session.runtime, new Uint32Array([textRef, textChangedRef]), 2);
 
@@ -90,7 +91,10 @@ describe("PERF-11 generated vertical slice", () => {
       expect(changedRef).toBeGreaterThan(0);
       host.render(nodeForBridge(base));
       host.render(nodeForBridge(changed));
-      expect(host.screenRows()).toHaveLength(4);
+      const directBase = View.spacer(1);
+      direct.render(nodeForBridge(directBase));
+      direct.render(nodeForBridge(directBase.padding(1)));
+      expect(host.screenRows()).toEqual(direct.screenRows());
       viewReleaseMany(session.symbols, session.runtime, new Uint32Array([baseRef, changedRef]), 2);
     } finally {
       direct.dispose();
