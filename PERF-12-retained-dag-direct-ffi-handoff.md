@@ -1,0 +1,4431 @@
+# PERF-12 - Retained DAG Direct FFI
+
+## Persist semantic identity, not transport bytes
+
+**Status:** final architecture and implementation handoff  
+**Repository:** `alexykn/iyon`  
+**Branch family:** `perf-refactor`  
+**Historical semantic baseline:** PERF-7v2 Candidate A / Direct at `e5292d62c4011610850cbdc1ba4a35f296f78e4f`  
+**Repository state re-audited while preparing this handoff:** `67741eb588e70ffe8ce7b08805040d0a9cc65f8c`  
+**Current pinned runtime at that revision:** `bun@1.4.0`  
+**Execution point:** after PERF-11v4 has produced its authoritative Bun 1.4 result and resource report  
+**Candidate name:** **Retained DAG Direct FFI** (`retained_dag_ffi`)  
+**Core rule:** **persist identity; transport only newly-created semantic work; never persist a second transport graph**
+
+---
+
+# Exact implementation tranches
+
+PERF-12 is a full architecture experiment. The tranches below are intended to be ambitious merge-request-sized units. Do not collapse them into one implementation burst. In particular, do not begin full-schema transport work until the semantic representation, lifetime model, weak-cache cleanup, and common-node FFI path are proven.
+
+| Tranche | Scope | Required result before proceeding |
+|---|---|---|
+| **12.0** | Freeze PERF-11v4 evidence; re-audit source; attribute the current high RSS; measure Bun FFI call floor | Exact baselines frozen; 2.7 GiB behavior classified; no unbounded shared-runtime metadata growth is left unexplained; direct-call floor is compatible with the architecture |
+| **12.1** | Restore a faithful 7v2-style eager immutable `BridgeViewNode` semantic DAG against the current schema | `nodeForBridge()` is a lookup for the normal path; construction remains within the 7v2 gate; full semantic parity tests pass |
+| **12.2** | Harden `NativeViewRuntime`: central publication, paged NativeRef lookup, bounded weak-cache scavenging, diagnostics | One semantic cache; no historical weak metadata accumulation; root-lease and temporary-lease invariants proven |
+| **12.3** | `BridgeNativeHint` sidecar and exact-root fast path | Known root performs one `hostRenderRef` call and zero semantic field reads / structural writes |
+| **12.4** | Generated direct FFI materializers for common fixed-size node kinds | Unknown nodes materialize postorder through monomorphic Bun FFI; stable children cut off before payload access |
+| **12.5** | Borrowed typed-array lanes for variable child/reference payloads | Variable arity uses reusable synchronous `buffer`/`buffer_length` FFI, with no persistent mirror and no retained raw pointers |
+| **12.6** | Derivation hints and retained clone/edit fast lanes | Text-layout/common scalar changes and common structural changes reuse base NativeRefs instead of resending unchanged payload |
+| **12.7** | PersistentSeq / Grid retained structural edits | 2k/10k/100k replace/insert/remove/splice remain logarithmic and do not materialize flat children |
+| **12.8** | Text, styles, Diff, decorations, Unicode, retained payload handling | Stable text/style payload is never resent; changed payload uses best existing 11v3 helpers; streaming remains separate |
+| **12.9** | Multi-branch DAG materialization, temporary lease transaction, stale-ref recovery, failure atomicity | Common ancestors built once; one host mutation; all temporary leases drained on every success/error path |
+| **12.10** | Cold/rebuilt router, runtime-generation recovery, caps/budgets | Retained path does not accidentally walk an entirely rebuilt tree; one bounded recovery; best existing cold path retained |
+| **12.11** | History, ViewSlot, ScrollPane, animation, components, every View-bearing native boundary | No render-only shortcut; production-equivalent boundary behavior and root lease ownership |
+| **12.12** | Differential tests, fuzzing, lifetime stress, long-running memory soak | Full schema and failure semantics proven; live metadata converges after churn; unsafe/borrowed-pointer surface audited |
+| **12.13** | Authoritative performance and memory comparison | `retained_dag_ffi` compared fairly against `direct_7v2` and completed `native_11v3`; raw samples retained |
+| **12.14** | Production selection and cleanup | Only if gates pass: one production-private architecture remains; obsolete pending/recipe machinery is removed or test-gated |
+
+The highest-risk tranches are **12.0, 12.2, 12.7, 12.9, 12.11, and 12.12**.
+
+---
+
+# 0. Executive decision
+
+PERF-12 should **not** use the persistent Shared Mirror DAG as its primary architecture.
+
+PERF-12 should also **not** make the full changed-closure fixed-record arena from the Retained Bridge Delta proposal its primary transport.
+
+The final candidate should instead use the third option that the Delta handoff correctly identified as an important control, but promote it to the primary architecture:
+
+```text
+                     JavaScript
+
+              immutable View value
+                       |
+                       v
+            eager frozen BridgeViewNode
+            historical 7v2 semantic shape
+                       |
+                       | WeakMap sidecars only
+                       | NativeRef hint / derivation hint
+                       v
+                 ensureNative(node)
+                       |
+          +------------+-------------+
+          |                          |
+          | known NativeRef          | new semantic node
+          |                          |
+          v                          v
+     return u32 ref          inspect this node only
+     no payload read                  |
+                                      | postorder children
+                                      | stable child -> NativeRef, stop
+                                      v
+                           generated direct Bun FFI
+                           per semantic constructor/edit
+                                      |
+                         +------------+------------+
+                         |                         |
+                         | scalar/fixed arity      | variable arity
+                         | registers               | borrowed TypedArray
+                         |                         | refs/bytes only
+                         +------------+------------+
+                                      |
+                                      v
+                              NativeViewRuntime
+                                      |
+                      +---------------+---------------+
+                      |                               |
+                      v                               v
+                 NativeRef table               NodeId -> WeakView
+                 fast acceleration             semantic identity
+                      |                               |
+                      +---------------+---------------+
+                                      |
+                                      v
+                              retained Rust View DAG
+                         PersistentSeq / retained text
+                                      |
+                                      v
+                              hostRenderRef(root)
+```
+
+The shortest statement of the architecture is:
+
+> **The immutable JavaScript DAG is the semantic declaration. The Rust `View` DAG is the retained native representation. A `NativeRef` is the correspondence between them. The bridge does not retain a third graph.**
+
+For ordinary fixed-size nodes there is no packet, no record encoding, no parser, and no shared-memory allocation. Newly-created semantic nodes are materialized directly by generated engine-native Bun FFI calls.
+
+For variable child/reference payloads, JavaScript writes only the needed `u32` refs or changed bytes into small reusable typed arrays and passes those arrays synchronously as borrowed buffers. Rust reads the same storage during the call and retains no pointer afterward.
+
+For a retained update, work is proportional to the new semantic frontier and specialized wide-edit paths:
+
+```text
+semantic JS construction             O(changed semantic nodes)
+NativeRef cutoff                     O(changed frontier)
+direct FFI node materialization      O(changed frontier)
+wide retained edits                  O(log_32 N + inserted refs)
+stable subtree                       O(1) at its root
+exact root                           O(1)
+host mutation                        once
+persistent transport bytes           zero
+```
+
+This design recovers the architectural reason 7v2 Candidate A was strong while keeping the transport and native-retention lessons from PERF-8 through PERF-11v3.
+
+---
+
+# 1. Why this is the final choice
+
+The two supplied PERF-12 handoffs both identify the right high-level goal:
+
+```text
+cheap immutable JavaScript semantic identity
++
+retained Rust semantic identity
++
+no full-tree retransmission
++
+no N-API property walk on the hot retained path
+```
+
+They differ in what they persist between the two semantic layers.
+
+## 1.1 Retained Bridge Delta
+
+The Delta design persists only:
+
+```text
+BridgeViewNode -> NativeRef sidecar
+```
+
+and uses a bounded transient arena for newly unknown nodes.
+
+That is already much better than a full-tree packet because stable nodes are represented only by NativeRefs and the arena is not a retained graph.
+
+Its remaining cost is that every unknown node is first encoded into a generic fixed-layout transport representation and then decoded into the Rust semantic object.
+
+## 1.2 Shared Mirror DAG
+
+The Shared Mirror design persists:
+
+```text
+BridgeViewNode
+    -> SharedRef
+    -> persistent shared record / edge blocks / payload refs
+    -> NativeRef
+    -> Rust View
+```
+
+This removes repeated transient record generation for the same immutable node and gives native a durable recovery source if the Rust View has disappeared.
+
+However, once a live semantic node already has a NativeRef, Delta/direct-node designs also stop at that identity and do not resend the node. The persistent mirror's unique hot-path advantage is therefore smaller than it initially appears.
+
+Its strongest unique capability is recovery after native retained state has disappeared while the JavaScript semantic node is still alive.
+
+That is not enough to justify a second persistent graph in Iyon.
+
+## 1.3 Retained DAG Direct FFI
+
+Retained DAG Direct FFI persists exactly the useful thing:
+
+```text
+BridgeViewNode -> NativeRef hint
+```
+
+and materializes an unknown node directly into the existing native semantic graph.
+
+It eliminates both:
+
+```text
+N-API property traversal
+```
+
+and:
+
+```text
+JS record encoding -> native record decoding
+```
+
+for common nodes.
+
+The tradeoff is more FFI calls when a changed path contains many newly-created ancestors.
+
+Bun 1.4 makes this tradeoff credible because normal `dlopen` / `linkSymbols` / `CFunction` calls are implemented in JavaScriptCore and hot call sites can lower to direct native calls. PERF-12.0 still measures the actual pinned runtime before committing the whole implementation.
+
+---
+
+# 2. Decision matrix
+
+The following is the architecture decision, not a benchmark result.
+
+| Property | Retained Delta | Shared Mirror DAG | Retained DAG Direct FFI |
+|---|---:|---:|---:|
+| Restores 7v2 eager semantic DAG | yes | yes | **yes** |
+| Stable subtree sends no payload | yes | yes | **yes** |
+| Exact root sends no structure | yes | yes | **yes** |
+| N-API structural traversal on hot path | no | no | **no** |
+| Persistent transport graph | no | **yes** | **no** |
+| Generic record encode/decode | **yes** | record write/read | **no for common nodes** |
+| One structural FFI call | yes | yes | no, changed-node count |
+| Variable payload zero-copy | mapped arena | mapped pages | **borrowed TypedArray** |
+| Memory bounded independently of historical node churn | yes if caches cleaned | requires reclamation | **yes if caches cleaned** |
+| Slot/page generation/ABA protocol | NativeRef only | **SharedRef + NativeRef** | **NativeRef only** |
+| Persistent edge allocator | no | **yes** | **no** |
+| Finalizer-driven transport reclamation | optional | **required** | **not required** |
+| Native recovery without JS semantic re-read | limited | **best** | limited / exceptional |
+| Reuses current 11v3 generated direct calls | partial | partial | **maximum** |
+| New ABI surface complexity | medium/high | highest | **lowest** |
+| Failure atomicity | staged commit | mirror publish + host commit | **native objects may preexist; host commits once** |
+| Best fit for 20-200 node real TUI | good | overbuilt | **best** |
+| Best response to 2.7 GiB benchmark concern | good | weakest | **best** |
+
+The decision is therefore:
+
+> **Use Retained DAG Direct FFI as PERF-12. Do not implement Shared Mirror as a competing full candidate. Do not implement the Delta record VM unless a later, isolated profile proves FFI call density is the remaining blocker.**
+
+---
+
+# 3. Source archaeology: what 7v2 actually did
+
+The historical semantic reference is:
+
+```text
+e5292d62c4011610850cbdc1ba4a35f296f78e4f
+```
+
+Relevant source:
+
+```text
+packages/iyon-runtime/src/tui/values/view.ts
+```
+
+At that revision, the `View` constructor immediately did the semantic work:
+
+```ts
+private constructor(node) {
+    nodes.set(this, withPrivateIdentity(node))
+    Object.freeze(this)
+}
+```
+
+`nodeForBridge(view)` was effectively a WeakMap lookup of the already-created semantic node.
+
+The important properties were:
+
+```text
+View construction creates final BridgeViewNode immediately
+BridgeViewNode is frozen
+NodeId is assigned at semantic construction
+parent BridgeViewNode references child BridgeViewNodes directly
+unchanged child Views reuse the exact child BridgeViewNode object
+nodeForBridge does not serialize/materialize a second representation
+```
+
+The direct native decoder then:
+
+```text
+reads NodeId first
+checks environment NodeId -> WeakView
+returns immediately on live cache hit
+only on miss reads kind/payload/children
+recursively cuts off at cached descendants
+```
+
+PERF-11v4's historical measurements are important because they show that this JavaScript semantic construction was not inherently the expensive part. The supplied benchmark handoff records approximately:
+
+```text
+small IDENTICAL_IDENTITY:
+    total median         1,209 ns
+    construction            42 ns
+    native               1,166 ns
+
+small SHARED_PATH:
+    total median        38,667 ns
+    construction         2,334 ns
+    native              35,708 ns
+```
+
+The exact Bun 1.4 rerun remains authoritative, but the architecture lesson is already clear:
+
+> Do not replace a cheap semantic representation merely to optimize the boundary after it.
+
+---
+
+# 4. Source archaeology: what current 11v3-era code does
+
+At the re-audited `perf-refactor` revision:
+
+```text
+67741eb588e70ffe8ce7b08805040d0a9cc65f8c
+```
+
+`packages/iyon-runtime/src/tui/values/view.ts` explicitly describes a different model:
+
+```text
+stable-shape ViewBacking
+state 0 = materialized semantic node
+state 1 = pending create
+state 2 = pending patch
+```
+
+The source states that pending values carry the recipe needed by the generated/native route and that `BridgeViewNode` is materialized lazily for Direct compatibility.
+
+That architecture contains valuable native transport work, but it means:
+
+```text
+direct_current != direct_7v2
+```
+
+PERF-12 must not accidentally preserve the current pending representation and claim to have restored Candidate A.
+
+The current `native_view_abi.ts` also shows how far the native-oriented operation language has grown. It contains/generated-links concepts such as:
+
+```text
+hostRenderRef
+viewRefForNodeId
+viewReleaseMany
+pathRoot / pathChild
+root and path scalar patches
+row/column fixed-arity creation
+axis builder begin/push/finish/abort
+axis set/splice
+Grid cell edit
+edit transactions
+style atoms / styles
+cstring and byte text creation
+```
+
+Those are useful primitives.
+
+They should become implementation machinery behind a semantic DAG, not the semantic representation itself.
+
+---
+
+# 5. Current native cache invariants that must survive
+
+At the inspected revision, `NativeViewRuntime` owns the transport-neutral semantic state.
+
+Conceptually:
+
+```rust
+NativeViewRuntime {
+    nodes: HashMap<u64, WeakView>,
+    slots: HashMap<u32, NativeViewSlot>,
+    node_refs: HashMap<u64, u32>,
+    path_nodes: ...,
+    path_keys: ...,
+    builders: ...,
+    edit_txns: ...,
+    style_atoms: ...,
+    styles: ...,
+    generation: ...,
+}
+```
+
+The source explicitly says the semantic cache belongs to the environment runtime, not to Direct, packed, FastShared, generated FFI, or a host.
+
+PERF-12 keeps that ownership rule.
+
+There must never be:
+
+```text
+Perf12SemanticCache
+MirrorSemanticCache
+DirectDagSemanticCache
+```
+
+The authoritative semantic identity remains:
+
+```text
+NodeId -> WeakView
+```
+
+Every transport path must converge on one publication helper.
+
+---
+
+# 6. New finding: the 2.7 GiB result requires cache-lifetime attribution
+
+The reported approximately 2.7 GiB stabilized RSS during PERF-11v4 is not enough evidence to call the current architecture unusable. Large benchmark fixtures, sample retention, JavaScriptCore heap policy, JIT code, allocator high-water, retained strings, and native caches can all contribute.
+
+However, source inspection exposes a specific mechanism that must be measured.
+
+Current runtime maps contain weak values:
+
+```text
+nodes:     NodeId -> WeakView
+slots:     NativeRef -> { WeakView, optional leased View, js_lease_count, ... }
+node_refs: NodeId -> NativeRef
+```
+
+Expired entries are removed on some lookup/resolve/release paths.
+
+A transient NodeId or NativeRef that is never touched again after its `View` dies can therefore leave map metadata behind unless another cleanup path scavenges it.
+
+This is a plausible explanation for part of a large benchmark high-water. It is **not yet proven to be the cause**.
+
+It matters architecturally because an agent TUI can create a very large number of unique immutable semantic nodes over hours even if only 20-200 are live at one moment.
+
+PERF-12 therefore treats weak-cache scavenging as a prerequisite shared-runtime fix, not as an optional memory micro-optimization.
+
+---
+
+# 7. Memory principle
+
+The final design has this memory model:
+
+```text
+persistent JS memory:
+    live View wrappers
+    live BridgeViewNode DAG
+    weak sidecar metadata
+    PersistentSeq sidecars only where needed
+
+persistent native memory:
+    live Rust View graph reachable from roots/leases
+    WeakView semantic cache metadata, scavenged
+    NativeRef slot metadata, scavenged
+    retained string/style payloads already justified by semantic reuse
+
+transport memory:
+    small bounded reusable TypedArrays
+    no persistent node records
+    no persistent edge pages
+    no SharedRef graph
+```
+
+The architecture must not have memory proportional to:
+
+```text
+all semantic nodes ever created
+all transport records ever allocated
+all NativeRefs ever resolved
+all old root versions
+```
+
+after weak state is known to be dead and maintenance has run.
+
+---
+
+# 8. Why the persistent Shared Mirror is rejected
+
+The Shared Mirror is technically coherent. The rejection is architectural, not because it cannot work.
+
+## 8.1 It duplicates a representation whose hot role is already served by NativeRef
+
+After warm materialization, both designs can do:
+
+```text
+BridgeViewNode identity
+    -> NativeRef
+    -> Rust View
+```
+
+The mirror adds:
+
+```text
+BridgeViewNode identity
+    -> SharedRef
+    -> persistent node/edge/payload record
+    -> NativeRef
+    -> Rust View
+```
+
+The persistent record is not needed for the normal retained hit.
+
+## 8.2 Its main unique win is exceptional recovery
+
+The mirror can rebuild a Rust View from the shared record after the semantic WeakView/native acceleration has expired.
+
+That is useful, but normal retained updates already hold a root lease for the previous native graph until the replacement root is complete. A stable subtree shared from the previous root therefore remains strongly reachable during the update.
+
+The recovery case is mostly:
+
+```text
+dormant JS node reintroduced later
+runtime generation reset
+explicit cache/lifetime disturbance
+```
+
+Those paths can afford bounded recovery through the semantic JavaScript object.
+
+## 8.3 It creates a new lifetime universe
+
+A correct persistent mirror needs:
+
+```text
+node pages
+edge pages / size classes
+slot state
+slot generation
+SharedRef ABA prevention
+publication/sealing
+release queues
+FinalizationRegistry integration
+page high-water accounting
+payload-ref lifetime
+fragmentation accounting
+runtime teardown ordering
+```
+
+All of this exists only to maintain a transport representation.
+
+## 8.4 It is the wrong direction under current memory uncertainty
+
+The current high RSS already requires cache attribution.
+
+Adding persistent 128-byte node records, edge blocks, free lists, page high-water, and delayed finalizer reclamation before the existing weak-cache lifetime is understood would make memory analysis harder, not easier.
+
+## 8.5 Mature frameworks retain semantic/native objects, not a permanent wire copy
+
+React Native Fabric keeps immutable native ShadowNodes and direct native correspondence from the JS/Fiber layer. Flutter keeps persistent Element/RenderObject state behind immutable Widgets. Qt Quick synchronizes changed QML Items into a retained scene graph.
+
+The recurring pattern is:
+
+```text
+cheap declaration
++
+persistent native/renderer state
++
+stable correspondence / dirty identity
+```
+
+not:
+
+```text
+cheap declaration
++
+persistent serialized mirror
++
+persistent native semantic graph
+```
+
+---
+
+# 9. Why the full Delta packet is not the primary path
+
+Retained Bridge Delta solves the memory problem much better than Shared Mirror because its arena is temporary and bounded.
+
+It remains the better fallback concept if direct-call amplification ever becomes the measured bottleneck.
+
+It is not the primary PERF-12 choice because it introduces a generic encode/decode layer that Bun 1.4 may make unnecessary.
+
+For a common node, Delta does:
+
+```text
+read JS semantic fields
+write fixed record words
+write reference lanes
+one commit call
+read fixed record words in Rust
+construct Rust semantic object
+```
+
+Direct FFI does:
+
+```text
+read JS semantic fields
+call generated typed constructor
+construct Rust semantic object
+```
+
+For fixed arity/scalars, the second path avoids the entire temporary structural representation.
+
+The supplied Delta handoff itself correctly requires a `bridge_direct_nodes` control and explicitly says not to assume Delta wins. PERF-12 adopts that control as the architecture because it is the smallest representation stack consistent with the required semantics.
+
+---
+
+# 10. Mature-framework research conclusions
+
+## 10.1 React Native Fabric
+
+Relevant documentation:
+
+- <https://reactnative.dev/architecture/render-pipeline>
+- <https://reactnative.dev/architecture/landing-page>
+- <https://reactnative.dev/docs/the-new-architecture/using-codegen>
+
+Useful properties:
+
+```text
+JavaScript creates declarative element state
+native C++ ShadowNodes are created synchronously
+fibers keep native correspondence
+ShadowNodes are immutable
+updates clone changed paths
+unchanged nodes are structurally shared
+mounting is a separate atomic stage
+```
+
+The PERF-12 lesson is:
+
+> Keep the declaration cheap and make retained native identity directly addressable.
+
+Do not interpret Fabric as an instruction to move Iyon's public semantic `View` construction into Rust. The relevant part is the stable JS/native correspondence and structural sharing.
+
+## 10.2 Flutter
+
+Reference:
+
+- <https://docs.flutter.dev/resources/inside-flutter>
+
+Flutter separates immutable widgets from retained Element/RenderObject structures. Dirty elements are visited directly. An identical widget object allows an immediate cutoff by object identity.
+
+The PERF-12 lesson is:
+
+> The immutable declaration and retained renderer representation can differ, but clean identity must terminate work before recursive traversal.
+
+This maps naturally to:
+
+```text
+BridgeViewNode identity -> NativeRef -> retained Rust View
+```
+
+## 10.3 Qt Quick scene graph
+
+Reference:
+
+- <https://doc.qt.io/qt-6/qtquick-visualcanvas-scenegraph.html>
+
+Qt Quick's synchronization step invokes scene-graph update work on Items that changed since the previous frame, while the renderer keeps a retained scene graph.
+
+The PERF-12 lesson is:
+
+> Synchronize changed semantic state into retained renderer state; do not rebuild a complete transport representation every frame.
+
+## 10.4 SBE
+
+Reference:
+
+- <https://github.com/aeron-io/simple-binary-encoding/wiki/Design-Principles>
+
+SBE emphasizes copy-free access, native type mapping, allocation-free codecs, streaming access, and aligned layouts.
+
+PERF-12 uses the physical lesson only where a variable buffer is actually needed:
+
+```text
+reusable typed arrays
+native u32 layout
+no intermediate copy
+synchronous borrowed lifetime
+```
+
+It does not need an SBE-like record protocol for fixed semantic nodes.
+
+## 10.5 Chromium command buffers
+
+Reference:
+
+- <https://chromium.googlesource.com/chromium/src.git/+/HEAD/docs/security/research/graphics/gpu_command_buffer.md>
+
+Chromium demonstrates both the power and the cost of mutable shared-memory command protocols: synchronization, TOCTOU concerns, validation, and explicit ownership become architectural requirements.
+
+Iyon has a much easier baseline:
+
+```text
+same process
+same owner thread
+synchronous FFI
+one producer
+one consumer
+no retained pointer after call
+```
+
+PERF-12 should keep that advantage.
+
+## 10.6 Bun FFI
+
+Reference:
+
+- <https://bun.com/docs/runtime/ffi>
+
+Current Bun documentation states that normal `dlopen`, `linkSymbols`, `CFunction`, and `JSCallback` call paths are implemented in JavaScriptCore and hot sites can compile to direct native calls. It also documents `buffer` and `buffer_length` engine-native argument forms.
+
+More importantly, this is not merely a bet on later Bun documentation: the re-audited Iyon `tools/tui-abi/view_abi.toml` already declares both `minimum_bun = "1.4.0"` and `qualified_bun = "1.4.0"`, and its existing `view_axis_create_buffer` ABI already lowers the child buffer length through `buffer_length`. PERF-12 is extending a Bun 1.4 path that the repository has already qualified.
+
+Important constraints:
+
+```text
+napi_env / napi_value are cc()-only
+buffer pointers are borrowed for the call
+raw memory lifetime is the caller's responsibility
+bun:ffi remains experimental
+```
+
+The repository is already explicitly pinned to Bun 1.4.0, so PERF-12 continues the existing qualification strategy rather than widening runtime support.
+
+---
+
+# 11. Non-negotiable invariants
+
+PERF-12 fails if any of the following are lost.
+
+```text
+[ ] full 53-bit safe NodeId semantic identity
+[ ] one environment-owned NodeId -> WeakView semantic cache
+[ ] stable JS identity for unchanged semantic subtrees
+[ ] semantic identity cutoff before payload/child inspection
+[ ] NativeRef acceleration
+[ ] exact-root fast path
+[ ] weak-cache expiry correctness
+[ ] bounded cache metadata after churn
+[ ] PersistentSeq wide edits
+[ ] no O(width) one-child update at useful wide sizes
+[ ] retained strings/styles
+[ ] streaming text remains specialized
+[ ] current full public View schema
+[ ] History/ViewSlot/ScrollPane/components/animation parity
+[ ] one host mutation after complete root materialization
+[ ] generated ABI source of truth
+[ ] same-image runtime/bootstrap architecture
+[ ] checked and timing builds remain distinct
+[ ] cold/rebuilt complete fallback remains available
+```
+
+---
+
+# 12. Identity model
+
+PERF-12 uses two persistent identities and one transaction-local state.
+
+## 12.1 NodeId
+
+```text
+range: 1 .. 2^53 - 1
+role: semantic identity
+lifetime: semantic node lifetime / never reused logically
+authority: NativeViewRuntime NodeId -> WeakView cache
+```
+
+A new semantic node gets a new NodeId.
+
+An unchanged shared node retains the same NodeId because it is the same immutable BridgeViewNode.
+
+NodeId is never replaced by NativeRef.
+
+## 12.2 NativeRef
+
+```text
+type: u32
+role: fast environment-local acceleration handle
+scope: one NativeViewRuntime generation
+meaning: may resolve to an existing Rust View
+```
+
+A NativeRef is not semantic equality.
+
+A stale NativeRef is a cache miss, not corruption.
+
+Do not recycle NativeRef numeric values inside one runtime generation unless a future design adds explicit per-slot generations. Monotonic non-reuse avoids ABA and keeps the JS sidecar small.
+
+## 12.3 Transaction-local state
+
+During one `ensureNativeRoot` operation, PERF-12 uses reusable private state for:
+
+```text
+in-progress nodes / cycle guard
+newly-created refs
+references borrowed by variable-arity calls
+temporary leases
+stale-ref retry information
+materialized node counter
+```
+
+No transaction-local identifier escapes the call.
+
+There is no persistent `SharedRef`.
+
+---
+
+# 13. JavaScript semantic representation
+
+The normal semantic representation returns to the historical model.
+
+Conceptually:
+
+```ts
+const BRIDGE_NODES = new WeakMap<View, BridgeViewNode>()
+
+class View {
+  readonly kind = "view"
+
+  private constructor(node: BridgeViewNodeDraft) {
+    const semantic = withPrivateIdentity(node)
+    BRIDGE_NODES.set(this, semantic)
+    Object.freeze(this)
+  }
+}
+
+function nodeForBridge(view: View): BridgeViewNode {
+  const node = BRIDGE_NODES.get(view)
+  if (node === undefined) throw ...
+  return node
+}
+```
+
+This code should be reconstructed mechanically from the historical SHA and adapted to the current schema.
+
+Do not re-derive it from this prose.
+
+---
+
+# 14. BridgeViewNode object shape
+
+A normal BridgeViewNode contains semantic fields only.
+
+```text
+id
+schema
+kind
+semantic payload
+semantic children
+```
+
+Do not add own properties such as:
+
+```text
+nativeRef
+nativeGeneration
+pathRef
+wireIndex
+sharedSlot
+transportState
+leaseCount
+```
+
+Transport data belongs in WeakMap sidecars.
+
+This preserves the reason to expect JavaScriptCore to keep common per-kind object structures monomorphic.
+
+---
+
+# 15. Sidecars
+
+The baseline sidecars are deliberately small.
+
+```ts
+interface BridgeNativeHint {
+  readonly generation: number
+  readonly nativeRef: number
+}
+
+const BRIDGE_NATIVE = new WeakMap<BridgeViewNode, BridgeNativeHint>()
+```
+
+Optional derivation metadata:
+
+```ts
+type BridgeDerivation =
+  | TextLayoutDerivation
+  | CommonScalarDerivation
+  | AxisEditDerivation
+  | GridEditDerivation
+
+const BRIDGE_DERIVATION = new WeakMap<BridgeViewNode, BridgeDerivation>()
+```
+
+Wide-only sequence state:
+
+```ts
+const BRIDGE_SEQUENCE = new WeakMap<BridgeViewNode, BridgeSequenceOverride>()
+const BRIDGE_GRID_SEQUENCE = new WeakMap<BridgeViewNode, BridgeGridOverride>()
+```
+
+No sidecar should be created merely to construct a plain semantic View unless the metadata is actually useful.
+
+Construction cost is an explicit gate.
+
+---
+
+# 16. Critical lifetime decision: NativeRef sidecars are hints, not per-node leases
+
+This is a major difference from both proposed PERF-12 handoffs.
+
+`BRIDGE_NATIVE` must **not** keep one strong native `View` lease per live JavaScript BridgeViewNode.
+
+Instead:
+
+```text
+BridgeNativeHint:
+    weak acceleration only
+
+View-bearing boundary:
+    owns one root NativeRef lease
+
+materialization transaction:
+    owns temporary leases for newly-created nodes
+```
+
+Why this works:
+
+1. The current boundary root lease strongly keeps the current Rust View graph alive.
+2. During an update, the old root lease is not released until the new root has been completely materialized and installed.
+3. Therefore any stable subtree reused from the old root remains native-live while its NativeRef is needed.
+4. Newly-created nodes receive temporary leases while the new path is assembled.
+5. After successful root installation, only the new root lease remains. Child temporary leases are released in one batch.
+6. Rust graph ownership from the new root keeps its descendants alive.
+
+This gives hot retained stability without a FinalizationRegistry per semantic node.
+
+A dormant JS node that is no longer reachable from a native root may later contain a stale NativeRef hint. That is allowed and handled as a cache miss.
+
+---
+
+# 17. Why FinalizationRegistry is not baseline lifetime machinery
+
+Finalizers are useful for cleanup hints but poor correctness clocks.
+
+The Shared Mirror design needs finalization/release to reclaim persistent record slots.
+
+Retained DAG Direct FFI does not create persistent transport resources per BridgeViewNode, so it does not need that dependency.
+
+The baseline rule is:
+
+```text
+WeakMap hint disappears with JS object
+NativeRef slot is weak unless a boundary/temp lease owns it
+runtime scavenger removes dead slot/cache metadata
+```
+
+If a future specialized payload handle truly requires JS-lifetime ownership, use an explicit audited mechanism for that payload only.
+
+Do not make the whole View bridge depend on GC finalizer scheduling.
+
+---
+
+# 18. Root lease protocol
+
+Every View-bearing native boundary already needs a clear ownership rule.
+
+Conceptually:
+
+```text
+boundary.previousRef = leased NativeRef for currently installed root
+```
+
+Update:
+
+```text
+1. keep previousRef leased
+2. materialize next root
+3. hostRenderRef(nextRef)
+4. if success:
+       release previousRef
+       transfer nextRef temporary lease to boundary.previousRef
+       release every other temporary ref
+5. if failure:
+       keep previousRef
+       release every temporary ref
+```
+
+Close/dispose:
+
+```text
+release boundary.previousRef exactly once
+```
+
+After each successful boundary commit, also capture the private semantic NodeId allocator high-water as `boundary.nativeLookupCeiling`. This is transport metadata on the boundary/session, not on BridgeViewNode. It lets a later sidecar miss distinguish definitely-new NodeIds from older nodes that may already exist in the native semantic cache.
+
+This protocol must be shared across:
+
+```text
+Tui root
+History-held View roots where applicable
+ViewSlot
+ScrollPane
+animation target/current View
+component View boundaries
+any future native View-bearing boundary
+```
+
+---
+
+# 19. `ensureNative` algorithm
+
+The central JS algorithm is identity-first.
+
+Conceptual pseudocode:
+
+```ts
+function ensureNative(
+  node: BridgeViewNode,
+  tx: MaterializeTx,
+): number {
+  const hint = BRIDGE_NATIVE.get(node)
+  if (hint !== undefined && hint.generation === tx.generation) {
+    tx.noteBorrowedHint(node, hint.nativeRef)
+    return hint.nativeRef
+  }
+
+  const local = tx.refs.get(node)
+  if (local !== undefined) return local
+
+  // A previous cold/direct/native path may have materialized this semantic
+  // NodeId without ever installing a JS-side NativeRef hint. Only probe the
+  // native NodeId cache for nodes that existed before the previous successful
+  // boundary commit; genuinely new nodes skip this extra FFI call.
+  if (node.id <= tx.nativeLookupCeiling) {
+    const recovered = tryNativeRefForNodeId(node.id, tx)
+    if (recovered !== undefined) {
+      BRIDGE_NATIVE.set(node, {
+        generation: tx.generation,
+        nativeRef: recovered,
+      })
+      tx.refs.set(node, recovered)
+      tx.temporaryLeases.push(recovered)
+      return recovered
+    }
+  }
+
+  if (tx.inProgress.has(node)) throw cycleError()
+  if (++tx.newNodeCount > MAX_RETAINED_NEW_NODES) throw FastFallback()
+
+  tx.inProgress.add(node)
+  try {
+    const ref = tryDerivation(node, tx)
+      ?? generatedMaterializeNode(node, tx)
+
+    BRIDGE_NATIVE.set(node, {
+      generation: tx.generation,
+      nativeRef: ref,
+    })
+    tx.refs.set(node, ref)
+    tx.temporaryLeases.push(ref)
+    return ref
+  } finally {
+    tx.inProgress.delete(node)
+  }
+}
+```
+
+Hard ordering rule:
+
+```text
+BRIDGE_NATIVE lookup
+then, when eligible, NodeId -> NativeRef promotion
+before
+node.kind / payload inspection
+before
+child traversal
+```
+
+`nativeLookupCeiling` is captured from the private monotonic NodeId allocator after each successful boundary commit. Nodes created after that commit have larger NodeIds and therefore skip the NodeId-probe call; older dormant/stable nodes can recover a native ref without a semantic walk. If unrelated Views were constructed before the commit but never materialized, the probe may miss once and normal materialization continues.
+
+This preserves Candidate A's identity-before-payload rule even when the previous root came from a cold/direct fallback that did not populate descendant sidecars.
+
+---
+
+# 20. Exact root fast path
+
+Rendering the same known root should be almost trivial.
+
+```ts
+const node = nodeForBridge(next)
+const hint = BRIDGE_NATIVE.get(node)
+
+if (hint?.generation === session.generation) {
+  const status = hostRenderRef(session, host, hint.nativeRef)
+  if (status === OK) return hint.nativeRef
+  if (status === CACHE_MISS) return recoverKnownRoot(...)
+  throwStatus(status)
+}
+```
+
+Required structural counters:
+
+```text
+semantic node fields read: 0
+children visited: 0
+TypedArray words written: 0
+node constructor FFI calls: 0
+host FFI calls: 1
+```
+
+Exact identity must be independent of descendant count.
+
+---
+
+# 21. Stable subtree cutoff
+
+For:
+
+```text
+new root R2
++-- changed branch C2
+`-- stable subtree S
+```
+
+JavaScript:
+
+```text
+ensureNative(R2)          miss
+ensureNative(C2)          miss
+...
+ensureNative(S)           NativeRef hint hit -> stop
+```
+
+No descendant of `S` may have its semantic payload read.
+
+Native parent construction receives only `S`'s u32 NativeRef.
+
+The native constructor resolves that ref to the existing Rust View.
+
+No N-API object is involved.
+
+---
+
+# 22. Direct FFI materialization
+
+Generated direct materialization is children-first.
+
+Example fixed node:
+
+```c
+uint32_t iyon_view_container_create_v2(
+    NativeViewRuntime *runtime,
+    uint32_t node_id_low,
+    uint32_t node_id_high,
+    uint32_t child_ref,
+    uint32_t padding_top_right,
+    uint32_t padding_bottom_left,
+    uint32_t width_rule,
+    uint32_t height_rule,
+    uint32_t min_width,
+    uint32_t max_width,
+    uint32_t min_height,
+    uint32_t max_height
+);
+```
+
+Exact signature comes from the canonical schema and current semantic type layout.
+
+Do not copy this sample signature blindly.
+
+Generated TypeScript wrapper:
+
+```ts
+function materializeContainer(node: BridgeContainerNode, tx: MaterializeTx): number {
+  const childRef = ensureNative(node.child, tx)
+  const [lo, hi] = nodeIdPair(node.id)
+  return viewContainerCreate(
+    tx.symbols,
+    tx.runtime,
+    lo,
+    hi,
+    childRef,
+    ...
+  )
+}
+```
+
+There is no generic record object.
+
+---
+
+# 23. Native constructor rule: semantic cache first
+
+Every generated constructor receives the new semantic NodeId.
+
+Native should first ask whether this NodeId already has a live semantic View.
+
+Conceptually:
+
+```rust
+fn create_container(..., node_id: u64, child_ref: u32, ...) -> FastResult<u32> {
+    if let Some(existing) = runtime.lookup_live_node(node_id) {
+        return runtime.ensure_ref(node_id, existing);
+    }
+
+    let child = runtime.resolve_ref(child_ref)?;
+    let view = View::container(..., child, ...)?;
+    runtime.publish_semantic_view(node_id, view)
+}
+```
+
+This protects cross-transport/recovery behavior.
+
+It does not replace the JS identity cutoff; JS should not intentionally send stable nodes merely because native can rediscover them.
+
+---
+
+# 24. One publication helper
+
+Refactor if necessary so all transports use one semantic publication implementation.
+
+Conceptual:
+
+```rust
+fn publish_semantic_view(
+    &mut self,
+    node_id: u64,
+    view: View,
+    lease: LeaseMode,
+) -> Result<u32, FastStatus>
+```
+
+Responsibilities:
+
+```text
+validate NodeId
+reject impossible semantic identity conflict
+insert/update NodeId -> WeakView
+allocate NativeRef slot
+associate NodeId -> NativeRef
+return NativeRef
+apply requested temporary/root lease count
+update diagnostics
+```
+
+Direct N-API, existing generated FFI, PERF-12, and fallback recovery must not have separate identity rules.
+
+---
+
+# 25. Reuse current 11v3 functions before adding new ones
+
+The current ABI already contains valuable primitives.
+
+Examples include:
+
+```text
+hostRenderRef
+viewSpacerCreate
+viewTextCreateCstring / Utf8 variants
+viewTextLayoutPatchRoot/path
+viewCommonPatchRoot
+viewRowCreate0..4
+viewColumnCreate0..4
+viewAxisCreateBuffer
+axis builder
+viewAxisSetChild
+viewAxisSpliceBuffer
+viewGridSetCell
+style creation
+viewRefForNodeId
+viewReleaseMany
+```
+
+PERF-12 should classify each current function:
+
+```text
+A. semantic constructor/edit that remains useful unchanged
+B. useful implementation that needs a generated signature cleanup
+C. path/recipe machinery made redundant by the semantic DAG
+D. benchmark/fallback only
+```
+
+Do not rewrite a native constructor merely to rename it PERF-12.
+
+---
+
+# 26. What should disappear after adoption
+
+If PERF-12 wins, the production semantic layer should not retain native-oriented state merely to route common operations.
+
+Candidates for removal or test-gating after soak include machinery whose only purpose is the current pending recipe architecture:
+
+```text
+pending create backing
+pending patch backing
+native scalar patch state that duplicates semantic node information
+path lineage used only to compensate for missing semantic DAG identity
+builder state that is only a cold construction workaround
+transport-specific semantic materialization state
+```
+
+Do not remove anything until full public-API parity and performance are proven.
+
+The cleanup tranche decides from actual usage, not this list alone.
+
+---
+
+# 27. Derivation hints
+
+The semantic DAG is authoritative, but construction can cheaply record how a new immutable node was derived from an old one.
+
+That is an optimization hint, not a second representation.
+
+Example:
+
+```ts
+interface TextLayoutDerivation {
+  readonly kind: "textLayout"
+  readonly base: BridgeViewNode
+  readonly wrap: number
+  readonly align: number
+}
+```
+
+A modifier still creates the complete new semantic BridgeViewNode eagerly.
+
+Then it may set:
+
+```ts
+BRIDGE_DERIVATION.set(newNode, derivation)
+```
+
+`ensureNative()` tries the derivation only if:
+
+```text
+new node has no NativeRef
+base node has a same-generation NativeRef
+operation has an exact native retained primitive
+```
+
+Otherwise it ignores the hint and materializes from semantic fields.
+
+---
+
+# 28. Why derivation hints are worth keeping
+
+They preserve important post-7v2 work without making the JS representation native-first.
+
+Examples:
+
+```text
+Text wrap/align change:
+    base NativeRef + new NodeId + wrap/align
+    no text payload resend
+
+common scalar layout/decor change:
+    base NativeRef + changed scalar mask
+    no unchanged child/payload resend
+
+axis child replace:
+    base NativeRef + new NodeId + index + new child NativeRef
+    native PersistentSeq update
+
+Grid cell replace:
+    base NativeRef + new NodeId + coordinate + new child NativeRef
+```
+
+The architecture remains:
+
+```text
+semantic object first
+optimization hint second
+```
+
+not:
+
+```text
+native recipe first
+semantic object lazily reconstructed later
+```
+
+---
+
+# 29. Variable-arity transport: borrowed TypedArrays, not mapped pages
+
+Variable child lists need contiguous reference storage somewhere.
+
+Use reusable JavaScript-owned typed arrays and Bun's engine-native `buffer` / `buffer_length` arguments.
+
+Example:
+
+```ts
+const refs = session.refScratch.ensureCapacity(count)
+for (let i = 0; i < count; i++) {
+  refs[i] = ensureNative(children[i]!.child, tx)
+}
+
+viewAxisCreateBuffer(
+  runtime,
+  nodeIdLow,
+  nodeIdHigh,
+  axisKind,
+  gap,
+  refs.subarray(0, count),
+)
+```
+
+Native contract:
+
+```text
+pointer valid only for synchronous call
+length validated
+Rust never stores pointer/slice after return
+Rust copies/uses semantic child Views, not transport bytes
+```
+
+This is zero-copy at the FFI boundary: native reads the same TypedArray storage.
+
+It is not zero-work: JavaScript must write the NativeRef words for a newly-created variable-arity parent. That work is counted as transport preparation.
+
+---
+
+# 30. Scratch-memory policy
+
+Do not let one giant benchmark case permanently inflate normal-session scratch memory.
+
+Use explicit tiers.
+
+Suggested starting policy:
+
+```text
+ref scratch small:       1,024 u32 = 4 KiB
+ref scratch medium cap:  8,192 u32 = 32 KiB
+aux scratch cap:         8,192 u32 = 32 KiB
+byte scratch cap:       65,536 u8  = 64 KiB
+```
+
+Rules:
+
+```text
+small scratch allocated once
+medium scratch allocated only when needed
+retained fast path refuses pathological cold payload above cap
+large/cold input routes to existing complete fallback
+no pointer retained by native
+no native external ArrayBuffer/deallocator required
+```
+
+Final values are benchmark decisions.
+
+---
+
+# 31. Why this is preferable to native-owned mapped scratch for baseline PERF-12
+
+Native-owned mapped memory is valid, but unnecessary when Bun already passes TypedArray backing memory directly to engine-native FFI.
+
+Avoiding external mapped memory removes:
+
+```text
+pointer export API
+toArrayBuffer lifetime
+deallocator context
+teardown ordering between JS mapping and Rust allocation
+arena state machine
+persistent native scratch allocation
+```
+
+If later profiling proves JavaScript-owned TypedArray placement materially slower than native-owned mapped storage, that is a small physical-memory experiment, not a semantic-architecture rewrite.
+
+---
+
+# 32. Fixed arity specialization
+
+Keep generated fixed-arity Row/Column constructors for common arities.
+
+Baseline:
+
+```text
+arity 0..4:
+    scalar NativeRef arguments
+    no ref buffer
+
+arity >4 and <= retained cap:
+    borrowed ref buffer
+```
+
+The common small TUI therefore pays no array write merely to cross the boundary.
+
+The exact specialization limit should come from the existing 11v3 data and PERF-12 transport microbenchmarks.
+
+---
+
+# 33. Wide structures are a separate semantic optimization
+
+PERF-12 must not regress the current `PersistentSeq` work.
+
+Current JS `PersistentSeq` uses branch factor 32 and path-copying operations.
+
+The retained wide update must therefore remain approximately:
+
+```text
+O(log_32 N)
+```
+
+for:
+
+```text
+replace
+insert
+remove
+splice
+Grid cell replacement where applicable
+```
+
+Do not force wide semantic edits through a flat historical array merely for purity.
+
+---
+
+# 34. Wide semantic sidecar exception
+
+For ordinary node sizes, the BridgeViewNode itself is the complete historical-style semantic object.
+
+For deliberately wide retained edits, PERF-12 allows one private exception:
+
+```ts
+interface BridgeSequenceOverride {
+  readonly baseNode: BridgeViewNode
+  readonly sequence: PersistentSeq<BridgeLayoutChild>
+  readonly edit: AxisSequenceEdit
+}
+```
+
+stored in:
+
+```ts
+WeakMap<BridgeViewNode, BridgeSequenceOverride>
+```
+
+The visible/frozen object shape remains stable.
+
+The native fast path treats the sequence sidecar as authoritative for the wide edit.
+
+Direct N-API fallback may lazily materialize an exact flat BridgeViewNode only if fallback is actually taken.
+
+This is preferable to making every normal 20-200-node path pay persistent-sequence representation overhead.
+
+---
+
+# 35. Wide native edit path
+
+For one child replacement:
+
+```text
+base axis NativeRef
+new axis NodeId
+index
+new child NativeRef
+track word if needed
+```
+
+Native:
+
+```text
+resolve base View
+resolve child View
+PersistentSeq::set
+construct new axis View
+publish new NodeId / NativeRef
+```
+
+For insert/remove/splice:
+
+```text
+base axis NativeRef
+new NodeId
+index
+remove count
+only inserted child NativeRefs
+```
+
+No old full child list crosses FFI.
+
+No 100,000-element scan.
+
+---
+
+# 36. Grid
+
+Apply the same split.
+
+Normal small/new Grid:
+
+```text
+generated direct materializer
+borrowed track/cell/ref arrays if needed
+```
+
+Retained cell edit:
+
+```text
+base Grid NativeRef
+new Grid NodeId
+row/column or canonical index
+new child NativeRef
+native persistent grid/sequence edit
+```
+
+Retained track change should use a similarly narrow operation if it is common enough to justify it.
+
+Do not create a persistent shared Grid edge arena.
+
+---
+
+# 37. Text
+
+Text is too important to hide behind a generic structural protocol.
+
+PERF-12 reuses the best current text machinery.
+
+Common one-span path:
+
+```text
+BridgeTextNode
+    -> cstring-capable generated direct FFI
+    -> retained native text
+```
+
+Exact-byte path:
+
+```text
+BridgeTextNode
+    -> reusable UTF-8 scratch / buffer + byte length
+    -> native retained text
+```
+
+Multi-span common arities may keep generated specialized calls where current 11v3 evidence justifies them.
+
+---
+
+# 38. Text layout mutation
+
+A wrap/alignment-only mutation must not resend stable text.
+
+Construction:
+
+```text
+new complete BridgeTextNode
+same spans array identity where semantics permit
+new NodeId
+BRIDGE_DERIVATION = textLayout(base, wrap, align)
+```
+
+Native fast path:
+
+```text
+base NativeRef
+new NodeId
+wrap
+align
+```
+
+This reuses the native text payload already retained by the base View.
+
+If the base NativeRef is unavailable, fall back to direct semantic materialization of the new text node.
+
+---
+
+# 39. Strings and embedded NUL
+
+`cstring` cannot be the only path.
+
+Correctness suite includes:
+
+```text
+empty string
+ASCII
+short Unicode
+emoji / non-BMP
+combining sequences
+embedded NUL
+lone surrogate normalization behavior
+U+10FFFF
+256-byte text
+4-KiB text
+large Diff content
+```
+
+Reuse the existing exact byte-length fallback.
+
+Do not introduce JS UTF-8 encoding for cases where current Bun/native string conversion is faster.
+
+Choose by end-to-end benchmark.
+
+---
+
+# 40. Styles
+
+Reuse the current native `StyleRef` / style-atom system.
+
+Style identity remains a separate retained payload concern from structural View identity.
+
+Rules:
+
+```text
+stable style object -> reuse StyleRef
+stable text subtree -> NativeRef cutoff before style inspection
+changed text span -> resolve only styles for changed/new payload
+no style bytes in a generic structural packet
+```
+
+Do not create a second PERF-12 style cache.
+
+---
+
+# 41. Diff
+
+Diff can contain much larger semantic payload than normal structural nodes.
+
+Treat Diff like Text:
+
+```text
+structure node identity
++
+specialized payload import / retained payload
+```
+
+Do not force all Diff lines/hunks through a generic View-record format.
+
+If current native Diff construction does not have a retained payload handle, first benchmark:
+
+```text
+direct generated buffer import
+N-API payload-only import
+retained DiffPayloadRef
+```
+
+Only add `DiffPayloadRef` if it reduces real repeated work.
+
+---
+
+# 42. Streaming text
+
+Streaming text remains outside the structural View bridge.
+
+The structural DAG may contain the View/component that references a stream.
+
+The stream's appended bytes use the existing specialized native append path.
+
+Never route each chunk through:
+
+```text
+new BridgeViewNode
+new direct node constructor
+or
+structural scratch buffer
+```
+
+merely for architectural uniformity.
+
+---
+
+# 43. Multi-branch retained updates
+
+The immutable DAG naturally describes the union of changed branches.
+
+Example:
+
+```text
+new root
++-- changed left
+|   `-- stable leaf
++-- stable center
+`-- changed right
+```
+
+`ensureNative` visits only the newly-created objects reachable from the root.
+
+Transaction-local identity guarantees that a new shared object referenced from two places is materialized once.
+
+Unlike the Delta packet, there is no need to emit a definition table first.
+
+Each node becomes a native semantic object as soon as its children are available.
+
+---
+
+# 44. Temporary lease transaction
+
+Direct per-node constructors return NativeRefs that must remain valid while their parents are built.
+
+Use one materialization transaction:
+
+```ts
+interface MaterializeTx {
+  refs: Map<BridgeViewNode, number>
+  inProgress: Set<BridgeViewNode>
+  temporaryLeases: ReusableRefList
+  borrowedHints: ReusableBorrowedHintList
+  nativeLookupCeiling: number
+  newNodeCount: number
+  retryCount: number
+}
+```
+
+Rules:
+
+```text
+constructor success -> returned ref is temporarily leased
+parent construction may resolve child ref safely
+do not release any newly-created ref until the root is complete
+on host success -> keep root lease, release all other temp refs
+on any failure -> release all temp refs
+```
+
+Use `viewReleaseMany`, not one FFI release call per ref.
+
+---
+
+# 45. Host atomicity does not require cache-publication atomicity
+
+This is an important simplification over a packet transaction.
+
+Native constructors may successfully publish immutable semantic Views before a later ancestor fails.
+
+That is acceptable because:
+
+```text
+a published View is complete and immutable
+NodeId identity is valid
+host state has not changed yet
+orphaned Views are weakly reclaimable
+future retry may reuse them
+```
+
+The atomic requirement is:
+
+> **No View-bearing host/boundary changes until the complete new root exists.**
+
+Therefore PERF-12 does not need to stage an entire changed closure merely to make semantic cache publication all-or-nothing.
+
+---
+
+# 46. Stale NativeRef hints
+
+A `BridgeNativeHint` is allowed to become stale.
+
+This can happen when:
+
+```text
+node is no longer in any leased native root
+the Rust View expires
+slot is scavenged
+same JS node is reintroduced later
+```
+
+This is not a correctness error.
+
+Native functions return `FAST_CACHE_MISS` / equivalent detail.
+
+The common retained path should almost never see this for stable descendants of the currently installed previous root, because that root remains leased until replacement succeeds.
+
+---
+
+# 47. Stale-child recovery
+
+Do not add one validation FFI call for every NativeRef hint.
+
+Optimistically use the hint.
+
+If a parent constructor reports a stale child ref, the generated/native status must identify the failed ref or child ordinal.
+
+Transaction-local recovery:
+
+```text
+1. identify the BridgeViewNode corresponding to stale child
+2. delete/ignore its BRIDGE_NATIVE hint
+3. materialize that child from its semantic object
+4. retry the parent once
+```
+
+For exact-root `hostRenderRef` miss, the caller already knows the root node and can rematerialize it.
+
+Hard rule:
+
+```text
+one targeted retry per operation
+```
+
+If recovery still fails, route to the authoritative complete fallback.
+
+---
+
+# 48. Runtime generation
+
+Every hint contains the environment generation.
+
+```ts
+if (hint.generation !== session.generation) {
+  ignore hint
+}
+```
+
+No old NativeRef is used after runtime recreation.
+
+Do not attempt cross-generation remapping.
+
+Rebuild lazily from the semantic DAG.
+
+---
+
+# 49. Cold and rebuilt trees
+
+Retained DAG Direct FFI is optimized for retained identity.
+
+It should not be forced to construct a 10,000-node completely cold graph through 10,000 FFI calls merely to avoid a fallback.
+
+Router:
+
+```text
+no previous native root / initial cold render:
+    best complete cold candidate from PERF-11v4/11v3 evidence
+
+retained root with shared identities:
+    Retained DAG Direct FFI
+
+retained walker exceeds MAX_RETAINED_NEW_NODES:
+    abort retained attempt
+    use cold/bulk fallback
+```
+
+Successful direct constructors that happened before the budget was exceeded are valid semantic cache entries and may be reused by the fallback.
+
+Do not roll them back solely because the router changed.
+
+---
+
+# 50. Retained work budget
+
+Set an explicit cap for the path optimized by PERF-12.
+
+Initial benchmark candidate:
+
+```text
+MAX_RETAINED_NEW_NODES = 256 or 512
+MAX_RETAINED_DEPTH     = 256
+MAX_DIRECT_AXIS_REFS   = 1,024 or benchmark-derived
+```
+
+These are not public semantic limits.
+
+Exceeding a cap returns `FAST_FALLBACK` and invokes the complete path.
+
+Final values come from realistic trace distributions and cold crossover benchmarks.
+
+---
+
+# 51. No full-tree diff
+
+Never compare old/new semantic trees by content to discover changes.
+
+The immutable API already encodes the answer:
+
+```text
+same BridgeViewNode identity -> same semantic node
+new BridgeViewNode identity  -> new semantic node
+NativeRef hint               -> already materialized candidate
+BRIDGE_DERIVATION            -> optional cheaper construction path
+```
+
+No hashes.
+
+No recursive equality.
+
+No virtual-DOM diff layer.
+
+---
+
+# 52. NativeRef table: remove HashMap from the hottest handle lookup
+
+Current source uses:
+
+```rust
+slots: HashMap<u32, NativeViewSlot>
+```
+
+PERF-12 makes NativeRef lookup central enough that a dense/paged table should be measured and likely adopted for the shared runtime.
+
+Recommended non-reusing monotonic-ref shape:
+
+```rust
+const PAGE_BITS: u32 = 10; // also benchmark 12
+const PAGE_SIZE: usize = 1 << PAGE_BITS;
+
+struct NativeRefPage {
+    slots: Box<[Option<NativeViewSlot>; PAGE_SIZE]>,
+    live: u32,
+}
+
+struct NativeRefTable {
+    pages: Vec<Option<Box<NativeRefPage>>>,
+}
+```
+
+Lookup:
+
+```text
+page = ref >> PAGE_BITS
+offset = ref & (PAGE_SIZE - 1)
+vector bounds
+page pointer
+slot index
+```
+
+No hash on common NativeRef resolution.
+
+---
+
+# 53. Do not recycle NativeRef IDs inside a generation
+
+Ref reuse saves numeric space but creates ABA requirements for JS hints.
+
+The current ABI uses a `u32` carrier but reserves the high bit for status, so valid ViewRefs are `1..0x7fffffff`. A monotonic 31-bit ref space is still very large for one environment lifetime.
+
+With 4,096-slot pages, the theoretical maximum directory is 524,288 page pointers, which is manageable if pages themselves are allocated lazily and empty pages can be freed.
+
+Therefore baseline PERF-12 uses:
+
+```text
+monotonic NativeRef
+no per-slot generation
+no ref reuse before environment reset
+```
+
+If exhaustion can be demonstrated in a realistic long-lived process, solve it as a separate design with an explicit generation pair rather than silently reusing refs.
+
+---
+
+# 54. NativeRef page reclamation
+
+A page is physical metadata storage, not semantic state.
+
+Track `live` slot count.
+
+When a slot is removed:
+
+```text
+page.live--
+if page.live == 0:
+    page entry may be dropped
+```
+
+A stale JS NativeRef into a dropped page simply returns cache miss.
+
+The outer `Vec<Option<Page>>` can keep its high-water directory length; with large page sizes its maximum is bounded and far smaller than retaining all historical slot objects.
+
+---
+
+# 55. Weak semantic cache scavenging
+
+The `NodeId -> WeakView` cache must not grow with every historical NodeId forever.
+
+Add central maintenance.
+
+Suggested model:
+
+```text
+fast path:
+    remove expired entry when directly observed
+
+release path:
+    enqueue zero-lease refs as scavenging candidates
+
+periodic maintenance:
+    process a bounded candidate budget
+
+threshold backstop:
+    when weak-cache metadata growth since last full sweep exceeds threshold,
+    perform one full expired-weak sweep outside the tiny timing path
+```
+
+The exact implementation may differ, but the invariant is mandatory:
+
+```text
+post-GC/post-maintenance metadata = O(live semantic state + bounded sweep slack)
+```
+
+not:
+
+```text
+O(all NodeIds ever created)
+```
+
+---
+
+# 56. Suggested weak-cache maintenance counters
+
+Expose debug/counter-build fields such as:
+
+```text
+semantic_cache_entries
+semantic_cache_live
+semantic_cache_expired_seen
+semantic_cache_full_sweeps
+semantic_cache_entries_removed
+native_ref_slots
+native_ref_leased_slots
+native_ref_unleased_live_slots
+native_ref_expired_slots
+native_ref_pages
+native_ref_pages_freed
+node_ref_map_entries
+scavenge_queue_len
+scavenge_processed
+```
+
+Counters must be absent or compile-time-cheap in authoritative timing builds.
+
+---
+
+# 57. PERF-12.0: memory attribution protocol
+
+Before architecture implementation, reproduce the approximately 2.7 GiB case under the frozen PERF-11v4 binary/harness.
+
+For each benchmark block record:
+
+```text
+RSS
+process heap used/total
+external / ArrayBuffer bytes where available
+native semantic-cache entry count
+native slot count
+leased slot count
+node_ref count
+path node/key counts
+builder count
+edit transaction count
+style/string retained counts
+raw benchmark sample storage size
+fixture live count
+```
+
+Then run a forced cleanup checkpoint:
+
+```text
+release/close all benchmark roots
+Bun.gc(true)
+native maintenance / full weak sweep
+Bun.gc(true)
+record counters again
+```
+
+Bun documents `Bun.gc(true)` as synchronous GC and its benchmarking documentation recommends heap snapshots for retained-object analysis.
+
+If JS heap remains unexpectedly high, emit a Bun/JSC heap snapshot.
+
+If native counters remain high while live roots are low, fix runtime lifetime before proceeding.
+
+---
+
+# 58. Memory classification
+
+Classify the 2.7 GiB behavior into one or more buckets.
+
+```text
+A. benchmark result/sample retention
+B. benchmark fixtures intentionally still live
+C. JavaScript semantic objects / pending backings
+D. JSC/JIT/allocator high-water with low live heap
+E. native View strong leases
+F. expired NodeId WeakView map metadata
+G. expired NativeRef/node_ref metadata
+H. PersistentSeq structural high-water
+I. retained string/style payload
+J. other native allocation
+```
+
+Do not use RSS alone to decide which architecture is responsible.
+
+---
+
+# 59. Memory acceptance gate
+
+Run a long churn test after PERF-12 runtime cleanup is implemented.
+
+Example:
+
+```text
+1,000,000 transient semantic Views
+retain 1 in every 10,000
+live rendered tree approximately 200 nodes
+periodic root replacement
+periodic wide edits
+periodic text replacement
+```
+
+Every 100,000 operations:
+
+```text
+close transient roots
+Bun.gc(true)
+native maintenance
+record live counters
+```
+
+Required:
+
+```text
+semantic_cache_entries = O(live + sweep_slack)
+native_ref_slots        = O(live/native-reachable + sweep_slack)
+leased slots            = root-boundary leases + in-flight temp leases only
+transport persistent bytes = 0
+scratch bytes remain within configured caps
+post-maintenance native metadata shows no linear slope with historical operations
+```
+
+RSS may remain above the live allocation total because allocators/JITs retain address space. Judge both RSS and explicit live-state counters.
+
+---
+
+# 60. Bun 1.4 qualification
+
+The current repository pins:
+
+```json
+"packageManager": "bun@1.4.0",
+"bun-types": "1.4.0"
+```
+
+PERF-12 must record both:
+
+```text
+bun --version
+bun --revision
+```
+
+for every authoritative result.
+
+Do not silently benchmark a newer global Bun.
+
+The same exact runtime revision is used for:
+
+```text
+direct_7v2
+native_11v3
+retained_dag_ffi
+```
+
+---
+
+# 61. Same-image rule
+
+Keep PERF-11v3's architecture:
+
+```text
+Node-API loads iyon-native.node
+Node-API owns/returns NativeViewRuntime pointer
+Node-API bootstrap returns function pointers
+Bun linkSymbols binds those same-image pointers
+```
+
+Do not `dlopen()` a second copy of the native library.
+
+All paths must see the exact same:
+
+```text
+NativeViewRuntime
+semantic cache
+NativeRef table
+styles
+strings
+hosts
+fallback state
+```
+
+---
+
+# 62. Generated ABI source of truth
+
+Continue using:
+
+```text
+tools/tui-abi/view_abi.toml
+tools/tui-abi-gen
+```
+
+Do not hand-maintain Rust/C/TypeScript signatures separately.
+
+PERF-12 extends the generator for semantic direct materializers and any new status detail fields.
+
+Do not create a second PERF-12 generator.
+
+---
+
+# 63. Generator model additions
+
+The exact model should follow the current generator style, but it needs enough metadata to generate semantic constructors/edits.
+
+Conceptually:
+
+```rust
+struct MaterializerSpec {
+    name: String,
+    bridge_kind: String,
+    rust_builder: String,
+    fields: Vec<MaterializerFieldSpec>,
+    result: MaterializerResultSpec,
+}
+
+struct MaterializerFieldSpec {
+    name: String,
+    source: String,
+    abi_type: AbiType,
+    role: MaterializerFieldRole,
+}
+
+enum MaterializerFieldRole {
+    NodeIdLow,
+    NodeIdHigh,
+    Scalar,
+    ChildRef,
+    RefBuffer,
+    AuxBuffer,
+    ByteBuffer,
+    StyleRef,
+    BaseRef,
+}
+```
+
+Use strongly typed serde models with `deny_unknown_fields` like the existing generator.
+
+---
+
+# 64. Generator validation
+
+Generation must fail for:
+
+```text
+unknown BridgeViewNode kind
+missing full-schema materializer/fallback declaration
+u64 field narrowed into one u32
+NodeId without both low/high halves where required
+child semantic field not represented by NativeRef/buffer
+buffer without explicit bounded length
+FFI function missing ownership/borrow duration
+constructor that can retain a borrowed buffer
+unsupported enum source
+duplicate ABI function name
+semantic constructor missing benchmark/conformance registration
+```
+
+The generator should make illegal lifetime declarations hard to express.
+
+---
+
+# 65. Generated outputs
+
+Prefer extending current output families.
+
+Possible additions:
+
+```text
+packages/iyon-runtime/src/tui/generated/view_materialize.ts
+packages/iyon-runtime/src/tui/generated/view_materialize_calls.ts
+crates/iyon-native/src/generated/view_materialize.rs
+crates/iyon-native/include/iyon_view_materialize.h
+```
+
+If current generated files can cleanly contain these functions, do not create new files only for naming symmetry.
+
+Keep one manifest hash/ABI handshake.
+
+---
+
+# 66. Generated TypeScript materializers
+
+Per-kind functions should be monomorphic and explicit.
+
+Good:
+
+```ts
+function materializeContainer(node: BridgeContainerNode, tx: MaterializeTx): number {
+  const child = ensureNative(node.child, tx)
+  const [lo, hi] = splitNodeId(node.id)
+  return viewContainerCreate(
+    tx.symbols,
+    tx.runtime,
+    lo,
+    hi,
+    child,
+    node.paddingTopRight,
+    node.paddingBottomLeft,
+    node.widthRule,
+    node.heightRule,
+    node.minWidth,
+    node.maxWidth,
+    node.minHeight,
+    node.maxHeight,
+  )
+}
+```
+
+Avoid:
+
+```text
+Object.entries
+Object.keys
+reflective field lists
+spread-based transport objects
+generic encode(kind, object)
+per-node closure allocation
+fresh TypedArray per node
+DataView per scalar field
+```
+
+Large generated source is acceptable.
+
+Runtime reflection is not.
+
+---
+
+# 67. Native implementation ownership
+
+Generated code should own:
+
+```text
+ABI signature
+argument lowering
+NodeId reconstruction
+bounds checks
+buffer length checks
+enum discriminant validation
+status conversion
+```
+
+Handwritten/native semantic helpers own:
+
+```text
+constructing current iyon-tui values
+PersistentSeq operations
+string/style lookup
+semantic cache publication
+root lease semantics
+fallback selection where native-owned
+```
+
+Do not generate business/semantic logic that becomes harder to review than handwritten Rust.
+
+---
+
+# 68. Checked vs timing path
+
+Keep separate builds.
+
+Checked/debug validates:
+
+```text
+all enums
+all reference kinds
+all ref buffer lengths
+NodeId range
+thread ownership
+runtime generation/alive state
+cycle/work budget where applicable
+semantic bounds
+UTF-8 / byte contracts
+```
+
+Timing still validates every memory-safety requirement.
+
+Timing may omit expensive redundant diagnostics guaranteed by private generated producers.
+
+Do not remove a bounds check whose only justification is a microbenchmark expectation.
+
+---
+
+# 69. Owner thread
+
+PERF-12 remains synchronous on the environment owner thread.
+
+No mutex is added around hot runtime state merely to make misuse possible.
+
+Debug/safety builds assert owner-thread access.
+
+Rust `View` internal thread-safety/Arc decisions are outside PERF-12 unless separately profiled.
+
+---
+
+# 70. No asynchronous command ring
+
+Do not add:
+
+```text
+SharedArrayBuffer ring
+Atomics producer/consumer protocol
+native presenter worker
+backpressure queue
+fences
+async root commit
+```
+
+Bun FFI call overhead must first be demonstrated as the remaining blocker after the direct retained design.
+
+This would be a later architecture experiment.
+
+---
+
+# 71. No private JavaScriptCore object layout
+
+Do not reinterpret:
+
+```text
+napi_value
+JSCell pointer
+Structure offsets
+internal object storage
+```
+
+through undocumented JSC/Bun internals.
+
+The pinned runtime does not make private GC/object layout a suitable Iyon ABI.
+
+Supported hot path is typed engine-native FFI over values/handles whose layout Iyon controls.
+
+---
+
+# 72. Direct N-API remains an oracle and exceptional recovery path
+
+Keep the complete Direct decoder while PERF-12 is experimental.
+
+Uses:
+
+```text
+semantic differential oracle
+rare stale-ref recovery
+runtime-generation recovery if useful
+cold fallback if it remains competitive
+fuzz comparison
+```
+
+Do not optimize Direct during PERF-12 in a way that invalidates comparison unless the same change is clearly transport-neutral.
+
+---
+
+# 73. Recovery helper
+
+If current APIs make targeted stale-ref recovery awkward, add one explicit recovery entrypoint rather than abusing host render.
+
+Conceptual Node-API function:
+
+```text
+tuiViewDecodeRef(BridgeViewNode) -> leased NativeRef
+```
+
+It uses the existing Direct `ViewDecoder` and current `NativeViewRuntime`.
+
+It must:
+
+```text
+not mutate host
+publish through the shared semantic cache
+return a root lease
+not retain napi_value
+```
+
+Use it only on exceptional recovery/cold paths, never common retained hits.
+
+For wide sequence sidecars, first materialize the exact Direct-compatible node only if this fallback is actually taken.
+
+---
+
+# 74. Failure status detail
+
+Generated FFI should expose enough detail to recover a stale child without probing every ref.
+
+Possible status detail:
+
+```text
+status.code        = FAST_CACHE_MISS
+status.detail_kind = CHILD_REF
+status.detail0     = offending NativeRef or child ordinal
+```
+
+For a base-ref edit:
+
+```text
+status.detail_kind = BASE_REF
+```
+
+The exact status-cell representation should extend the existing ABI convention.
+
+Do not allocate JS `Error` objects for expected fallback statuses on the hot path.
+
+---
+
+# 75. Cycle handling
+
+The public semantic API should form a DAG, but private/corrupt inputs must not recurse forever.
+
+JS materializer has:
+
+```text
+inProgress identity set
+maximum retained depth
+maximum new-node work budget
+```
+
+Direct N-API recovery retains its current cycle guard.
+
+No recursive unbounded traversal.
+
+---
+
+# 76. Full-schema coverage
+
+PERF-12 cannot be selected on a benchmark subset.
+
+At minimum cover all current View node kinds and variants including:
+
+```text
+Text
+styled Text
+Diff
+Spacer
+Row
+Column
+Hanging
+Grid
+Container
+Clamp
+ContentMax
+Component
+Decoration
+```
+
+And all relevant:
+
+```text
+layout child variants
+tracks
+alignment
+padding
+width/height rules
+min/max constraints
+foreground/background
+text attributes
+border/custom glyphs
+style states
+overflow/wrap
+Unicode
+component references
+```
+
+Every schema item is either:
+
+```text
+direct-materialized
+handled by a specialized retained operation
+or explicitly routed to a complete fallback
+```
+
+No silent omissions.
+
+---
+
+# 77. Every View-bearing boundary
+
+Trace actual production source before implementation.
+
+PERF-12 must integrate at every place that currently accepts or stores a View, including at least:
+
+```text
+Tui.render
+History
+ViewSlot
+ScrollPane
+animations
+components
+any host/control installRef path
+```
+
+Each boundary must define:
+
+```text
+current root NativeRef lease owner
+replace protocol
+close/dispose protocol
+fallback behavior
+runtime generation handling
+```
+
+No boundary may silently call Direct and erase the architecture win in realistic traces.
+
+---
+
+# 78. History
+
+History is already a retained subsystem and must stay semantic-content-aware.
+
+PERF-12 should not convert History into a repeated generic View reconstruction workload.
+
+Rules:
+
+```text
+stable History content remains native-retained
+new finalized entry imports only its new View frontier
+streaming entry uses stream path
+component revision invalidation remains component-scoped
+width-related remeasure uses History/layout semantics, not bridge retransmission
+```
+
+Benchmark with substantial existing History, not an empty shell.
+
+---
+
+# 79. Components
+
+Component nodes require stable component identity and revision semantics.
+
+A stable component shell must cut off by NativeRef like any other stable semantic node.
+
+Component-internal high-frequency changes should use their existing component/native revision channel rather than reconstructing the outer View DAG if that is already the architecture.
+
+Differential tests must include components in shared subtrees.
+
+---
+
+# 80. ViewSlot and ScrollPane
+
+These boundaries commonly keep a current View and replace it.
+
+They are ideal root-lease owners.
+
+Replace sequence:
+
+```text
+old root lease stays alive
+materialize new root
+install/render new root
+swap stored root NativeRef
+release old root lease
+```
+
+Do not release old root before new retained materialization has resolved all stable descendants.
+
+That ordering is part of the stable-ref correctness argument.
+
+---
+
+# 81. Animations
+
+Animation must not create a hidden full-tree bridge per frame.
+
+If animation state can be represented by existing native scalar/component animation machinery, keep it there.
+
+If a frame legitimately creates a new semantic View, it follows the same retained identity rules.
+
+Benchmark at least one animation case to prove no fallback loop.
+
+---
+
+# 82. PERF-12.0 source freeze
+
+Before coding:
+
+```bash
+git status --short
+git rev-parse HEAD
+git log -1 --oneline
+bun --version
+bun --revision
+rustc --version
+```
+
+Record:
+
+```text
+final PERF-11v4 SHA
+historical 7v2 SHA
+PERF-12 starting SHA
+Bun version/revision
+Rust version/target
+macOS version
+CPU
+```
+
+At handoff preparation time the branch was `67741eb...`, but implementation must use the actual post-11v4 HEAD.
+
+---
+
+# 83. PERF-12.0 direct-call floor probe
+
+This is not a second architecture implementation.
+
+It is a tiny stop-before-waste test using the already-generated `runtimeNoop` and representative existing 11v3 constructor calls.
+
+Measure:
+
+```text
+1
+2
+4
+8
+16
+32
+64
+```
+
+engine-native calls in one JS operation after JIT warmup.
+
+Also measure the real call shapes for:
+
+```text
+one scalar constructor
+one fixed-arity Row/Column constructor
+one small ref-buffer constructor
+one retained patch
+```
+
+Use the same pinned Bun revision and timing discipline as 11v4.
+
+Decision:
+
+```text
+if direct FFI call floor alone consumes the expected retained-operation budget
+for the observed changed-frontier distribution:
+    STOP before full PERF-12 implementation
+    reopen transport lowering design
+```
+
+Do **not** automatically implement Shared Mirror or Delta after a failed probe.
+
+The purpose is to avoid spending manpower on two full candidates.
+
+---
+
+# 84. PERF-12.1 implementation: faithful semantic DAG
+
+Start from the actual historical file:
+
+```bash
+git show \
+  e5292d62c4011610850cbdc1ba4a35f296f78e4f:packages/iyon-runtime/src/tui/values/view.ts
+```
+
+Mechanically adapt:
+
+```text
+current schema
+current enums
+current public View API
+current correctness fixes
+current NodeId safe range
+current component/style semantics
+```
+
+Preserve:
+
+```text
+eager BridgeViewNode construction
+frozen semantic object
+WeakMap View -> node
+stable child object identity
+lookup-only nodeForBridge
+```
+
+Do not import pending create/patch semantics into the new candidate.
+
+---
+
+# 85. Construction gate
+
+Before FFI work grows, compare:
+
+```text
+direct_7v2 benchmark builder
+retained_dag_ffi semantic builder only
+native_11v3 current construction
+```
+
+Representative cases:
+
+```text
+plain text
+styled text
+3-modifier chain
+20-node column
+200-node column
+row tracks
+Grid
+Diff
+```
+
+Gate:
+
+```text
+retained_dag_ffi semantic construction <= 5% slower than faithful direct_7v2
+```
+
+Preferred:
+
+```text
+within noise
+```
+
+If sidecar/derivation writes erase the 7v2 construction advantage, simplify before continuing.
+
+---
+
+# 86. Semantic parity tests before native transport
+
+For every current public semantic operation, construct:
+
+```text
+faithful 7v2-style candidate View
+current production View
+```
+
+and compare a transport-independent semantic snapshot.
+
+Cover:
+
+```text
+node kind
+NodeId rules
+all fields
+child order/identity
+styles
+tracks
+Grid placement
+Diff
+Unicode
+components
+modifiers
+wide sidecar materialization
+```
+
+No performance timing until semantic parity passes.
+
+---
+
+# 87. Randomized DAG differential testing
+
+Generate deterministic random DAGs with:
+
+```text
+shared subtrees
+multiple parents
+wide and narrow axes
+styles
+Unicode strings
+Grid
+Diff
+decorations
+modifier chains
+retained one-leaf changes
+multiple changed branches
+```
+
+For each seed:
+
+```text
+render direct oracle
+render retained_dag_ffi
+compare screen/state output
+```
+
+On failure print:
+
+```text
+seed
+operation sequence
+semantic DAG snapshot
+candidate outputs
+structural counters
+```
+
+---
+
+# 88. Native runtime cleanup must land before judging memory
+
+Tranche 12.2 should be independently reviewable.
+
+Required deliverables:
+
+```text
+central semantic publish/lookup helper
+NativeRef table benchmark and chosen representation
+weak-cache maintenance
+slot/page removal
+root/temp lease counters
+runtime memory diagnostic snapshot
+explicit maintenance hook for tests/benchmarks
+```
+
+Run the existing 11v3/Direct tests against the changed shared runtime before PERF-12 depends on it.
+
+This change should improve all transports, not only PERF-12.
+
+---
+
+# 89. Memory diagnostic ABI
+
+Add counter-build or test-only snapshot support.
+
+Conceptual output:
+
+```json
+{
+  "semantic_cache_entries": 0,
+  "semantic_cache_live": 0,
+  "native_ref_slots": 0,
+  "native_ref_pages": 0,
+  "leased_slots": 0,
+  "node_ref_entries": 0,
+  "path_nodes": 0,
+  "path_keys": 0,
+  "builders": 0,
+  "edit_txns": 0,
+  "style_refs": 0,
+  "string_bytes": 0,
+  "scavenge_queue": 0
+}
+```
+
+Do not call an expensive full scan on every timing sample.
+
+---
+
+# 90. Transport preparation must be visible in benchmarks
+
+Do not report:
+
+```text
+encoding = 0
+```
+
+merely because work happens in direct function argument preparation.
+
+Phases for PERF-12:
+
+```text
+semantic_construction_ns
+identity_cutoff_and_argument_prep_ns
+ffi_materialization_ns
+host_commit_ns
+total_ns
+```
+
+For buffer calls also count:
+
+```text
+ref_words_written
+aux_words_written
+byte_payload_written
+```
+
+Architectural selection uses `total_ns`.
+
+---
+
+# 91. Structural counters
+
+Counter build should expose at least:
+
+```text
+bridge_hint_hits
+bridge_hint_misses
+node_id_ref_promotion_attempts
+node_id_ref_promotion_hits
+node_id_ref_promotion_misses
+bridge_semantic_nodes_inspected
+bridge_children_visited
+direct_materializer_calls
+derivation_fast_path_calls
+ref_words_written
+byte_payload_bytes
+native_ref_resolves
+native_ref_cache_misses
+semantic_cache_hits
+semantic_cache_misses
+persistent_seq_branches_cloned
+persistent_seq_items_iterated
+stale_ref_retries
+cold_fallbacks
+host_mutations
+```
+
+These prove asymptotic behavior independently of timing noise.
+
+---
+
+# 92. Required steady-state traces
+
+## Exact root
+
+```text
+nodeForBridge -> lookup
+BRIDGE_NATIVE -> hit
+hostRenderRef(root)
+return
+```
+
+## One changed leaf
+
+```text
+JS constructs new leaf + changed ancestors
+stable siblings remain same BridgeViewNode identities
+ensureNative(root)
+    materialize new changed path postorder
+    stable child -> NativeRef hint, stop
+hostRenderRef(new root)
+release old root + child temp leases
+```
+
+## Deep changed path
+
+```text
+one direct semantic constructor/edit per new ancestor
+no work in unrelated subtrees
+```
+
+## Wide one-child edit
+
+```text
+PersistentSeq sidecar
+base NativeRef + index + new child ref
+O(log_32 N)
+```
+
+## Streaming text
+
+```text
+stream bytes use existing stream path
+structural shell stays retained
+```
+
+---
+
+# 93. Common-node benchmark matrix
+
+At minimum:
+
+```text
+plain_text_column
+styled_span_heavy
+row_heavy
+column_track_heavy
+grid_heavy
+decoration_heavy
+diff_heavy
+component_heavy
+mixed_realistic
+```
+
+Sizes:
+
+```text
+~20 nodes
+~200 nodes
+~2,000 nodes
+10,000 where sensible for cutoff/cold
+```
+
+Primary retained modes:
+
+```text
+IDENTICAL_IDENTITY
+SHARED_PATH
+SHARED_DEEP depths 4/16/64/128
+LARGE_SHARED_SUBTREE_CUTOFF
+TEXT_METADATA_PATCH
+DECORATION_PATCH
+REBUILT_EQUIVALENT
+```
+
+---
+
+# 94. Large shared-subtree cutoff
+
+Construct:
+
+```text
+new root
++-- changed small branch
+`-- stable subtree of 20 / 200 / 2,000 / 10,000+ nodes
+```
+
+Required structural result:
+
+```text
+stable subtree descendants inspected = 0
+```
+
+Required timing behavior:
+
+```text
+retained cost should be effectively independent of stable subtree descendant count
+```
+
+within expected cache/JIT noise.
+
+## Cold-fallback descendant sidecar gap
+
+Repeat the same shape after deliberately materializing the previous root through the selected cold/direct fallback without populating descendant `BRIDGE_NATIVE` hints.
+
+On the next one-leaf retained update, the first stable subtree boundary must do:
+
+```text
+BridgeNativeHint miss
+NodeId eligible under nativeLookupCeiling
+viewRefForNodeId(NodeId) -> hit
+install BridgeNativeHint
+stop before payload/children
+```
+
+Required:
+
+```text
+stable subtree descendants inspected = 0
+one scalar NodeId-ref promotion at the stable boundary
+no Direct object decode
+no full subtree materialization
+```
+
+This proves the retained asymptotic does not depend on every cold path eagerly seeding JS sidecars.
+
+---
+
+# 95. Multi-edit benchmark
+
+Cases:
+
+```text
+2 changed leaves same parent
+8 changed leaves same branch
+8 changed leaves distinct branches
+32 changed leaves distinct branches
+64 changed leaves
+```
+
+Report:
+
+```text
+new BridgeViewNodes
+materializer calls
+common ancestors materialized
+NativeRef hits
+ref words
+native time
+total time
+```
+
+Compare final candidate only against:
+
+```text
+direct_7v2
+native_11v3
+```
+
+Do not require a full Shared Mirror or Delta implementation for this comparison.
+
+---
+
+# 96. Wide benchmark
+
+Operations:
+
+```text
+replace one child
+insert one child
+remove one child
+splice four children
+Grid cell replacement
+```
+
+Widths:
+
+```text
+32
+256
+2,048
+10,000
+100,000
+```
+
+Required counters:
+
+```text
+PersistentSeq branches/leaves cloned
+items iterated
+ref words transported
+semantic nodes constructed
+```
+
+Reject any one-child retained path that becomes O(width).
+
+---
+
+# 97. Cold benchmark
+
+Sizes:
+
+```text
+200
+2,000
+10,000
+```
+
+Compare the real complete candidates available after 11v4:
+
+```text
+direct
+11v3 cold/native builder
+V4 if still relevant
+retained_dag_ffi only below retained budget
+```
+
+The production router should not spend a large direct-call prefix before every obviously cold render.
+
+Initial render should normally choose the known best cold path directly.
+
+---
+
+# 98. String benchmark
+
+Datasets:
+
+```text
+short ASCII
+short Unicode
+emoji/non-BMP
+embedded NUL
+256-byte strings
+4-KiB strings
+many styled spans
+Diff lines
+```
+
+Compare existing current string paths and only keep a new scratch/import path if end-to-end total wins.
+
+Do not optimize for FFI call count at the cost of JS encoding.
+
+---
+
+# 99. Realistic agent-TUI trace
+
+Use the same broad intent as PERF-11v4.
+
+Trace contains:
+
+```text
+stable application shell
+substantial existing History
+assistant stream append through native stream path
+periodic tool/status component updates
+message finalization
+new History insertion
+occasional layout/decor changes
+scroll/update
+occasional larger structural change
+```
+
+The View bridge is measured around the real specialized stream path.
+
+Primary question:
+
+> Does PERF-12 reduce total application work, not merely synthetic bridge work?
+
+---
+
+# 100. Benchmark process isolation
+
+Run candidates in fresh Bun processes to avoid shared cache/JIT/heap contamination.
+
+```text
+parent orchestrator
++-- child direct_7v2 / case X
++-- child native_11v3 / case X
+`-- child retained_dag_ffi / case X
+```
+
+Process startup is outside measurements.
+
+Alternate candidate order between blocks.
+
+Use the same native artifact wherever possible.
+
+---
+
+# 101. Timing versus counter builds
+
+Authoritative timing build:
+
+```text
+minimal hot-path instrumentation
+same optimization/LTO settings across candidates
+```
+
+Counter/memory build:
+
+```text
+structural counters
+cache diagnostics
+extra invariant checks
+```
+
+Do not compare timing from a build where one candidate performs materially more atomics/counters.
+
+---
+
+# 102. Statistical requirements
+
+Normal cases:
+
+```text
+warmup >= 50
+measured >= 500
+```
+
+Tiny exact/FFI cases:
+
+```text
+warmup >= 10,000
+measured >= 10,000
+```
+
+Reported p99:
+
+```text
+measured >= 1,000
+```
+
+Retain raw samples as JSONL.
+
+Use:
+
+```text
+median
+p95
+p99 where supported
+bootstrap confidence intervals
+median ratios
+geometric mean ratios across heterogeneous workload groups
+```
+
+Do not average unrelated absolute nanoseconds.
+
+---
+
+# 103. Required result schema
+
+Each result record should include:
+
+```json
+{
+  "benchmark_version": "PERF-12",
+  "candidate": "retained_dag_ffi",
+  "workload": "...",
+  "size": "...",
+  "mode": "...",
+  "git_sha": "...",
+  "perf7v2_sha": "e5292d62...",
+  "perf11v4_result_sha": "...",
+  "bun_version": "1.4.0",
+  "bun_revision": "...",
+  "rustc_version": "...",
+  "target": "...",
+  "semantic_construction_samples_ns": [],
+  "transport_prepare_samples_ns": [],
+  "native_materialize_samples_ns": [],
+  "host_commit_samples_ns": [],
+  "samples_ns": [],
+  "median_ns": 0,
+  "p95_ns": 0,
+  "p99_ns": 0,
+  "median_ci95_ns": [0, 0]
+}
+```
+
+Memory/churn results should be separate records rather than inflating tiny timing samples with expensive memory queries.
+
+---
+
+# 104. Adoption gates
+
+PERF-12 replaces the current private View path only if all correctness, structural, performance, and memory gates pass.
+
+## Correctness
+
+```text
+full schema parity
+randomized DAG differential tests
+NodeId identity preserved
+cross-transport cache correctness
+stale-ref recovery correct
+runtime generation recovery correct
+no partial host mutation
+all temporary leases released
+all View-bearing boundaries complete
+Unicode/NUL/Diff parity
+no UAF / retained borrowed pointer
+```
+
+## Structural
+
+```text
+exact root = zero semantic payload reads / zero buffer writes
+stable subtree = cutoff before child payload inspection
+retained work = changed semantic frontier
+no full-tree diff
+no generic structural packet
+wide edit = O(log_32 N)
+streaming text separate
+persistent transport graph = none
+```
+
+## Construction
+
+```text
+<=5% regression vs faithful Bun 1.4 direct_7v2 construction
+preferred: within noise
+```
+
+## Performance
+
+```text
+realistic retained TUI trace:
+    >=10% faster than the better of direct_7v2 and native_11v3
+    >=15% preferred
+
+common retained cases:
+    no credible >3% regression vs best prior path
+
+exact identity:
+    within 3% of best prior exact NativeRef/direct path
+
+wide:
+    preserve logarithmic work and beat 7v2 at useful wide sizes
+
+cold:
+    production router within 5% of best complete cold candidate
+```
+
+## Memory
+
+```text
+no persistent transport-node/edge arena
+post-maintenance weak metadata converges with live state + bounded slack
+leased NativeRefs correspond only to roots + in-flight temp leases
+scratch memory bounded
+no linear post-GC metadata slope during 1M-node churn
+```
+
+---
+
+# 105. If PERF-11v4 says 11v3 is decisively better
+
+PERF-11v4 already defines a category where 11v3 is a decisive realistic-trace winner.
+
+If that result is confirmed and the 2.7 GiB memory behavior is fully explained/fixed without architectural pain, it is valid to stop at PERF-12.0 and not implement the rest.
+
+However, if the result is a modest win, practical tie, Candidate-A win, or if 11v3's representation/memory complexity remains materially undesirable, this handoff defines the architecture to implement.
+
+Do not lower PERF-12's adoption gate simply because implementation has begun.
+
+---
+
+# 106. Stop conditions during implementation
+
+Stop and revisit the design if:
+
+```text
+direct FFI call floor consumes the retained-operation budget before semantic work
+restored eager DAG construction regresses >5% without compensating total win
+NativeRef hint lookup becomes a measurable dominant cost
+weak-cache cleanup cannot make historical metadata bounded
+one stable child routinely produces stale-ref retries in normal retained updates
+full-schema direct functions devolve into a generic opcode VM
+variable payload preparation reproduces PERF-10-scale JS encoding cost
+wide sidecar cannot preserve correct public semantics without O(width) work
+streaming bytes are accidentally routed through structural View construction
+cold/rebuilt workloads frequently hit retained budget after large wasted work
+root/temp lease accounting cannot be proven on every boundary
+```
+
+Do not respond to these failures by quietly layering Shared Mirror on top.
+
+---
+
+# 107. Banned shortcuts
+
+Do not:
+
+```text
+put NativeRef own-properties on BridgeViewNode
+keep current pending backing and call it 7v2-style
+create a second semantic cache
+replace NodeId semantics with NativeRef
+recycle NativeRefs without ABA protection
+use a persistent SharedRef graph
+retain pointers into JS TypedArrays after FFI returns
+retain napi_value after recovery call
+use undocumented JSC object layout
+flatten PersistentSeq for retained wide edits
+encode stable text again
+create a fresh TypedArray per node
+use reflection in generated materializers
+hide argument/scratch preparation outside total timing
+benchmark only Tui.render while other boundaries still take Direct/fallback
+make RSS alone the memory correctness metric
+make FinalizationRegistry timing a correctness requirement
+```
+
+---
+
+# 108. Suggested commit sequence
+
+## Commit 1
+
+```text
+bench(tui): freeze PERF-12 baselines and attribute native view memory
+```
+
+Contains:
+
+```text
+source archaeology record
+PERF-11v4 result import
+2.7 GiB attribution tooling
+Bun FFI call-floor probe
+no production architecture yet
+```
+
+## Commit 2
+
+```text
+refactor(tui): restore eager immutable semantic View DAG candidate
+```
+
+Contains:
+
+```text
+historical construction adaptation
+current schema parity
+construction benchmarks
+no native transport change yet
+```
+
+## Commit 3
+
+```text
+perf(tui): bound native semantic cache and ref metadata lifetime
+```
+
+Contains:
+
+```text
+shared runtime publication helper
+weak scavenging
+paged NativeRef table if benchmark gate passes
+memory diagnostics
+existing transport regression suite
+```
+
+## Commit 4
+
+```text
+perf(tui): materialize retained semantic nodes through direct Bun FFI
+```
+
+Contains:
+
+```text
+BridgeNativeHint
+exact root
+common fixed-size generated materializers
+temporary lease transaction
+```
+
+## Commit 5
+
+```text
+perf(tui): lower variable retained children through borrowed FFI buffers
+```
+
+Contains:
+
+```text
+ref scratch
+variable-axis/Grid materializers
+caps/fallback
+no persistent arena
+```
+
+## Commit 6
+
+```text
+perf(tui): preserve semantic derivations and retained scalar clones
+```
+
+Contains:
+
+```text
+text layout derivation
+common scalar derivation
+base-ref clone operations
+stale base recovery
+```
+
+## Commit 7
+
+```text
+perf(tui): preserve logarithmic wide edits in retained DAG FFI
+```
+
+Contains:
+
+```text
+PersistentSeq sidecar
+axis set/splice
+Grid cell edit
+100k structural-counter proof
+```
+
+## Commit 8
+
+```text
+perf(tui): complete retained text style diff and decoration materialization
+```
+
+Contains:
+
+```text
+cstring/exact-byte paths
+styles
+Diff
+Unicode/NUL tests
+stream separation
+```
+
+## Commit 9
+
+```text
+perf(tui): harden multi-branch materialization and stale-ref recovery
+```
+
+Contains:
+
+```text
+DAG dedupe
+cycle/work limits
+status detail
+targeted one-retry recovery
+failure/lease tests
+```
+
+## Commit 10
+
+```text
+perf(tui): route all View boundaries through retained semantic identity
+```
+
+Contains:
+
+```text
+History
+ViewSlot
+ScrollPane
+animation
+components
+cold/rebuilt router
+```
+
+## Commit 11
+
+```text
+test(tui): complete PERF-12 differential lifetime and memory hardening
+```
+
+Contains:
+
+```text
+random DAG tests
+fuzz
+1M-node churn
+forced-GC checkpoints
+runtime teardown
+cross-transport cache tests
+```
+
+## Commit 12
+
+```text
+bench(tui): complete PERF-12 retained DAG FFI decision
+```
+
+Contains:
+
+```text
+raw JSONL
+performance review
+memory review
+adoption decision
+```
+
+## Commit 13 - only after adoption
+
+```text
+refactor(tui): remove superseded View transport recipe machinery
+```
+
+Contains only cleanup proven safe by the selected architecture.
+
+---
+
+# 109. Tranche 12.0 deliverables
+
+Create:
+
+```text
+PERF-12-baseline.md
+PERF-12-memory-attribution.jsonl
+PERF-12-ffi-floor.jsonl
+```
+
+`PERF-12-baseline.md` records:
+
+```text
+current SHA
+Bun version/revision
+PERF-11v4 result category
+actual current ViewBacking shape
+historical 7v2 constructor/nodeForBridge shape
+current NativeViewRuntime maps and lease model
+current direct decoder NodeId-first behavior
+current generator/runtime bootstrap
+memory hypothesis results
+```
+
+Do not proceed if this archaeology contradicts a fundamental assumption in this handoff.
+
+---
+
+# 110. Tranche 12.2 weak-cache gate
+
+After cache cleanup and before PERF-12 direct materialization, rerun the memory reproducer against current 11v3/Direct paths.
+
+The result should answer:
+
+```text
+How much of the 2.7 GiB was:
+    semantic/native live state?
+    stale weak-cache metadata?
+    benchmark harness?
+    JSC/allocator high-water?
+```
+
+If a central cache-lifetime fix materially reduces memory, record it separately from PERF-12 transport wins.
+
+Do not attribute a shared-runtime fix solely to the new candidate.
+
+---
+
+# 111. Native slot lease invariants
+
+Add tests proving:
+
+```text
+new constructor returns lease count 1
+child temporary lease stays live until parent/root complete
+batch release drops child temp lease
+root lease transfers to boundary
+old root lease released only after new host install succeeds
+failed host install retains old root
+failed transaction releases every new temp lease
+stale unleased weak slot returns CACHE_MISS
+slot metadata eventually scavenged after weak expiry
+```
+
+These tests are more important than testing a FinalizationRegistry because baseline PERF-12 does not use finalizer-owned View leases.
+
+---
+
+# 112. Native semantic cache identity tests
+
+Explicitly test cross-path identity:
+
+```text
+Direct materializes NodeId X
+PERF-12 constructor asks for X
+    -> returns/associates exact live View
+
+PERF-12 materializes X
+Direct sees X
+    -> exact live WeakView hit
+
+11v3 materializes X
+PERF-12 sees X
+    -> same semantic View
+
+WeakView X expires
+lookup X
+    -> stale entry removed
+    -> correct reconstruction
+```
+
+No transport may fork semantic identity.
+
+---
+
+# 113. Root exact-identity scaling test
+
+Create identical root trees at:
+
+```text
+20
+200
+2,000
+10,000
+```
+
+Warm root NativeRef and render the exact same root repeatedly.
+
+Required:
+
+```text
+semantic fields read = 0
+children visited = 0
+materializer calls = 0
+ref words written = 0
+```
+
+Timing must not scale with descendant count.
+
+---
+
+# 114. Dormant-node recovery test
+
+Construct semantic node `S`.
+
+```text
+render S / acquire native state
+replace all roots so S native View can expire
+keep JS BridgeViewNode S strongly reachable
+force native maintenance
+reinsert S into a new parent
+```
+
+Expected:
+
+```text
+stale NativeRef hint may miss
+one targeted rematerialization/recovery
+new hint installed
+correct render
+no persistent mirror required
+```
+
+Run the same after runtime generation reset where test infrastructure permits.
+
+---
+
+# 115. Multi-host test
+
+The same BridgeViewNode may be rendered into more than one host/boundary.
+
+NativeRef hints are environment-local, not host-local.
+
+Test:
+
+```text
+host A installs root R
+host B installs same R
+host A replaces/closes
+host B still renders exact R
+both close
+R becomes dormant
+later host C renders R and recovers if necessary
+```
+
+Root lease counts must be correct.
+
+---
+
+# 116. Buffer lifetime tests
+
+For every generated buffer argument:
+
+```text
+native reads only during call
+native does not store pointer
+zero length correct
+max allowed length correct
+oversize -> FAST_FALLBACK/INVALID as specified
+unaligned/wrong typed input rejected by generated JS wrapper or native validation
+```
+
+Run sanitizer builds where practical.
+
+There should be no external native memory mapping to test in baseline PERF-12.
+
+---
+
+# 117. Fuzzing targets
+
+Add fuzz/property targets for:
+
+```text
+NodeId split/recombine
+invalid NativeRefs
+stale refs
+variable ref counts
+axis/grid bounds
+all enum discriminants
+text byte lengths
+embedded NUL
+malformed Diff
+cycle/depth limits
+runtime generation mismatch
+failure during ancestor materialization
+release list duplication / invalid refs
+```
+
+The private generated producer reduces the attack surface, but native memory safety still assumes inputs can be malformed.
+
+---
+
+# 118. Failure injection
+
+Test failure at every stage:
+
+```text
+child materializer fails
+parent materializer fails
+base-ref edit misses
+buffer cap fallback
+style creation fails
+text import fails
+hostRenderRef fails
+runtime marked dead
+second stale-ref retry fails
+```
+
+Assert:
+
+```text
+old host state unchanged
+temporary leases drained
+no borrowed pointer retained
+semantic cache contains only complete immutable Views
+subsequent valid render succeeds
+```
+
+---
+
+# 119. Performance interpretation
+
+A direct-node architecture can show more FFI calls while doing less total work.
+
+Do not reject it because:
+
+```text
+FFI calls / update > 1
+```
+
+Likewise, do not accept it because:
+
+```text
+native constructor ns is tiny
+```
+
+The correct measure is:
+
+```text
+semantic construction
++
+identity checks
++
+argument/buffer preparation
++
+all FFI calls
++
+native semantic work
++
+host mutation
+```
+
+for the real operation.
+
+---
+
+# 120. Complexity interpretation
+
+PERF-12 has a second adoption criterion beyond raw speed: it should reduce semantic/transport coupling relative to 11v3.
+
+A successful final code shape should read approximately like:
+
+```text
+View API creates semantic DAG
+optional sidecar says how new node came from old node
+ensureNative walks new frontier
+native semantic constructor/edit creates retained View
+host receives root ref
+```
+
+If the implementation instead grows back into:
+
+```text
+pending state machine
+path recipe language
+multi-step builder transaction language
+transport-specific semantic backings
+```
+
+then PERF-12 has failed its architectural simplification goal even if one microbenchmark wins.
+
+---
+
+# 121. Expected code ownership after adoption
+
+## `values/view.ts`
+
+Owns:
+
+```text
+public View construction
+semantic immutable BridgeViewNode DAG
+NodeId assignment
+semantic derivation hints
+wide sequence sidecars
+```
+
+Does not own:
+
+```text
+wire records
+native page slots
+transport packet layout
+```
+
+## `native_view_abi.ts` or successor
+
+Owns:
+
+```text
+session/bootstrap
+ensureNative
+NativeRef hint sidecar
+materialization transaction
+root lease swap
+borrowed scratch buffers
+fallback routing
+style/text helper coordination
+```
+
+## generated ABI
+
+Owns:
+
+```text
+monomorphic function signatures
+TypeScript call wrappers
+C/Rust declarations
+manifest/conformance
+```
+
+## `NativeViewRuntime`
+
+Owns:
+
+```text
+semantic weak cache
+NativeRef table
+leases
+weak metadata scavenging
+styles/strings
+publication
+status
+```
+
+## `iyon-tui`
+
+Remains the semantic/native TUI implementation.
+
+---
+
+# 122. Explicitly rejected architecture: persistent mirror as semantic recovery cache
+
+Do not retain Shared Mirror secretly as a recovery-only cache.
+
+That recreates the same cost:
+
+```text
+persistent record allocation
+release/reclamation
+page high-water
+SharedRef lifetime
+edge blocks
+```
+
+for an exceptional path.
+
+If recovery becomes frequent enough to matter, first determine why native roots/weak state are expiring during supposedly retained use.
+
+Only reconsider a persistent mirror if measured recovery frequency and cost make it a first-order application problem.
+
+---
+
+# 123. Explicitly rejected architecture: generic changed-closure VM as baseline
+
+Do not implement a 64/128-byte generic node record language solely because it gives one commit call.
+
+The direct-call design should be given the first implementation opportunity under Bun 1.4.
+
+A later packet/batch experiment is justified only if profiles show:
+
+```text
+changed frontier is commonly large
+per-node semantic work is already tiny
+FFI call dispatch itself is a meaningful share of total
+```
+
+If that happens, the semantic architecture in this handoff still survives: only the physical lowering of `generatedMaterializeNode` changes.
+
+---
+
+# 124. Important fallback insight
+
+The semantic architecture and physical FFI lowering are deliberately separable.
+
+The stable long-term API inside the runtime should be conceptually:
+
+```text
+materialize semantic node from:
+    NodeId
+    NativeRef children/base
+    changed scalar/payload values
+```
+
+Today PERF-12 lowers that directly to generated FFI calls.
+
+If a future Bun/runtime profile says batches are necessary, codegen could lower multiple calls into a bounded scratch transaction without changing:
+
+```text
+BridgeViewNode semantics
+NativeRef sidecars
+NodeId cache
+wide sidecars
+root lease protocol
+public API
+```
+
+This is a better future-proof boundary than making packet format the architecture itself.
+
+---
+
+# 125. Source references used for this handoff
+
+## Iyon
+
+Historical 7v2 semantic construction:
+
+- <https://github.com/alexykn/iyon/blob/e5292d62c4011610850cbdc1ba4a35f296f78e4f/packages/iyon-runtime/src/tui/values/view.ts>
+
+Re-audited current branch revision:
+
+- <https://github.com/alexykn/iyon/commit/67741eb588e70ffe8ce7b08805040d0a9cc65f8c>
+
+Current semantic/View backing:
+
+- <https://github.com/alexykn/iyon/blob/67741eb588e70ffe8ce7b08805040d0a9cc65f8c/packages/iyon-runtime/src/tui/values/view.ts>
+
+Current generated/native JS path:
+
+- <https://github.com/alexykn/iyon/blob/67741eb588e70ffe8ce7b08805040d0a9cc65f8c/packages/iyon-runtime/src/tui/native_view_abi.ts>
+
+Current native View ABI/runtime:
+
+- <https://github.com/alexykn/iyon/blob/67741eb588e70ffe8ce7b08805040d0a9cc65f8c/crates/iyon-native/src/tui/view_abi.rs>
+
+Current Direct N-API decoder:
+
+- <https://github.com/alexykn/iyon/blob/67741eb588e70ffe8ce7b08805040d0a9cc65f8c/crates/iyon-native/src/tui.rs>
+
+Current persistent sequence:
+
+- <https://github.com/alexykn/iyon/blob/67741eb588e70ffe8ce7b08805040d0a9cc65f8c/packages/iyon-runtime/src/tui/persistent_seq.ts>
+
+Current generated ABI schema / Bun qualification:
+
+- <https://github.com/alexykn/iyon/blob/67741eb588e70ffe8ce7b08805040d0a9cc65f8c/tools/tui-abi/view_abi.toml>
+
+Current runtime pin:
+
+- <https://github.com/alexykn/iyon/blob/67741eb588e70ffe8ce7b08805040d0a9cc65f8c/package.json>
+
+## External research
+
+React Native Fabric:
+
+- <https://reactnative.dev/architecture/render-pipeline>
+- <https://reactnative.dev/architecture/landing-page>
+- <https://reactnative.dev/docs/the-new-architecture/using-codegen>
+
+Flutter internals:
+
+- <https://docs.flutter.dev/resources/inside-flutter>
+
+Qt Quick retained scene graph:
+
+- <https://doc.qt.io/qt-6/qtquick-visualcanvas-scenegraph.html>
+
+Bun FFI:
+
+- <https://bun.com/docs/runtime/ffi>
+
+Bun GC / benchmarking memory guidance:
+
+- <https://bun.com/docs/project/benchmarking>
+- <https://bun.com/reference/bun/gc>
+
+SBE design principles:
+
+- <https://github.com/aeron-io/simple-binary-encoding/wiki/Design-Principles>
+
+Chromium shared-memory command-buffer caution:
+
+- <https://chromium.googlesource.com/chromium/src.git/+/HEAD/docs/security/research/graphics/gpu_command_buffer.md>
+
+---
+
+# 126. Final implementation checklist
+
+## Baseline
+
+```text
+[ ] final PERF-11v4 result imported
+[ ] post-11v4 SHA frozen
+[ ] Bun 1.4 exact revision frozen
+[ ] historical 7v2 source re-read
+[ ] current Direct decoder re-traced
+[ ] current ABI/runtime re-traced
+```
+
+## Memory
+
+```text
+[ ] 2.7 GiB case reproduced
+[ ] JS heap vs native vs harness classified
+[ ] weak semantic-cache growth measured
+[ ] NativeRef slot growth measured
+[ ] central scavenging implemented if required
+[ ] 1M-node churn converges after GC/maintenance
+```
+
+## Semantic JS
+
+```text
+[ ] eager BridgeViewNode normal path
+[ ] nodeForBridge lookup-only normal path
+[ ] stable object identity
+[ ] no transport own-properties
+[ ] construction <=5% regression vs 7v2
+[ ] wide-only sidecar exception correct
+```
+
+## Native identity
+
+```text
+[ ] NodeId remains semantic authority
+[ ] one NodeId -> WeakView cache
+[ ] NativeRef is acceleration only
+[ ] no NativeRef ABA
+[ ] root leases explicit
+[ ] child temp leases batch-released
+[ ] stale refs recover once
+```
+
+## FFI
+
+```text
+[ ] generated common-node direct constructors
+[ ] fixed arity scalar fast paths
+[ ] variable refs use borrowed buffers
+[ ] no retained buffer pointers
+[ ] no persistent transport arena
+[ ] generator conformance passes
+```
+
+## Modern retained optimizations
+
+```text
+[ ] text layout reuses stable payload/base
+[ ] style refs reused
+[ ] Diff specialized
+[ ] streaming separate
+[ ] PersistentSeq wide edits logarithmic
+[ ] Grid retained edit logarithmic
+[ ] exact root O(1)
+[ ] stable subtree cutoff before payload
+```
+
+## Boundaries
+
+```text
+[ ] Tui root
+[ ] History
+[ ] ViewSlot
+[ ] ScrollPane
+[ ] animation
+[ ] components
+[ ] every other View-bearing native boundary
+```
+
+## Correctness/safety
+
+```text
+[ ] full schema parity
+[ ] randomized DAG differential suite
+[ ] cross-transport cache suite
+[ ] dormant-node recovery
+[ ] multi-host lifetime
+[ ] failure injection
+[ ] fuzzing
+[ ] runtime teardown
+[ ] no UAF
+[ ] no partial host mutation
+```
+
+## Decision
+
+```text
+[ ] raw performance samples retained
+[ ] phase breakdown retained
+[ ] structural counters retained
+[ ] memory review published
+[ ] realistic TUI trace >=10% faster than better prior candidate for adoption
+[ ] no common retained >3% credible regression
+[ ] cold router within 5% of best complete cold path
+[ ] cleanup only after soak
+```
+
+---
+
+# 127. Final instruction to the implementation agent
+
+**Implement PERF-12 as a retained semantic identity bridge, not as a new serialization format. Restore the real PERF-7v2 eager immutable `BridgeViewNode` DAG against the current schema. Keep `NodeId -> WeakView` in the single environment-owned `NativeViewRuntime` as semantic authority. Associate already-materialized Bridge nodes with generation-scoped NativeRef hints in WeakMap sidecars, and always test that identity before reading payload or children. Materialize only unknown semantic nodes, children first, through generated engine-native Bun FFI constructors and retained clone/edit primitives; use small reusable borrowed TypedArrays only for variable reference/byte payloads. Keep exactly one strong root NativeRef lease per View-bearing boundary plus temporary leases during a materialization transaction; do not make every sidecar a native lease and do not depend on FinalizationRegistry for normal correctness. Preserve PersistentSeq wide edits, native strings/styles, stream specialization, exact-root shortcuts, the complete fallback, and every View-bearing boundary. Before attributing the reported approximately 2.7 GiB RSS to tree size, instrument and fix any historical weak-cache/NativeRef metadata accumulation in the shared runtime. Do not implement the persistent Shared Mirror DAG as a second candidate, and do not build a generic changed-closure record VM unless a later profile proves direct Bun FFI call density is the remaining bottleneck. Select PERF-12 only on end-to-end application time, structural asymptotics, full semantic parity, and bounded long-running live memory.**
