@@ -49,6 +49,27 @@ const PATCH_MASK: u32 = PATCH_PADDING
     | PATCH_MIN_HEIGHT
     | PATCH_MAX_HEIGHT;
 
+#[repr(C)]
+pub(super) struct FastStatusCell {
+    pub(super) code: AtomicU32,
+    pub(super) detail: AtomicU32,
+}
+
+impl FastStatusCell {
+    fn new() -> Self {
+        Self {
+            code: AtomicU32::new(0),
+            detail: AtomicU32::new(0),
+        }
+    }
+
+    fn record(&self, code: u32, detail: u32) -> u32 {
+        self.detail.store(detail, Ordering::Release);
+        self.code.store(code, Ordering::Release);
+        code
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum NativeViewKindTag {
     View = 1,
@@ -68,6 +89,7 @@ pub(super) struct NativeViewRuntime {
     pub abi_version: u32,
     pub semantic_version: u32,
     pub alive: AtomicU32,
+    pub(super) status: FastStatusCell,
     owner_thread: ThreadId,
     // The semantic cache is deliberately owned by the environment runtime,
     // not by a transport or host. All direct, packed, FastShared, and
@@ -94,6 +116,7 @@ impl NativeViewRuntime {
             abi_version: ABI_VERSION,
             semantic_version: SEMANTIC_VERSION,
             alive: AtomicU32::new(1),
+            status: FastStatusCell::new(),
             owner_thread: std::thread::current().id(),
             nodes: HashMap::new(),
             slots: HashMap::new(),
@@ -427,9 +450,16 @@ fn node_id(low: u32, high: u32) -> Result<u64, u32> {
     Ok((u64::from(high) << 32) | u64::from(low))
 }
 
+fn record_result(runtime: &NativeViewRuntime, result: u32) -> u32 {
+    runtime.status.record(result, 0)
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "Rust" fn runtime_noop_impl(runtime: *mut NativeViewRuntime) -> u32 {
-    runtime_mut(runtime).map(|_| 1).unwrap_or(FAST_INVALID)
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    record_result(runtime, 1)
 }
 
 #[unsafe(no_mangle)]
@@ -440,10 +470,11 @@ pub unsafe extern "Rust" fn view_render_ref_impl(
     let Ok(runtime) = runtime_mut(runtime) else {
         return FAST_INVALID;
     };
-    match runtime.resolve_ref(base) {
+    let result = match runtime.resolve_ref(base) {
         Ok(_) => base,
         Err(error) => error,
-    }
+    };
+    record_result(runtime, result)
 }
 
 #[unsafe(no_mangle)]
@@ -458,10 +489,11 @@ pub unsafe extern "Rust" fn view_ref_for_node_id_impl(
     let Ok(node_id) = node_id(node_id_low, node_id_high) else {
         return FAST_INVALID;
     };
-    match runtime.ref_for_node_id(node_id) {
+    let result = match runtime.ref_for_node_id(node_id) {
         Ok(reference) => reference,
         Err(error) => error,
-    }
+    };
+    record_result(runtime, result)
 }
 
 #[unsafe(no_mangle)]
@@ -480,10 +512,11 @@ pub unsafe extern "Rust" fn view_spacer_create_impl(
     let Ok(rows) = u16::try_from(rows) else {
         return FAST_INVALID;
     };
-    match runtime.publish(node_id, View::spacer(rows)) {
+    let result = match runtime.publish(node_id, View::spacer(rows)) {
         Ok(reference) => reference,
         Err(error) => error,
-    }
+    };
+    record_result(runtime, result)
 }
 
 #[unsafe(no_mangle)]
@@ -513,10 +546,11 @@ pub unsafe extern "Rust" fn view_text_layout_patch_root_impl(
     let Ok(patched) = base_view.try_with_text_layout_patch(Some(wrap), Some(align)) else {
         return FAST_INVALID;
     };
-    match runtime.publish(node_id, patched) {
+    let result = match runtime.publish(node_id, patched) {
         Ok(reference) => reference,
         Err(error) => error,
-    }
+    };
+    record_result(runtime, result)
 }
 
 #[unsafe(no_mangle)]
@@ -598,10 +632,11 @@ pub unsafe extern "Rust" fn view_common_patch_root_impl(
         };
         patched = patched.max_height(value);
     }
-    match runtime.publish(node_id, patched) {
+    let result = match runtime.publish(node_id, patched) {
         Ok(reference) => reference,
         Err(error) => error,
-    }
+    };
+    record_result(runtime, result)
 }
 
 #[unsafe(no_mangle)]
@@ -615,10 +650,10 @@ pub unsafe extern "Rust" fn view_axis_create_buffer_impl(
     _children_capacity_bytes: usize,
     _used_child_count: u32,
 ) -> u32 {
-    let Ok(_) = runtime_mut(runtime) else {
+    let Ok(runtime) = runtime_mut(runtime) else {
         return FAST_INVALID;
     };
-    FAST_FALLBACK
+    record_result(runtime, FAST_FALLBACK)
 }
 
 #[unsafe(no_mangle)]
