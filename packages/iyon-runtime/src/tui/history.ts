@@ -13,9 +13,9 @@ export class History extends HandleBase<ReturnType<typeof nativeTui.history>, "h
   push(view: View): number {
     return this.call(() => {
       const ref = tryNativeMaterialize(view);
-      if (ref !== undefined && this.nativeHandle.pushRef !== undefined) {
+      if (ref !== undefined) {
         try {
-          return this.nativeHandle.pushRef(ref);
+          if (this.nativeHandle.pushRef !== undefined) return this.nativeHandle.pushRef(ref);
         } finally {
           releaseNativeViewRef(nativeViewAbiSession(), ref);
         }
@@ -27,13 +27,15 @@ export class History extends HandleBase<ReturnType<typeof nativeTui.history>, "h
   freeze(unit: number, view: View): void {
     this.call(() => {
       const ref = tryNativeMaterialize(view);
-      if (ref !== undefined && this.nativeHandle.freezeRef !== undefined) {
+      if (ref !== undefined) {
         try {
-          this.nativeHandle.freezeRef(unit, ref);
+          if (this.nativeHandle.freezeRef !== undefined) {
+            this.nativeHandle.freezeRef(unit, ref);
+            return;
+          }
         } finally {
           releaseNativeViewRef(nativeViewAbiSession(), ref);
         }
-        return;
       }
       this.nativeHandle.freeze(unit, nodeForBridge(view));
     });

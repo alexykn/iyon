@@ -137,6 +137,18 @@ export interface NativePathLineage {
   readonly depth: number;
 }
 
+/**
+ * Construction-time metadata for a native typed text-layout transaction.
+ * `nodeIds` is ordered from the changed leaf toward the final changed root;
+ * render lowers these values into the fixed generated NodeId lanes.
+ */
+export interface NativeTextLayoutTransactionEdit {
+  readonly lineage: NativePathLineage;
+  readonly nodeIds: readonly number[];
+  readonly wrap: number;
+  readonly align: number;
+}
+
 export const NATIVE_PATH_VIEW_KIND = Object.freeze({
   text: 1,
   row: 2,
@@ -674,6 +686,50 @@ export class View {
     return new View(nextNode, undefined, undefined, lineage);
   }
 
+  /**
+   * Internal retained-transport constructor for multiple independent text
+   * edits. The final JS value retains only fixed scalar NodeId metadata; the
+   * generated transaction call rebuilds the changed-path trie natively.
+   */
+  static textLayoutTransactionForTransport(
+    view: View,
+    edits: readonly {
+      readonly steps: readonly NativePathStep[];
+      readonly wrap: WrapMode;
+      readonly align: HorizontalAlign;
+    }[],
+  ): View {
+    if (edits.length < 2 || edits.length > 256) {
+      throw new RangeError("native text transaction must contain 2 through 256 edits");
+    }
+    const seen = new Set<string>();
+    let node = nodeForBridge(view);
+    for (const edit of edits) {
+      if (edit.steps.length > 4) throw new RangeError("native retained transaction path depth must be at most 4");
+      const key = edit.steps.map((step) => `${step.kind}:${step.expectedViewKind}:${step.selector}`).join("/");
+      if (!seen.add(key)) throw new RangeError("native text transaction paths must be distinct");
+      node = patchBridgeTextPath(node, edit.steps, wrapCode(edit.wrap), horizontalAlignCode(edit.align));
+    }
+    const result = new View(node);
+    const finalNode = nodeForBridge(result);
+    const transaction = edits.map((edit) => {
+      const nodes = bridgePathNodesForTransaction(finalNode, edit.steps);
+      if (nodes === undefined || nodes[nodes.length - 1]?.kind !== BRIDGE_VIEW_KIND.text) {
+        throw new TypeError("native text transaction path does not terminate at text");
+      }
+      let lineage: NativePathLineage = Object.freeze({ baseNodeId: viewNodeId(view), depth: 0 });
+      for (const step of edit.steps) lineage = nativePathChildLineage(view, lineage, step);
+      return Object.freeze({
+        lineage,
+        nodeIds: Object.freeze(nodes.slice().reverse().map((entry) => entry.id)),
+        wrap: wrapCode(edit.wrap),
+        align: horizontalAlignCode(edit.align),
+      });
+    });
+    nativeTextLayoutTransactions.set(result, Object.freeze(transaction));
+    return result;
+  }
+
   private decoratedNode(): Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.decorated }> | undefined {
     const node = nodeForBridge(this);
     return node.kind === BRIDGE_VIEW_KIND.decorated ? node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.decorated }> : undefined;
@@ -908,6 +964,7 @@ function materializeBacking(view: View, backing: ViewBacking): BridgeViewNode {
 const nodes = new WeakMap<View, BridgeViewNode>();
 const nativePathLineages = new WeakMap<View, NativePathLineage>();
 const nativeStructuralEdits = new WeakMap<View, NativeStructuralEdit>();
+const nativeTextLayoutTransactions = new WeakMap<View, readonly NativeTextLayoutTransactionEdit[]>();
 
 function freezeNativePathLineage(lineage: NativePathLineage): NativePathLineage {
   const parent = lineage.parent === undefined ? undefined : freezeNativePathLineage(lineage.parent);
@@ -1028,6 +1085,11 @@ export function nativeStructuralEdit(view: View): NativeStructuralEdit | undefin
   return nativeStructuralEdits.get(view);
 }
 
+/** Returns construction-time typed transaction metadata without rebuilding it. */
+export function nativeTextLayoutTransaction(view: View): readonly NativeTextLayoutTransactionEdit[] | undefined {
+  return nativeTextLayoutTransactions.get(view);
+}
+
 /** Returns the cached u32 halves of a View's full safe-integer NodeId. */
 export function nodeIdPair(view: View): readonly [number, number] {
   return view[kBacking].nodeIdPair;
@@ -1124,6 +1186,56 @@ function patchBridgeTextPath(
     }
     default: throw new TypeError("unknown native retained path step");
   }
+}
+
+function bridgePathNodesForTransaction(
+  root: BridgeViewNode,
+  steps: readonly NativePathStep[],
+): BridgeViewNode[] | undefined {
+  const nodes = [root];
+  let current = root;
+  for (const step of steps) {
+    if (bridgePathViewKind(current.kind) !== step.expectedViewKind) return undefined;
+    switch (step.kind) {
+      case NATIVE_PATH_STEP.containerChild:
+      case NATIVE_PATH_STEP.clampChild:
+      case NATIVE_PATH_STEP.rowViewportChild:
+        if (step.selector !== 0 || (current.kind !== BRIDGE_VIEW_KIND.container && current.kind !== BRIDGE_VIEW_KIND.clamp && current.kind !== BRIDGE_VIEW_KIND.contentMax)) return undefined;
+        current = current.child;
+        break;
+      case NATIVE_PATH_STEP.columnChild:
+      case NATIVE_PATH_STEP.rowChild: {
+        if (current.kind !== (step.kind === NATIVE_PATH_STEP.columnChild ? BRIDGE_VIEW_KIND.column : BRIDGE_VIEW_KIND.row)) return undefined;
+        const child = current.children[step.selector];
+        if (child === undefined) return undefined;
+        current = child.child;
+        break;
+      }
+      case NATIVE_PATH_STEP.gridCell: {
+        if (current.kind !== BRIDGE_VIEW_KIND.grid || step.selector < 0) return undefined;
+        let remaining = step.selector;
+        let found: BridgeViewNode | undefined;
+        for (const row of current.rows) {
+          for (const cell of row.cells) {
+            if (remaining === 0) found = cell.view;
+            remaining -= 1;
+          }
+        }
+        if (found === undefined || remaining >= 0) return undefined;
+        current = found;
+        break;
+      }
+      case NATIVE_PATH_STEP.hangingPrefix:
+      case NATIVE_PATH_STEP.hangingContinuation:
+      case NATIVE_PATH_STEP.hangingBody:
+        if (current.kind !== BRIDGE_VIEW_KIND.hanging || step.selector !== 0) return undefined;
+        current = step.kind === NATIVE_PATH_STEP.hangingPrefix ? current.prefix : step.kind === NATIVE_PATH_STEP.hangingContinuation ? current.continuation : current.body;
+        break;
+      default: return undefined;
+    }
+    nodes.push(current);
+  }
+  return nodes;
 }
 
 function bridgePathViewKind(kind: number): number {
