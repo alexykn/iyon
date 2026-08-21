@@ -219,7 +219,7 @@ function pendingAxisBacking(
     createKind: "axis",
     axisHorizontal: horizontal,
     axisGap: gap,
-    axisChildren: Object.freeze(children),
+    axisChildren: Object.freeze(children.map((child) => Object.freeze({ ...child }))),
   });
 }
 
