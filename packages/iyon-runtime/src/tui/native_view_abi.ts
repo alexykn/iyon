@@ -3,9 +3,15 @@ import { native, type NativeViewAbiBootstrap } from "../native.ts";
 import { linkViewAbi, type NativeAbiPointers } from "./generated/view_abi.ts";
 import {
   hostRenderRef,
+  pathChild,
+  pathRoot,
   viewCommonPatchRoot,
   viewRefForNodeId,
   viewReleaseMany,
+  viewTextLayoutPatchPathD1,
+  viewTextLayoutPatchPathD2,
+  viewTextLayoutPatchPathD3,
+  viewTextLayoutPatchPathD4,
   viewTextLayoutPatchRoot,
   type ViewAbiSymbols,
 } from "./generated/view_calls.ts";
@@ -14,7 +20,13 @@ import {
   type BridgeViewNode,
   type DecorationNode,
 } from "./ir.ts";
-import { nodeForBridge, nodeIdPair, type View } from "./values/view.ts";
+import {
+  nativePathLineage,
+  nodeForBridge,
+  nodeIdPair,
+  type NativePathLineage,
+  type View,
+} from "./values/view.ts";
 import manifest from "./generated/view_abi_manifest.json";
 
 export interface NativeViewAbiSession {
@@ -28,6 +40,8 @@ export interface NativeViewRenderHost {
 }
 
 let cachedSession: NativeViewAbiSession | undefined;
+const PATH_REFS = new WeakMap<NativeViewAbiSession, WeakMap<object, number>>();
+const PATH_SHAPE_REFS = new WeakMap<NativeViewAbiSession, Map<string, number>>();
 const SINGLE_REF_RELEASE = new Uint32Array(1);
 const ABI_FUNCTION_NAMES = [
   "runtimeNoop",
@@ -39,6 +53,13 @@ const ABI_FUNCTION_NAMES = [
   "viewAxisCreateBuffer",
   "viewReleaseMany",
   "viewRefForNodeId",
+  "pathRoot",
+  "pathChild",
+  "viewTextLayoutPatchPath",
+  "viewTextLayoutPatchPathD1",
+  "viewTextLayoutPatchPathD2",
+  "viewTextLayoutPatchPathD3",
+  "viewTextLayoutPatchPathD4",
 ] as const;
 
 function isValidPointer(value: unknown): value is Pointer {
@@ -85,6 +106,13 @@ export function nativeViewAbiSession(): NativeViewAbiSession | undefined {
     viewAxisCreateBuffer: bootstrap.functions.viewAxisCreateBuffer as Pointer,
     viewReleaseMany: bootstrap.functions.viewReleaseMany as Pointer,
     viewRefForNodeId: bootstrap.functions.viewRefForNodeId as Pointer,
+    pathRoot: bootstrap.functions.pathRoot as Pointer,
+    pathChild: bootstrap.functions.pathChild as Pointer,
+    viewTextLayoutPatchPath: bootstrap.functions.viewTextLayoutPatchPath as Pointer,
+    viewTextLayoutPatchPathD1: bootstrap.functions.viewTextLayoutPatchPathD1 as Pointer,
+    viewTextLayoutPatchPathD2: bootstrap.functions.viewTextLayoutPatchPathD2 as Pointer,
+    viewTextLayoutPatchPathD3: bootstrap.functions.viewTextLayoutPatchPathD3 as Pointer,
+    viewTextLayoutPatchPathD4: bootstrap.functions.viewTextLayoutPatchPathD4 as Pointer,
   };
   const linked = linkViewAbi(pointers);
   const runtime = bootstrap.runtime_ptr as Pointer;
@@ -148,6 +176,167 @@ export function tryNativeScalarRender(
     if (isExpectedNativeStatus(error)) return undefined;
     throw error;
   }
+}
+
+/** Interns one immutable JS path lineage into the environment PathStore. */
+export function nativePathRefForLineage(
+  session: NativeViewAbiSession,
+  lineage: NativePathLineage,
+): number {
+  let refs = PATH_REFS.get(session);
+  if (refs === undefined) {
+    refs = new WeakMap<object, number>();
+    PATH_REFS.set(session, refs);
+  }
+  const cached = refs.get(lineage);
+  if (cached !== undefined) return cached;
+  let shapes = PATH_SHAPE_REFS.get(session);
+  if (shapes === undefined) {
+    shapes = new Map<string, number>();
+    PATH_SHAPE_REFS.set(session, shapes);
+  }
+  const shape = pathShape(lineage);
+  const shaped = shapes.get(shape);
+  if (shaped !== undefined) {
+    refs.set(lineage, shaped);
+    return shaped;
+  }
+  const parent = lineage.parent === undefined
+    ? pathRoot(session.symbols, session.runtime)
+    : nativePathRefForLineage(session, lineage.parent);
+  const reference = lineage.step === undefined
+    ? parent
+    : pathChild(
+      session.symbols,
+      session.runtime,
+      parent,
+      lineage.step.kind,
+      lineage.step.expectedViewKind,
+      lineage.step.selector,
+    );
+  shapes.set(shape, reference);
+  refs.set(lineage, reference);
+  return reference;
+}
+
+/** Routes a shallow retained text edit through a cached native PathRef. */
+export function tryNativePathScalarRender(
+  host: NativeViewRenderHost,
+  previous: View,
+  previousRef: number,
+  next: View,
+): number | undefined {
+  const lineage = nativePathLineage(next);
+  if (lineage === undefined || lineage.baseNodeId !== nodeForBridge(previous).id || lineage.depth < 1 || lineage.depth > 4) return undefined;
+  const hostPointer = host.tuiViewAbiHostPointer?.();
+  if (!isValidPointer(hostPointer) || !isValidNativeRef(previousRef)) return undefined;
+  const session = nativeViewAbiSession();
+  if (session === undefined) return undefined;
+  const steps = pathLineageSteps(lineage);
+  const nodes = pathNodes(nodeForBridge(next), steps);
+  if (nodes === undefined || nodes.length !== lineage.depth + 1) return undefined;
+  const target = splitNodeId(nodes[nodes.length - 1]!.id);
+  const ancestors = nodes.slice(0, -1).reverse().map((node) => splitNodeId(node.id));
+  const targetNode = nodes[nodes.length - 1]!;
+  if (targetNode.kind !== BRIDGE_VIEW_KIND.text) return undefined;
+  const wrap = targetNode.wrap;
+  const align = targetNode.align;
+  let nextRef: number | undefined;
+  try {
+    const pathRef = nativePathRefForLineage(session, lineage);
+    nextRef = lineage.depth === 1
+      ? viewTextLayoutPatchPathD1(session.symbols, session.runtime, previousRef, pathRef, target[0], target[1], ancestors[0]![0], ancestors[0]![1], wrap, align)
+      : lineage.depth === 2
+        ? viewTextLayoutPatchPathD2(session.symbols, session.runtime, previousRef, pathRef, target[0], target[1], ancestors[0]![0], ancestors[0]![1], ancestors[1]![0], ancestors[1]![1], wrap, align)
+        : lineage.depth === 3
+          ? viewTextLayoutPatchPathD3(session.symbols, session.runtime, previousRef, pathRef, target[0], target[1], ancestors[0]![0], ancestors[0]![1], ancestors[1]![0], ancestors[1]![1], ancestors[2]![0], ancestors[2]![1], wrap, align)
+          : viewTextLayoutPatchPathD4(session.symbols, session.runtime, previousRef, pathRef, target[0], target[1], ancestors[0]![0], ancestors[0]![1], ancestors[1]![0], ancestors[1]![1], ancestors[2]![0], ancestors[2]![1], ancestors[3]![0], ancestors[3]![1], wrap, align);
+    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    if (status !== 0) {
+      releaseNativeViewRef(session, nextRef);
+      return undefined;
+    }
+    return nextRef;
+  } catch (error) {
+    if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  }
+}
+
+function pathShape(lineage: NativePathLineage): string {
+  const steps = pathLineageSteps(lineage);
+  return steps.length === 0 ? "root" : steps.map((step) => `${step?.kind}:${step?.expectedViewKind}:${step?.selector}`).join("/");
+}
+
+function pathLineageSteps(lineage: NativePathLineage): NativePathLineage["step"][] {
+  const steps: NativePathLineage["step"][] = [];
+  let current: NativePathLineage | undefined = lineage;
+  while (current?.step !== undefined) {
+    steps.push(current.step);
+    current = current.parent;
+  }
+  steps.reverse();
+  return steps;
+}
+
+function pathNodes(root: BridgeViewNode, steps: readonly NativePathLineage["step"][]): BridgeViewNode[] | undefined {
+  const nodes = [root];
+  let current = root;
+  for (const step of steps) {
+    if (step === undefined) return undefined;
+    switch (step.kind) {
+      case 1:
+      case 2: {
+        if (step.selector !== 0 || (current.kind !== BRIDGE_VIEW_KIND.container && current.kind !== BRIDGE_VIEW_KIND.clamp && current.kind !== BRIDGE_VIEW_KIND.contentMax)) return undefined;
+        current = current.child;
+        break;
+      }
+      case 4: {
+        if (current.kind !== BRIDGE_VIEW_KIND.column) return undefined;
+        const child = current.children[step.selector];
+        if (child === undefined) return undefined;
+        current = child.child;
+        break;
+      }
+      case 5: {
+        if (current.kind !== BRIDGE_VIEW_KIND.row) return undefined;
+        const child = current.children[step.selector];
+        if (child === undefined) return undefined;
+        current = child.child;
+        break;
+      }
+      case 6: {
+        if (current.kind !== BRIDGE_VIEW_KIND.grid || step.selector < 0) return undefined;
+        let remaining = step.selector;
+        let found: BridgeViewNode | undefined;
+        for (const row of current.rows) {
+          for (const cell of row.cells) {
+            if (remaining === 0) found = cell.view;
+            remaining -= 1;
+          }
+        }
+        if (found === undefined || remaining >= 0) return undefined;
+        current = found;
+        break;
+      }
+      case 7:
+      case 8:
+      case 9: {
+        if (current.kind !== BRIDGE_VIEW_KIND.hanging || step.selector !== 0) return undefined;
+        current = step.kind === 7 ? current.prefix : step.kind === 8 ? current.continuation : current.body;
+        break;
+      }
+      default: return undefined;
+    }
+    nodes.push(current);
+  }
+  return nodes;
+}
+
+function splitNodeId(id: number): readonly [number, number] {
+  if (!Number.isSafeInteger(id) || id <= 0 || id > Number.MAX_SAFE_INTEGER) throw new RangeError("native path NodeId is invalid");
+  return [id >>> 0, Math.floor(id / 0x1_0000_0000)];
 }
 
 export function releaseNativeViewRef(session: NativeViewAbiSession | undefined, ref: number): void {

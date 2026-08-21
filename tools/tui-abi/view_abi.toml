@@ -466,6 +466,475 @@ name = "node_id_high"
 type = "u32"
 lowering = "u32"
 
+[[function]]
+name = "path_root"
+family = "path"
+hotness = "warm"
+implementation = "path_root_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 128
+arity_specializations = [1]
+benchmark_registration = "path.root"
+return = "PathRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function]]
+name = "path_child"
+family = "path"
+hotness = "warm"
+implementation = "path_child_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 128
+arity_specializations = [1]
+benchmark_registration = "path.child"
+return = "PathRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "parent_path_ref"
+type = "PathRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "step_kind"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "expected_view_kind"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "selector"
+type = "u32"
+lowering = "u32"
+
+[[function]]
+name = "view_text_layout_patch_path"
+family = "path_patch"
+hotness = "critical"
+implementation = "view_text_layout_patch_path_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 4
+arity_specializations = [0, 1, 2, 3, 4]
+benchmark_registration = "view.text_layout_patch_path"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "base_root_ref"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "path_ref"
+type = "PathRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "path_depth"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "target_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "target_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor0_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor0_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor1_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor1_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor2_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor2_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor3_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor3_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "wrap"
+type = "WrapMode"
+lowering = "u32"
+
+[[function.arg]]
+name = "align"
+type = "HorizontalAlign"
+lowering = "u32"
+
+[[function]]
+name = "view_text_layout_patch_path_d1"
+family = "path_patch"
+hotness = "critical"
+implementation = "view_text_layout_patch_path_d1_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 1
+arity_specializations = [1]
+benchmark_registration = "view.text_layout_patch_path_d1"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "base_root_ref"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "path_ref"
+type = "PathRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "target_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "target_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor0_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor0_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "wrap"
+type = "WrapMode"
+lowering = "u32"
+
+[[function.arg]]
+name = "align"
+type = "HorizontalAlign"
+lowering = "u32"
+
+[[function]]
+name = "view_text_layout_patch_path_d2"
+family = "path_patch"
+hotness = "critical"
+implementation = "view_text_layout_patch_path_d2_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 2
+arity_specializations = [2]
+benchmark_registration = "view.text_layout_patch_path_d2"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "base_root_ref"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "path_ref"
+type = "PathRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "target_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "target_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor0_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor0_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor1_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor1_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "wrap"
+type = "WrapMode"
+lowering = "u32"
+
+[[function.arg]]
+name = "align"
+type = "HorizontalAlign"
+lowering = "u32"
+
+[[function]]
+name = "view_text_layout_patch_path_d3"
+family = "path_patch"
+hotness = "critical"
+implementation = "view_text_layout_patch_path_d3_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 3
+arity_specializations = [3]
+benchmark_registration = "view.text_layout_patch_path_d3"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "base_root_ref"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "path_ref"
+type = "PathRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "target_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "target_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor0_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor0_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor1_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor1_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor2_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor2_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "wrap"
+type = "WrapMode"
+lowering = "u32"
+
+[[function.arg]]
+name = "align"
+type = "HorizontalAlign"
+lowering = "u32"
+
+[[function]]
+name = "view_text_layout_patch_path_d4"
+family = "path_patch"
+hotness = "critical"
+implementation = "view_text_layout_patch_path_d4_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 4
+arity_specializations = [4]
+benchmark_registration = "view.text_layout_patch_path_d4"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "base_root_ref"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "path_ref"
+type = "PathRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "target_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "target_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor0_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor0_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor1_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor1_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor2_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor2_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor3_node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "ancestor3_node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "wrap"
+type = "WrapMode"
+lowering = "u32"
+
+[[function.arg]]
+name = "align"
+type = "HorizontalAlign"
+lowering = "u32"
+
 [[conformance]]
 name = "u8_8"
 return = "u32"

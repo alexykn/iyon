@@ -1145,6 +1145,293 @@ impl View {
     }
 }
 
+/// A compact, caller-owned path step for retained native edits.
+///
+/// Path nodes contain only semantic selectors and expected parent kinds; they
+/// never retain a `View`. The native ABI interns these steps as `PathRef`s.
+#[cfg(feature = "native-host")]
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RetainedPathStep {
+    pub kind: u32,
+    pub expected_view_kind: u32,
+    pub selector: u32,
+}
+
+#[cfg(feature = "native-host")]
+#[doc(hidden)]
+impl RetainedPathStep {
+    pub const fn new(kind: u32, expected_view_kind: u32, selector: u32) -> Self {
+        Self {
+            kind,
+            expected_view_kind,
+            selector,
+        }
+    }
+}
+
+#[cfg(feature = "native-host")]
+const PATH_VIEW_TEXT: u32 = 1;
+#[cfg(feature = "native-host")]
+const PATH_VIEW_ROW: u32 = 2;
+#[cfg(feature = "native-host")]
+const PATH_VIEW_COLUMN: u32 = 3;
+#[cfg(feature = "native-host")]
+const PATH_VIEW_GRID: u32 = 4;
+#[cfg(feature = "native-host")]
+const PATH_VIEW_HANGING: u32 = 5;
+#[cfg(feature = "native-host")]
+const PATH_VIEW_CONTAINER: u32 = 6;
+#[cfg(feature = "native-host")]
+const PATH_VIEW_CLAMP_ROWS: u32 = 7;
+#[cfg(feature = "native-host")]
+const PATH_VIEW_ROW_VIEWPORT: u32 = 8;
+
+#[cfg(feature = "native-host")]
+const PATH_STEP_CONTAINER_CHILD: u32 = 1;
+#[cfg(feature = "native-host")]
+const PATH_STEP_CLAMP_CHILD: u32 = 2;
+#[cfg(feature = "native-host")]
+const PATH_STEP_ROW_VIEWPORT_CHILD: u32 = 3;
+#[cfg(feature = "native-host")]
+const PATH_STEP_COLUMN_CHILD: u32 = 4;
+#[cfg(feature = "native-host")]
+const PATH_STEP_ROW_CHILD: u32 = 5;
+#[cfg(feature = "native-host")]
+const PATH_STEP_GRID_CELL: u32 = 6;
+#[cfg(feature = "native-host")]
+const PATH_STEP_HANGING_PREFIX: u32 = 7;
+#[cfg(feature = "native-host")]
+const PATH_STEP_HANGING_CONTINUATION: u32 = 8;
+#[cfg(feature = "native-host")]
+const PATH_STEP_HANGING_BODY: u32 = 9;
+
+#[cfg(feature = "native-host")]
+impl View {
+    /// Applies a text-layout edit through a validated retained path.
+    ///
+    /// The recursion follows only the supplied path and rebuilds each changed
+    /// ancestor once. Axis and grid children use `PersistentSeq::set`, so a
+    /// wide parent never becomes a flat copy during a path edit.
+    #[doc(hidden)]
+    pub fn try_with_text_layout_patch_path(
+        self,
+        steps: &[RetainedPathStep],
+        wrap: WrapMode,
+        align: HorizontalAlign,
+    ) -> Result<Self, String> {
+        if steps.len() > 128 {
+            return Err("retained path exceeds maximum depth".to_owned());
+        }
+        patch_text_layout_path_with_nodes(self, steps, wrap, align).map(|(view, _)| view)
+    }
+
+    /// Applies a retained path edit and returns the changed leaf followed by
+    /// each rebuilt ancestor. Native uses these values to publish every JS
+    /// semantic NodeId without sending a NodeId array over FFI.
+    #[doc(hidden)]
+    pub fn try_with_text_layout_patch_path_with_nodes(
+        self,
+        steps: &[RetainedPathStep],
+        wrap: WrapMode,
+        align: HorizontalAlign,
+    ) -> Result<(Self, Vec<Self>), String> {
+        if steps.len() > 128 {
+            return Err("retained path exceeds maximum depth".to_owned());
+        }
+        patch_text_layout_path_with_nodes(self, steps, wrap, align)
+    }
+}
+
+#[cfg(feature = "native-host")]
+fn patch_text_layout_path_with_nodes(
+    view: View,
+    steps: &[RetainedPathStep],
+    wrap: WrapMode,
+    align: HorizontalAlign,
+) -> Result<(View, Vec<View>), String> {
+    let Some(step) = steps.first().copied() else {
+        let patched = view
+            .try_with_text_layout_patch(Some(wrap), Some(align))
+            .map_err(str::to_owned)?;
+        return Ok((patched.clone(), vec![patched]));
+    };
+    if view_kind_tag(view.kind()) != step.expected_view_kind {
+        return Err("retained path expected view kind does not match base".to_owned());
+    }
+    let tail = &steps[1..];
+    match step.kind {
+        PATH_STEP_CONTAINER_CHILD => {
+            if step.selector != 0 {
+                return Err("container path selector must be zero".to_owned());
+            }
+            let ViewKind::Container(container) = view.kind() else {
+                return Err("container path step requires a container".to_owned());
+            };
+            let (child, mut nodes) =
+                patch_text_layout_path_with_nodes(container.child.clone(), tail, wrap, align)?;
+            let patched = view.map_node(|node| {
+                let ViewKind::Container(container) = &mut node.kind else {
+                    unreachable!("validated container path")
+                };
+                Arc::make_mut(container).child = child;
+            });
+            nodes.push(patched.clone());
+            Ok((patched, nodes))
+        }
+        PATH_STEP_CLAMP_CHILD => {
+            if step.selector != 0 {
+                return Err("clamp path selector must be zero".to_owned());
+            }
+            let ViewKind::ClampRows(clamp) = view.kind() else {
+                return Err("clamp path step requires a clamp".to_owned());
+            };
+            let (child, mut nodes) =
+                patch_text_layout_path_with_nodes(clamp.child.clone(), tail, wrap, align)?;
+            let patched = view.map_node(|node| {
+                let ViewKind::ClampRows(clamp) = &mut node.kind else {
+                    unreachable!("validated clamp path")
+                };
+                Arc::make_mut(clamp).child = child;
+            });
+            nodes.push(patched.clone());
+            Ok((patched, nodes))
+        }
+        PATH_STEP_ROW_VIEWPORT_CHILD => {
+            if step.selector != 0 {
+                return Err("row viewport path selector must be zero".to_owned());
+            }
+            let ViewKind::RowViewport(viewport) = view.kind() else {
+                return Err("row viewport path step requires a viewport".to_owned());
+            };
+            let (child, mut nodes) =
+                patch_text_layout_path_with_nodes(viewport.child.clone(), tail, wrap, align)?;
+            let patched = view.map_node(|node| {
+                let ViewKind::RowViewport(viewport) = &mut node.kind else {
+                    unreachable!("validated row viewport path")
+                };
+                Arc::make_mut(viewport).child = child;
+            });
+            nodes.push(patched.clone());
+            Ok((patched, nodes))
+        }
+        PATH_STEP_COLUMN_CHILD => {
+            let ViewKind::Column(column) = view.kind() else {
+                return Err("column path step requires a column".to_owned());
+            };
+            let current = column
+                .children
+                .get(step.selector as usize)
+                .ok_or_else(|| "column path selector is out of range".to_owned())?;
+            let (child, mut nodes) =
+                patch_text_layout_path_with_nodes(current.view.clone(), tail, wrap, align)?;
+            let replacement = ColumnChild {
+                track: current.track,
+                view: child,
+            };
+            let children = column.children.set(step.selector as usize, replacement);
+            let patched = view.map_node(|node| {
+                let ViewKind::Column(column) = &mut node.kind else {
+                    unreachable!("validated column path")
+                };
+                Arc::make_mut(column).children = children;
+            });
+            nodes.push(patched.clone());
+            Ok((patched, nodes))
+        }
+        PATH_STEP_ROW_CHILD => {
+            let ViewKind::Row(row) = view.kind() else {
+                return Err("row path step requires a row".to_owned());
+            };
+            let current = row
+                .children
+                .get(step.selector as usize)
+                .ok_or_else(|| "row path selector is out of range".to_owned())?;
+            let (child, mut nodes) =
+                patch_text_layout_path_with_nodes(current.view.clone(), tail, wrap, align)?;
+            let replacement = RowChild {
+                track: current.track,
+                view: child,
+            };
+            let children = row.children.set(step.selector as usize, replacement);
+            let patched = view.map_node(|node| {
+                let ViewKind::Row(row) = &mut node.kind else {
+                    unreachable!("validated row path")
+                };
+                Arc::make_mut(row).children = children;
+            });
+            nodes.push(patched.clone());
+            Ok((patched, nodes))
+        }
+        PATH_STEP_GRID_CELL => {
+            let ViewKind::Grid(grid) = view.kind() else {
+                return Err("grid path step requires a grid".to_owned());
+            };
+            let current = grid
+                .cells
+                .get(step.selector as usize)
+                .ok_or_else(|| "grid path selector is out of range".to_owned())?;
+            let (child, mut nodes) =
+                patch_text_layout_path_with_nodes(current.view.clone(), tail, wrap, align)?;
+            let mut replacement = current.clone();
+            replacement.view = child;
+            let cells = grid.cells.set(step.selector as usize, replacement);
+            let patched = view.map_node(|node| {
+                let ViewKind::Grid(grid) = &mut node.kind else {
+                    unreachable!("validated grid path")
+                };
+                Arc::make_mut(grid).cells = cells;
+            });
+            nodes.push(patched.clone());
+            Ok((patched, nodes))
+        }
+        PATH_STEP_HANGING_PREFIX | PATH_STEP_HANGING_CONTINUATION | PATH_STEP_HANGING_BODY => {
+            let ViewKind::Hanging(hanging) = view.kind() else {
+                return Err("hanging path step requires a hanging view".to_owned());
+            };
+            if step.selector != 0 {
+                return Err("hanging path selector must be zero".to_owned());
+            }
+            let child = match step.kind {
+                PATH_STEP_HANGING_PREFIX => &hanging.prefix,
+                PATH_STEP_HANGING_CONTINUATION => &hanging.continuation_prefix,
+                _ => &hanging.body,
+            };
+            let (child, mut nodes) =
+                patch_text_layout_path_with_nodes(child.clone(), tail, wrap, align)?;
+            let patched = view.map_node(|node| {
+                let ViewKind::Hanging(hanging) = &mut node.kind else {
+                    unreachable!("validated hanging path")
+                };
+                let hanging = Arc::make_mut(hanging);
+                match step.kind {
+                    PATH_STEP_HANGING_PREFIX => hanging.prefix = child,
+                    PATH_STEP_HANGING_CONTINUATION => hanging.continuation_prefix = child,
+                    _ => hanging.body = child,
+                }
+            });
+            nodes.push(patched.clone());
+            Ok((patched, nodes))
+        }
+        _ => Err("unknown retained path step".to_owned()),
+    }
+}
+
+#[cfg(feature = "native-host")]
+fn view_kind_tag(kind: &ViewKind) -> u32 {
+    match kind {
+        ViewKind::Text(_) => PATH_VIEW_TEXT,
+        ViewKind::Row(_) => PATH_VIEW_ROW,
+        ViewKind::Column(_) => PATH_VIEW_COLUMN,
+        ViewKind::Grid(_) => PATH_VIEW_GRID,
+        ViewKind::Hanging(_) => PATH_VIEW_HANGING,
+        ViewKind::Container(_) => PATH_VIEW_CONTAINER,
+        ViewKind::ClampRows(_) => PATH_VIEW_CLAMP_ROWS,
+        ViewKind::RowViewport(_) => PATH_VIEW_ROW_VIEWPORT,
+        ViewKind::Spacer { .. } | ViewKind::ComponentSlot(_) => 0,
+    }
+}
+
 impl PartialEq for ViewNode {
     fn eq(&self, other: &Self) -> bool {
         self.semantic_eq(other)

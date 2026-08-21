@@ -117,7 +117,7 @@ pub fn validate(
         }
         if !matches!(
             function.return_type.as_str(),
-            "u32" | "i32" | "ViewRefResult" | "status_only" | "native_ref_result"
+            "u32" | "i32" | "ViewRefResult" | "PathRefResult" | "status_only" | "native_ref_result"
         ) {
             return invalid(format!(
                 "function {} has unsupported return type {}",

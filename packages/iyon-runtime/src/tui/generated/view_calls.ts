@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = e533d64e5293b56a70b81e67a9aee34c17cdfd0a9d1199420cfcb263b2d0f470
-// generator_blake3 = 55f2f1590b18e72152621b4c5272e892f224c5d3b4e4d10e489551129f713903
+// schema_blake3 = b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193
+// generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69
 import type { Pointer } from "bun:ffi";
 import type { linkViewAbi } from "./view_abi";
 export type ViewAbiSymbols = ReturnType<typeof linkViewAbi>["symbols"];
@@ -54,6 +54,41 @@ export function viewReleaseMany(symbols: ViewAbiSymbols, runtime: Pointer, refs:
 
 export function viewRefForNodeId(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number): number {
   const result = symbols.viewRefForNodeId(runtime, node_id_low, node_id_high);
+  return checkedRef(result);
+}
+
+export function pathRoot(symbols: ViewAbiSymbols, runtime: Pointer): number {
+  const result = symbols.pathRoot(runtime);
+  return checkedRef(result);
+}
+
+export function pathChild(symbols: ViewAbiSymbols, runtime: Pointer, parent_path_ref: number, step_kind: number, expected_view_kind: number, selector: number): number {
+  const result = symbols.pathChild(runtime, parent_path_ref, step_kind, expected_view_kind, selector);
+  return checkedRef(result);
+}
+
+export function viewTextLayoutPatchPath(symbols: ViewAbiSymbols, runtime: Pointer, base_root_ref: number, path_ref: number, path_depth: number, target_node_id_low: number, target_node_id_high: number, ancestor0_node_id_low: number, ancestor0_node_id_high: number, ancestor1_node_id_low: number, ancestor1_node_id_high: number, ancestor2_node_id_low: number, ancestor2_node_id_high: number, ancestor3_node_id_low: number, ancestor3_node_id_high: number, wrap: number, align: number): number {
+  const result = symbols.viewTextLayoutPatchPath(runtime, base_root_ref, path_ref, path_depth, target_node_id_low, target_node_id_high, ancestor0_node_id_low, ancestor0_node_id_high, ancestor1_node_id_low, ancestor1_node_id_high, ancestor2_node_id_low, ancestor2_node_id_high, ancestor3_node_id_low, ancestor3_node_id_high, wrap, align);
+  return checkedRef(result);
+}
+
+export function viewTextLayoutPatchPathD1(symbols: ViewAbiSymbols, runtime: Pointer, base_root_ref: number, path_ref: number, target_node_id_low: number, target_node_id_high: number, ancestor0_node_id_low: number, ancestor0_node_id_high: number, wrap: number, align: number): number {
+  const result = symbols.viewTextLayoutPatchPathD1(runtime, base_root_ref, path_ref, target_node_id_low, target_node_id_high, ancestor0_node_id_low, ancestor0_node_id_high, wrap, align);
+  return checkedRef(result);
+}
+
+export function viewTextLayoutPatchPathD2(symbols: ViewAbiSymbols, runtime: Pointer, base_root_ref: number, path_ref: number, target_node_id_low: number, target_node_id_high: number, ancestor0_node_id_low: number, ancestor0_node_id_high: number, ancestor1_node_id_low: number, ancestor1_node_id_high: number, wrap: number, align: number): number {
+  const result = symbols.viewTextLayoutPatchPathD2(runtime, base_root_ref, path_ref, target_node_id_low, target_node_id_high, ancestor0_node_id_low, ancestor0_node_id_high, ancestor1_node_id_low, ancestor1_node_id_high, wrap, align);
+  return checkedRef(result);
+}
+
+export function viewTextLayoutPatchPathD3(symbols: ViewAbiSymbols, runtime: Pointer, base_root_ref: number, path_ref: number, target_node_id_low: number, target_node_id_high: number, ancestor0_node_id_low: number, ancestor0_node_id_high: number, ancestor1_node_id_low: number, ancestor1_node_id_high: number, ancestor2_node_id_low: number, ancestor2_node_id_high: number, wrap: number, align: number): number {
+  const result = symbols.viewTextLayoutPatchPathD3(runtime, base_root_ref, path_ref, target_node_id_low, target_node_id_high, ancestor0_node_id_low, ancestor0_node_id_high, ancestor1_node_id_low, ancestor1_node_id_high, ancestor2_node_id_low, ancestor2_node_id_high, wrap, align);
+  return checkedRef(result);
+}
+
+export function viewTextLayoutPatchPathD4(symbols: ViewAbiSymbols, runtime: Pointer, base_root_ref: number, path_ref: number, target_node_id_low: number, target_node_id_high: number, ancestor0_node_id_low: number, ancestor0_node_id_high: number, ancestor1_node_id_low: number, ancestor1_node_id_high: number, ancestor2_node_id_low: number, ancestor2_node_id_high: number, ancestor3_node_id_low: number, ancestor3_node_id_high: number, wrap: number, align: number): number {
+  const result = symbols.viewTextLayoutPatchPathD4(runtime, base_root_ref, path_ref, target_node_id_low, target_node_id_high, ancestor0_node_id_low, ancestor0_node_id_high, ancestor1_node_id_low, ancestor1_node_id_high, ancestor2_node_id_low, ancestor2_node_id_high, ancestor3_node_id_low, ancestor3_node_id_high, wrap, align);
   return checkedRef(result);
 }
 
