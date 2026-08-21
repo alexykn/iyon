@@ -293,7 +293,7 @@ d14e9f4  test(tui): refresh ABI generator snapshot
 0913858  bench(tui): enforce exact identity controls
 ```
 
-The final Tranche 1 review also hardened the generated foundation: Rust output is formatted by the pinned Rust 1.97.1 `rustfmt` toolchain, with deterministic `prettyplease` fallback; schema validation rejects incompatible lowering/type pairs and missing buffer-used lanes; generated checked wrappers validate full 53-bit NodeId pairs, NativeRef ranges, pointer alignment, buffer capacity/element-width/used-count bounds, enum discriminants, cstring pointers, and panic containment; host-pointer imports and cstring lowering are generated for future slices. The current generated reference records generator BLAKE3 `fd3bcd32d6995e625fada939bf2fd398b6dac2ec14400458b75f612cdc4d0d6d`.
+The final Tranche 1 review also hardened the generated foundation: Rust output is formatted by the pinned Rust 1.97.1 `rustfmt` toolchain, with deterministic `prettyplease` fallback; schema validation rejects incompatible lowering/type pairs and missing buffer-used lanes; generated checked wrappers validate full 53-bit NodeId pairs, NativeRef ranges, pointer alignment, buffer capacity/element-width/used-count bounds, enum discriminants, cstring pointers, and panic containment; host-pointer imports and cstring lowering are generated for future slices. The current generated reference records schema BLAKE3 `7fce882a8b31b7dab23c5515ffde2626513fed07f46366e3d9869a966fe1ccb1` and generator BLAKE3 `a32e416575faa290887b502f2a202006562af02cb1a05027ec41076f7b0a40d6`.
 
 **Tranche 1 status: COMPLETE.** Bun preflight (`§2.1–§2.4`) and generator bootstrap (`STEP 0.1–STEP 0.5`) are implemented, generated artifacts are checked in and deterministic, and the required Bun 1.4 controls/FFI probes pass. Production Native Shadow routing remains intentionally disabled until later tranches.
 
@@ -305,7 +305,21 @@ The review found and corrected four gaps in the local foundation: the generated 
 
 Generated wrapper tests now prove handwritten implementation delegation, null/handle/NodeId/enum failure values, buffer capacity/alignment/used-count failures, and the i32/u32 result conventions. The Bun 1.4 probe loads the generated conformance pointer table from the staged N-API image and passes every scalar, pointer, same-TypedArray `buffer_length`, Unicode cstring, JIT, and sub-5 ns no-op check. The clean probe record is captured at source revision `c4c213220f946fc3098b124ac13531b5c5e7f4b5`, with native artifact SHA-256 `28598f95a720d0963aa8f117a846101f92734f3605c466a51a8365e710cd206e`, schema BLAKE3 `d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951`, and generator BLAKE3 `fd3bcd32d6995e625fada939bf2fd398b6dac2ec14400458b75f612cdc4d0d6d`.
 
-**Tranche 2 status: COMPLETE.** The generated ABI and conformance calls pass layout, calling-convention, scalar, pointer, buffer, cstring, JIT, and failure tests. No semantic vertical-slice implementation or production Native Shadow routing is claimed; those begin with Tranche 3 (`STEP 0.10`).
+**Tranche 2 status: COMPLETE.** The generated ABI and conformance calls pass layout, calling-convention, scalar, pointer, buffer, cstring, JIT, and failure tests. No production Native Shadow routing is claimed; the first generated semantic slice begins with Tranche 3 (`STEP 0.10`).
+
+## 2.7 Tranche 3 implementation record
+
+Tranche 3 (`STEP 0.10` and the first generated vertical slice from `§22 PERF-11.1`) is implemented in commit `e89e1fee78ec45e51ef96c6e2b796a64561081a6`.
+
+The generated wrappers are now compiled into the native addon rather than existing only in the conformance integration test. `crates/iyon-native/src/tui/view_abi.rs` supplies the handwritten semantic implementations and an environment-owned `NativeViewRuntime`; `tuiViewAbiBootstrap()` returns the stable runtime pointer, generated ABI function pointers, ABI metadata, and generation. The runtime is allocated once per N-API environment, checked for owner-thread/alive/header validity, and freed by the environment cleanup hook.
+
+The first slice contains working `runtime_noop`, `view_render_ref`, `view_spacer_create`, `view_text_layout_patch_root`, `view_common_patch_root`, `view_release_many`, and exact `view_ref_for_node_id` lookup calls. The latter is the NodeId-to-ref bridge needed to seed a direct-decoded View and then patch it through generated FFI. Implementations publish `NodeId -> WeakView` into the existing environment `ViewBridgeCache`, keep a strong `NativeViewSlot` lease only until `release_many`, detect NodeId collisions, preserve distinct NativeRef identity, and return encoded cache-miss/invalid/fallback statuses without mutating the host. The existing decoder consumes the generated roots from that same cache, which is covered by the Bun host parity test.
+
+JavaScript stores the full NodeId on the immutable View once and lazily caches its low/high u32 pair in `nodeIdPair()`. Generated scalar helpers bind fixed Bun 1.4 signatures and pass only runtime/ref/NodeId/enum/scalar arguments; no command buffer, path array, NodeId array, or temporary TypedArray is built. Exact repeated `Tui.render` of the same body/history is also now an O(1) JS no-op. Default generated wrappers retain checked panic containment; the opt-in `fast-view-abi` feature removes the catch boundary for audited timing builds while retaining runtime lifetime/thread checks.
+
+The committed benchmark `packages/iyon-runtime/bench/PERF-11.1-generated-vertical-slice.json` was captured from clean source revision `e89e1fee78ec45e51ef96c6e2b796a64561081a6` under Bun `1.4.0`, revision `34cbb9a40b4bd1bd767d134a7065e66c2432a676`, with `fast-view-abi`, 1,000,000 warm/hot no-op/render-ref/ref-lookup iterations, and 10,000 semantic allocation/patch iterations. Native artifact SHA-256 is `537c2afac1660b4cbb7d9de4bd5e89fc36d09c248eda0a97701dc1505f31fab5`; schema BLAKE3 is `7fce882a8b31b7dab23c5515ffde2626513fed07f46366e3d9869a966fe1ccb1`; generator BLAKE3 is `a32e416575faa290887b502f2a202006562af02cb1a05027ec41076f7b0a40d6`. Median nanoseconds per call were: `runtime_noop 10.052375`, `render_ref 15.445709`, `view_ref_for_node_id 37.963584`, `view_spacer_create 137.8167`, `view_text_layout_patch_root 316.1042`, and `view_common_patch_root 326.3792`. The scalar benchmark writes zero structural transport bytes/records and records `structural_encoding_ns = 0`; these numbers are complete end-to-end call timings, not phase-subtracted claims.
+
+**Tranche 3 status: COMPLETE.** The generated first slice is linked from the staged Bun 1.4 addon, executes handwritten native semantic operations, publishes/reuses the existing weak semantic cache, passes text/common/spacer host parity and release/lifetime tests, and has a clean benchmark record. Broader NativeViewRuntime unification for every V2/V3/V4/host boundary and production Native Shadow routing remain later tranches.
 
 The canonical ABI input and generator sources are located at:
 
@@ -344,6 +358,17 @@ packages/iyon-runtime/bench/generated/view_abi_cases.ts
 PERF-11-generated-abi-reference.md
 ```
 
+The Tranche 3 handwritten/runtime and end-to-end artifacts are:
+
+```text
+crates/iyon-native/src/tui/view_abi.rs
+crates/iyon-native/Cargo.toml                    # fast-view-abi timing feature
+packages/iyon-runtime/src/tui/native_view_abi.ts
+packages/iyon-runtime/bench/tui_abi_vertical_slice.ts
+packages/iyon-runtime/bench/PERF-11.1-generated-vertical-slice.json
+packages/iyon-runtime/tests/tui_generated_view_abi.test.ts
+```
+
 The Bun 1.4 control and FFI qualification records are separate from the generated ABI outputs:
 
 ```text
@@ -364,7 +389,7 @@ bun run check:tui-abi
 
 `check:tui-abi` renders into a temporary directory and compares every generated artifact byte-for-byte with the checked-in files. The authoritative CI check also runs `git diff --exit-code` on the generated paths.
 
-Documentation commits recording the handoff and review state are `1e56c92`, `ad82d5a`, `4715436`, `46889ff`, `31ee207`, `153eef2`, `5239a94`, `d14e9f4`, and the benchmark commits `7bf0d41`, `97722e7`, `060d9c6`, and `0913858`. Tranche 2 implementation is `1559191`, with final conformance evidence correction `c4c2132`.
+Documentation commits recording the handoff and review state are `1e56c92`, `ad82d5a`, `4715436`, `46889ff`, `31ee207`, `153eef2`, `5239a94`, `d14e9f4`, and the benchmark commits `7bf0d41`, `97722e7`, `060d9c6`, and `0913858`. Tranche 2 implementation is `1559191`, with final conformance evidence correction `c4c2132`; Tranche 3 implementation is `e89e1fe`.
 
 ---
 
