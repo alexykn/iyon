@@ -56,7 +56,12 @@ import {
   type View,
 } from "./values/view.ts";
 import manifest from "./generated/view_abi_manifest.json";
-import { NATIVE_BUILDER_MAX_CHILDREN, NATIVE_SMALL_AXIS_ARITY_MAX } from "./native_view_policy.ts";
+import {
+  NATIVE_BUILDER_MAX_CHILDREN,
+  NATIVE_COLD_MAX_DEPTH,
+  NATIVE_COLD_MAX_NODES,
+  NATIVE_SMALL_AXIS_ARITY_MAX,
+} from "./native_view_policy.ts";
 
 export interface NativeViewAbiSession {
   readonly runtime: Pointer;
@@ -311,7 +316,11 @@ export function tryNativeColdRender(host: NativeViewRenderHost, next: View): num
   const session = nativeViewAbiSession();
   if (session === undefined) return undefined;
   const recipe = nativeAxisRecipe(next);
-  if (recipe === undefined || recipe.children.length > NATIVE_BUILDER_MAX_CHILDREN) return undefined;
+  if (
+    recipe === undefined
+    || recipe.children.length > NATIVE_BUILDER_MAX_CHILDREN
+    || !nativeColdGraphWithinLimit(next)
+  ) return undefined;
   const refs: number[] = [];
   try {
     for (const child of recipe.children) {
@@ -336,6 +345,25 @@ export function tryNativeColdRender(host: NativeViewRenderHost, next: View): num
   } finally {
     for (const reference of refs) releaseNativeViewRef(session, reference);
   }
+}
+
+function nativeColdGraphWithinLimit(view: View): boolean {
+  return nativeColdGraphNodeCount(view, NATIVE_COLD_MAX_NODES, 0) !== undefined;
+}
+
+function nativeColdGraphNodeCount(view: View, remaining: number, depth: number): number | undefined {
+  if (depth > NATIVE_COLD_MAX_DEPTH || remaining <= 0) return undefined;
+  const recipe = nativeAxisRecipe(view);
+  if (recipe === undefined) return 1;
+  let count = 1;
+  if (count > remaining) return undefined;
+  for (const child of recipe.children) {
+    const childCount = nativeColdGraphNodeCount(child.view, remaining - count, depth + 1);
+    if (childCount === undefined) return undefined;
+    count += childCount;
+    if (count > remaining) return undefined;
+  }
+  return count;
 }
 
 function nativeColdRefForView(session: NativeViewAbiSession, view: View): number | undefined {
