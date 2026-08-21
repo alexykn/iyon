@@ -321,6 +321,41 @@ The committed benchmark `packages/iyon-runtime/bench/PERF-11.1-generated-vertica
 
 **Tranche 3 status: COMPLETE.** The generated first slice is linked from the staged Bun 1.4 addon, executes handwritten native semantic operations, publishes/reuses the existing weak semantic cache, passes text/common/spacer host parity and release/lifetime tests, and has a clean benchmark record. Broader NativeViewRuntime unification for every V2/V3/V4/host boundary and production Native Shadow routing remain later tranches.
 
+## 2.8 Tranche 4 implementation record
+
+Tranche 4 (`§22 PERF-11.2`) is implemented in commit `4784c89`. The environment runtime is now the single owner of semantic and native View lifetime state rather than a cache object plus transport-owned acceleration stores.
+
+The implementation changes are:
+
+```text
+NativeViewRuntime
+    stable Arc allocation per N-API environment
+    ABI header, owner-thread/alive checks, semantic NodeId -> WeakView map
+    generated NativeView slots and NodeId -> NativeRef mapping
+    V3/V4 packed state and FastShared slot state
+    FastShared host-pointer -> session registry
+```
+
+Direct structured decoding, V2 packed decoding, V3, V4, generated ABI operations, and FastShared all obtain the same environment runtime handle. Owner-thread paths access the stable runtime directly; the old `Arc<Mutex<ViewBridgeCache>>` hot-path lock is gone. Runtime cleanup marks the header dead before removing the environment handle, and the generated pointer remains valid only for the environment lifetime.
+
+V3, V4, and FastShared View publications now call the runtime's weak-only bulk publication path. That path validates NodeId collisions and reuses or creates the same native View lease table used by generated calls. A bulk publication does not create a JS lease; `view_ref_for_node_id` acquires a counted lease when JavaScript needs one. Transport generation resets clear only the host/transport-local FastShared slot table and leave the semantic cache and native View identities intact.
+
+FastShared no longer contains a second `nodes` map, a second View slot table, or the static 1024-entry session lookup. Its ABI descriptor and fixed calls now carry the stable environment runtime pointer and stable boxed host pointer. FastShared sequence/View slots are owned by the environment runtime and keyed by host pointer so independent hosts cannot collide on transport-local reference numbers. Host disposal unregisters the session and releases its runtime-owned slot table without freeing the environment runtime.
+
+The Tranche 4 verification includes:
+
+```text
+cargo fmt --all -- --check
+cargo check -p iyon-native
+cargo check -p iyon-native --features perf-packed-timing
+cargo test -p iyon-native --lib --features perf-packed-timing (11 passed)
+Bun 1.4 generated ABI, direct, V2, V3, V4, FastShared, and teardown tests (50 passed)
+TypeScript typecheck
+cross-host FastShared reference-isolation test
+```
+
+**Tranche 4 status: COMPLETE.** The environment runtime/cache boundary is unified and lifetime-tested. Production Native Shadow routing remains intentionally disabled; generated semantic routing, PathRefs, pending/fused backing, edit transactions, builders, and host-boundary migration remain later tranches.
+
 The canonical ABI input and generator sources are located at:
 
 ```text
