@@ -2,7 +2,7 @@
   "benchmark": "PERF-11.3-generated-scalar",
   "bun_version": "1.4.0",
   "bun_revision": "34cbb9a40b4bd1bd767d134a7065e66c2432a676",
-  "git_sha": "eb3bb92a539e6bbdd0b55c4ab0c26b68b4d5400f",
+  "git_sha": "c9f690c4fc9578d7ea0591425715e9df4263ebf0",
   "git_dirty": false,
   "native_artifact_sha256": "2c00ec5e0fcf7613902f684602b93beb0e3440999846ec845e254bc6830b4397",
   "schema_blake3": "e533d64e5293b56a70b81e67a9aee34c17cdfd0a9d1199420cfcb263b2d0f470",
@@ -20,19 +20,19 @@
   "node_id_arrays_written": 0,
   "results": {
     "runtime_noop": {
-      "median_ns_per_call": 9.605667,
+      "median_ns_per_call": 9.716083,
       "checksum": 0
     },
     "view_render_ref": {
-      "median_ns_per_call": 23.734166,
+      "median_ns_per_call": 19.718459,
       "checksum": 0
     },
     "host_render_ref": {
-      "median_ns_per_call": 67.626791,
+      "median_ns_per_call": 66.864125,
       "checksum": 0
     },
     "view_text_layout_patch_root": {
-      "median_ns_per_call": 250.3833,
+      "median_ns_per_call": 235.7625,
       "checksum": 0
     }
   }
