@@ -612,6 +612,7 @@ impl NativeTextInput {
 pub struct NativeTuiHost {
     host: Box<TuiHost>,
     alive: AtomicBool,
+    view_runtime: usize,
     #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
     fast_shared: Box<fast_shared::FastSession>,
 }
@@ -635,8 +636,9 @@ impl NativeTuiHost {
             TuiHost::open(width, height, headless.unwrap_or(false))
                 .map_err(|error| crate::NativeError::internal(error.to_string()))?,
         );
+        let view_runtime = view_abi::runtime_ptr_for_env(&env)? as usize;
         #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
-        let runtime = view_abi::runtime_ptr_for_env(&env)?;
+        let runtime = view_runtime as *mut view_abi::NativeViewRuntime;
         #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
         let mut fast_shared = Box::new(fast_shared::FastSession::new(&mut host, runtime));
         #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
@@ -646,6 +648,7 @@ impl NativeTuiHost {
         Ok(Self {
             host,
             alive: AtomicBool::new(true),
+            view_runtime,
             #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
             fast_shared,
         })
@@ -654,6 +657,7 @@ impl NativeTuiHost {
     #[napi]
     pub fn dispose(&self) -> Result<()> {
         if self.alive.swap(false, Ordering::AcqRel) {
+            view_abi::abort_all_edit_txns(self.view_runtime as *mut view_abi::NativeViewRuntime);
             #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
             {
                 self.fast_shared.close();

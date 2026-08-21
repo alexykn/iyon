@@ -692,6 +692,10 @@ impl NativeViewRuntime {
         self.publish(node_id, view)
     }
 
+    fn abort_all_edit_txns(&mut self) {
+        self.edit_txns.clear();
+    }
+
     fn release_many(&mut self, refs: *const u32, used_count: u32) -> Result<i32, i32> {
         for index in 0..used_count as usize {
             let reference = unsafe { refs.add(index).read() };
@@ -790,6 +794,17 @@ pub(super) fn runtime_from_handle(
 
 pub(super) fn runtime_for_env(env: &Env) -> napi::Result<*mut NativeViewRuntime> {
     runtime_ptr_for_env(env)
+}
+
+/// Host disposal must discard any transaction that could otherwise retain a
+/// strong staged root until environment teardown. Transactions are runtime-
+/// scoped (the ABI begin call intentionally has no host argument), so clearing
+/// the environment's uncommitted set is the conservative lifecycle boundary.
+pub(super) fn abort_all_edit_txns(pointer: *mut NativeViewRuntime) {
+    let Ok(runtime) = runtime_mut(pointer) else {
+        return;
+    };
+    runtime.abort_all_edit_txns();
 }
 
 #[napi(js_name = "tuiViewAbiBootstrap")]
@@ -1346,6 +1361,9 @@ pub unsafe extern "Rust" fn edit_txn_abort_impl(
     let Ok(runtime) = runtime_mut(runtime) else {
         return -1;
     };
+    if !is_valid_edit_txn_ref(txn_ref) {
+        return record_host_status(runtime, -1);
+    }
     let status = if runtime.edit_txns.remove(&txn_ref).is_some() {
         0
     } else {
