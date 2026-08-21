@@ -4135,7 +4135,7 @@ Tranche 13 is implemented by the following committed changes:
 - `packages/iyon-runtime/src/tui/native_view_abi.ts` — structural axis/grid edits materialize new children through NativeRef rather than falling back when a changed child is new.
 - `packages/iyon-runtime/src/tui/runtime.ts` — closed TUI instances release their current JS scene reference.
 
-The final implementation commits are `5a4a258`, `fcb152d`, `d7c8ba4`, `3375fb8`, `30d2925`, and `7459519` (the benchmark artifact records source SHA `745951999a7d0c68fc07e88608b5e441d10f559d`).
+The final implementation commits are `5a4a258`, `fcb152d`, `d7c8ba4`, `3375fb8`, `30d2925`, `7459519`, `29c9e0f`, and `e7005b8` (the benchmark artifact records source SHA `e7005b81b04eeb2a44c878674f6580af01054097`).
 
 ## Authoritative run
 
@@ -4151,7 +4151,7 @@ Environment and ABI:
 Bun:                 1.4.0
 Bun revision:        34cbb9a40b4bd1bd767d134a7065e66c2432a676
 Target:               darwin-arm64
-Native artifact SHA: 958561c28955562f5b28cd5c71a241b9986e152bf8465df61a663a6eafbb598d
+Native artifact SHA: bb19aa780dbba07d048e826f99fae6765d903f551d49da669d05b16a56abfda1
 Schema BLAKE3:       f7b30e32493e2e95f86541401308e5db64103bd8a7e694cbecbfe851040025d3
 Generator BLAKE3:    20435cb0e211e543dd671e6c86669cf3f205c8e77c5070f47f4d181a4a9d3c71
 ABI version:         1
@@ -4167,14 +4167,14 @@ Times below are median nanoseconds per case across the case medians; the complet
 
 | Set | Direct total | Native Shadow total | V4 total | Native Shadow result |
 |---|---:|---:|---:|---|
-| Normal retained (100) | 90,833 | 93,750 | 93,916 | 2.03% slower than direct |
-| Wide (3) | 38,481,749 | 31,268,375 | 31,713,584 | 18.7% faster than direct |
-| Cold (4) | 15,389,125 | 13,472,833 | 13,917,916 | 2.55% faster than V4 |
-| Path/transaction (4) | 105,042 | 137,751 | 124,584 | 10.6% slower than V4 |
+| Normal retained (100) | 89,208 | 94,541 | 93,042 | 1.83% slower than direct |
+| Wide (3) | 39,853,126 | 31,171,666 | 31,016,000 | 21.8% faster than direct |
+| Cold (4) | 16,206,874 | 13,323,624 | 14,005,667 | 4.87% faster than V4 |
+| Path/transaction (4) | 103,666 | 124,999 | 100,375 | 24.5% slower than V4 |
 
-Normal-matrix phase medians were: direct construction `50,459 ns`, commit `34,667 ns`, encoding `292 ns`; Native Shadow construction `48,708 ns`, commit/native route `41,125 ns`, structural encoding `0 ns`; V4 construction `51,416 ns`, commit `40,666 ns`, encoding `4,207 ns`. Total always remained construction plus complete commit; no phase was subtracted from the decision.
+Normal-matrix phase medians were: direct construction `49,209 ns`, commit `36,167 ns`, encoding `209 ns`; Native Shadow construction `47,958 ns`, commit/native route `42,000 ns`, structural encoding `0 ns`; V4 construction `49,417 ns`, commit `40,000 ns`, encoding `3,959 ns`. Total always remained construction plus complete commit; no phase was subtracted from the decision.
 
-The 100-operation trace totals were direct `11,720,120 ns`, Native Shadow `17,510,991 ns`, and V4 `15,083,206 ns`. Native Shadow was therefore `1.494x` the best prior candidate (direct; `1.161x` V4) and did not reach the required 15% improvement.
+The 100-operation trace totals were direct `12,680,709 ns`, Native Shadow `14,712,955 ns`, and V4 `11,767,844 ns`. Native Shadow was therefore `1.250x` the best prior candidate (V4) and did not reach the required 15% improvement.
 
 ## Routes and lifetime
 
@@ -4216,11 +4216,11 @@ Persistent-sequence evidence remains consistent with the tranche: the dedicated 
 The end-to-end rewrite is **rejected for default adoption**. The required gates failed:
 
 ```text
-normal matrix faster than direct:       failed (1.02034x)
-common regressions <= 3%:               failed (47 cases)
-exact no slower than V4:                failed (max 1.10440x)
-cold within 5% of V4:                   passed (max 0.97446x)
-trace >= 15% faster than best prior:   failed (1.49410x)
+normal matrix faster than direct:       failed (1.01830x)
+common regressions <= 3%:               failed (44 cases)
+exact no slower than V4:                failed (max 1.20089x)
+cold within 5% of V4:                   passed (max 0.97463x)
+trace >= 15% faster than best prior:   failed (1.25027x)
 lifetime audit:                         passed
 ```
 
