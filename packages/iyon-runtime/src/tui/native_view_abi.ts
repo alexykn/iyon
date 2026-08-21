@@ -244,15 +244,14 @@ export function tryNativeEditTransactionRender(
         return undefined;
       }
       const pathRef = nativePathRefForLineage(session, edit.lineage);
-      const ids = edit.views.map((view) => nodeIdPair(view));
-      const [targetLow, targetHigh] = ids[0]!;
+      const [targetLow, targetHigh] = nodeIdPair(edit.views[0]!);
       // Generated checked wrappers validate every fixed NodeId lane. Unused
       // lanes carry the valid root identity and are ignored by native staging.
-      const fallbackId = ids[ids.length - 1]!;
-      const [ancestor0Low, ancestor0High] = ids[1] ?? fallbackId;
-      const [ancestor1Low, ancestor1High] = ids[2] ?? fallbackId;
-      const [ancestor2Low, ancestor2High] = ids[3] ?? fallbackId;
-      const [ancestor3Low, ancestor3High] = ids[4] ?? fallbackId;
+      const fallbackId = nodeIdPair(edit.views[depth]!);
+      const [ancestor0Low, ancestor0High] = edit.views[1] === undefined ? fallbackId : nodeIdPair(edit.views[1]);
+      const [ancestor1Low, ancestor1High] = edit.views[2] === undefined ? fallbackId : nodeIdPair(edit.views[2]);
+      const [ancestor2Low, ancestor2High] = edit.views[3] === undefined ? fallbackId : nodeIdPair(edit.views[3]);
+      const [ancestor3Low, ancestor3High] = edit.views[4] === undefined ? fallbackId : nodeIdPair(edit.views[4]);
       const status = editTxnAddTextLayout(
         session.symbols,
         session.runtime,
