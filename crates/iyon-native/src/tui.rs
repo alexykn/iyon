@@ -1889,7 +1889,18 @@ fn validate_cached_node_header(value: &Object<'_>, kind: u32) -> Result<()> {
         }
         VIEW_KIND_GRID => {
             required_prop::<Array>(value, "columns")?;
-            required_prop::<Array>(value, "rows")?;
+            let rows = required_prop::<Array>(value, "rows")?;
+            for index in 0..rows.len() {
+                let row = rows.get_element::<Object>(index)?;
+                required_prop::<Object>(&row, "track")?;
+                let cells = required_prop::<Array>(&row, "cells")?;
+                for cell_index in 0..cells.len() {
+                    let cell = cells.get_element::<Object>(cell_index)?;
+                    required_positive_u16(&cell, "columnSpan")?;
+                    required_positive_u16(&cell, "rowSpan")?;
+                    required_prop::<Object>(&cell, "view")?;
+                }
+            }
             required_u16(value, "columnGap")?;
             required_u16(value, "rowGap")?;
         }
