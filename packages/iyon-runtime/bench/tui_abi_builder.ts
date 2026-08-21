@@ -8,7 +8,12 @@ import {
 import { viewSpacerCreate } from "../src/tui/generated/view_calls.ts";
 import { nodeForBridge, nodeIdPair, View } from "../src/tui/values/view.ts";
 import manifest from "../src/tui/generated/view_abi_manifest.json";
-import { NATIVE_BUILDER_MAX_CHILDREN, NATIVE_SMALL_AXIS_ARITY_MAX } from "../src/tui/native_view_policy.ts";
+import {
+  NATIVE_BUILDER_MAX_CHILDREN,
+  NATIVE_COLD_MAX_DEPTH,
+  NATIVE_COLD_MAX_NODES,
+  NATIVE_SMALL_AXIS_ARITY_MAX,
+} from "../src/tui/native_view_policy.ts";
 
 const SIZES = [20, 200, 2_000, 10_000] as const;
 const WARMUP = 2;
@@ -128,6 +133,8 @@ console.log(JSON.stringify({
   routing_thresholds: {
     small_arity_max: NATIVE_SMALL_AXIS_ARITY_MAX,
     builder_max_children: NATIVE_BUILDER_MAX_CHILDREN,
+    cold_max_nodes: NATIVE_COLD_MAX_NODES,
+    cold_max_depth: NATIVE_COLD_MAX_DEPTH,
   },
   routes: {
     builder: "compact pending axis -> generated small arity/builder -> one host install",
