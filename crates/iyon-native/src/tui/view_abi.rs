@@ -868,10 +868,12 @@ impl NativeViewRuntime {
         }
         if let Some(reference) = self.node_refs.get(&node_id).copied() {
             match self.resolve_ref(reference) {
-                Ok((existing, has_lease)) if existing == view => {
-                    if !has_lease {
-                        self.ensure_lease(reference, existing)?;
-                    }
+                Ok((existing, _)) if existing == view => {
+                    // Every generated constructor returns a caller-owned
+                    // lease, including re-materialization of an existing
+                    // semantic NodeId. Do not collapse that lease with an
+                    // already-live owner.
+                    self.acquire_lease(reference, existing)?;
                     return Ok(reference);
                 }
                 Ok(_) => return Err(FAST_INVALID),

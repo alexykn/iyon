@@ -38,15 +38,26 @@ export class NativeScrollPane extends HandleBase<NativeScrollPaneHandle, "compon
     this.call(() => {
       const previous = this.currentView;
       if (previous !== undefined) {
-        const previousRef = tryNativeMaterialize(previous);
-        const nextRef = tryNativeViewBoundaryRender(this, previous, view, previousRef);
-        if (nextRef !== undefined) {
-          releaseNativeViewRef(nativeViewAbiSession(), nextRef);
-          if (previousRef !== undefined) releaseNativeViewRef(nativeViewAbiSession(), previousRef);
-          this.currentView = view;
-          return;
+        let previousRef = tryNativeMaterialize(previous);
+        try {
+          const nextRef = tryNativeViewBoundaryRender(this, previous, view, previousRef);
+          if (nextRef !== undefined) {
+            releaseNativeViewRef(nativeViewAbiSession(), nextRef);
+            if (previousRef !== undefined) {
+              const retainedRef = previousRef;
+              previousRef = undefined;
+              releaseNativeViewRef(nativeViewAbiSession(), retainedRef);
+            }
+            this.currentView = view;
+            return;
+          }
+        } finally {
+          if (previousRef !== undefined) {
+            const retainedRef = previousRef;
+            previousRef = undefined;
+            releaseNativeViewRef(nativeViewAbiSession(), retainedRef);
+          }
         }
-        if (previousRef !== undefined) releaseNativeViewRef(nativeViewAbiSession(), previousRef);
       }
       const ref = tryNativeMaterialize(view);
       if (ref !== undefined) {
