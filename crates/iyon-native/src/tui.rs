@@ -810,6 +810,17 @@ impl NativeTuiHost {
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
+    /// Stable opaque pointer for generated host-mutating View ABI calls.
+    /// The N-API class allocation owns `self` until finalization; `dispose`
+    /// tombstones the host before the pointer can be used again.
+    #[napi(js_name = "tuiViewAbiHostPointer")]
+    pub fn view_abi_host_pointer(&self) -> i64 {
+        if !self.alive.load(Ordering::Acquire) {
+            return 0;
+        }
+        self as *const Self as usize as i64
+    }
+
     #[napi(js_name = "dispatchKey")]
     pub fn dispatch_key(&self, key: String, modifiers: Option<Vec<String>>) -> Result<()> {
         ensure_alive(&self.alive)?;

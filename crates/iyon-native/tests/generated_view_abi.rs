@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 7fce882a8b31b7dab23c5515ffde2626513fed07f46366e3d9869a966fe1ccb1
-// generator_blake3 = 6767bb7dce54c663ecaf7a84446e62ac37ca5f81733789e365918308bcee71b0
+// schema_blake3 = e533d64e5293b56a70b81e67a9aee34c17cdfd0a9d1199420cfcb263b2d0f470
+// generator_blake3 = 55f2f1590b18e72152621b4c5272e892f224c5d3b4e4d10e489551129f713903
 #[allow(dead_code)]
 pub struct NativeViewRuntime;
 
@@ -12,6 +12,9 @@ mod generated_conformance;
 mod generated_types;
 
 use generated_types::AxisChildInputV1;
+
+#[allow(dead_code)]
+pub struct NativeHost;
 
 mod generated_exports {
     include!(concat!(
@@ -37,6 +40,18 @@ pub unsafe extern "Rust" fn view_render_ref_impl(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn host_render_ref_impl(
+    runtime: *mut NativeViewRuntime,
+    host: *mut NativeHost,
+    base: u32,
+) -> i32 {
+    let _ = runtime;
+    let _ = host;
+    let _ = base;
+    102
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "Rust" fn view_spacer_create_impl(
     runtime: *mut NativeViewRuntime,
     node_id_low: u32,
@@ -47,7 +62,7 @@ pub unsafe extern "Rust" fn view_spacer_create_impl(
     let _ = node_id_low;
     let _ = node_id_high;
     let _ = rows;
-    0x102
+    0x103
 }
 
 #[unsafe(no_mangle)]
@@ -65,7 +80,7 @@ pub unsafe extern "Rust" fn view_text_layout_patch_root_impl(
     let _ = node_id_high;
     let _ = wrap;
     let _ = align;
-    0x103
+    0x104
 }
 
 #[unsafe(no_mangle)]
@@ -99,7 +114,7 @@ pub unsafe extern "Rust" fn view_common_patch_root_impl(
     let _ = min_height;
     let _ = max_height;
     let _ = decoration_ref;
-    0x104
+    0x105
 }
 
 #[unsafe(no_mangle)]
@@ -121,7 +136,7 @@ pub unsafe extern "Rust" fn view_axis_create_buffer_impl(
     let _ = children;
     let _ = children_capacity_bytes;
     let _ = used_child_count;
-    0x105
+    0x106
 }
 
 #[unsafe(no_mangle)]
@@ -135,7 +150,7 @@ pub unsafe extern "Rust" fn view_release_many_impl(
     let _ = refs;
     let _ = refs_capacity_bytes;
     let _ = used_ref_count;
-    106
+    107
 }
 
 #[unsafe(no_mangle)]
@@ -147,12 +162,12 @@ pub unsafe extern "Rust" fn view_ref_for_node_id_impl(
     let _ = runtime;
     let _ = node_id_low;
     let _ = node_id_high;
-    0x107
+    0x108
 }
 
 #[test]
 fn generated_function_count_is_stable() {
-    assert_eq!(generated::FUNCTION_COUNT, 8);
+    assert_eq!(generated::FUNCTION_COUNT, 9);
 }
 
 #[test]
@@ -261,15 +276,21 @@ fn generated_wrappers_reject_invalid_inputs_and_delegate() {
         unsafe { generated_exports::iyon_view_render_ref_v1(runtime_ptr, 1) },
         0x101
     );
+    let mut host = NativeHost;
+    let host_ptr = &mut host as *mut NativeHost;
+    assert_eq!(
+        unsafe { generated_exports::iyon_host_render_ref_v1(runtime_ptr, host_ptr, 1) },
+        102
+    );
     assert_eq!(
         unsafe { generated_exports::iyon_view_spacer_create_v1(runtime_ptr, 1, 0, 2) },
-        0x102
+        0x103
     );
     assert_eq!(
         unsafe {
             generated_exports::iyon_view_text_layout_patch_root_v1(runtime_ptr, 1, 1, 0, 1, 2)
         },
-        0x103
+        0x104
     );
     assert_eq!(
         unsafe {
@@ -290,7 +311,7 @@ fn generated_wrappers_reject_invalid_inputs_and_delegate() {
                 1,
             )
         },
-        0x104
+        0x105
     );
     let children = [generated_types::AxisChildInputV1 {
         track_word: 1,
@@ -309,7 +330,7 @@ fn generated_wrappers_reject_invalid_inputs_and_delegate() {
                 1,
             )
         },
-        0x105
+        0x106
     );
     let refs = [1_u32];
     assert_eq!(
@@ -321,7 +342,7 @@ fn generated_wrappers_reject_invalid_inputs_and_delegate() {
                 1,
             )
         },
-        106
+        107
     );
     assert_eq!(
         unsafe { generated_exports::iyon_runtime_noop_v1(core::ptr::null_mut()) },
@@ -385,7 +406,7 @@ fn generated_wrappers_reject_invalid_inputs_and_delegate() {
     );
     assert_eq!(
         unsafe { generated_exports::iyon_view_ref_for_node_id_v1(runtime_ptr, 1, 0) },
-        0x107
+        0x108
     );
     assert_eq!(
         unsafe { generated_exports::iyon_view_ref_for_node_id_v1(runtime_ptr, 0, 0) },

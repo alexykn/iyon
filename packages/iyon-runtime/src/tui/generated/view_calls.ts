@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 7fce882a8b31b7dab23c5515ffde2626513fed07f46366e3d9869a966fe1ccb1
-// generator_blake3 = 6767bb7dce54c663ecaf7a84446e62ac37ca5f81733789e365918308bcee71b0
+// schema_blake3 = e533d64e5293b56a70b81e67a9aee34c17cdfd0a9d1199420cfcb263b2d0f470
+// generator_blake3 = 55f2f1590b18e72152621b4c5272e892f224c5d3b4e4d10e489551129f713903
 import type { Pointer } from "bun:ffi";
 import type { linkViewAbi } from "./view_abi";
 export type ViewAbiSymbols = ReturnType<typeof linkViewAbi>["symbols"];
@@ -20,6 +20,11 @@ export function runtimeNoop(symbols: ViewAbiSymbols, runtime: Pointer): number {
 export function viewRenderRef(symbols: ViewAbiSymbols, runtime: Pointer, base: number): number {
   const result = symbols.viewRenderRef(runtime, base);
   return checkedRef(result);
+}
+
+export function hostRenderRef(symbols: ViewAbiSymbols, runtime: Pointer, host: Pointer, base: number): number {
+  const result = symbols.hostRenderRef(runtime, host, base);
+  return result;
 }
 
 export function viewSpacerCreate(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, rows: number): number {

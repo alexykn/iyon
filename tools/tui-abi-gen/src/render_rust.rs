@@ -516,7 +516,17 @@ pub fn layout_tests(document: &AbiDocument, schema_hash: &str, generator_hash: &
     } else {
         format!("use generated_types::{{{}}};\n\n", pod_imports.join(", "))
     };
-    output.push_str(&format!("#[allow(dead_code)]\npub struct NativeViewRuntime;\n\n#[path = \"../src/generated/view_abi_table.rs\"]\nmod generated;\n#[path = \"../src/generated/view_abi_types.rs\"]\nmod generated_types;\n#[path = \"../src/generated/view_abi_conformance.rs\"]\nmod generated_conformance;\n\n{generated_root_imports}mod generated_exports {{\n    include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/generated/view_abi_exports.rs\"));\n}}\n\n"));
+    let host_decl = if document.functions.iter().any(|function| {
+        function
+            .args
+            .iter()
+            .any(|argument| argument.lowering == "host_ptr")
+    }) {
+        "#[allow(dead_code)]\npub struct NativeHost;\n\n"
+    } else {
+        ""
+    };
+    output.push_str(&format!("#[allow(dead_code)]\npub struct NativeViewRuntime;\n\n#[path = \"../src/generated/view_abi_table.rs\"]\nmod generated;\n#[path = \"../src/generated/view_abi_types.rs\"]\nmod generated_types;\n#[path = \"../src/generated/view_abi_conformance.rs\"]\nmod generated_conformance;\n\n{generated_root_imports}{host_decl}mod generated_exports {{\n    include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/generated/view_abi_exports.rs\"));\n}}\n\n"));
     for (index, function) in document.functions.iter().enumerate() {
         output.push_str(&format!(
             "#[unsafe(no_mangle)]\npub unsafe extern \"Rust\" fn {}({}) -> {} {{\n",
@@ -551,14 +561,14 @@ pub fn layout_tests(document: &AbiDocument, schema_hash: &str, generator_hash: &
     }
     output.push_str("}\n\n#[test]\nfn generated_wrappers_reject_invalid_inputs_and_delegate() {\n    let mut runtime = NativeViewRuntime;\n    let runtime_ptr = &mut runtime as *mut NativeViewRuntime;\n");
     if document.functions.len() >= 7 {
-        output.push_str("    assert_eq!(unsafe { generated_exports::iyon_runtime_noop_v1(runtime_ptr) }, 0x100);\n    assert_eq!(unsafe { generated_exports::iyon_view_render_ref_v1(runtime_ptr, 1) }, 0x101);\n    assert_eq!(unsafe { generated_exports::iyon_view_spacer_create_v1(runtime_ptr, 1, 0, 2) }, 0x102);\n    assert_eq!(unsafe { generated_exports::iyon_view_text_layout_patch_root_v1(runtime_ptr, 1, 1, 0, 1, 2) }, 0x103);\n    assert_eq!(unsafe { generated_exports::iyon_view_common_patch_root_v1(runtime_ptr, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1) }, 0x104);\n    let children = [generated_types::AxisChildInputV1 { track_word: 1, child_ref: 1 }];\n    assert_eq!(unsafe { generated_exports::iyon_view_axis_create_buffer_v1(runtime_ptr, 1, 0, 1, 0, children.as_ptr(), core::mem::size_of_val(&children), 1) }, 0x105);\n    let refs = [1_u32];\n    assert_eq!(unsafe { generated_exports::iyon_view_release_many_v1(runtime_ptr, refs.as_ptr(), core::mem::size_of_val(&refs), 1) }, 106);\n    assert_eq!(unsafe { generated_exports::iyon_runtime_noop_v1(core::ptr::null_mut()) }, 0x8000_0001);\n    assert_eq!(unsafe { generated_exports::iyon_view_render_ref_v1(runtime_ptr, 0) }, 0x8000_0001);\n    assert_eq!(unsafe { generated_exports::iyon_view_spacer_create_v1(runtime_ptr, 0, 0, 1) }, 0x8000_0001);\n    assert_eq!(unsafe { generated_exports::iyon_view_text_layout_patch_root_v1(runtime_ptr, 1, 1, 0, 0, 1) }, 0x8000_0001);\n    assert_eq!(unsafe { generated_exports::iyon_view_axis_create_buffer_v1(runtime_ptr, 1, 0, 1, 0, core::ptr::null(), 8, 0) }, 0x8000_0002);\n    assert_eq!(unsafe { generated_exports::iyon_view_axis_create_buffer_v1(runtime_ptr, 1, 0, 1, 0, core::ptr::null(), 0, 1) }, 0x8000_0003);\n    assert_eq!(unsafe { generated_exports::iyon_view_release_many_v1(runtime_ptr, core::ptr::null(), 4, 0) }, -2);\n    assert_eq!(unsafe { generated_exports::iyon_view_release_many_v1(runtime_ptr, core::ptr::null(), 0, 1) }, -3);\n");
+        output.push_str("    assert_eq!(unsafe { generated_exports::iyon_runtime_noop_v1(runtime_ptr) }, 0x100);\n    assert_eq!(unsafe { generated_exports::iyon_view_render_ref_v1(runtime_ptr, 1) }, 0x101);\n    let mut host = NativeHost;\n    let host_ptr = &mut host as *mut NativeHost;\n    assert_eq!(unsafe { generated_exports::iyon_host_render_ref_v1(runtime_ptr, host_ptr, 1) }, 102);\n    assert_eq!(unsafe { generated_exports::iyon_view_spacer_create_v1(runtime_ptr, 1, 0, 2) }, 0x103);\n    assert_eq!(unsafe { generated_exports::iyon_view_text_layout_patch_root_v1(runtime_ptr, 1, 1, 0, 1, 2) }, 0x104);\n    assert_eq!(unsafe { generated_exports::iyon_view_common_patch_root_v1(runtime_ptr, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1) }, 0x105);\n    let children = [generated_types::AxisChildInputV1 { track_word: 1, child_ref: 1 }];\n    assert_eq!(unsafe { generated_exports::iyon_view_axis_create_buffer_v1(runtime_ptr, 1, 0, 1, 0, children.as_ptr(), core::mem::size_of_val(&children), 1) }, 0x106);\n    let refs = [1_u32];\n    assert_eq!(unsafe { generated_exports::iyon_view_release_many_v1(runtime_ptr, refs.as_ptr(), core::mem::size_of_val(&refs), 1) }, 107);\n    assert_eq!(unsafe { generated_exports::iyon_runtime_noop_v1(core::ptr::null_mut()) }, 0x8000_0001);\n    assert_eq!(unsafe { generated_exports::iyon_view_render_ref_v1(runtime_ptr, 0) }, 0x8000_0001);\n    assert_eq!(unsafe { generated_exports::iyon_view_spacer_create_v1(runtime_ptr, 0, 0, 1) }, 0x8000_0001);\n    assert_eq!(unsafe { generated_exports::iyon_view_text_layout_patch_root_v1(runtime_ptr, 1, 1, 0, 0, 1) }, 0x8000_0001);\n    assert_eq!(unsafe { generated_exports::iyon_view_axis_create_buffer_v1(runtime_ptr, 1, 0, 1, 0, core::ptr::null(), 8, 0) }, 0x8000_0002);\n    assert_eq!(unsafe { generated_exports::iyon_view_axis_create_buffer_v1(runtime_ptr, 1, 0, 1, 0, core::ptr::null(), 0, 1) }, 0x8000_0003);\n    assert_eq!(unsafe { generated_exports::iyon_view_release_many_v1(runtime_ptr, core::ptr::null(), 4, 0) }, -2);\n    assert_eq!(unsafe { generated_exports::iyon_view_release_many_v1(runtime_ptr, core::ptr::null(), 0, 1) }, -3);\n");
     }
     if document
         .functions
         .iter()
         .any(|function| function.name == "view_ref_for_node_id")
     {
-        output.push_str("    assert_eq!(unsafe { generated_exports::iyon_view_ref_for_node_id_v1(runtime_ptr, 1, 0) }, 0x107);\n    assert_eq!(unsafe { generated_exports::iyon_view_ref_for_node_id_v1(runtime_ptr, 0, 0) }, 0x8000_0001);\n");
+        output.push_str("    assert_eq!(unsafe { generated_exports::iyon_view_ref_for_node_id_v1(runtime_ptr, 1, 0) }, 0x108);\n    assert_eq!(unsafe { generated_exports::iyon_view_ref_for_node_id_v1(runtime_ptr, 0, 0) }, 0x8000_0001);\n");
     }
     output.push_str("}\n");
     format_rust(output)
