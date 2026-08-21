@@ -2,11 +2,11 @@
   "benchmark": "PERF-11.1-generated-vertical-slice",
   "bun_version": "1.4.0",
   "bun_revision": "34cbb9a40b4bd1bd767d134a7065e66c2432a676",
-  "git_sha": "935c09a5c3b7adcb6566d9e27a593cd16865e440",
+  "git_sha": "0c1c2dd6a2fcd68bd8b8a052cc3d5a3026d4e7b5",
   "git_dirty": false,
-  "native_artifact_sha256": "537c2afac1660b4cbb7d9de4bd5e89fc36d09c248eda0a97701dc1505f31fab5",
+  "native_artifact_sha256": "65941058d8580b28e093e202c39f5feb46d25b5434fb3e0b490d963013a5731b",
   "schema_blake3": "7fce882a8b31b7dab23c5515ffde2626513fed07f46366e3d9869a966fe1ccb1",
-  "generator_blake3": "a32e416575faa290887b502f2a202006562af02cb1a05027ec41076f7b0a40d6",
+  "generator_blake3": "6767bb7dce54c663ecaf7a84446e62ac37ca5f81733789e365918308bcee71b0",
   "abi_version": 1,
   "semantic_schema_version": 1,
   "fast_view_abi": true,
@@ -20,27 +20,27 @@
   "node_id_arrays_written": 0,
   "results": {
     "runtime_noop": {
-      "median_ns_per_call": 9.994333,
+      "median_ns_per_call": 9.771541,
       "checksum": 0
     },
     "render_ref": {
-      "median_ns_per_call": 15.61575,
+      "median_ns_per_call": 15.444209,
       "checksum": 0
     },
     "ref_for_node_id": {
-      "median_ns_per_call": 37.484209,
+      "median_ns_per_call": 37.22375,
       "checksum": 0
     },
     "spacer_create": {
-      "median_ns_per_call": 133.3083,
+      "median_ns_per_call": 140.1209,
       "checksum": 0
     },
     "text_layout_patch_root": {
-      "median_ns_per_call": 260.7,
+      "median_ns_per_call": 285.3792,
       "checksum": 0
     },
     "common_patch_root": {
-      "median_ns_per_call": 224.9042,
+      "median_ns_per_call": 220.05,
       "checksum": 0
     }
   }
