@@ -228,7 +228,9 @@ function freezeBridgeNode(node: BridgeViewNode): BridgeViewNode {
 export class View {
   readonly kind = "view" as const;
   private constructor(node: BridgeViewNode | BridgeViewNodeDraft, lineage?: PackedLineage, seed?: PackedMetaSeed) {
-    nodes.set(this, withPrivateIdentity(node, lineage, seed));
+    const identity = withPrivateIdentity(node, lineage, seed);
+    nodes.set(this, identity);
+    nodeIdParts.set(this, [identity.id >>> 0, Math.floor(identity.id / 0x1_0000_0000)]);
     Object.freeze(this);
   }
 
