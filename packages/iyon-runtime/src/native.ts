@@ -80,6 +80,10 @@ export interface NativeViewAbiBootstrap {
     styles: number;
     fast_slot_tables: number;
     fast_slots: number;
+    stale_removals: number;
+    release_batches: number;
+    released_refs: number;
+    live_weak_upgrades: number;
     generation: number;
     alive: boolean;
   };
