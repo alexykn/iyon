@@ -1,0 +1,36 @@
+{
+  "benchmark": "PERF-11.9-native-strings",
+  "bun_version": "1.4.0",
+  "bun_revision": "34cbb9a40b4bd1bd767d134a7065e66c2432a676",
+  "git_sha": "7894c559426773a8cb1542164594989fae42e0f4",
+  "git_dirty": false,
+  "native_artifact_sha256": "448c1b1150860dc09a75fa7298afd2343b83440db7eb41ee1af78631799952e9",
+  "schema_blake3": "2e4b86b766ff8db783e86905756b496e09f137e29bb0b36dc54dfa3834ebf809",
+  "generator_blake3": "a7337dcff858f38ae2b177f87758637fc2fcf2bb1d0ec1b1286722b66d00f0529",
+  "abi_version": 1,
+  "semantic_schema_version": 1,
+  "function_count": 46,
+  "warmup": 2,
+  "iterations": 1000,
+  "repeats": 3,
+  "cases": ["short_ascii", "short_unicode", "embedded_nul", "long_text", "styled_chain", "spans_1", "spans_2", "spans_3", "spans_4"],
+  "routes": {
+    "native": "pending compact text -> style atoms -> generated cstring or buffer -> one host install",
+    "v4": "pre-materialized direct bridge -> existing host decoder"
+  },
+  "results": {
+    "short_ascii": { "native_median_ns": 2210.917, "v4_median_ns": 4176.292 },
+    "short_unicode": { "native_median_ns": 1969.291, "v4_median_ns": 3758.875 },
+    "embedded_nul": { "native_median_ns": 2449.833, "v4_median_ns": 3173.166 },
+    "long_text": { "native_median_ns": 2716.792, "v4_median_ns": 4104.166 },
+    "styled_chain": { "native_median_ns": 5891.5, "v4_median_ns": 7804 },
+    "spans_1": { "native_median_ns": 2200.5, "v4_median_ns": 3631.125 },
+    "spans_2": { "native_median_ns": 2669.125, "v4_median_ns": 5520.792 },
+    "spans_3": { "native_median_ns": 2693.625, "v4_median_ns": 4746.667 },
+    "spans_4": { "native_median_ns": 2831.542, "v4_median_ns": 5452.708 }
+  },
+  "structural_encoding_ns": 0,
+  "command_words_written": 0,
+  "path_arrays_written": 0,
+  "node_id_arrays_written": 0
+}
