@@ -1249,6 +1249,26 @@ mod tests {
                 .is_some()
         );
         assert!(runtime.resolve_ref(patched).is_ok());
+        let generic = unsafe {
+            generated_exports::iyon_view_text_layout_patch_path_v1(
+                pointer, base, path, 1, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0, 3, 2,
+            )
+        };
+        assert!(generic < 0x8000_0000);
+        assert!(
+            runtime
+                .nodes
+                .get(&4)
+                .and_then(iyon_tui::WeakView::upgrade)
+                .is_some()
+        );
+        assert!(
+            runtime
+                .nodes
+                .get(&5)
+                .and_then(iyon_tui::WeakView::upgrade)
+                .is_some()
+        );
     }
 
     #[test]
