@@ -403,6 +403,27 @@ The construction benchmark is `packages/iyon-runtime/bench/tui_abi_construction.
 
 **Tranche 7 status: COMPLETE.** Stable compact backing, pending create/patch states, scalar common-field fusion, lazy bridge materialization, generated scalar routing without bridge reads, fallback preservation, and construction evidence pass. Native edit transactions, wider PersistentSeq/grid families, native builders, string/style specialization, and broader host-boundary migration remain later tranches.
 
+## 2.12 Tranche 8 implementation record
+
+Tranche 8 (`§22 PERF-11.6`) is implemented in commit `fe083782331bcbc475fe12ef70e554aca591dcfb` (`perf(tui): build multi-edit retained updates natively`). The canonical generated ABI now adds the typed transaction lifecycle:
+
+```text
+edit_txn_begin
+edit_txn_add_text_layout
+edit_txn_commit_render
+edit_txn_abort
+```
+
+`EditTxnRef` uses a handle range disjoint from both `ViewRef` and `PathRef`. Begin resolves and strongly stages the base root without publishing or mutating a host. Each fixed-arity typed text-layout add call carries a cached target NodeId, up to four fixed ancestor NodeId pairs, a cached PathRef, and scalar wrap/alignment values; it writes no edit buffer, path array, or NodeId array. Checked generated wrappers validate every fixed NodeId lane, while unused lanes carry a valid root identity and are ignored by native staging.
+
+The native runtime stores only typed edits until commit, enforces `MAX_EDIT_COUNT = 256`, `MAX_CHANGED_PATH_DEPTH = 128` (with the current scalar transaction route bounded to depth four), `MAX_TXN_STAGED_OBJECTS = 4,096`, and the configured new-text-byte limit. Commit constructs a native changed-path trie, validates path kinds/selectors and NodeId lineage, descends only changed branches, applies text metadata edits, rebuilds each shared ancestor once, and preserves persistent sequence path-copy behavior for axis/grid parents. Publication is preflight validated against the shared weak semantic cache and NativeRef table. The staged root is installed in one host mutation, then changed descendants are weak-published and the returned root receives the JS lease. Invalid input, stale refs, limits, host disposal, or explicit abort discard the transaction before publication; the host remains untouched on staging/validation failure.
+
+The TypeScript transaction helper is `tryNativeEditTransactionRender` in `packages/iyon-runtime/src/tui/native_view_abi.ts`. It demonstrates the complete typed lifecycle and host parity without moving broader public View-boundary routing ahead of Tranche 12. Native unit coverage proves two sibling edits share one rebuilt root (`3` staged views for `2` leaves), abort/expected-count limits, path validation, publication, and semantic-cache behavior. `packages/iyon-runtime/tests/tui_native_transaction.test.ts` runs the generated Bun ABI against a headless host and compares the atomically committed result with a direct bridge oracle.
+
+The clean Bun 1.4 benchmark is `packages/iyon-runtime/bench/tui_abi_transaction.ts`, with evidence in `packages/iyon-runtime/bench/PERF-11.6-native-transaction.json`. It was captured at source revision `fe083782331bcbc475fe12ef70e554aca591dcfb` with `git_dirty: false`, native artifact SHA-256 `b4ff4c09da392bc82363e54ca048deaa84f794cff986a1bf4ca422ebd0b4cd7f`, schema BLAKE3 `6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9`, and generator BLAKE3 `18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69`. Under Bun `1.4.0` revision `34cbb9a40b4bd1bd767d134a7065e66c2432a676`, `2,000` iterations and five repeats measured median transaction render costs of `2,702.5415 ns` for two edits, `4,420.8125 ns` for four, `7,904.5205 ns` for eight, `15,963.375 ns` for sixteen, and `76,127.0415 ns` for sixty-four. Structural encoding, command words, path arrays, and NodeId arrays remained zero. Wider axis/grid transaction edit families are Tranche 9; unified production routing is Tranche 12.
+
+**Tranche 8 status: COMPLETE.** Typed native transaction begin/add/commit/abort, native changed-path trie construction, common-ancestor sharing, atomic host installation, weak publication/JS lease handling, validation, limits, abort behavior, direct parity, and clean multi-edit evidence pass. The generated transaction currently covers text-layout edits; axis/grid and other edit families remain intentionally scoped to their named later tranches.
+
 The canonical ABI input and generator sources are located at:
 
 ```text
