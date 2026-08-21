@@ -20,10 +20,21 @@ pub trait SharedUtf8Source: Send + Sync {
 
 const INLINE_TEXT_CAPACITY: usize = 12;
 
+/// Immutable native-owned UTF-8 storage shared by retained text clones.
+#[derive(Debug)]
+pub(crate) struct NativeUtf8Page {
+    text: Box<str>,
+}
+
 pub(crate) enum TextStorage {
     Inline {
         bytes: [u8; INLINE_TEXT_CAPACITY],
         len: u8,
+    },
+    PageSlice {
+        page: Arc<NativeUtf8Page>,
+        offset: u32,
+        len: u32,
     },
     Owned(String),
     #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
@@ -35,6 +46,11 @@ impl Clone for TextStorage {
         match self {
             Self::Inline { bytes, len } => Self::Inline {
                 bytes: *bytes,
+                len: *len,
+            },
+            Self::PageSlice { page, offset, len } => Self::PageSlice {
+                page: Arc::clone(page),
+                offset: *offset,
                 len: *len,
             },
             Self::Owned(text) => Self::Owned(text.clone()),
@@ -70,7 +86,14 @@ impl TextStorage {
                 len: bytes.len() as u8,
             };
         }
-        Self::Owned(text)
+        let len = text.len() as u32;
+        Self::PageSlice {
+            page: Arc::new(NativeUtf8Page {
+                text: text.into_boxed_str(),
+            }),
+            offset: 0,
+            len,
+        }
     }
 
     fn as_str(&self) -> &str {
@@ -78,6 +101,9 @@ impl TextStorage {
             Self::Inline { bytes, len } => unsafe {
                 str::from_utf8_unchecked(&bytes[..*len as usize])
             },
+            Self::PageSlice { page, offset, len } => {
+                &page.text[*offset as usize..(*offset + *len) as usize]
+            }
             Self::Owned(text) => text,
             #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
             Self::Shared(source) => source.as_str(),
