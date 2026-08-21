@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914
-// generator_blake3 = 6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91
+// schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801
+// generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de
 export type GeneratedAbiBenchmarkCase = {
   name: string;
   family: string;
@@ -20,6 +20,20 @@ export const generatedAbiCases: readonly GeneratedAbiBenchmarkCase[] = [
   { name: "view_text_layout_patch_root", family: "scalar_patch", hotness: "critical", benchmarkRegistration: "view.text_layout_patch_root", scalarArgs: 6, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 1 },
   { name: "view_common_patch_root", family: "scalar_patch", hotness: "critical", benchmarkRegistration: "view.common_patch_root", scalarArgs: 14, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 1 },
   { name: "view_axis_create_buffer", family: "constructor", hotness: "warm", benchmarkRegistration: "view.axis_create_buffer", scalarArgs: 6, hasBuffer: true, maxBufferBytes: 4194304, maxInputCount: 524288 },
+  { name: "view_row_create_0", family: "constructor", hotness: "warm", benchmarkRegistration: "view.row_create_0", scalarArgs: 4, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 0 },
+  { name: "view_row_create_1", family: "constructor", hotness: "warm", benchmarkRegistration: "view.row_create_1", scalarArgs: 6, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 1 },
+  { name: "view_row_create_2", family: "constructor", hotness: "warm", benchmarkRegistration: "view.row_create_2", scalarArgs: 8, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 2 },
+  { name: "view_row_create_3", family: "constructor", hotness: "warm", benchmarkRegistration: "view.row_create_3", scalarArgs: 10, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 3 },
+  { name: "view_row_create_4", family: "constructor", hotness: "warm", benchmarkRegistration: "view.row_create_4", scalarArgs: 12, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 4 },
+  { name: "view_column_create_0", family: "constructor", hotness: "warm", benchmarkRegistration: "view.column_create_0", scalarArgs: 4, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 0 },
+  { name: "view_column_create_1", family: "constructor", hotness: "warm", benchmarkRegistration: "view.column_create_1", scalarArgs: 6, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 1 },
+  { name: "view_column_create_2", family: "constructor", hotness: "warm", benchmarkRegistration: "view.column_create_2", scalarArgs: 8, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 2 },
+  { name: "view_column_create_3", family: "constructor", hotness: "warm", benchmarkRegistration: "view.column_create_3", scalarArgs: 10, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 3 },
+  { name: "view_column_create_4", family: "constructor", hotness: "warm", benchmarkRegistration: "view.column_create_4", scalarArgs: 12, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 4 },
+  { name: "axis_builder_begin", family: "builder", hotness: "warm", benchmarkRegistration: "builder.axis_begin", scalarArgs: 3, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 524288 },
+  { name: "axis_builder_push", family: "builder", hotness: "warm", benchmarkRegistration: "builder.axis_push", scalarArgs: 4, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 524288 },
+  { name: "axis_builder_finish", family: "builder", hotness: "warm", benchmarkRegistration: "builder.axis_finish", scalarArgs: 5, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 524288 },
+  { name: "axis_builder_abort", family: "builder", hotness: "cold", benchmarkRegistration: "builder.axis_abort", scalarArgs: 2, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 1 },
   { name: "view_axis_set_child", family: "structural_patch", hotness: "critical", benchmarkRegistration: "view.axis_set_child", scalarArgs: 7, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 1 },
   { name: "view_axis_splice_buffer", family: "structural_patch", hotness: "warm", benchmarkRegistration: "view.axis_splice_buffer", scalarArgs: 7, hasBuffer: true, maxBufferBytes: 4194304, maxInputCount: 524288 },
   { name: "view_grid_set_cell", family: "structural_patch", hotness: "critical", benchmarkRegistration: "view.grid_set_cell", scalarArgs: 7, hasBuffer: false, maxBufferBytes: 0, maxInputCount: 1 },

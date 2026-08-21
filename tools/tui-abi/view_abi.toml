@@ -397,6 +397,714 @@ type = "u32"
 lowering = "buffer_used"
 
 [[function]]
+name = "view_row_create_0"
+family = "constructor"
+hotness = "warm"
+implementation = "view_row_create_0_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 0
+arity_specializations = [0]
+benchmark_registration = "view.row_create_0"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "gap"
+type = "u32"
+lowering = "u32"
+
+[[function]]
+name = "view_row_create_1"
+family = "constructor"
+hotness = "warm"
+implementation = "view_row_create_1_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 1
+arity_specializations = [1]
+benchmark_registration = "view.row_create_1"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "gap"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "track0"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child0"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function]]
+name = "view_row_create_2"
+family = "constructor"
+hotness = "warm"
+implementation = "view_row_create_2_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 2
+arity_specializations = [2]
+benchmark_registration = "view.row_create_2"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "gap"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "track0"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child0"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track1"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child1"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function]]
+name = "view_row_create_3"
+family = "constructor"
+hotness = "warm"
+implementation = "view_row_create_3_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 3
+arity_specializations = [3]
+benchmark_registration = "view.row_create_3"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "gap"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "track0"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child0"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track1"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child1"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track2"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child2"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function]]
+name = "view_row_create_4"
+family = "constructor"
+hotness = "warm"
+implementation = "view_row_create_4_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 4
+arity_specializations = [4]
+benchmark_registration = "view.row_create_4"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "gap"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "track0"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child0"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track1"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child1"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track2"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child2"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track3"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child3"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function]]
+name = "view_column_create_0"
+family = "constructor"
+hotness = "warm"
+implementation = "view_column_create_0_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 0
+arity_specializations = [0]
+benchmark_registration = "view.column_create_0"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "gap"
+type = "u32"
+lowering = "u32"
+
+[[function]]
+name = "view_column_create_1"
+family = "constructor"
+hotness = "warm"
+implementation = "view_column_create_1_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 1
+arity_specializations = [1]
+benchmark_registration = "view.column_create_1"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "gap"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "track0"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child0"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function]]
+name = "view_column_create_2"
+family = "constructor"
+hotness = "warm"
+implementation = "view_column_create_2_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 2
+arity_specializations = [2]
+benchmark_registration = "view.column_create_2"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "gap"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "track0"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child0"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track1"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child1"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function]]
+name = "view_column_create_3"
+family = "constructor"
+hotness = "warm"
+implementation = "view_column_create_3_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 3
+arity_specializations = [3]
+benchmark_registration = "view.column_create_3"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "gap"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "track0"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child0"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track1"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child1"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track2"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child2"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function]]
+name = "view_column_create_4"
+family = "constructor"
+hotness = "warm"
+implementation = "view_column_create_4_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 4
+arity_specializations = [4]
+benchmark_registration = "view.column_create_4"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "gap"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "track0"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child0"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track1"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child1"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track2"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child2"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track3"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child3"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function]]
+name = "axis_builder_begin"
+family = "builder"
+hotness = "warm"
+implementation = "axis_builder_begin_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 524288
+arity_specializations = [1]
+benchmark_registration = "builder.axis_begin"
+return = "native_ref_result"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "axis_kind"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "expected_children"
+type = "u32"
+lowering = "u32"
+
+[[function]]
+name = "axis_builder_push"
+family = "builder"
+hotness = "warm"
+implementation = "axis_builder_push_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 524288
+arity_specializations = [1]
+benchmark_registration = "builder.axis_push"
+return = "status_only"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "builder_ref"
+type = "BuilderRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "track_word"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "child_ref"
+type = "ViewRef"
+lowering = "native_ref"
+
+[[function]]
+name = "axis_builder_finish"
+family = "builder"
+hotness = "warm"
+implementation = "axis_builder_finish_impl"
+fallback = "v4"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = true
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 524288
+arity_specializations = [1]
+benchmark_registration = "builder.axis_finish"
+return = "ViewRefResult"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "builder_ref"
+type = "BuilderRef"
+lowering = "native_ref"
+
+[[function.arg]]
+name = "node_id_low"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "node_id_high"
+type = "u32"
+lowering = "u32"
+
+[[function.arg]]
+name = "gap"
+type = "u32"
+lowering = "u32"
+
+[[function]]
+name = "axis_builder_abort"
+family = "builder"
+hotness = "cold"
+implementation = "axis_builder_abort_impl"
+fallback = "none"
+ownership = "runtime_owned"
+borrow_duration = "call"
+thread_affinity = "owner_thread"
+may_allocate_native_memory = false
+mutates_host_state = false
+max_buffer_bytes = 0
+max_input_count = 1
+arity_specializations = []
+benchmark_registration = "builder.axis_abort"
+return = "status_only"
+
+[[function.arg]]
+name = "runtime"
+type = "RuntimePtr"
+lowering = "runtime_ptr"
+
+[[function.arg]]
+name = "builder_ref"
+type = "BuilderRef"
+lowering = "native_ref"
+
+[[function]]
 name = "view_axis_set_child"
 family = "structural_patch"
 hotness = "critical"
@@ -1305,6 +2013,15 @@ lowering = "u32"
 name = "align"
 type = "HorizontalAlign"
 lowering = "u32"
+
+[[handle]]
+name = "BuilderRef"
+rust = "u32"
+typescript = "number"
+nullable = false
+lifetime = "runtime"
+valid = "0x7ffe0001..0x7fff0001"
+kind = "builder"
 
 [[handle]]
 name = "EditTxnRef"

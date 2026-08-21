@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914
-// generator_blake3 = 6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91
+// schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801
+// generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de
 import { linkSymbols, type Pointer } from "bun:ffi";
 export type NativeAbiPointers = {
   runtimeNoop: Pointer;
@@ -10,6 +10,20 @@ export type NativeAbiPointers = {
   viewTextLayoutPatchRoot: Pointer;
   viewCommonPatchRoot: Pointer;
   viewAxisCreateBuffer: Pointer;
+  viewRowCreate0: Pointer;
+  viewRowCreate1: Pointer;
+  viewRowCreate2: Pointer;
+  viewRowCreate3: Pointer;
+  viewRowCreate4: Pointer;
+  viewColumnCreate0: Pointer;
+  viewColumnCreate1: Pointer;
+  viewColumnCreate2: Pointer;
+  viewColumnCreate3: Pointer;
+  viewColumnCreate4: Pointer;
+  axisBuilderBegin: Pointer;
+  axisBuilderPush: Pointer;
+  axisBuilderFinish: Pointer;
+  axisBuilderAbort: Pointer;
   viewAxisSetChild: Pointer;
   viewAxisSpliceBuffer: Pointer;
   viewGridSetCell: Pointer;
@@ -39,6 +53,20 @@ export function linkViewAbi(abi: NativeAbiPointers) {
     viewTextLayoutPatchRoot: { ptr: abi.viewTextLayoutPatchRoot, args: ["ptr", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
     viewCommonPatchRoot: { ptr: abi.viewCommonPatchRoot, args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
     viewAxisCreateBuffer: { ptr: abi.viewAxisCreateBuffer, args: ["ptr", "u32", "u32", "u32", "u32", "buffer", "buffer_length", "u32"], returns: "u32" },
+    viewRowCreate0: { ptr: abi.viewRowCreate0, args: ["ptr", "u32", "u32", "u32"], returns: "u32" },
+    viewRowCreate1: { ptr: abi.viewRowCreate1, args: ["ptr", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
+    viewRowCreate2: { ptr: abi.viewRowCreate2, args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
+    viewRowCreate3: { ptr: abi.viewRowCreate3, args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
+    viewRowCreate4: { ptr: abi.viewRowCreate4, args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
+    viewColumnCreate0: { ptr: abi.viewColumnCreate0, args: ["ptr", "u32", "u32", "u32"], returns: "u32" },
+    viewColumnCreate1: { ptr: abi.viewColumnCreate1, args: ["ptr", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
+    viewColumnCreate2: { ptr: abi.viewColumnCreate2, args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
+    viewColumnCreate3: { ptr: abi.viewColumnCreate3, args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
+    viewColumnCreate4: { ptr: abi.viewColumnCreate4, args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
+    axisBuilderBegin: { ptr: abi.axisBuilderBegin, args: ["ptr", "u32", "u32"], returns: "u32" },
+    axisBuilderPush: { ptr: abi.axisBuilderPush, args: ["ptr", "u32", "u32", "u32"], returns: "i32" },
+    axisBuilderFinish: { ptr: abi.axisBuilderFinish, args: ["ptr", "u32", "u32", "u32", "u32"], returns: "u32" },
+    axisBuilderAbort: { ptr: abi.axisBuilderAbort, args: ["ptr", "u32"], returns: "i32" },
     viewAxisSetChild: { ptr: abi.viewAxisSetChild, args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },
     viewAxisSpliceBuffer: { ptr: abi.viewAxisSpliceBuffer, args: ["ptr", "u32", "u32", "u32", "u32", "u32", "buffer", "buffer_length", "u32"], returns: "u32" },
     viewGridSetCell: { ptr: abi.viewGridSetCell, args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32"], returns: "u32" },

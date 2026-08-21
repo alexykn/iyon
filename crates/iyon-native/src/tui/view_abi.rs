@@ -96,8 +96,10 @@ struct NativeViewSlot {
 // PathRefs occupy a disjoint valid-handle range so a ViewRef can never be
 // accepted as a path handle (and vice versa).
 const PATH_ROOT_REF: u32 = 0x4000_0001;
-const EDIT_TXN_REF_START: u32 = 0x7fff_0001;
-const PATH_REF_LIMIT: u32 = EDIT_TXN_REF_START;
+const BUILDER_REF_START: u32 = 0x7ffe_0001;
+const BUILDER_REF_LIMIT: u32 = 0x7fff_0001;
+const EDIT_TXN_REF_START: u32 = BUILDER_REF_LIMIT;
+const PATH_REF_LIMIT: u32 = BUILDER_REF_START;
 const EDIT_TXN_REF_LIMIT: u32 = 0x8000_0000;
 const MAX_PATH_DEPTH: u32 = 128;
 const MAX_EDIT_COUNT: u32 = 256;
@@ -145,6 +147,12 @@ struct EditTxn {
     edits: Vec<TextLayoutEdit>,
 }
 
+struct AxisBuilder {
+    horizontal: bool,
+    expected_children: u32,
+    children: Vec<(u32, View)>,
+}
+
 struct StagedPublicationEntry {
     node_id: u64,
     view: View,
@@ -172,9 +180,11 @@ pub(super) struct NativeViewRuntime {
     node_refs: HashMap<u64, u32>,
     path_nodes: HashMap<u32, PathNode>,
     path_keys: HashMap<PathKey, u32>,
+    builders: HashMap<u32, AxisBuilder>,
     edit_txns: HashMap<u32, EditTxn>,
     next_native_ref: u32,
     next_path_ref: u32,
+    next_builder_ref: u32,
     next_edit_txn_ref: u32,
     pub(super) generation: u32,
     #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
@@ -208,9 +218,11 @@ impl NativeViewRuntime {
                 },
             )]),
             path_keys: HashMap::new(),
+            builders: HashMap::new(),
             edit_txns: HashMap::new(),
             next_native_ref: 1,
             next_path_ref: PATH_ROOT_REF + 1,
+            next_builder_ref: BUILDER_REF_LIMIT - 1,
             next_edit_txn_ref: EDIT_TXN_REF_LIMIT - 1,
             generation: 1,
             #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
@@ -315,6 +327,94 @@ impl NativeViewRuntime {
         }
         steps.reverse();
         Ok(steps)
+    }
+
+    fn allocate_builder_ref(&mut self) -> Option<u32> {
+        while self.next_builder_ref >= BUILDER_REF_START {
+            let candidate = self.next_builder_ref;
+            self.next_builder_ref = self.next_builder_ref.saturating_sub(1);
+            if candidate != 0 && !self.builders.contains_key(&candidate) {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn begin_axis_builder(&mut self, axis_kind: u32, expected_children: u32) -> Result<u32, u32> {
+        if !(AXIS_KIND_ROW..=AXIS_KIND_COLUMN).contains(&axis_kind)
+            || expected_children > MAX_AXIS_CHILD_COUNT
+        {
+            return Err(FAST_INVALID);
+        }
+        let reference = self.allocate_builder_ref().ok_or(FAST_FALLBACK)?;
+        self.builders.insert(
+            reference,
+            AxisBuilder {
+                horizontal: axis_kind == AXIS_KIND_ROW,
+                expected_children,
+                children: Vec::with_capacity(expected_children as usize),
+            },
+        );
+        Ok(reference)
+    }
+
+    fn push_axis_builder(&mut self, builder_ref: u32, track_word: u32, child_ref: u32) -> i32 {
+        if !is_valid_builder_ref(builder_ref) {
+            return -1;
+        }
+        if track_word != 0 && !(1..=5).contains(&(track_word & 0xff)) {
+            return -1;
+        }
+        let Some((expected, current)) = self
+            .builders
+            .get(&builder_ref)
+            .map(|builder| (builder.expected_children, builder.children.len()))
+        else {
+            return 1;
+        };
+        if current as u32 >= expected {
+            return 2;
+        }
+        let Ok((child, _)) = self.resolve_ref(child_ref) else {
+            return 1;
+        };
+        let Some(builder) = self.builders.get_mut(&builder_ref) else {
+            return 1;
+        };
+        builder.children.push((track_word, child));
+        0
+    }
+
+    fn finish_axis_builder(
+        &mut self,
+        builder_ref: u32,
+        node_id: u64,
+        gap: u32,
+    ) -> Result<u32, u32> {
+        if !is_valid_builder_ref(builder_ref) {
+            return Err(FAST_INVALID);
+        }
+        let Some(builder) = self.builders.remove(&builder_ref) else {
+            return Err(FAST_CACHE_MISS);
+        };
+        if builder.children.len() as u32 != builder.expected_children {
+            return Err(FAST_INVALID);
+        }
+        let gap = u16::try_from(gap).map_err(|_| FAST_INVALID)?;
+        let view = View::native_axis_from_children(builder.horizontal, gap, builder.children)
+            .map_err(|_| FAST_INVALID)?;
+        self.publish(node_id, view)
+    }
+
+    fn abort_axis_builder(&mut self, builder_ref: u32) -> i32 {
+        if !is_valid_builder_ref(builder_ref) {
+            return -1;
+        }
+        if self.builders.remove(&builder_ref).is_some() {
+            0
+        } else {
+            1
+        }
     }
 
     fn allocate_edit_txn_ref(&mut self) -> Option<u32> {
@@ -764,6 +864,7 @@ impl NativeViewRuntime {
 
     fn abort_all_edit_txns(&mut self) {
         self.edit_txns.clear();
+        self.builders.clear();
     }
 
     fn release_many(&mut self, refs: *const u32, used_count: u32) -> Result<i32, i32> {
@@ -866,10 +967,10 @@ pub(super) fn runtime_for_env(env: &Env) -> napi::Result<*mut NativeViewRuntime>
     runtime_ptr_for_env(env)
 }
 
-/// Host disposal must discard any transaction that could otherwise retain a
-/// strong staged root until environment teardown. Transactions are runtime-
-/// scoped (the ABI begin call intentionally has no host argument), so clearing
-/// the environment's uncommitted set is the conservative lifecycle boundary.
+/// Host disposal must discard any transaction or builder that could otherwise
+/// retain strong staged Views until environment teardown. These handles are
+/// runtime-scoped (the ABI begin calls intentionally have no host argument), so
+/// clearing the uncommitted sets is the conservative lifecycle boundary.
 pub(super) fn abort_all_edit_txns(pointer: *mut NativeViewRuntime) {
     let Ok(runtime) = runtime_mut(pointer) else {
         return;
@@ -898,6 +999,20 @@ pub fn bootstrap(env: Env) -> napi::Result<Value> {
             "viewTextLayoutPatchRoot": generated_exports::iyon_view_text_layout_patch_root_v1 as *const () as usize as u64,
             "viewCommonPatchRoot": generated_exports::iyon_view_common_patch_root_v1 as *const () as usize as u64,
             "viewAxisCreateBuffer": generated_exports::iyon_view_axis_create_buffer_v1 as *const () as usize as u64,
+            "viewRowCreate0": generated_exports::iyon_view_row_create_0_v1 as *const () as usize as u64,
+            "viewRowCreate1": generated_exports::iyon_view_row_create_1_v1 as *const () as usize as u64,
+            "viewRowCreate2": generated_exports::iyon_view_row_create_2_v1 as *const () as usize as u64,
+            "viewRowCreate3": generated_exports::iyon_view_row_create_3_v1 as *const () as usize as u64,
+            "viewRowCreate4": generated_exports::iyon_view_row_create_4_v1 as *const () as usize as u64,
+            "viewColumnCreate0": generated_exports::iyon_view_column_create_0_v1 as *const () as usize as u64,
+            "viewColumnCreate1": generated_exports::iyon_view_column_create_1_v1 as *const () as usize as u64,
+            "viewColumnCreate2": generated_exports::iyon_view_column_create_2_v1 as *const () as usize as u64,
+            "viewColumnCreate3": generated_exports::iyon_view_column_create_3_v1 as *const () as usize as u64,
+            "viewColumnCreate4": generated_exports::iyon_view_column_create_4_v1 as *const () as usize as u64,
+            "axisBuilderBegin": generated_exports::iyon_axis_builder_begin_v1 as *const () as usize as u64,
+            "axisBuilderPush": generated_exports::iyon_axis_builder_push_v1 as *const () as usize as u64,
+            "axisBuilderFinish": generated_exports::iyon_axis_builder_finish_v1 as *const () as usize as u64,
+            "axisBuilderAbort": generated_exports::iyon_axis_builder_abort_v1 as *const () as usize as u64,
             "viewAxisSetChild": generated_exports::iyon_view_axis_set_child_v1 as *const () as usize as u64,
             "viewAxisSpliceBuffer": generated_exports::iyon_view_axis_splice_buffer_v1 as *const () as usize as u64,
             "viewGridSetCell": generated_exports::iyon_view_grid_set_cell_v1 as *const () as usize as u64,
@@ -1722,6 +1837,171 @@ pub unsafe extern "Rust" fn view_axis_create_buffer_impl(
     record_result(runtime, result)
 }
 
+fn create_small_axis(
+    pointer: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    axis_kind: u32,
+    gap: u32,
+    children: &[(u32, u32)],
+) -> u32 {
+    let Ok(runtime) = runtime_mut(pointer) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let Ok(gap) = u16::try_from(gap) else {
+        return FAST_INVALID;
+    };
+    let mut resolved = Vec::with_capacity(children.len());
+    for &(track_word, child_ref) in children {
+        if track_word != 0 && !(1..=5).contains(&(track_word & 0xff)) {
+            return record_result(runtime, FAST_INVALID);
+        }
+        let Ok((child, _)) = runtime.resolve_ref(child_ref) else {
+            return record_result(runtime, FAST_CACHE_MISS);
+        };
+        resolved.push((track_word, child));
+    }
+    let horizontal = match axis_kind {
+        AXIS_KIND_ROW => true,
+        AXIS_KIND_COLUMN => false,
+        _ => return record_result(runtime, FAST_INVALID),
+    };
+    let view = match View::native_axis_from_children(horizontal, gap, resolved) {
+        Ok(view) => view,
+        Err(_) => return record_result(runtime, FAST_INVALID),
+    };
+    let result = runtime.publish(node_id, view).unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+macro_rules! define_small_axis_constructor {
+    ($name:ident, $axis_kind:expr, [$($track:ident, $child:ident),* $(,)?]) => {
+        #[unsafe(no_mangle)]
+        pub unsafe extern "Rust" fn $name(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            gap: u32,
+            $($track: u32, $child: u32,)*) -> u32 {
+            create_small_axis(
+                runtime,
+                node_id_low,
+                node_id_high,
+                $axis_kind,
+                gap,
+                &[$(($track, $child)),*],
+            )
+        }
+    };
+}
+
+define_small_axis_constructor!(view_row_create_0_impl, AXIS_KIND_ROW, []);
+define_small_axis_constructor!(view_row_create_1_impl, AXIS_KIND_ROW, [track0, child0]);
+define_small_axis_constructor!(
+    view_row_create_2_impl,
+    AXIS_KIND_ROW,
+    [track0, child0, track1, child1]
+);
+define_small_axis_constructor!(
+    view_row_create_3_impl,
+    AXIS_KIND_ROW,
+    [track0, child0, track1, child1, track2, child2]
+);
+define_small_axis_constructor!(
+    view_row_create_4_impl,
+    AXIS_KIND_ROW,
+    [
+        track0, child0, track1, child1, track2, child2, track3, child3
+    ]
+);
+define_small_axis_constructor!(view_column_create_0_impl, AXIS_KIND_COLUMN, []);
+define_small_axis_constructor!(
+    view_column_create_1_impl,
+    AXIS_KIND_COLUMN,
+    [track0, child0]
+);
+define_small_axis_constructor!(
+    view_column_create_2_impl,
+    AXIS_KIND_COLUMN,
+    [track0, child0, track1, child1]
+);
+define_small_axis_constructor!(
+    view_column_create_3_impl,
+    AXIS_KIND_COLUMN,
+    [track0, child0, track1, child1, track2, child2]
+);
+define_small_axis_constructor!(
+    view_column_create_4_impl,
+    AXIS_KIND_COLUMN,
+    [
+        track0, child0, track1, child1, track2, child2, track3, child3
+    ]
+);
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn axis_builder_begin_impl(
+    runtime: *mut NativeViewRuntime,
+    axis_kind: u32,
+    expected_children: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let result = runtime
+        .begin_axis_builder(axis_kind, expected_children)
+        .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn axis_builder_push_impl(
+    runtime: *mut NativeViewRuntime,
+    builder_ref: u32,
+    track_word: u32,
+    child_ref: u32,
+) -> i32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return -1;
+    };
+    let status = runtime.push_axis_builder(builder_ref, track_word, child_ref);
+    record_host_status(runtime, status)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn axis_builder_finish_impl(
+    runtime: *mut NativeViewRuntime,
+    builder_ref: u32,
+    node_id_low: u32,
+    node_id_high: u32,
+    gap: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return record_result(runtime, FAST_INVALID);
+    };
+    let result = runtime
+        .finish_axis_builder(builder_ref, node_id, gap)
+        .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn axis_builder_abort_impl(
+    runtime: *mut NativeViewRuntime,
+    builder_ref: u32,
+) -> i32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return -1;
+    };
+    let status = runtime.abort_axis_builder(builder_ref);
+    record_host_status(runtime, status)
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "Rust" fn view_axis_set_child_impl(
     runtime: *mut NativeViewRuntime,
@@ -1948,7 +2228,11 @@ fn is_valid_view_ref(reference: u32) -> bool {
 }
 
 fn is_valid_path_ref(reference: u32) -> bool {
-    (PATH_ROOT_REF..PATH_REF_LIMIT).contains(&reference)
+    reference == PATH_ROOT_REF || (PATH_ROOT_REF..PATH_REF_LIMIT).contains(&reference)
+}
+
+fn is_valid_builder_ref(reference: u32) -> bool {
+    (BUILDER_REF_START..BUILDER_REF_LIMIT).contains(&reference)
 }
 
 fn is_valid_edit_txn_ref(reference: u32) -> bool {
@@ -2001,7 +2285,7 @@ fn decode_align(value: u32) -> Result<HorizontalAlign, ()> {
 mod tests {
     use super::{
         AxisChildInputV1, FAST_CACHE_MISS, FAST_INVALID, MAX_EDIT_COUNT, NativeViewRuntime,
-        PATH_ROOT_REF, generated_exports, is_valid_edit_txn_ref,
+        PATH_ROOT_REF, generated_exports, is_valid_builder_ref, is_valid_edit_txn_ref,
     };
     use iyon_tui::{GridTrack, IntoView, View};
 
@@ -2044,6 +2328,48 @@ mod tests {
         let bulk_ref = runtime.publish_bulk(41, view.clone()).expect("bulk ref");
         assert_eq!(runtime.ref_for_node_id(41), Ok(bulk_ref));
         assert_eq!(runtime.resolve_ref(bulk_ref), Ok((view, true)));
+    }
+
+    #[test]
+    fn native_axis_builders_and_small_constructors_publish_immutable_views() {
+        let mut runtime = runtime();
+        let child_a = View::spacer(1);
+        let child_b = View::spacer(2);
+        let child_a_ref = runtime.publish_bulk(1, child_a.clone()).expect("child a");
+        let child_b_ref = runtime.publish_bulk(2, child_b.clone()).expect("child b");
+        let pointer = &mut runtime as *mut NativeViewRuntime;
+
+        let builder = unsafe { generated_exports::iyon_axis_builder_begin_v1(pointer, 2, 2) };
+        assert!(is_valid_builder_ref(builder));
+        assert_eq!(
+            unsafe {
+                generated_exports::iyon_axis_builder_push_v1(pointer, builder, 0, child_a_ref)
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                generated_exports::iyon_axis_builder_push_v1(pointer, builder, 0, child_b_ref)
+            },
+            0
+        );
+        let built_ref =
+            unsafe { generated_exports::iyon_axis_builder_finish_v1(pointer, builder, 3, 0, 1) };
+        let expected = View::native_axis_from_children(false, 1, vec![(0, child_a), (0, child_b)])
+            .expect("expected native axis");
+        assert_eq!(
+            runtime.resolve_ref(built_ref).map(|(view, _)| view),
+            Ok(expected)
+        );
+
+        let small_ref = unsafe {
+            generated_exports::iyon_view_row_create_1_v1(pointer, 4, 0, 0, 0, child_a_ref)
+        };
+        assert!(runtime.resolve_ref(small_ref).is_ok());
+        assert_eq!(
+            unsafe { generated_exports::iyon_axis_builder_abort_v1(pointer, builder) },
+            1
+        );
     }
 
     #[test]

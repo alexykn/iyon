@@ -6,7 +6,22 @@ import {
   pathChild,
   pathRoot,
   viewCommonPatchRoot,
+  viewSpacerCreate,
   viewAxisCreateBuffer,
+  viewRowCreate0,
+  viewRowCreate1,
+  viewRowCreate2,
+  viewRowCreate3,
+  viewRowCreate4,
+  viewColumnCreate0,
+  viewColumnCreate1,
+  viewColumnCreate2,
+  viewColumnCreate3,
+  viewColumnCreate4,
+  axisBuilderBegin,
+  axisBuilderPush,
+  axisBuilderFinish,
+  axisBuilderAbort,
   viewAxisSetChild,
   viewAxisSpliceBuffer,
   viewGridSetCell,
@@ -32,6 +47,8 @@ import {
 import {
   nativePathLineage,
   nativeScalarPatch,
+  nativeAxisRecipe,
+  nativeSpacerRecipe,
   nodeForBridge,
   nodeIdPair,
   viewNodeId,
@@ -39,6 +56,7 @@ import {
   type View,
 } from "./values/view.ts";
 import manifest from "./generated/view_abi_manifest.json";
+import { NATIVE_BUILDER_MAX_CHILDREN, NATIVE_SMALL_AXIS_ARITY_MAX } from "./native_view_policy.ts";
 
 export interface NativeViewAbiSession {
   readonly runtime: Pointer;
@@ -68,6 +86,12 @@ export interface NativeAxisSpliceChild {
   readonly trackWord?: number;
 }
 
+export interface NativeAxisBuilderChild {
+  readonly view: View;
+  /** `(track kind in low byte, value in the high 16 bits)`; zero means content. */
+  readonly trackWord?: number;
+}
+
 let cachedSession: NativeViewAbiSession | undefined;
 const PATH_REFS = new WeakMap<NativeViewAbiSession, WeakMap<object, number>>();
 const PATH_SHAPE_REFS = new WeakMap<NativeViewAbiSession, Map<string, number>>();
@@ -80,6 +104,20 @@ const ABI_FUNCTION_NAMES = [
   "viewTextLayoutPatchRoot",
   "viewCommonPatchRoot",
   "viewAxisCreateBuffer",
+  "viewRowCreate0",
+  "viewRowCreate1",
+  "viewRowCreate2",
+  "viewRowCreate3",
+  "viewRowCreate4",
+  "viewColumnCreate0",
+  "viewColumnCreate1",
+  "viewColumnCreate2",
+  "viewColumnCreate3",
+  "viewColumnCreate4",
+  "axisBuilderBegin",
+  "axisBuilderPush",
+  "axisBuilderFinish",
+  "axisBuilderAbort",
   "viewAxisSetChild",
   "viewAxisSpliceBuffer",
   "viewGridSetCell",
@@ -142,6 +180,20 @@ export function nativeViewAbiSession(): NativeViewAbiSession | undefined {
     viewTextLayoutPatchRoot: bootstrap.functions.viewTextLayoutPatchRoot as Pointer,
     viewCommonPatchRoot: bootstrap.functions.viewCommonPatchRoot as Pointer,
     viewAxisCreateBuffer: bootstrap.functions.viewAxisCreateBuffer as Pointer,
+    viewRowCreate0: bootstrap.functions.viewRowCreate0 as Pointer,
+    viewRowCreate1: bootstrap.functions.viewRowCreate1 as Pointer,
+    viewRowCreate2: bootstrap.functions.viewRowCreate2 as Pointer,
+    viewRowCreate3: bootstrap.functions.viewRowCreate3 as Pointer,
+    viewRowCreate4: bootstrap.functions.viewRowCreate4 as Pointer,
+    viewColumnCreate0: bootstrap.functions.viewColumnCreate0 as Pointer,
+    viewColumnCreate1: bootstrap.functions.viewColumnCreate1 as Pointer,
+    viewColumnCreate2: bootstrap.functions.viewColumnCreate2 as Pointer,
+    viewColumnCreate3: bootstrap.functions.viewColumnCreate3 as Pointer,
+    viewColumnCreate4: bootstrap.functions.viewColumnCreate4 as Pointer,
+    axisBuilderBegin: bootstrap.functions.axisBuilderBegin as Pointer,
+    axisBuilderPush: bootstrap.functions.axisBuilderPush as Pointer,
+    axisBuilderFinish: bootstrap.functions.axisBuilderFinish as Pointer,
+    axisBuilderAbort: bootstrap.functions.axisBuilderAbort as Pointer,
     viewAxisSetChild: bootstrap.functions.viewAxisSetChild as Pointer,
     viewAxisSpliceBuffer: bootstrap.functions.viewAxisSpliceBuffer as Pointer,
     viewGridSetCell: bootstrap.functions.viewGridSetCell as Pointer,
@@ -184,6 +236,195 @@ export function nativeViewRefForNodeId(view: View): number | undefined {
   if (session === undefined) return undefined;
   const [nodeIdLow, nodeIdHigh] = nodeIdPair(view);
   return viewRefForNodeId(session.symbols, session.runtime, nodeIdLow, nodeIdHigh);
+}
+
+/**
+ * Materializes a small/new axis without a JS child packet. The children must
+ * already have NativeRefs (a cold graph that cannot satisfy that condition is
+ * deliberately left to the V4 fallback until its leaf constructors exist).
+ */
+export function tryNativeAxisCreate(
+  next: View,
+  horizontal: boolean,
+  gap: number,
+  children: readonly NativeAxisBuilderChild[],
+): number | undefined {
+  if (!Number.isInteger(gap) || gap < 0 || gap > 65_535 || children.length > NATIVE_BUILDER_MAX_CHILDREN) return undefined;
+  const session = nativeViewAbiSession();
+  if (session === undefined) return undefined;
+  const refs: number[] = [];
+  try {
+    for (const child of children) {
+      const reference = nativeViewRefForNodeId(child.view);
+      if (reference === undefined) return undefined;
+      refs.push(reference);
+    }
+    const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
+    const axisKind = horizontal ? 1 : 2;
+    return children.length <= NATIVE_SMALL_AXIS_ARITY_MAX
+      ? createSmallAxis(session, horizontal, nodeIdLow, nodeIdHigh, gap, children, refs)
+      : createAxisWithBuilder(session, axisKind, nodeIdLow, nodeIdHigh, gap, children, refs);
+  } catch (error) {
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  } finally {
+    for (const reference of refs) releaseNativeViewRef(session, reference);
+  }
+}
+
+/** Installs a newly-created native axis with one host mutation. */
+export function tryNativeAxisCreateRender(
+  host: NativeViewRenderHost,
+  next: View,
+  horizontal: boolean,
+  gap: number,
+  children: readonly NativeAxisBuilderChild[],
+): number | undefined {
+  const hostPointer = host.tuiViewAbiHostPointer?.();
+  if (!isValidPointer(hostPointer)) return undefined;
+  const session = nativeViewAbiSession();
+  if (session === undefined) return undefined;
+  const nextRef = tryNativeAxisCreate(next, horizontal, gap, children);
+  if (nextRef === undefined) return undefined;
+  try {
+    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    if (status !== 0) {
+      releaseNativeViewRef(session, nextRef);
+      return undefined;
+    }
+    return nextRef;
+  } catch (error) {
+    releaseNativeViewRef(session, nextRef);
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Cold-route a compact axis recipe. Supported leaves are materialized through
+ * generated constructors; text and other unsupported leaves return undefined
+ * so the caller can use the authoritative V4/direct fallback unchanged.
+ */
+export function tryNativeColdRender(host: NativeViewRenderHost, next: View): number | undefined {
+  const hostPointer = host.tuiViewAbiHostPointer?.();
+  if (!isValidPointer(hostPointer)) return undefined;
+  const session = nativeViewAbiSession();
+  if (session === undefined) return undefined;
+  const recipe = nativeAxisRecipe(next);
+  if (recipe === undefined || recipe.children.length > NATIVE_BUILDER_MAX_CHILDREN) return undefined;
+  const refs: number[] = [];
+  try {
+    for (const child of recipe.children) {
+      const reference = nativeColdRefForView(session, child.view);
+      if (reference === undefined) return undefined;
+      refs.push(reference);
+    }
+    const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
+    const nextRef = recipe.children.length <= NATIVE_SMALL_AXIS_ARITY_MAX
+      ? createSmallAxis(session, recipe.horizontal, nodeIdLow, nodeIdHigh, recipe.gap, recipe.children, refs)
+      : createAxisWithBuilder(session, recipe.horizontal ? 1 : 2, nodeIdLow, nodeIdHigh, recipe.gap, recipe.children, refs);
+    if (nextRef === undefined) return undefined;
+    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    if (status !== 0) {
+      releaseNativeViewRef(session, nextRef);
+      return undefined;
+    }
+    return nextRef;
+  } catch (error) {
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  } finally {
+    for (const reference of refs) releaseNativeViewRef(session, reference);
+  }
+}
+
+function nativeColdRefForView(session: NativeViewAbiSession, view: View): number | undefined {
+  try {
+    const existing = nativeViewRefForNodeId(view);
+    if (existing !== undefined) return existing;
+  } catch (error) {
+    if (!isExpectedNativeStatus(error)) throw error;
+  }
+  const rows = nativeSpacerRecipe(view);
+  if (rows !== undefined) {
+    const [nodeIdLow, nodeIdHigh] = nodeIdPair(view);
+    return viewSpacerCreate(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, rows);
+  }
+  const recipe = nativeAxisRecipe(view);
+  if (recipe === undefined || recipe.children.length > NATIVE_BUILDER_MAX_CHILDREN) return undefined;
+  const refs: number[] = [];
+  try {
+    for (const child of recipe.children) {
+      const reference = nativeColdRefForView(session, child.view);
+      if (reference === undefined) return undefined;
+      refs.push(reference);
+    }
+    const [nodeIdLow, nodeIdHigh] = nodeIdPair(view);
+    return recipe.children.length <= NATIVE_SMALL_AXIS_ARITY_MAX
+      ? createSmallAxis(session, recipe.horizontal, nodeIdLow, nodeIdHigh, recipe.gap, recipe.children, refs)
+      : createAxisWithBuilder(session, recipe.horizontal ? 1 : 2, nodeIdLow, nodeIdHigh, recipe.gap, recipe.children, refs);
+  } finally {
+    for (const reference of refs) releaseNativeViewRef(session, reference);
+  }
+}
+
+function createSmallAxis(
+  session: NativeViewAbiSession,
+  horizontal: boolean,
+  nodeIdLow: number,
+  nodeIdHigh: number,
+  gap: number,
+  children: readonly NativeAxisBuilderChild[],
+  refs: readonly number[],
+): number {
+  const track = (index: number): number => children[index]?.trackWord ?? 0;
+  const ref = (index: number): number => refs[index]!;
+  if (horizontal) {
+    switch (children.length) {
+      case 0: return viewRowCreate0(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, gap);
+      case 1: return viewRowCreate1(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, gap, track(0), ref(0));
+      case 2: return viewRowCreate2(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, gap, track(0), ref(0), track(1), ref(1));
+      case 3: return viewRowCreate3(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, gap, track(0), ref(0), track(1), ref(1), track(2), ref(2));
+      case 4: return viewRowCreate4(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, gap, track(0), ref(0), track(1), ref(1), track(2), ref(2), track(3), ref(3));
+      default: throw new RangeError("small native axis arity is unsupported");
+    }
+  }
+  switch (children.length) {
+    case 0: return viewColumnCreate0(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, gap);
+    case 1: return viewColumnCreate1(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, gap, track(0), ref(0));
+    case 2: return viewColumnCreate2(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, gap, track(0), ref(0), track(1), ref(1));
+    case 3: return viewColumnCreate3(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, gap, track(0), ref(0), track(1), ref(1), track(2), ref(2));
+    case 4: return viewColumnCreate4(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, gap, track(0), ref(0), track(1), ref(1), track(2), ref(2), track(3), ref(3));
+    default: throw new RangeError("small native axis arity is unsupported");
+  }
+}
+
+function createAxisWithBuilder(
+  session: NativeViewAbiSession,
+  axisKind: number,
+  nodeIdLow: number,
+  nodeIdHigh: number,
+  gap: number,
+  children: readonly NativeAxisBuilderChild[],
+  refs: readonly number[],
+): number | undefined {
+  let builderRef: number | undefined;
+  try {
+    builderRef = axisBuilderBegin(session.symbols, session.runtime, axisKind, children.length);
+    for (const [index, child] of children.entries()) {
+      if (axisBuilderPush(session.symbols, session.runtime, builderRef, child.trackWord ?? 0, refs[index]!) !== 0) {
+        axisBuilderAbort(session.symbols, session.runtime, builderRef);
+        builderRef = undefined;
+        return undefined;
+      }
+    }
+    const result = axisBuilderFinish(session.symbols, session.runtime, builderRef, nodeIdLow, nodeIdHigh, gap);
+    builderRef = undefined;
+    return result;
+  } catch (error) {
+    if (builderRef !== undefined) axisBuilderAbort(session.symbols, session.runtime, builderRef);
+    throw error;
+  }
 }
 
 /**

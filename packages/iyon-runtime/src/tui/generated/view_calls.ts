@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914
-// generator_blake3 = 6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91
+// schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801
+// generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de
 import type { Pointer } from "bun:ffi";
 import type { linkViewAbi } from "./view_abi";
 export type ViewAbiSymbols = ReturnType<typeof linkViewAbi>["symbols"];
@@ -45,6 +45,76 @@ export function viewCommonPatchRoot(symbols: ViewAbiSymbols, runtime: Pointer, b
 export function viewAxisCreateBuffer(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, axis_kind: number, gap: number, children: NodeJS.TypedArray | DataView, used_child_count: number): number {
   const result = symbols.viewAxisCreateBuffer(runtime, node_id_low, node_id_high, axis_kind, gap, children, children, used_child_count);
   return checkedRef(result);
+}
+
+export function viewRowCreate0(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, gap: number): number {
+  const result = symbols.viewRowCreate0(runtime, node_id_low, node_id_high, gap);
+  return checkedRef(result);
+}
+
+export function viewRowCreate1(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, gap: number, track0: number, child0: number): number {
+  const result = symbols.viewRowCreate1(runtime, node_id_low, node_id_high, gap, track0, child0);
+  return checkedRef(result);
+}
+
+export function viewRowCreate2(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, gap: number, track0: number, child0: number, track1: number, child1: number): number {
+  const result = symbols.viewRowCreate2(runtime, node_id_low, node_id_high, gap, track0, child0, track1, child1);
+  return checkedRef(result);
+}
+
+export function viewRowCreate3(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, gap: number, track0: number, child0: number, track1: number, child1: number, track2: number, child2: number): number {
+  const result = symbols.viewRowCreate3(runtime, node_id_low, node_id_high, gap, track0, child0, track1, child1, track2, child2);
+  return checkedRef(result);
+}
+
+export function viewRowCreate4(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, gap: number, track0: number, child0: number, track1: number, child1: number, track2: number, child2: number, track3: number, child3: number): number {
+  const result = symbols.viewRowCreate4(runtime, node_id_low, node_id_high, gap, track0, child0, track1, child1, track2, child2, track3, child3);
+  return checkedRef(result);
+}
+
+export function viewColumnCreate0(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, gap: number): number {
+  const result = symbols.viewColumnCreate0(runtime, node_id_low, node_id_high, gap);
+  return checkedRef(result);
+}
+
+export function viewColumnCreate1(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, gap: number, track0: number, child0: number): number {
+  const result = symbols.viewColumnCreate1(runtime, node_id_low, node_id_high, gap, track0, child0);
+  return checkedRef(result);
+}
+
+export function viewColumnCreate2(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, gap: number, track0: number, child0: number, track1: number, child1: number): number {
+  const result = symbols.viewColumnCreate2(runtime, node_id_low, node_id_high, gap, track0, child0, track1, child1);
+  return checkedRef(result);
+}
+
+export function viewColumnCreate3(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, gap: number, track0: number, child0: number, track1: number, child1: number, track2: number, child2: number): number {
+  const result = symbols.viewColumnCreate3(runtime, node_id_low, node_id_high, gap, track0, child0, track1, child1, track2, child2);
+  return checkedRef(result);
+}
+
+export function viewColumnCreate4(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, gap: number, track0: number, child0: number, track1: number, child1: number, track2: number, child2: number, track3: number, child3: number): number {
+  const result = symbols.viewColumnCreate4(runtime, node_id_low, node_id_high, gap, track0, child0, track1, child1, track2, child2, track3, child3);
+  return checkedRef(result);
+}
+
+export function axisBuilderBegin(symbols: ViewAbiSymbols, runtime: Pointer, axis_kind: number, expected_children: number): number {
+  const result = symbols.axisBuilderBegin(runtime, axis_kind, expected_children);
+  return checkedRef(result);
+}
+
+export function axisBuilderPush(symbols: ViewAbiSymbols, runtime: Pointer, builder_ref: number, track_word: number, child_ref: number): number {
+  const result = symbols.axisBuilderPush(runtime, builder_ref, track_word, child_ref);
+  return result;
+}
+
+export function axisBuilderFinish(symbols: ViewAbiSymbols, runtime: Pointer, builder_ref: number, node_id_low: number, node_id_high: number, gap: number): number {
+  const result = symbols.axisBuilderFinish(runtime, builder_ref, node_id_low, node_id_high, gap);
+  return checkedRef(result);
+}
+
+export function axisBuilderAbort(symbols: ViewAbiSymbols, runtime: Pointer, builder_ref: number): number {
+  const result = symbols.axisBuilderAbort(runtime, builder_ref);
+  return result;
 }
 
 export function viewAxisSetChild(symbols: ViewAbiSymbols, runtime: Pointer, base_axis_ref: number, node_id_low: number, node_id_high: number, child_index: number, track_word: number, child_ref: number): number {

@@ -43,8 +43,14 @@ import { PersistentSeq } from "../persistent_seq.ts";
 type ChildBuilder = readonly View[] | ((builder: ChildrenBuilder) => void);
 type CounterBox = { next: number };
 
-type PendingCreateKind = "text" | "spacer";
+type PendingCreateKind = "text" | "spacer" | "axis";
 type PendingPatchKind = "textLayout" | "common";
+
+type PendingAxisChild = Readonly<{
+  view: View;
+  kind: BridgeLayoutChild["kind"];
+  value?: number;
+}>;
 
 /**
  * Stable-shape private semantic backing. Pending values carry only the compact
@@ -61,6 +67,9 @@ interface ViewBacking {
   readonly createKind?: PendingCreateKind;
   readonly spans?: readonly TextSpanNode[];
   readonly rows?: number;
+  readonly axisHorizontal?: boolean;
+  readonly axisGap?: number;
+  readonly axisChildren?: readonly PendingAxisChild[];
   readonly wrap?: number;
   readonly align?: number;
   readonly patchKind?: PendingPatchKind;
@@ -169,6 +178,9 @@ function makeBacking(
     createKind: fields.createKind,
     spans: fields.spans,
     rows: fields.rows,
+    axisHorizontal: fields.axisHorizontal,
+    axisGap: fields.axisGap,
+    axisChildren: fields.axisChildren,
     wrap: fields.wrap,
     align: fields.align,
     patchKind: fields.patchKind,
@@ -196,6 +208,19 @@ function pendingTextBacking(spans: readonly TextSpanNode[], wrap: number, align:
 
 function pendingSpacerBacking(rows: number): ViewBacking {
   return makeBacking(1, nextNodeId(), { createKind: "spacer", rows });
+}
+
+function pendingAxisBacking(
+  horizontal: boolean,
+  gap: number,
+  children: readonly PendingAxisChild[],
+): ViewBacking {
+  return makeBacking(1, nextNodeId(), {
+    createKind: "axis",
+    axisHorizontal: horizontal,
+    axisGap: gap,
+    axisChildren: Object.freeze(children),
+  });
 }
 
 function pendingTextPatchBacking(base: View, wrap: number, align: number): ViewBacking {
@@ -292,24 +317,32 @@ export class GridBuilder {
 }
 
 export class ChildrenBuilder {
-  readonly children: BridgeLayoutChild[] = [];
+  private readonly nativeChildren: PendingAxisChild[] = [];
   private layoutGap = 0;
-  child(view: View): this { this.children.push({ kind: BRIDGE_LAYOUT_CHILD_KIND.normal, child: nodeForBridge(view) }); return this; }
+  get children(): BridgeLayoutChild[] {
+    return this.nativeChildren.map((entry) => bridgeLayoutChild(entry));
+  }
+  get nativeAxisChildren(): readonly PendingAxisChild[] { return this.nativeChildren; }
+  child(view: View): this {
+    this.nativeChildren.push({ view, kind: BRIDGE_LAYOUT_CHILD_KIND.normal });
+    return this;
+  }
   childrenOf(views: readonly View[]): this { for (const view of views) this.child(view); return this; }
   gap(value: number): this { this.layoutGap = validateU16(value, "gap"); return this; }
   fixed(size: number, view: View): this {
-    this.children.push({ kind: BRIDGE_LAYOUT_CHILD_KIND.fixed, size: validateU16(size, "size"), child: nodeForBridge(view) });
+    this.nativeChildren.push({ view, kind: BRIDGE_LAYOUT_CHILD_KIND.fixed, value: validateU16(size, "size") });
     return this;
   }
-  flex(view: View): this { this.children.push({ kind: BRIDGE_LAYOUT_CHILD_KIND.flex, child: nodeForBridge(view) }); return this; }
+  flex(view: View): this {
+    this.nativeChildren.push({ view, kind: BRIDGE_LAYOUT_CHILD_KIND.flex, value: 1 });
+    return this;
+  }
   flexMax(maxRows: number, view: View): this {
-    validateU16(maxRows, "maxRows");
-    this.children.push({ kind: BRIDGE_LAYOUT_CHILD_KIND.flexMax, maxRows, child: nodeForBridge(view) });
+    this.nativeChildren.push({ view, kind: BRIDGE_LAYOUT_CHILD_KIND.flexMax, value: validateU16(maxRows, "maxRows") });
     return this;
   }
   contentMax(maxRows: number, view: View): this {
-    validateU16(maxRows, "maxRows");
-    this.children.push({ kind: BRIDGE_LAYOUT_CHILD_KIND.contentMax, maxRows, child: nodeForBridge(view) });
+    this.nativeChildren.push({ view, kind: BRIDGE_LAYOUT_CHILD_KIND.contentMax, value: validateU16(maxRows, "maxRows") });
     return this;
   }
   gapValue(): number { return this.layoutGap; }
@@ -476,12 +509,12 @@ export class View {
 
   static horizontal(children: ChildBuilder): View {
     const builder = buildChildren(children);
-    return new View({ kind: BRIDGE_VIEW_KIND.row, children: builder.children, gap: builder.gapValue() });
+    return new View(pendingAxisBacking(true, builder.gapValue(), builder.nativeAxisChildren));
   }
 
   static vertical(children: ChildBuilder): View {
     const builder = buildChildren(children);
-    return new View({ kind: BRIDGE_VIEW_KIND.column, children: builder.children, gap: builder.gapValue() });
+    return new View(pendingAxisBacking(false, builder.gapValue(), builder.nativeAxisChildren));
   }
 
   static hanging(prefix: View, continuation: View, body: View): View {
@@ -761,6 +794,16 @@ function materializeBacking(view: View, backing: ViewBacking): BridgeViewNode {
     if (backing.rows === undefined) throw new TypeError("invalid pending spacer backing");
     return withIdentity({ kind: BRIDGE_VIEW_KIND.spacer, rows: backing.rows }, backing.nodeId);
   }
+  if (backing.state === 1 && backing.createKind === "axis") {
+    if (backing.axisHorizontal === undefined || backing.axisGap === undefined || backing.axisChildren === undefined) {
+      throw new TypeError("invalid pending axis backing");
+    }
+    return withIdentity({
+      kind: backing.axisHorizontal ? BRIDGE_VIEW_KIND.row : BRIDGE_VIEW_KIND.column,
+      children: backing.axisChildren.map(bridgeLayoutChild),
+      gap: backing.axisGap,
+    }, backing.nodeId);
+  }
   if (backing.state === 2 && backing.patchKind === "textLayout") {
     if (backing.base === undefined || backing.wrap === undefined || backing.align === undefined) throw new TypeError("invalid pending text patch backing");
     const base = nodeForBridge(backing.base);
@@ -851,6 +894,33 @@ export function viewNodeId(view: View): number {
 /** Internal benchmark/diagnostic view of the compact backing state. */
 export function viewBackingState(view: View): 0 | 1 | 2 {
   return view[kBacking].state;
+}
+
+/** Returns the compact axis recipe used by the native builder route. */
+export function nativeAxisRecipe(view: View): {
+  readonly horizontal: boolean;
+  readonly gap: number;
+  readonly children: readonly { readonly view: View; readonly trackWord: number }[];
+} | undefined {
+  const backing = view[kBacking];
+  if (
+    backing.state !== 1
+    || backing.createKind !== "axis"
+    || backing.axisHorizontal === undefined
+    || backing.axisGap === undefined
+    || backing.axisChildren === undefined
+  ) return undefined;
+  return {
+    horizontal: backing.axisHorizontal,
+    gap: backing.axisGap,
+    children: backing.axisChildren.map((child) => ({ view: child.view, trackWord: axisTrackWord(child) })),
+  };
+}
+
+/** Returns a pending spacer recipe without materializing its bridge node. */
+export function nativeSpacerRecipe(view: View): number | undefined {
+  const backing = view[kBacking];
+  return backing.state === 1 && backing.createKind === "spacer" ? backing.rows : undefined;
 }
 
 /** Returns the compact pending/native patch, if this value has one. */
@@ -1130,6 +1200,28 @@ function bridgeGridTrack(track: GridTrackNode): BridgeGridTrackNode {
     case "fixed": return { kind: BRIDGE_GRID_TRACK_KIND.fixed, size: track.size };
     case "flex": return { kind: BRIDGE_GRID_TRACK_KIND.flex };
     case "flexMax": return { kind: BRIDGE_GRID_TRACK_KIND.flexMax, max: track.max };
+  }
+}
+
+function bridgeLayoutChild(entry: PendingAxisChild): BridgeLayoutChild {
+  switch (entry.kind) {
+    case BRIDGE_LAYOUT_CHILD_KIND.normal: return { kind: entry.kind, child: nodeForBridge(entry.view) };
+    case BRIDGE_LAYOUT_CHILD_KIND.fixed: return { kind: entry.kind, size: entry.value ?? 0, child: nodeForBridge(entry.view) };
+    case BRIDGE_LAYOUT_CHILD_KIND.flex: return { kind: entry.kind, child: nodeForBridge(entry.view) };
+    case BRIDGE_LAYOUT_CHILD_KIND.flexMax: return { kind: entry.kind, maxRows: entry.value ?? 0, child: nodeForBridge(entry.view) };
+    case BRIDGE_LAYOUT_CHILD_KIND.contentMax: return { kind: entry.kind, maxRows: entry.value ?? 0, child: nodeForBridge(entry.view) };
+    default: throw new TypeError("unknown axis child kind");
+  }
+}
+
+function axisTrackWord(entry: PendingAxisChild): number {
+  switch (entry.kind) {
+    case BRIDGE_LAYOUT_CHILD_KIND.normal: return 0;
+    case BRIDGE_LAYOUT_CHILD_KIND.contentMax: return (2 | ((entry.value ?? 0) << 8)) >>> 0;
+    case BRIDGE_LAYOUT_CHILD_KIND.fixed: return (3 | ((entry.value ?? 0) << 8)) >>> 0;
+    case BRIDGE_LAYOUT_CHILD_KIND.flex: return (4 | (1 << 8)) >>> 0;
+    case BRIDGE_LAYOUT_CHILD_KIND.flexMax: return (5 | ((entry.value ?? 0) << 8)) >>> 0;
+    default: throw new TypeError("unknown axis child kind");
   }
 }
 

@@ -1,6 +1,6 @@
 /* DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. */
-/* schema_blake3 = d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914 */
-/* generator_blake3 = 6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91 */
+/* schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801 */
+/* generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de */
 #ifndef IYON_VIEW_ABI_H
 #define IYON_VIEW_ABI_H
 
@@ -46,6 +46,34 @@ uint32_t iyon_view_text_layout_patch_root_v1(NativeViewRuntime * runtime, uint32
 uint32_t iyon_view_common_patch_root_v1(NativeViewRuntime * runtime, uint32_t base, uint32_t node_id_low, uint32_t node_id_high, uint32_t mask, uint32_t padding_tr, uint32_t padding_bl, uint32_t width_rule, uint32_t height_rule, uint32_t min_width, uint32_t max_width, uint32_t min_height, uint32_t max_height, uint32_t decoration_ref);
 
 uint32_t iyon_view_axis_create_buffer_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t axis_kind, uint32_t gap, const AxisChildInputV1 * children, size_t children_capacity_bytes, uint32_t used_child_count);
+
+uint32_t iyon_view_row_create_0_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t gap);
+
+uint32_t iyon_view_row_create_1_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t gap, uint32_t track0, uint32_t child0);
+
+uint32_t iyon_view_row_create_2_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t gap, uint32_t track0, uint32_t child0, uint32_t track1, uint32_t child1);
+
+uint32_t iyon_view_row_create_3_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t gap, uint32_t track0, uint32_t child0, uint32_t track1, uint32_t child1, uint32_t track2, uint32_t child2);
+
+uint32_t iyon_view_row_create_4_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t gap, uint32_t track0, uint32_t child0, uint32_t track1, uint32_t child1, uint32_t track2, uint32_t child2, uint32_t track3, uint32_t child3);
+
+uint32_t iyon_view_column_create_0_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t gap);
+
+uint32_t iyon_view_column_create_1_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t gap, uint32_t track0, uint32_t child0);
+
+uint32_t iyon_view_column_create_2_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t gap, uint32_t track0, uint32_t child0, uint32_t track1, uint32_t child1);
+
+uint32_t iyon_view_column_create_3_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t gap, uint32_t track0, uint32_t child0, uint32_t track1, uint32_t child1, uint32_t track2, uint32_t child2);
+
+uint32_t iyon_view_column_create_4_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t gap, uint32_t track0, uint32_t child0, uint32_t track1, uint32_t child1, uint32_t track2, uint32_t child2, uint32_t track3, uint32_t child3);
+
+uint32_t iyon_axis_builder_begin_v1(NativeViewRuntime * runtime, uint32_t axis_kind, uint32_t expected_children);
+
+int32_t iyon_axis_builder_push_v1(NativeViewRuntime * runtime, uint32_t builder_ref, uint32_t track_word, uint32_t child_ref);
+
+uint32_t iyon_axis_builder_finish_v1(NativeViewRuntime * runtime, uint32_t builder_ref, uint32_t node_id_low, uint32_t node_id_high, uint32_t gap);
+
+int32_t iyon_axis_builder_abort_v1(NativeViewRuntime * runtime, uint32_t builder_ref);
 
 uint32_t iyon_view_axis_set_child_v1(NativeViewRuntime * runtime, uint32_t base_axis_ref, uint32_t node_id_low, uint32_t node_id_high, uint32_t child_index, uint32_t track_word, uint32_t child_ref);
 
