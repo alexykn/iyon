@@ -2434,6 +2434,11 @@ impl TuiHost {
             return Ok(());
         }
         super::run::wait_for_present_blocking(&mut inner.presentation)?;
+        // Closing a host is also the ownership boundary for its retained
+        // semantic root. Drop both the host state's body and the scene root so
+        // environment-scoped weak caches can observe expiry after disposal.
+        inner.running.state.body = View::spacer(0);
+        inner.running.host_set_body(View::spacer(0));
         inner.closed = true;
         if let HostBackend::Real(backend) = &mut inner.backend {
             ignore_terminal_shutdown_error(backend.restore())?;
