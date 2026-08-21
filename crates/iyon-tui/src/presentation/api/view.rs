@@ -516,6 +516,20 @@ impl View {
             }
         })
     }
+
+    /// Applies a retained text-layout patch without panicking on a non-text
+    /// base. Generated native ABI calls use this checked boundary.
+    #[doc(hidden)]
+    pub fn try_with_text_layout_patch(
+        self,
+        wrap: Option<WrapMode>,
+        align: Option<HorizontalAlign>,
+    ) -> Result<Self, &'static str> {
+        if !matches!(self.kind(), ViewKind::Text(_)) {
+            return Err("text layout patch base is not text");
+        }
+        Ok(self.with_text_layout_patch(wrap, align))
+    }
 }
 
 /// Explicit conversion from semantic construction values into the canonical

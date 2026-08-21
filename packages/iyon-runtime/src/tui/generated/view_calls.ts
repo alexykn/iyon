@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951
-// generator_blake3 = fd3bcd32d6995e625fada939bf2fd398b6dac2ec14400458b75f612cdc4d0d6d
+// schema_blake3 = 7fce882a8b31b7dab23c5515ffde2626513fed07f46366e3d9869a966fe1ccb1
+// generator_blake3 = a32e416575faa290887b502f2a202006562af02cb1a05027ec41076f7b0a40d6
 import type { Pointer } from "bun:ffi";
 import type { linkViewAbi } from "./view_abi";
 export type ViewAbiSymbols = ReturnType<typeof linkViewAbi>["symbols"];
@@ -45,5 +45,10 @@ export function viewAxisCreateBuffer(symbols: ViewAbiSymbols, runtime: Pointer, 
 export function viewReleaseMany(symbols: ViewAbiSymbols, runtime: Pointer, refs: NodeJS.TypedArray | DataView, used_ref_count: number): number {
   const result = symbols.viewReleaseMany(runtime, refs, refs, used_ref_count);
   return result;
+}
+
+export function viewRefForNodeId(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number): number {
+  const result = symbols.viewRefForNodeId(runtime, node_id_low, node_id_high);
+  return checkedRef(result);
 }
 

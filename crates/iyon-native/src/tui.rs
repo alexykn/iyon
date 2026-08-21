@@ -27,6 +27,8 @@ mod generated_view_abi_conformance {
     ));
 }
 
+mod view_abi;
+
 macro_rules! tui_perf_inc {
     ($counter:ident) => {
         #[cfg(feature = "perf-counters")]

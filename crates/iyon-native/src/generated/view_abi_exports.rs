@@ -1,7 +1,7 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951
-// generator_blake3 = fd3bcd32d6995e625fada939bf2fd398b6dac2ec14400458b75f612cdc4d0d6d
-// Generated C ABI wrappers. Semantic implementations are supplied by the next tranche.
+// schema_blake3 = 7fce882a8b31b7dab23c5515ffde2626513fed07f46366e3d9869a966fe1ccb1
+// generator_blake3 = a32e416575faa290887b502f2a202006562af02cb1a05027ec41076f7b0a40d6
+// Generated C ABI wrappers. Semantic implementations are handwritten and linked below.
 use super::{NativeViewRuntime, AxisChildInputV1};
 pub mod generated_impls {
     use super::{AxisChildInputV1, NativeViewRuntime};
@@ -67,8 +67,22 @@ pub mod generated_impls {
             used_ref_count: u32,
         ) -> i32;
     }
+    unsafe extern "Rust" {
+        pub fn view_ref_for_node_id_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+        ) -> u32;
+    }
 }
 
+#[cfg(feature = "fast-view-abi")]
+#[allow(dead_code)]
+fn generated_catch_unwind<T: Copy>(work: impl FnOnce() -> Result<T, T>, _panic_value: T) -> T {
+    work().unwrap_or_else(|error| error)
+}
+
+#[cfg(not(feature = "fast-view-abi"))]
 #[allow(dead_code)]
 fn generated_catch_unwind<T: Copy>(work: impl FnOnce() -> Result<T, T>, panic_value: T) -> T {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {
@@ -372,5 +386,26 @@ pub unsafe extern "C" fn iyon_view_release_many_v1(
             })()
         },
         -127i32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_ref_for_node_id_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_ref_for_node_id_impl(runtime, node_id_low, node_id_high)
+                })
+            })()
+        },
+        0x8000_00ffu32,
     )
 }
