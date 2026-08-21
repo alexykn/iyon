@@ -1832,6 +1832,12 @@ impl ViewDecoder {
         }
         tui_perf_inc!(NapiViewNodesSeen);
 
+        let schema = required_prop::<u32>(&value, "schema")?;
+        if schema != VIEW_BRIDGE_SCHEMA_VERSION {
+            return Err(crate::NativeError::invalid_input(format!(
+                "unsupported TUI View bridge schema {schema}, expected {VIEW_BRIDGE_SCHEMA_VERSION}"
+            )));
+        }
         let cached = with_view_runtime(&self.cache, |cache| {
             cache
                 .nodes
@@ -1847,12 +1853,6 @@ impl ViewDecoder {
         })?;
         tui_perf_inc!(NapiViewCacheMisses);
 
-        let schema = required_prop::<u32>(&value, "schema")?;
-        if schema != VIEW_BRIDGE_SCHEMA_VERSION {
-            return Err(crate::NativeError::invalid_input(format!(
-                "unsupported TUI View bridge schema {schema}, expected {VIEW_BRIDGE_SCHEMA_VERSION}"
-            )));
-        }
         if !self.active.insert(node_id) {
             return Err(crate::NativeError::invalid_input(
                 "cyclic TUI View node graph",
