@@ -106,6 +106,7 @@ const results = {
 viewReleaseMany(session.symbols, session.runtime, releaseRefs, ALLOCATION_ITERATIONS);
 viewReleaseMany(session.symbols, session.runtime, textPatchRefs, ALLOCATION_ITERATIONS);
 viewReleaseMany(session.symbols, session.runtime, commonPatchRefs, ALLOCATION_ITERATIONS);
+viewReleaseMany(session.symbols, session.runtime, new Uint32Array([textRef]), 1);
 host.dispose();
 
 const nativeArtifact = await Bun.file(new URL("../native/iyon-native.node", import.meta.url)).arrayBuffer();

@@ -36,7 +36,7 @@ describe("PERF-11 generated vertical slice", () => {
     expect(() => viewRenderRef(session.symbols, session.runtime, reference)).toThrow();
   });
 
-  test("patches text metadata and publishes generated roots into the existing host decoder", () => {
+  test("patches text metadata and preserves parity with the existing host decoder", () => {
     if (Host === undefined) return;
     const session = nativeViewAbiSession();
     if (session === undefined) return;
