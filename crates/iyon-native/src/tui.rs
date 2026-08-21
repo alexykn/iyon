@@ -283,22 +283,36 @@ fn ensure_alive(alive: &AtomicBool) -> Result<()> {
     ))
 }
 
+fn resolve_native_view(runtime: usize, view_ref: i64) -> Result<View> {
+    let view_ref = u32::try_from(view_ref)
+        .map_err(|_| crate::NativeError::invalid_input("native View reference must fit in u32"))?;
+    if view_ref == 0 {
+        return Err(crate::NativeError::invalid_input(
+            "native View reference must be positive",
+        ));
+    }
+    view_abi::view_for_ref(runtime as *mut view_abi::NativeViewRuntime, view_ref)
+        .map_err(|_| crate::NativeError::invalid_input("native View reference is unavailable"))
+}
+
 #[napi]
 pub struct NativeHistory {
     state: Mutex<History>,
     host: Option<HostHistory>,
     alive: AtomicBool,
+    view_runtime: usize,
 }
 
 #[napi]
 impl NativeHistory {
     #[napi(constructor)]
-    pub fn new() -> Self {
-        Self {
+    pub fn new(env: Env) -> Result<Self> {
+        Ok(Self {
             state: Mutex::new(History::new()),
             host: None,
             alive: AtomicBool::new(true),
-        }
+            view_runtime: view_abi::runtime_ptr_for_env(&env)? as usize,
+        })
     }
 
     #[napi]
@@ -368,7 +382,16 @@ impl NativeHistory {
     #[napi]
     pub fn push(&self, view: Object) -> Result<i64> {
         ensure_alive(&self.alive)?;
-        let view = decode_view(&view)?;
+        self.push_view(decode_view(&view)?)
+    }
+
+    #[napi(js_name = "pushRef")]
+    pub fn push_ref(&self, view_ref: i64) -> Result<i64> {
+        ensure_alive(&self.alive)?;
+        self.push_view(resolve_native_view(self.view_runtime, view_ref)?)
+    }
+
+    fn push_view(&self, view: View) -> Result<i64> {
         if let Some(host) = &self.host {
             return host
                 .push(view.clone())
@@ -386,7 +409,16 @@ impl NativeHistory {
     #[napi]
     pub fn freeze(&self, unit: i64, view: Object) -> Result<()> {
         ensure_alive(&self.alive)?;
-        let view = decode_view(&view)?;
+        self.freeze_view(unit, decode_view(&view)?)
+    }
+
+    #[napi(js_name = "freezeRef")]
+    pub fn freeze_ref(&self, unit: i64, view_ref: i64) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.freeze_view(unit, resolve_native_view(self.view_runtime, view_ref)?)
+    }
+
+    fn freeze_view(&self, unit: i64, view: View) -> Result<()> {
         let unit = u64::try_from(unit)
             .map_err(|_| crate::NativeError::invalid_input("history unit id must be positive"))?;
         if let Some(host) = &self.host {
@@ -414,11 +446,12 @@ impl NativeHistory {
         ))
     }
 
-    fn from_host(host: HostHistory) -> Self {
+    fn from_host(host: HostHistory, view_runtime: usize) -> Self {
         Self {
             state: Mutex::new(History::new()),
             host: Some(host),
             alive: AtomicBool::new(true),
+            view_runtime,
         }
     }
 
@@ -729,7 +762,10 @@ impl NativeTuiHost {
     #[napi]
     pub fn history(&self) -> Result<NativeHistory> {
         ensure_alive(&self.alive)?;
-        Ok(NativeHistory::from_host(self.host.history()))
+        Ok(NativeHistory::from_host(
+            self.host.history(),
+            self.view_runtime,
+        ))
     }
 
     #[napi(js_name = "textInput")]
@@ -759,7 +795,17 @@ impl NativeTuiHost {
             .host
             .create_view_slot(initial)
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
-        Ok(NativeViewSlot::from_host(slot))
+        Ok(NativeViewSlot::from_host(slot, self.view_runtime))
+    }
+
+    #[napi(js_name = "createViewSlotRef")]
+    pub fn create_view_slot_ref(&self, view_ref: i64) -> Result<NativeViewSlot> {
+        ensure_alive(&self.alive)?;
+        let slot = self
+            .host
+            .create_view_slot(resolve_native_view(self.view_runtime, view_ref)?)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        Ok(NativeViewSlot::from_host(slot, self.view_runtime))
     }
 
     #[napi(js_name = "scrollPane")]
@@ -770,7 +816,17 @@ impl NativeTuiHost {
             .host
             .create_scroll_pane(initial)
             .map_err(|error| crate::NativeError::internal(error.to_string()))?;
-        Ok(NativeScrollPane::from_host(pane))
+        Ok(NativeScrollPane::from_host(pane, self.view_runtime))
+    }
+
+    #[napi(js_name = "scrollPaneRef")]
+    pub fn scroll_pane_ref(&self, view_ref: i64) -> Result<NativeScrollPane> {
+        ensure_alive(&self.alive)?;
+        let pane = self
+            .host
+            .create_scroll_pane(resolve_native_view(self.view_runtime, view_ref)?)
+            .map_err(|error| crate::NativeError::internal(error.to_string()))?;
+        Ok(NativeScrollPane::from_host(pane, self.view_runtime))
     }
 
     #[napi(js_name = "bindKey")]
@@ -1412,21 +1468,24 @@ impl TextVisitor for PlainTextVisitor {
 pub struct NativeViewSlot {
     slot: HostViewSlot,
     alive: AtomicBool,
+    view_runtime: usize,
 }
 
 #[napi]
 pub struct NativeScrollPane {
     pane: HostScrollPane,
     alive: AtomicBool,
+    view_runtime: usize,
 }
 
 #[napi]
 impl NativeScrollPane {
     #[napi(constructor)]
-    pub fn new(initial: Object) -> Result<Self> {
+    pub fn new(env: Env, initial: Object) -> Result<Self> {
         Ok(Self {
             pane: HostScrollPane::new(decode_view(&initial)?),
             alive: AtomicBool::new(true),
+            view_runtime: view_abi::runtime_ptr_for_env(&env)? as usize,
         })
     }
 
@@ -1444,8 +1503,18 @@ impl NativeScrollPane {
     #[napi(js_name = "setContent")]
     pub fn set_content(&self, view: Object) -> Result<()> {
         ensure_alive(&self.alive)?;
+        self.set_content_view(decode_view(&view)?)
+    }
+
+    #[napi(js_name = "setContentRef")]
+    pub fn set_content_ref(&self, view_ref: i64) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.set_content_view(resolve_native_view(self.view_runtime, view_ref)?)
+    }
+
+    fn set_content_view(&self, view: View) -> Result<()> {
         self.pane
-            .set_content(decode_view(&view)?)
+            .set_content(view)
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
@@ -1457,10 +1526,11 @@ impl NativeScrollPane {
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
-    fn from_host(pane: HostScrollPane) -> Self {
+    fn from_host(pane: HostScrollPane, view_runtime: usize) -> Self {
         Self {
             pane,
             alive: AtomicBool::new(true),
+            view_runtime,
         }
     }
 }
@@ -1468,10 +1538,11 @@ impl NativeScrollPane {
 #[napi]
 impl NativeViewSlot {
     #[napi(constructor)]
-    pub fn new(initial: Object) -> Result<Self> {
+    pub fn new(env: Env, initial: Object) -> Result<Self> {
         Ok(Self {
             slot: HostViewSlot::new(decode_view(&initial)?),
             alive: AtomicBool::new(true),
+            view_runtime: view_abi::runtime_ptr_for_env(&env)? as usize,
         })
     }
 
@@ -1495,14 +1566,31 @@ impl NativeViewSlot {
     #[napi(js_name = "setView")]
     pub fn set_view(&self, view: Object) -> Result<()> {
         ensure_alive(&self.alive)?;
+        self.set_view_value(decode_view(&view)?)
+    }
+
+    #[napi(js_name = "setViewRef")]
+    pub fn set_view_ref(&self, view_ref: i64) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.set_view_value(resolve_native_view(self.view_runtime, view_ref)?)
+    }
+
+    fn set_view_value(&self, view: View) -> Result<()> {
         self.slot
-            .set_view(decode_view(&view)?)
+            .set_view(view)
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
     #[napi(js_name = "setAnimation")]
     pub fn set_animation(&self, frames: Vec<Object>, interval_ms: i64) -> Result<()> {
-        self.set_animation_with_mode(frames, interval_ms, false)
+        self.set_animation_with_mode(
+            frames
+                .into_iter()
+                .map(|frame| decode_view(&frame))
+                .collect::<Result<Vec<_>>>()?,
+            interval_ms,
+            false,
+        )
     }
 
     #[napi(js_name = "setAnimationAtCycleBoundary")]
@@ -1511,12 +1599,69 @@ impl NativeViewSlot {
         frames: Vec<Object>,
         interval_ms: i64,
     ) -> Result<()> {
+        self.set_animation_with_mode(
+            frames
+                .into_iter()
+                .map(|frame| decode_view(&frame))
+                .collect::<Result<Vec<_>>>()?,
+            interval_ms,
+            true,
+        )
+    }
+
+    #[napi(js_name = "setAnimationRefs")]
+    pub fn set_animation_refs(
+        &self,
+        refs: napi::bindgen_prelude::Uint32Array,
+        used_count: i64,
+        interval_ms: i64,
+    ) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let used_count = usize::try_from(used_count).map_err(|_| {
+            crate::NativeError::invalid_input("animation used count must be non-negative")
+        })?;
+        let refs = refs.as_ref();
+        if used_count == 0 || used_count > refs.len() {
+            return Err(crate::NativeError::invalid_input(
+                "animation used count is out of range",
+            ));
+        }
+        let frames = refs[..used_count]
+            .iter()
+            .copied()
+            .map(|view_ref| resolve_native_view(self.view_runtime, i64::from(view_ref)))
+            .collect::<Result<Vec<_>>>()?;
+        self.set_animation_with_mode(frames, interval_ms, false)
+    }
+
+    #[napi(js_name = "setAnimationRefsAtCycleBoundary")]
+    pub fn set_animation_refs_at_cycle_boundary(
+        &self,
+        refs: napi::bindgen_prelude::Uint32Array,
+        used_count: i64,
+        interval_ms: i64,
+    ) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        let used_count = usize::try_from(used_count).map_err(|_| {
+            crate::NativeError::invalid_input("animation used count must be non-negative")
+        })?;
+        let refs = refs.as_ref();
+        if used_count == 0 || used_count > refs.len() {
+            return Err(crate::NativeError::invalid_input(
+                "animation used count is out of range",
+            ));
+        }
+        let frames = refs[..used_count]
+            .iter()
+            .copied()
+            .map(|view_ref| resolve_native_view(self.view_runtime, i64::from(view_ref)))
+            .collect::<Result<Vec<_>>>()?;
         self.set_animation_with_mode(frames, interval_ms, true)
     }
 
     fn set_animation_with_mode(
         &self,
-        frames: Vec<Object>,
+        frames: Vec<View>,
         interval_ms: i64,
         at_cycle_boundary: bool,
     ) -> Result<()> {
@@ -1534,10 +1679,6 @@ impl NativeViewSlot {
                 "animation requires at least one frame",
             ));
         }
-        let frames = frames
-            .into_iter()
-            .map(|frame| decode_view(&frame))
-            .collect::<Result<Vec<_>>>()?;
         let interval = std::time::Duration::from_millis(interval_ms);
         let result = if at_cycle_boundary {
             self.slot.set_animation_at_cycle_boundary(frames, interval)
@@ -1550,15 +1691,26 @@ impl NativeViewSlot {
     #[napi(js_name = "stopAnimation")]
     pub fn stop_animation(&self, view: Object) -> Result<()> {
         ensure_alive(&self.alive)?;
+        self.stop_animation_view(decode_view(&view)?)
+    }
+
+    #[napi(js_name = "stopAnimationRef")]
+    pub fn stop_animation_ref(&self, view_ref: i64) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.stop_animation_view(resolve_native_view(self.view_runtime, view_ref)?)
+    }
+
+    fn stop_animation_view(&self, view: View) -> Result<()> {
         self.slot
-            .stop_animation(decode_view(&view)?)
+            .stop_animation(view)
             .map_err(|error| crate::NativeError::internal(error.to_string()))
     }
 
-    fn from_host(slot: HostViewSlot) -> Self {
+    fn from_host(slot: HostViewSlot, view_runtime: usize) -> Self {
         Self {
             slot,
             alive: AtomicBool::new(true),
+            view_runtime,
         }
     }
 }

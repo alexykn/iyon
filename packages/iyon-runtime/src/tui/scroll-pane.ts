@@ -1,17 +1,31 @@
 import { HandleBase } from "./handles.ts";
 import { native } from "../native.ts";
 import type { ComponentCapabilities, ScrollPane as ScrollPaneContract } from "./types.ts";
+import {
+  nativeViewAbiSession,
+  releaseNativeViewRef,
+  tryNativeMaterialize,
+  tryNativeViewBoundaryRender,
+} from "./native_view_abi.ts";
 import { nodeForBridge, View } from "./values/view.ts";
 
 type NativeScrollPaneHandle = {
   dispose(): void;
   componentId(): number | null;
   setContent(view: object): void;
+  setContentRef(viewRef: number): void;
   followEnd(): void;
 };
 
 export class NativeScrollPane extends HandleBase<NativeScrollPaneHandle, "component"> implements ScrollPaneContract {
-  constructor(nativeHandle: NativeScrollPaneHandle | object) { super("component", nativeHandle as NativeScrollPaneHandle); }
+  private currentView?: View;
+
+  constructor(nativeHandle: NativeScrollPaneHandle | object, initialView?: View) {
+    super("component", nativeHandle as NativeScrollPaneHandle);
+    this.currentView = initialView;
+  }
+
+  tuiViewAbiInstallRef(viewRef: number): void { this.nativeHandle.setContentRef(viewRef); }
 
   view(): View {
     this.ensureOpen();
@@ -21,7 +35,32 @@ export class NativeScrollPane extends HandleBase<NativeScrollPaneHandle, "compon
   capabilities(): ComponentCapabilities { return this.call(() => ({ focusable: true, keys: ["up", "down", "pageup", "pagedown", "home", "end"] })); }
 
   setContent(view: View): void {
-    this.call(() => this.nativeHandle.setContent(nodeForBridge(view)));
+    this.call(() => {
+      const previous = this.currentView;
+      if (previous !== undefined) {
+        const previousRef = tryNativeMaterialize(previous);
+        const nextRef = tryNativeViewBoundaryRender(this, previous, view, previousRef);
+        if (nextRef !== undefined) {
+          releaseNativeViewRef(nativeViewAbiSession(), nextRef);
+          if (previousRef !== undefined) releaseNativeViewRef(nativeViewAbiSession(), previousRef);
+          this.currentView = view;
+          return;
+        }
+        if (previousRef !== undefined) releaseNativeViewRef(nativeViewAbiSession(), previousRef);
+      }
+      const ref = tryNativeMaterialize(view);
+      if (ref !== undefined) {
+        try {
+          this.nativeHandle.setContentRef(ref);
+          this.currentView = view;
+          return;
+        } finally {
+          releaseNativeViewRef(nativeViewAbiSession(), ref);
+        }
+      }
+      this.nativeHandle.setContent(nodeForBridge(view));
+      this.currentView = view;
+    });
   }
 
   followEnd(): void { this.call(() => this.nativeHandle.followEnd()); }

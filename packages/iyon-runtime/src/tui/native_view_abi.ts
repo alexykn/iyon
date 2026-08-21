@@ -62,6 +62,7 @@ import {
   nativeAxisRecipe,
   nativeSpacerRecipe,
   nativeTextRecipe,
+  nativeStructuralEdit,
   nodeForBridge,
   nodeIdPair,
   viewNodeId,
@@ -85,6 +86,8 @@ export interface NativeViewAbiSession {
 
 export interface NativeViewRenderHost {
   readonly tuiViewAbiHostPointer?: () => number;
+  /** Native-ref installation for generic View-bearing controls. */
+  readonly tuiViewAbiInstallRef?: (viewRef: number) => void;
 }
 
 /**
@@ -286,72 +289,13 @@ export function tryNativeTextCreateRender(
   host: NativeViewRenderHost,
   next: View,
 ): number | undefined {
-  const recipe = nativeTextRecipe(next);
-  if (recipe === undefined || recipe.spans.length === 0 || recipe.spans.length > 4) return undefined;
-  const hostPointer = host.tuiViewAbiHostPointer?.();
-  if (!isValidPointer(hostPointer)) return undefined;
   const session = nativeViewAbiSession();
-  if (session === undefined) return undefined;
+  if (session === undefined || !canInstallNativeRef(host)) return undefined;
   let nextRef: number | undefined;
   try {
-    const styleRefs: number[] = [];
-    for (const span of recipe.spans) {
-      const styleRef = nativeStyleRef(session, span.style);
-      if (styleRef === undefined) return undefined;
-      styleRefs.push(styleRef);
-    }
-    const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
-    const hasEmbeddedNul = recipe.spans.some((span) => span.text.indexOf("\0") !== -1);
-    if (!hasEmbeddedNul) {
-      const span = recipe.spans;
-      switch (span.length) {
-        case 1:
-          nextRef = viewTextCreateCstring(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, span[0]!.text, styleRefs[0]!, recipe.wrap, recipe.align);
-          break;
-        case 2:
-          nextRef = viewTextCreateCstring2(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, span[0]!.text, styleRefs[0]!, span[1]!.text, styleRefs[1]!, recipe.wrap, recipe.align);
-          break;
-        case 3:
-          nextRef = viewTextCreateCstring3(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, span[0]!.text, styleRefs[0]!, span[1]!.text, styleRefs[1]!, span[2]!.text, styleRefs[2]!, recipe.wrap, recipe.align);
-          break;
-        case 4:
-          nextRef = viewTextCreateCstring4(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, span[0]!.text, styleRefs[0]!, span[1]!.text, styleRefs[1]!, span[2]!.text, styleRefs[2]!, span[3]!.text, styleRefs[3]!, recipe.wrap, recipe.align);
-          break;
-      }
-    } else {
-      const encoded = recipe.spans.map((span) => TEXT_ENCODER.encode(span.text));
-      const totalBytes = encoded.reduce((total, bytes) => total + bytes.length, 0);
-      if (totalBytes > NATIVE_TEXT_MAX_BYTES) return undefined;
-      let scratch = TEXT_SCRATCH.get(session);
-      if (scratch === undefined || scratch.length < totalBytes) {
-        scratch = new Uint8Array(Math.max(totalBytes, 64));
-        TEXT_SCRATCH.set(session, scratch);
-      }
-      const spanBytes: number[] = [];
-      let offset = 0;
-      for (const bytes of encoded) {
-        scratch.set(bytes, offset);
-        spanBytes.push(bytes.length);
-        offset += bytes.length;
-      }
-      switch (recipe.spans.length) {
-        case 1:
-          nextRef = viewTextCreateUtf8(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, totalBytes, styleRefs[0]!, recipe.wrap, recipe.align);
-          break;
-        case 2:
-          nextRef = viewTextCreateUtf82(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, totalBytes, spanBytes[0]!, styleRefs[0]!, spanBytes[1]!, styleRefs[1]!, recipe.wrap, recipe.align);
-          break;
-        case 3:
-          nextRef = viewTextCreateUtf83(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, totalBytes, spanBytes[0]!, styleRefs[0]!, spanBytes[1]!, styleRefs[1]!, spanBytes[2]!, styleRefs[2]!, recipe.wrap, recipe.align);
-          break;
-        case 4:
-          nextRef = viewTextCreateUtf84(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, totalBytes, spanBytes[0]!, styleRefs[0]!, spanBytes[1]!, styleRefs[1]!, spanBytes[2]!, styleRefs[2]!, spanBytes[3]!, styleRefs[3]!, recipe.wrap, recipe.align);
-          break;
-      }
-    }
+    nextRef = nativeTextCreateRef(session, next);
     if (nextRef === undefined) return undefined;
-    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
-    if (status !== 0) {
+    if (installNativeRef(host, session, nextRef) !== 0) {
       releaseNativeViewRef(session, nextRef);
       return undefined;
     }
@@ -360,6 +304,130 @@ export function tryNativeTextCreateRender(
     if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
     if (isExpectedNativeStatus(error)) return undefined;
     throw error;
+  }
+}
+
+/** Creates a supported pending View and returns its caller-owned NativeRef lease. */
+export function tryNativeMaterialize(next: View): number | undefined {
+  if (!nativeColdGraphWithinLimit(next)) return undefined;
+  const session = nativeViewAbiSession();
+  if (session === undefined) return undefined;
+  try {
+    return nativeColdRefForView(session, next);
+  } catch (error) {
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  }
+}
+
+/** Creates and installs a new supported View at any native boundary. */
+export function tryNativeViewBoundaryCreate(
+  target: NativeViewRenderHost,
+  next: View,
+): number | undefined {
+  const session = nativeViewAbiSession();
+  if (session === undefined || !canInstallNativeRef(target)) return undefined;
+  let nextRef: number | undefined;
+  try {
+    nextRef = tryNativeMaterialize(next);
+    if (nextRef === undefined) return undefined;
+    if (installNativeRef(target, session, nextRef) !== 0) {
+      releaseNativeViewRef(session, nextRef);
+      return undefined;
+    }
+    return nextRef;
+  } catch (error) {
+    if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  }
+}
+
+/** Routes one retained View mutation to any native View-bearing target. */
+export function tryNativeViewBoundaryRender(
+  target: NativeViewRenderHost,
+  previous: View,
+  next: View,
+  previousRef?: number,
+): number | undefined {
+  const session = nativeViewAbiSession();
+  if (session === undefined || !canInstallNativeRef(target)) return undefined;
+  let baseRef = previousRef;
+  try {
+    if (baseRef === undefined) return undefined;
+    const scalar = tryNativeScalarRender(target, previous, baseRef, next);
+    if (scalar !== undefined) return scalar;
+    const path = tryNativePathScalarRender(target, previous, baseRef, next);
+    if (path !== undefined) return path;
+    const structural = tryNativeStructuralRender(target, previous, baseRef, next);
+    if (structural !== undefined) return structural;
+    return tryNativeTextCreateRender(target, next) ?? tryNativeColdRender(target, next);
+  } catch (error) {
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  }
+}
+
+export function tryNativeStructuralRender(
+  target: NativeViewRenderHost,
+  previous: View,
+  previousRef: number,
+  next: View,
+): number | undefined {
+  const edit = nativeStructuralEdit(next);
+  if (edit === undefined || edit.base !== previous) return undefined;
+  switch (edit.kind) {
+    case "axisSet":
+      return tryNativeAxisSetChildRender(target, previous, previousRef, next, edit.child, edit.index, edit.trackWord);
+    case "axisSplice":
+      return tryNativeAxisSpliceRender(target, previous, previousRef, next, edit.index, edit.removeCount, edit.children);
+    case "gridCell":
+      return tryNativeGridSetCellRender(target, previous, previousRef, next, edit.row, edit.column, edit.child);
+  }
+}
+
+function nativeTextCreateRef(session: NativeViewAbiSession, next: View): number | undefined {
+  const recipe = nativeTextRecipe(next);
+  if (recipe === undefined || recipe.spans.length === 0 || recipe.spans.length > 4) return undefined;
+  const styleRefs: number[] = [];
+  for (const span of recipe.spans) {
+    const styleRef = nativeStyleRef(session, span.style);
+    if (styleRef === undefined) return undefined;
+    styleRefs.push(styleRef);
+  }
+  const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
+  const hasEmbeddedNul = recipe.spans.some((span) => span.text.indexOf("\0") !== -1);
+  if (!hasEmbeddedNul) {
+    const spans = recipe.spans;
+    switch (spans.length) {
+      case 1: return viewTextCreateCstring(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, spans[0]!.text, styleRefs[0]!, recipe.wrap, recipe.align);
+      case 2: return viewTextCreateCstring2(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, spans[0]!.text, styleRefs[0]!, spans[1]!.text, styleRefs[1]!, recipe.wrap, recipe.align);
+      case 3: return viewTextCreateCstring3(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, spans[0]!.text, styleRefs[0]!, spans[1]!.text, styleRefs[1]!, spans[2]!.text, styleRefs[2]!, recipe.wrap, recipe.align);
+      case 4: return viewTextCreateCstring4(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, spans[0]!.text, styleRefs[0]!, spans[1]!.text, styleRefs[1]!, spans[2]!.text, styleRefs[2]!, spans[3]!.text, styleRefs[3]!, recipe.wrap, recipe.align);
+      default: return undefined;
+    }
+  }
+  const encoded = recipe.spans.map((span) => TEXT_ENCODER.encode(span.text));
+  const totalBytes = encoded.reduce((total, bytes) => total + bytes.length, 0);
+  if (totalBytes > NATIVE_TEXT_MAX_BYTES) return undefined;
+  let scratch = TEXT_SCRATCH.get(session);
+  if (scratch === undefined || scratch.length < totalBytes) {
+    scratch = new Uint8Array(Math.max(totalBytes, 64));
+    TEXT_SCRATCH.set(session, scratch);
+  }
+  const spanBytes: number[] = [];
+  let offset = 0;
+  for (const bytes of encoded) {
+    scratch.set(bytes, offset);
+    spanBytes.push(bytes.length);
+    offset += bytes.length;
+  }
+  switch (recipe.spans.length) {
+    case 1: return viewTextCreateUtf8(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, totalBytes, styleRefs[0]!, recipe.wrap, recipe.align);
+    case 2: return viewTextCreateUtf82(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, totalBytes, spanBytes[0]!, styleRefs[0]!, spanBytes[1]!, styleRefs[1]!, recipe.wrap, recipe.align);
+    case 3: return viewTextCreateUtf83(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, totalBytes, spanBytes[0]!, styleRefs[0]!, spanBytes[1]!, styleRefs[1]!, spanBytes[2]!, styleRefs[2]!, recipe.wrap, recipe.align);
+    case 4: return viewTextCreateUtf84(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, scratch, totalBytes, spanBytes[0]!, styleRefs[0]!, spanBytes[1]!, styleRefs[1]!, spanBytes[2]!, styleRefs[2]!, spanBytes[3]!, styleRefs[3]!, recipe.wrap, recipe.align);
+    default: return undefined;
   }
 }
 
@@ -472,14 +540,13 @@ export function tryNativeAxisCreateRender(
   gap: number,
   children: readonly NativeAxisBuilderChild[],
 ): number | undefined {
-  const hostPointer = host.tuiViewAbiHostPointer?.();
-  if (!isValidPointer(hostPointer)) return undefined;
+  if (!canInstallNativeRef(host)) return undefined;
   const session = nativeViewAbiSession();
   if (session === undefined) return undefined;
   const nextRef = tryNativeAxisCreate(next, horizontal, gap, children);
   if (nextRef === undefined) return undefined;
   try {
-    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    const status = installNativeRef(host, session, nextRef);
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
       return undefined;
@@ -498,8 +565,7 @@ export function tryNativeAxisCreateRender(
  * so the caller can use the authoritative V4/direct fallback unchanged.
  */
 export function tryNativeColdRender(host: NativeViewRenderHost, next: View): number | undefined {
-  const hostPointer = host.tuiViewAbiHostPointer?.();
-  if (!isValidPointer(hostPointer)) return undefined;
+  if (!canInstallNativeRef(host)) return undefined;
   const session = nativeViewAbiSession();
   if (session === undefined) return undefined;
   const recipe = nativeAxisRecipe(next);
@@ -520,7 +586,7 @@ export function tryNativeColdRender(host: NativeViewRenderHost, next: View): num
       ? createSmallAxis(session, recipe.horizontal, nodeIdLow, nodeIdHigh, recipe.gap, recipe.children, refs)
       : createAxisWithBuilder(session, recipe.horizontal ? 1 : 2, nodeIdLow, nodeIdHigh, recipe.gap, recipe.children, refs);
     if (nextRef === undefined) return undefined;
-    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    const status = installNativeRef(host, session, nextRef);
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
       return undefined;
@@ -565,6 +631,8 @@ function nativeColdRefForView(session: NativeViewAbiSession, view: View): number
     const [nodeIdLow, nodeIdHigh] = nodeIdPair(view);
     return viewSpacerCreate(session.symbols, session.runtime, nodeIdLow, nodeIdHigh, rows);
   }
+  const text = nativeTextCreateRef(session, view);
+  if (text !== undefined) return text;
   const recipe = nativeAxisRecipe(view);
   if (recipe === undefined || recipe.children.length > NATIVE_BUILDER_MAX_CHILDREN) return undefined;
   const refs: number[] = [];
@@ -655,8 +723,7 @@ export function tryNativeScalarRender(
 ): number | undefined {
   const patch = nativeScalarPatch(next);
   if (patch === undefined || patch.base !== previous) return undefined;
-  const hostPointer = host.tuiViewAbiHostPointer?.();
-  if (!isValidPointer(hostPointer) || !isValidNativeRef(previousRef)) return undefined;
+  if (!canInstallNativeRef(host) || !isValidNativeRef(previousRef)) return undefined;
   const session = nativeViewAbiSession();
   if (session === undefined) return undefined;
 
@@ -682,7 +749,7 @@ export function tryNativeScalarRender(
         patch.maxHeight,
         previousRef,
       );
-    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    const status = installNativeRef(host, session, nextRef);
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
       return undefined;
@@ -710,26 +777,26 @@ export function tryNativeAxisSetChildRender(
   trackWord = 0,
 ): number | undefined {
   if (!Number.isInteger(childIndex) || childIndex < 0 || !isValidNativeRef(previousRef)) return undefined;
-  const hostPointer = host.tuiViewAbiHostPointer?.();
   const session = nativeViewAbiSession();
-  if (!isValidPointer(hostPointer) || session === undefined) return undefined;
-  const childRef = nativeViewRefForNodeId(child);
-  if (childRef === undefined) return undefined;
+  if (!canInstallNativeRef(host) || session === undefined) return undefined;
+  let childRef: number | undefined;
   let nextRef: number | undefined;
   try {
+    childRef = nativeViewRefForNodeId(child);
+    if (childRef === undefined) return undefined;
     const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
     nextRef = viewAxisSetChild(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, childIndex, trackWord, childRef);
-    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    const status = installNativeRef(host, session, nextRef);
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
-      if (childRef !== previousRef) releaseNativeViewRef(session, childRef);
+      if (childRef !== undefined && childRef !== previousRef) releaseNativeViewRef(session, childRef);
       return undefined;
     }
-    if (childRef !== previousRef) releaseNativeViewRef(session, childRef);
+    if (childRef !== undefined && childRef !== previousRef) releaseNativeViewRef(session, childRef);
     return nextRef;
   } catch (error) {
     if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
-    if (childRef !== previousRef) releaseNativeViewRef(session, childRef);
+    if (childRef !== undefined && childRef !== previousRef) releaseNativeViewRef(session, childRef);
     if (isExpectedNativeStatus(error)) return undefined;
     throw error;
   }
@@ -750,9 +817,8 @@ export function tryNativeAxisSpliceRender(
   children: readonly NativeAxisSpliceChild[],
 ): number | undefined {
   if (!Number.isInteger(index) || index < 0 || !Number.isInteger(removeCount) || removeCount < 0 || !isValidNativeRef(previousRef)) return undefined;
-  const hostPointer = host.tuiViewAbiHostPointer?.();
   const session = nativeViewAbiSession();
-  if (!isValidPointer(hostPointer) || session === undefined) return undefined;
+  if (!canInstallNativeRef(host) || session === undefined) return undefined;
   // Bun's checked buffer lowering still requires a non-null aligned pointer
   // when the used count is zero; the spare pair is ignored by native code.
   const refs = new Uint32Array(Math.max(children.length * 2, 2));
@@ -770,7 +836,7 @@ export function tryNativeAxisSpliceRender(
     }
     const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
     const nextRef = viewAxisSpliceBuffer(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, index, removeCount, refs, children.length);
-    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    const status = installNativeRef(host, session, nextRef);
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
       for (const childRef of temporaryRefs) releaseNativeViewRef(session, childRef);
@@ -796,26 +862,26 @@ export function tryNativeGridSetCellRender(
   child: View,
 ): number | undefined {
   if (!Number.isInteger(row) || row < 0 || !Number.isInteger(column) || column < 0 || !isValidNativeRef(previousRef)) return undefined;
-  const hostPointer = host.tuiViewAbiHostPointer?.();
   const session = nativeViewAbiSession();
-  if (!isValidPointer(hostPointer) || session === undefined) return undefined;
-  const childRef = nativeViewRefForNodeId(child);
-  if (childRef === undefined) return undefined;
+  if (!canInstallNativeRef(host) || session === undefined) return undefined;
+  let childRef: number | undefined;
   let nextRef: number | undefined;
   try {
+    childRef = nativeViewRefForNodeId(child);
+    if (childRef === undefined) return undefined;
     const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
     nextRef = viewGridSetCell(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, row, column, childRef);
-    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    const status = installNativeRef(host, session, nextRef);
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
-      if (childRef !== previousRef) releaseNativeViewRef(session, childRef);
+      if (childRef !== undefined && childRef !== previousRef) releaseNativeViewRef(session, childRef);
       return undefined;
     }
-    if (childRef !== previousRef) releaseNativeViewRef(session, childRef);
+    if (childRef !== undefined && childRef !== previousRef) releaseNativeViewRef(session, childRef);
     return nextRef;
   } catch (error) {
     if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
-    if (childRef !== previousRef) releaseNativeViewRef(session, childRef);
+    if (childRef !== undefined && childRef !== previousRef) releaseNativeViewRef(session, childRef);
     if (isExpectedNativeStatus(error)) return undefined;
     throw error;
   }
@@ -940,8 +1006,7 @@ export function tryNativePathScalarRender(
 ): number | undefined {
   const lineage = nativePathLineage(next);
   if (lineage === undefined || lineage.baseNodeId !== viewNodeId(previous) || lineage.depth < 1 || lineage.depth > 4) return undefined;
-  const hostPointer = host.tuiViewAbiHostPointer?.();
-  if (!isValidPointer(hostPointer) || !isValidNativeRef(previousRef)) return undefined;
+  if (!canInstallNativeRef(host) || !isValidNativeRef(previousRef)) return undefined;
   const session = nativeViewAbiSession();
   if (session === undefined) return undefined;
   const steps = pathLineageSteps(lineage);
@@ -963,7 +1028,7 @@ export function tryNativePathScalarRender(
         : lineage.depth === 3
           ? viewTextLayoutPatchPathD3(session.symbols, session.runtime, previousRef, pathRef, target[0], target[1], ancestors[0]![0], ancestors[0]![1], ancestors[1]![0], ancestors[1]![1], ancestors[2]![0], ancestors[2]![1], wrap, align)
           : viewTextLayoutPatchPathD4(session.symbols, session.runtime, previousRef, pathRef, target[0], target[1], ancestors[0]![0], ancestors[0]![1], ancestors[1]![0], ancestors[1]![1], ancestors[2]![0], ancestors[2]![1], ancestors[3]![0], ancestors[3]![1], wrap, align);
-    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    const status = installNativeRef(host, session, nextRef);
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
       return undefined;
@@ -1049,6 +1114,26 @@ function pathNodes(root: BridgeViewNode, steps: readonly NativePathLineage["step
 function splitNodeId(id: number): readonly [number, number] {
   if (!Number.isSafeInteger(id) || id <= 0 || id > Number.MAX_SAFE_INTEGER) throw new RangeError("native path NodeId is invalid");
   return [id >>> 0, Math.floor(id / 0x1_0000_0000)];
+}
+
+function canInstallNativeRef(target: NativeViewRenderHost): boolean {
+  const hostPointer = target.tuiViewAbiHostPointer?.();
+  return isValidPointer(hostPointer) || target.tuiViewAbiInstallRef !== undefined;
+}
+
+function installNativeRef(
+  target: NativeViewRenderHost,
+  session: NativeViewAbiSession,
+  viewRef: number,
+): number {
+  const hostPointer = target.tuiViewAbiHostPointer?.();
+  if (isValidPointer(hostPointer)) {
+    return hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, viewRef);
+  }
+  const install = target.tuiViewAbiInstallRef;
+  if (install === undefined) return -1;
+  install.call(target, viewRef);
+  return 0;
 }
 
 export function releaseNativeViewRef(session: NativeViewAbiSession | undefined, ref: number): void {

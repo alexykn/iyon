@@ -160,15 +160,15 @@ export interface NativeAddon {
   credentialSet(service: string, account: string, secret: string): void;
   credentialDelete(service: string, account: string): void;
   credentialHas(service: string, account: string): boolean;
-  NativeHistory?: new () => { dispose(): void; layout(): object; setLayout(layout: object): void; isDetached(): boolean; push(view: object): number; freeze(unit: number, view: object): void; discardLive(unit: number): void; pushStream(stream: object): void; sealStream(stream: object): void };
+  NativeHistory?: new () => { dispose(): void; layout(): object; setLayout(layout: object): void; isDetached(): boolean; push(view: object): number; pushRef(viewRef: number): number; freeze(unit: number, view: object): void; freezeRef(unit: number, viewRef: number): void; discardLive(unit: number): void; pushStream(stream: object): void; sealStream(stream: object): void };
   NativeTextInput?: new (multiline?: boolean) => { dispose(): void; text(): string; cursorBytes(): number; setText(value: string): void; clear(): void; submitted(): NativeTuiOutputContract; setMultiline(enabled: boolean): void; isMultiline(): boolean; componentId(): number | null };
   NativeTuiHost?: new (width?: number, height?: number, headless?: boolean) => NativeTuiHostContract;
   NativeTuiOutput?: new () => NativeTuiOutputContract;
   NativeTextStream?: new (options?: "markdown" | { readonly projector?: "markdown"; readonly presentation?: object; readonly pacing?: object }) => { dispose(): void; update(text: string): void; append(text: string, annotations?: readonly object[]): void; seal(): void; snapshot(): object };
   NativeMarkdownProjector?: new () => { dispose(): void; project(text: string, sealed?: boolean): object };
   NativePlainProjector?: new () => { dispose(): void; project(text: string): object };
-  NativeViewSlot?: new (initial: object) => { dispose(): void; revision(): number; componentId(): number | null; setView(view: object): void; setAnimation(frames: object[], intervalMs: number): void; setAnimationAtCycleBoundary(frames: object[], intervalMs: number): void; stopAnimation(view: object): void };
-  NativeScrollPane?: new (initial: object) => { dispose(): void; componentId(): number | null; setContent(view: object): void; followEnd(): void };
+  NativeViewSlot?: new (initial: object) => { dispose(): void; revision(): number; componentId(): number | null; setView(view: object): void; setViewRef(viewRef: number): void; setAnimation(frames: object[], intervalMs: number): void; setAnimationAtCycleBoundary(frames: object[], intervalMs: number): void; setAnimationRefs(refs: Uint32Array, usedCount: number, intervalMs: number): void; setAnimationRefsAtCycleBoundary(refs: Uint32Array, usedCount: number, intervalMs: number): void; stopAnimation(view: object): void; stopAnimationRef(viewRef: number): void };
+  NativeScrollPane?: new (initial: object) => { dispose(): void; componentId(): number | null; setContent(view: object): void; setContentRef(viewRef: number): void; followEnd(): void };
   tuiPerfV3ResetViewBridgeCache?: () => void;
   tuiPerfV3ViewBridgeCacheSize?: () => number;
   tuiPerfV3PackedSlotPages?: () => number;
@@ -208,7 +208,9 @@ export interface NativeTuiHostContract {
   resize(width: number, height: number): void;
   advanceTime(milliseconds: number): void;
   createViewSlot(initial: object): object;
+  createViewSlotRef(viewRef: number): object;
   scrollPane(initial: object): object;
+  scrollPaneRef(viewRef: number): object;
   styleAt(row: number, column: number): object | null;
   cellXOfText(row: number, text: string): number | null;
   tuiPerfV3PackedRender?(words: Uint32Array, bytes: Uint8Array): void;
