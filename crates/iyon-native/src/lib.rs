@@ -1,3 +1,5 @@
+#![recursion_limit = "512"]
+
 //! The T1 N-API bridge contains only viability probes.
 //!
 //! This crate is deliberately a bridge, not an application layer. Product

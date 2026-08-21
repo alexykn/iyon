@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914
-// generator_blake3 = 6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91
+// schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801
+// generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de
 // Generated C ABI wrappers. Semantic implementations are handwritten and linked below.
 use super::{NativeViewRuntime, NativeHost, AxisChildInputV1};
 pub mod generated_impls {
@@ -65,6 +65,153 @@ pub mod generated_impls {
             children_capacity_bytes: usize,
             used_child_count: u32,
         ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_row_create_0_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            gap: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_row_create_1_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            gap: u32,
+            track0: u32,
+            child0: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_row_create_2_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            gap: u32,
+            track0: u32,
+            child0: u32,
+            track1: u32,
+            child1: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_row_create_3_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            gap: u32,
+            track0: u32,
+            child0: u32,
+            track1: u32,
+            child1: u32,
+            track2: u32,
+            child2: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_row_create_4_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            gap: u32,
+            track0: u32,
+            child0: u32,
+            track1: u32,
+            child1: u32,
+            track2: u32,
+            child2: u32,
+            track3: u32,
+            child3: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_column_create_0_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            gap: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_column_create_1_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            gap: u32,
+            track0: u32,
+            child0: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_column_create_2_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            gap: u32,
+            track0: u32,
+            child0: u32,
+            track1: u32,
+            child1: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_column_create_3_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            gap: u32,
+            track0: u32,
+            child0: u32,
+            track1: u32,
+            child1: u32,
+            track2: u32,
+            child2: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_column_create_4_impl(
+            runtime: *mut NativeViewRuntime,
+            node_id_low: u32,
+            node_id_high: u32,
+            gap: u32,
+            track0: u32,
+            child0: u32,
+            track1: u32,
+            child1: u32,
+            track2: u32,
+            child2: u32,
+            track3: u32,
+            child3: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn axis_builder_begin_impl(
+            runtime: *mut NativeViewRuntime,
+            axis_kind: u32,
+            expected_children: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn axis_builder_push_impl(
+            runtime: *mut NativeViewRuntime,
+            builder_ref: u32,
+            track_word: u32,
+            child_ref: u32,
+        ) -> i32;
+    }
+    unsafe extern "Rust" {
+        pub fn axis_builder_finish_impl(
+            runtime: *mut NativeViewRuntime,
+            builder_ref: u32,
+            node_id_low: u32,
+            node_id_high: u32,
+            gap: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn axis_builder_abort_impl(runtime: *mut NativeViewRuntime, builder_ref: u32) -> i32;
     }
     unsafe extern "Rust" {
         pub fn view_axis_set_child_impl(
@@ -594,6 +741,464 @@ pub unsafe extern "C" fn iyon_view_axis_create_buffer_v1(
             })()
         },
         0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_row_create_0_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    gap: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_row_create_0_impl(runtime, node_id_low, node_id_high, gap)
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_row_create_1_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    gap: u32,
+    track0: u32,
+    child0: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let child0 = generated_native_ref(child0, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_row_create_1_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        gap,
+                        track0,
+                        child0,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_row_create_2_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    gap: u32,
+    track0: u32,
+    child0: u32,
+    track1: u32,
+    child1: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let child0 = generated_native_ref(child0, 0x8000_0001u32)?;
+                let child1 = generated_native_ref(child1, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_row_create_2_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        gap,
+                        track0,
+                        child0,
+                        track1,
+                        child1,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_row_create_3_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    gap: u32,
+    track0: u32,
+    child0: u32,
+    track1: u32,
+    child1: u32,
+    track2: u32,
+    child2: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let child0 = generated_native_ref(child0, 0x8000_0001u32)?;
+                let child1 = generated_native_ref(child1, 0x8000_0001u32)?;
+                let child2 = generated_native_ref(child2, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_row_create_3_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        gap,
+                        track0,
+                        child0,
+                        track1,
+                        child1,
+                        track2,
+                        child2,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_row_create_4_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    gap: u32,
+    track0: u32,
+    child0: u32,
+    track1: u32,
+    child1: u32,
+    track2: u32,
+    child2: u32,
+    track3: u32,
+    child3: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let child0 = generated_native_ref(child0, 0x8000_0001u32)?;
+                let child1 = generated_native_ref(child1, 0x8000_0001u32)?;
+                let child2 = generated_native_ref(child2, 0x8000_0001u32)?;
+                let child3 = generated_native_ref(child3, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_row_create_4_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        gap,
+                        track0,
+                        child0,
+                        track1,
+                        child1,
+                        track2,
+                        child2,
+                        track3,
+                        child3,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_column_create_0_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    gap: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_column_create_0_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        gap,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_column_create_1_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    gap: u32,
+    track0: u32,
+    child0: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let child0 = generated_native_ref(child0, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_column_create_1_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        gap,
+                        track0,
+                        child0,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_column_create_2_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    gap: u32,
+    track0: u32,
+    child0: u32,
+    track1: u32,
+    child1: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let child0 = generated_native_ref(child0, 0x8000_0001u32)?;
+                let child1 = generated_native_ref(child1, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_column_create_2_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        gap,
+                        track0,
+                        child0,
+                        track1,
+                        child1,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_column_create_3_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    gap: u32,
+    track0: u32,
+    child0: u32,
+    track1: u32,
+    child1: u32,
+    track2: u32,
+    child2: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let child0 = generated_native_ref(child0, 0x8000_0001u32)?;
+                let child1 = generated_native_ref(child1, 0x8000_0001u32)?;
+                let child2 = generated_native_ref(child2, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_column_create_3_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        gap,
+                        track0,
+                        child0,
+                        track1,
+                        child1,
+                        track2,
+                        child2,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_column_create_4_v1(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    gap: u32,
+    track0: u32,
+    child0: u32,
+    track1: u32,
+    child1: u32,
+    track2: u32,
+    child2: u32,
+    track3: u32,
+    child3: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                let child0 = generated_native_ref(child0, 0x8000_0001u32)?;
+                let child1 = generated_native_ref(child1, 0x8000_0001u32)?;
+                let child2 = generated_native_ref(child2, 0x8000_0001u32)?;
+                let child3 = generated_native_ref(child3, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_column_create_4_impl(
+                        runtime,
+                        node_id_low,
+                        node_id_high,
+                        gap,
+                        track0,
+                        child0,
+                        track1,
+                        child1,
+                        track2,
+                        child2,
+                        track3,
+                        child3,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_axis_builder_begin_v1(
+    runtime: *mut NativeViewRuntime,
+    axis_kind: u32,
+    expected_children: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::axis_builder_begin_impl(runtime, axis_kind, expected_children)
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_axis_builder_push_v1(
+    runtime: *mut NativeViewRuntime,
+    builder_ref: u32,
+    track_word: u32,
+    child_ref: u32,
+) -> i32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<i32, i32> {
+                let runtime = generated_nonnull(runtime, -1i32)?;
+                let builder_ref = generated_native_ref(builder_ref, -1i32)?;
+                let child_ref = generated_native_ref(child_ref, -1i32)?;
+                Ok(unsafe {
+                    generated_impls::axis_builder_push_impl(
+                        runtime,
+                        builder_ref,
+                        track_word,
+                        child_ref,
+                    )
+                })
+            })()
+        },
+        -127i32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_axis_builder_finish_v1(
+    runtime: *mut NativeViewRuntime,
+    builder_ref: u32,
+    node_id_low: u32,
+    node_id_high: u32,
+    gap: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let builder_ref = generated_native_ref(builder_ref, 0x8000_0001u32)?;
+                let (node_id_low, node_id_high) =
+                    generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::axis_builder_finish_impl(
+                        runtime,
+                        builder_ref,
+                        node_id_low,
+                        node_id_high,
+                        gap,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_axis_builder_abort_v1(
+    runtime: *mut NativeViewRuntime,
+    builder_ref: u32,
+) -> i32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<i32, i32> {
+                let runtime = generated_nonnull(runtime, -1i32)?;
+                let builder_ref = generated_native_ref(builder_ref, -1i32)?;
+                Ok(unsafe { generated_impls::axis_builder_abort_impl(runtime, builder_ref) })
+            })()
+        },
+        -127i32,
     )
 }
 

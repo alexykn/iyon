@@ -1,11 +1,11 @@
-<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914; generator_blake3 = 6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91 -->
+<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801; generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de -->
 
 # PERF-11 generated ABI reference
 
 > This file is generated. Do not edit it directly.
 
-- Schema BLAKE3: `d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914`
-- Generator BLAKE3: `6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91`
+- Schema BLAKE3: `823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801`
+- Generator BLAKE3: `9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de`
 - ABI: `iyon_tui_view` v1
 - Semantic schema: v1
 - Minimum Bun: `1.4.0`
@@ -18,6 +18,7 @@
 | `HostPtr` | `*mut NativeHost` | `Pointer` | `host` | `-` |
 | `ViewRef` | `u32` | `number` | `runtime` | `view` |
 | `PathRef` | `u32` | `number` | `runtime` | `path` |
+| `BuilderRef` | `u32` | `number` | `runtime` | `builder` |
 | `EditTxnRef` | `u32` | `number` | `runtime` | `edit_txn` |
 
 ## POD buffers
@@ -55,6 +56,20 @@
 | `view_text_layout_patch_root` | `scalar_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 | `view_common_patch_root` | `scalar_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 | `view_axis_create_buffer` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_row_create_0` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_row_create_1` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_row_create_2` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_row_create_3` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_row_create_4` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_column_create_0` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_column_create_1` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_column_create_2` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_column_create_3` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_column_create_4` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `axis_builder_begin` | `builder` | `warm` | `native_ref_result` | `v4` | `owner_thread` | `true` | `false` |
+| `axis_builder_push` | `builder` | `warm` | `status_only` | `v4` | `owner_thread` | `true` | `false` |
+| `axis_builder_finish` | `builder` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `axis_builder_abort` | `builder` | `cold` | `status_only` | `none` | `owner_thread` | `false` | `false` |
 | `view_axis_set_child` | `structural_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 | `view_axis_splice_buffer` | `structural_patch` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 | `view_grid_set_cell` | `structural_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
