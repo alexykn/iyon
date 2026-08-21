@@ -4130,12 +4130,12 @@ Tranche 13 is implemented by the following committed changes:
 
 - `packages/iyon-runtime/bench/tui_decision.ts` — authoritative direct/native-shadow/V4 matrix, wide and cold guardrails, realistic trace, phase timings, route counts, bootstrap diagnostics, and lifetime audit.
 - `packages/iyon-runtime/bench/PERF-11.11-native-view-decision.json` — clean Bun 1.4.0 authoritative artifact.
-- `crates/iyon-native/src/tui/view_abi.rs` — expired weak-entry pruning and release/stale-entry diagnostics.
+- `crates/iyon-native/src/tui/view_abi.rs` — expired weak-entry pruning, lease accounting, and release/stale-entry diagnostics.
 - `crates/iyon-tui/src/application/{host,kernel}.rs` and `crates/iyon-tui/src/scene/host.rs` — host close clears retained semantic roots and layout cache state.
-- `packages/iyon-runtime/src/tui/native_view_abi.ts` — structural axis/grid edits materialize new children through NativeRef rather than falling back when a changed child is new.
-- `packages/iyon-runtime/src/tui/runtime.ts` — closed TUI instances release their current JS scene reference.
+- `packages/iyon-runtime/src/tui/native_view_abi.ts` — structural axis/grid edits materialize new children through NativeRef, exact render-ref routing, and complete temporary-lease cleanup.
+- `packages/iyon-runtime/src/tui/{component,runtime,scroll-pane}.ts` — native View-boundary routing, reusable animation-ref storage, and exception-safe lease cleanup.
 
-The final implementation commits are `5a4a258`, `fcb152d`, `d7c8ba4`, `3375fb8`, `30d2925`, `7459519`, `29c9e0f`, and `e7005b8` (the benchmark artifact records source SHA `e7005b81b04eeb2a44c878674f6580af01054097`).
+The Tranche 12 correction commit is `8c17de1` (the benchmark artifact records source SHA `8c17de1b4ba88f805c182a067274d707ab64c089`).
 
 ## Authoritative run
 
@@ -4151,7 +4151,8 @@ Environment and ABI:
 Bun:                 1.4.0
 Bun revision:        34cbb9a40b4bd1bd767d134a7065e66c2432a676
 Target:               darwin-arm64
-Native artifact SHA: bb19aa780dbba07d048e826f99fae6765d903f551d49da669d05b16a56abfda1
+Native artifact SHA: 81a1682d90f3b0be14fb0bb5cd07007c6e1a6b2a9c09158ff2e45be8aff54a9e
+Benchmark source SHA: 98b8f58b32611731ebe4389aaf2a773e5aa58b7bae085c111d1421d760a31dcb
 Schema BLAKE3:       f7b30e32493e2e95f86541401308e5db64103bd8a7e694cbecbfe851040025d3
 Generator BLAKE3:    20435cb0e211e543dd671e6c86669cf3f205c8e77c5070f47f4d181a4a9d3c71
 ABI version:         1
@@ -4163,18 +4164,18 @@ Routing thresholds are centralized in `native_view_policy.ts`: small axis arity 
 
 ## End-to-end results
 
-Times below are median nanoseconds per case across the case medians; the complete per-case median/p95/p99 and deterministic 95% median intervals are in the JSON artifact.
+The table reports the mean of per-case median nanoseconds; complete per-case median/p95/p99 and deterministic 95% median intervals are in the JSON artifact.
 
 | Set | Direct total | Native Shadow total | V4 total | Native Shadow result |
 |---|---:|---:|---:|---|
-| Normal retained (100) | 89,208 | 94,541 | 93,042 | 1.83% slower than direct |
-| Wide (3) | 39,853,126 | 31,171,666 | 31,016,000 | 21.8% faster than direct |
-| Cold (4) | 16,206,874 | 13,323,624 | 14,005,667 | 4.87% faster than V4 |
-| Path/transaction (4) | 103,666 | 124,999 | 100,375 | 24.5% slower than V4 |
+| Normal retained (100) | 165,199 | 178,712 | 156,776 | 8.18% slower than direct |
+| Wide (3) | 29,894,139 | 23,626,431 | 23,291,722 | 20.97% faster than direct; 1.44% slower than V4 |
+| Cold (4) | 26,491,667 | 22,276,531 | 22,890,958 | 2.68% faster than V4 |
+| Path/transaction (4) | 132,406 | 150,385 | 135,761 | 10.77% slower than V4 |
 
-Normal-matrix phase medians were: direct construction `49,209 ns`, commit `36,167 ns`, encoding `209 ns`; Native Shadow construction `47,958 ns`, commit/native route `42,000 ns`, structural encoding `0 ns`; V4 construction `49,417 ns`, commit `40,000 ns`, encoding `3,959 ns`. Total always remained construction plus complete commit; no phase was subtracted from the decision.
+Mean per-case phase medians were: direct construction `90,093 ns`, commit `74,500 ns`, encoding `11,065 ns`; Native Shadow construction `89,057 ns`, commit/native route `88,839 ns`, structural encoding `0 ns`; V4 construction `87,120 ns`, commit `68,832 ns`, encoding `15,439 ns`. Total always remained construction plus complete commit; no phase was subtracted from the decision.
 
-The 100-operation trace totals were direct `12,680,709 ns`, Native Shadow `14,712,955 ns`, and V4 `11,767,844 ns`. Native Shadow was therefore `1.250x` the best prior candidate (V4) and did not reach the required 15% improvement.
+The 100-operation trace totals were direct `12,873,332 ns`, Native Shadow `14,787,758 ns`, and V4 `12,279,781 ns`. Native Shadow was therefore `1.204x` the best prior candidate (V4) and did not reach the required 15% improvement.
 
 ## Routes and lifetime
 
@@ -4186,6 +4187,7 @@ render_ref          0
 scalar            120
 shallow-depth   1,260
 PathRef             0
+structural        270
 edit transaction   60
 native builder  3,330
 V4             3,330   separate V4 comparison-candidate renders; not a hybrid route
@@ -4193,7 +4195,7 @@ recovery           0
 fallback          780
 ```
 
-The route smoke test and full run exercised structural replacement after fixing new-child materialization (`structural: 270` in the full matrix). The final full-run lifetime audit passed:
+The full-run lifetime audit passed:
 
 ```text
 semantic_cache_entries: 0
@@ -4216,12 +4218,12 @@ Persistent-sequence evidence remains consistent with the tranche: the dedicated 
 The end-to-end rewrite is **rejected for default adoption**. The required gates failed:
 
 ```text
-normal matrix faster than direct:       failed (1.01830x)
-common regressions <= 3%:               failed (44 cases)
-exact no slower than V4:                failed (max 1.20089x)
-cold within 5% of V4:                   passed (max 0.97463x)
-trace >= 15% faster than best prior:   failed (1.25027x)
+normal matrix faster than direct:       failed (median ratio 1.01152x)
+common regressions <= 3%:               failed (40 cases)
+exact no slower than V4:                failed (max 1.15171x)
+cold within 5% of V4:                   passed (max 0.97953x)
+trace >= 15% faster than best prior:   failed (1.20424x)
 lifetime audit:                         passed
 ```
 
-The required PERF-7v2 comparison is not a valid same-release production number: §2.2 explicitly forbids comparing a Bun 1.4 candidate with the Bun 1.3 PERF-7v2 run. The historical PERF-10 matched-matrix reference was `1.101x` (`10.1% slower`) versus PERF-7v2 direct; the authoritative Tranche 13 decision is the clean Bun 1.4 direct/V4 comparison above. Native semantic/encoding improvements do not compensate for the complete end-to-end result, so conditional PERF-11.12 production cleanup must not be performed.
+The required PERF-7v2 comparison is not a valid same-release production number: §2.2 explicitly forbids comparing a Bun 1.4 candidate with the Bun 1.3 PERF-7v2 run. The historical PERF-10 matched-matrix reference remains historical; the authoritative Tranche 13 decision is the refreshed clean Bun 1.4 direct/V4 comparison above. Native semantic/encoding improvements do not compensate for the complete end-to-end result, so conditional PERF-11.12 production cleanup must not be performed.
