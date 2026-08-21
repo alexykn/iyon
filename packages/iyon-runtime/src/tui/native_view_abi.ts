@@ -6,6 +6,12 @@ import {
   pathChild,
   pathRoot,
   viewCommonPatchRoot,
+  viewAxisCreateBuffer,
+  viewAxisSetChild,
+  viewAxisSpliceBuffer,
+  viewGridSetCell,
+  viewAxisSetChildPath,
+  viewGridSetCellPath,
   viewRefForNodeId,
   viewReleaseMany,
   viewTextLayoutPatchPathD1,
@@ -56,6 +62,12 @@ export interface NativeTextLayoutTransactionEdit {
   readonly align: number;
 }
 
+export interface NativeAxisSpliceChild {
+  readonly view: View;
+  /** `(track kind in low byte, value in the high 16 bits)`; zero means content. */
+  readonly trackWord?: number;
+}
+
 let cachedSession: NativeViewAbiSession | undefined;
 const PATH_REFS = new WeakMap<NativeViewAbiSession, WeakMap<object, number>>();
 const PATH_SHAPE_REFS = new WeakMap<NativeViewAbiSession, Map<string, number>>();
@@ -68,6 +80,11 @@ const ABI_FUNCTION_NAMES = [
   "viewTextLayoutPatchRoot",
   "viewCommonPatchRoot",
   "viewAxisCreateBuffer",
+  "viewAxisSetChild",
+  "viewAxisSpliceBuffer",
+  "viewGridSetCell",
+  "viewAxisSetChildPath",
+  "viewGridSetCellPath",
   "viewReleaseMany",
   "viewRefForNodeId",
   "pathRoot",
@@ -125,6 +142,11 @@ export function nativeViewAbiSession(): NativeViewAbiSession | undefined {
     viewTextLayoutPatchRoot: bootstrap.functions.viewTextLayoutPatchRoot as Pointer,
     viewCommonPatchRoot: bootstrap.functions.viewCommonPatchRoot as Pointer,
     viewAxisCreateBuffer: bootstrap.functions.viewAxisCreateBuffer as Pointer,
+    viewAxisSetChild: bootstrap.functions.viewAxisSetChild as Pointer,
+    viewAxisSpliceBuffer: bootstrap.functions.viewAxisSpliceBuffer as Pointer,
+    viewGridSetCell: bootstrap.functions.viewGridSetCell as Pointer,
+    viewAxisSetChildPath: bootstrap.functions.viewAxisSetChildPath as Pointer,
+    viewGridSetCellPath: bootstrap.functions.viewGridSetCellPath as Pointer,
     viewReleaseMany: bootstrap.functions.viewReleaseMany as Pointer,
     viewRefForNodeId: bootstrap.functions.viewRefForNodeId as Pointer,
     pathRoot: bootstrap.functions.pathRoot as Pointer,
@@ -212,6 +234,132 @@ export function tryNativeScalarRender(
     return nextRef;
   } catch (error) {
     if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Replaces one wide axis child through native PersistentSeq::set. The JS
+ * operation supplies only the child NativeRef and the new root NodeId; it
+ * does not encode the surrounding axis or descendants.
+ */
+export function tryNativeAxisSetChildRender(
+  host: NativeViewRenderHost,
+  previous: View,
+  previousRef: number,
+  next: View,
+  child: View,
+  childIndex: number,
+  trackWord = 0,
+): number | undefined {
+  if (!Number.isInteger(childIndex) || childIndex < 0 || !isValidNativeRef(previousRef)) return undefined;
+  const hostPointer = host.tuiViewAbiHostPointer?.();
+  const session = nativeViewAbiSession();
+  if (!isValidPointer(hostPointer) || session === undefined) return undefined;
+  const childRef = nativeViewRefForNodeId(child);
+  if (childRef === undefined) return undefined;
+  let nextRef: number | undefined;
+  try {
+    const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
+    nextRef = viewAxisSetChild(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, childIndex, trackWord, childRef);
+    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    if (status !== 0) {
+      releaseNativeViewRef(session, nextRef);
+      if (childRef !== previousRef) releaseNativeViewRef(session, childRef);
+      return undefined;
+    }
+    if (childRef !== previousRef) releaseNativeViewRef(session, childRef);
+    return nextRef;
+  } catch (error) {
+    if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
+    if (childRef !== previousRef) releaseNativeViewRef(session, childRef);
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Inserts/removes a bounded set of axis children through a POD buffer. The
+ * buffer contains only `(track_word, child_ref)` pairs; no View payload or
+ * generic operation record is serialized.
+ */
+export function tryNativeAxisSpliceRender(
+  host: NativeViewRenderHost,
+  previous: View,
+  previousRef: number,
+  next: View,
+  index: number,
+  removeCount: number,
+  children: readonly NativeAxisSpliceChild[],
+): number | undefined {
+  if (!Number.isInteger(index) || index < 0 || !Number.isInteger(removeCount) || removeCount < 0 || !isValidNativeRef(previousRef)) return undefined;
+  const hostPointer = host.tuiViewAbiHostPointer?.();
+  const session = nativeViewAbiSession();
+  if (!isValidPointer(hostPointer) || session === undefined) return undefined;
+  // Bun's checked buffer lowering still requires a non-null aligned pointer
+  // when the used count is zero; the spare pair is ignored by native code.
+  const refs = new Uint32Array(Math.max(children.length * 2, 2));
+  const temporaryRefs = new Set<number>();
+  try {
+    for (const [childIndex, entry] of children.entries()) {
+      const childRef = nativeViewRefForNodeId(entry.view);
+      if (childRef === undefined) {
+        for (const temporaryRef of temporaryRefs) releaseNativeViewRef(session, temporaryRef);
+        return undefined;
+      }
+      refs[childIndex * 2] = entry.trackWord ?? 0;
+      refs[childIndex * 2 + 1] = childRef;
+      if (childRef !== previousRef) temporaryRefs.add(childRef);
+    }
+    const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
+    const nextRef = viewAxisSpliceBuffer(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, index, removeCount, refs, children.length);
+    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    if (status !== 0) {
+      releaseNativeViewRef(session, nextRef);
+      for (const childRef of temporaryRefs) releaseNativeViewRef(session, childRef);
+      return undefined;
+    }
+    for (const childRef of temporaryRefs) releaseNativeViewRef(session, childRef);
+    return nextRef;
+  } catch (error) {
+    for (const childRef of temporaryRefs) releaseNativeViewRef(session, childRef);
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  }
+}
+
+/** Replaces one grid cell using the persistent cell sequence index. */
+export function tryNativeGridSetCellRender(
+  host: NativeViewRenderHost,
+  previous: View,
+  previousRef: number,
+  next: View,
+  row: number,
+  column: number,
+  child: View,
+): number | undefined {
+  if (!Number.isInteger(row) || row < 0 || !Number.isInteger(column) || column < 0 || !isValidNativeRef(previousRef)) return undefined;
+  const hostPointer = host.tuiViewAbiHostPointer?.();
+  const session = nativeViewAbiSession();
+  if (!isValidPointer(hostPointer) || session === undefined) return undefined;
+  const childRef = nativeViewRefForNodeId(child);
+  if (childRef === undefined) return undefined;
+  let nextRef: number | undefined;
+  try {
+    const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
+    nextRef = viewGridSetCell(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, row, column, childRef);
+    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
+    if (status !== 0) {
+      releaseNativeViewRef(session, nextRef);
+      if (childRef !== previousRef) releaseNativeViewRef(session, childRef);
+      return undefined;
+    }
+    if (childRef !== previousRef) releaseNativeViewRef(session, childRef);
+    return nextRef;
+  } catch (error) {
+    if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
+    if (childRef !== previousRef) releaseNativeViewRef(session, childRef);
     if (isExpectedNativeStatus(error)) return undefined;
     throw error;
   }

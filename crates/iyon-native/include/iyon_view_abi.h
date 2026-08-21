@@ -1,6 +1,6 @@
 /* DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. */
-/* schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9 */
-/* generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69 */
+/* schema_blake3 = d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914 */
+/* generator_blake3 = 6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91 */
 #ifndef IYON_VIEW_ABI_H
 #define IYON_VIEW_ABI_H
 
@@ -46,6 +46,16 @@ uint32_t iyon_view_text_layout_patch_root_v1(NativeViewRuntime * runtime, uint32
 uint32_t iyon_view_common_patch_root_v1(NativeViewRuntime * runtime, uint32_t base, uint32_t node_id_low, uint32_t node_id_high, uint32_t mask, uint32_t padding_tr, uint32_t padding_bl, uint32_t width_rule, uint32_t height_rule, uint32_t min_width, uint32_t max_width, uint32_t min_height, uint32_t max_height, uint32_t decoration_ref);
 
 uint32_t iyon_view_axis_create_buffer_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t axis_kind, uint32_t gap, const AxisChildInputV1 * children, size_t children_capacity_bytes, uint32_t used_child_count);
+
+uint32_t iyon_view_axis_set_child_v1(NativeViewRuntime * runtime, uint32_t base_axis_ref, uint32_t node_id_low, uint32_t node_id_high, uint32_t child_index, uint32_t track_word, uint32_t child_ref);
+
+uint32_t iyon_view_axis_splice_buffer_v1(NativeViewRuntime * runtime, uint32_t base_axis_ref, uint32_t node_id_low, uint32_t node_id_high, uint32_t index, uint32_t remove_count, const AxisChildInputV1 * children, size_t children_capacity_bytes, uint32_t used_child_count);
+
+uint32_t iyon_view_grid_set_cell_v1(NativeViewRuntime * runtime, uint32_t base_grid_ref, uint32_t node_id_low, uint32_t node_id_high, uint32_t row, uint32_t column, uint32_t child_ref);
+
+uint32_t iyon_view_axis_set_child_path_v1(NativeViewRuntime * runtime, uint32_t base_root_ref, uint32_t path_ref, uint32_t path_depth, uint32_t target_node_id_low, uint32_t target_node_id_high, uint32_t ancestor0_node_id_low, uint32_t ancestor0_node_id_high, uint32_t ancestor1_node_id_low, uint32_t ancestor1_node_id_high, uint32_t ancestor2_node_id_low, uint32_t ancestor2_node_id_high, uint32_t ancestor3_node_id_low, uint32_t ancestor3_node_id_high, uint32_t axis_index, uint32_t track_word, uint32_t child_ref);
+
+uint32_t iyon_view_grid_set_cell_path_v1(NativeViewRuntime * runtime, uint32_t base_root_ref, uint32_t path_ref, uint32_t path_depth, uint32_t target_node_id_low, uint32_t target_node_id_high, uint32_t ancestor0_node_id_low, uint32_t ancestor0_node_id_high, uint32_t ancestor1_node_id_low, uint32_t ancestor1_node_id_high, uint32_t ancestor2_node_id_low, uint32_t ancestor2_node_id_high, uint32_t ancestor3_node_id_low, uint32_t ancestor3_node_id_high, uint32_t grid_row, uint32_t grid_column, uint32_t child_ref);
 
 int32_t iyon_view_release_many_v1(NativeViewRuntime * runtime, const uint32_t * refs, size_t refs_capacity_bytes, uint32_t used_ref_count);
 

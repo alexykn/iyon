@@ -1,11 +1,11 @@
-<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9; generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69 -->
+<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914; generator_blake3 = 6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91 -->
 
 # PERF-11 generated ABI reference
 
 > This file is generated. Do not edit it directly.
 
-- Schema BLAKE3: `6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9`
-- Generator BLAKE3: `18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69`
+- Schema BLAKE3: `d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914`
+- Generator BLAKE3: `6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91`
 - ABI: `iyon_tui_view` v1
 - Semantic schema: v1
 - Minimum Bun: `1.4.0`
@@ -55,6 +55,11 @@
 | `view_text_layout_patch_root` | `scalar_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 | `view_common_patch_root` | `scalar_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 | `view_axis_create_buffer` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_axis_set_child` | `structural_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_axis_splice_buffer` | `structural_patch` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_grid_set_cell` | `structural_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_axis_set_child_path` | `structural_path_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_grid_set_cell_path` | `structural_path_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 | `view_release_many` | `lifecycle` | `cold` | `i32` | `none` | `owner_thread` | `false` | `false` |
 | `view_ref_for_node_id` | `exact_lookup` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `false` | `false` |
 | `path_root` | `path` | `warm` | `PathRefResult` | `v4` | `owner_thread` | `true` | `false` |

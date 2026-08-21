@@ -879,6 +879,11 @@ pub fn bootstrap(env: Env) -> napi::Result<Value> {
             "viewTextLayoutPatchRoot": generated_exports::iyon_view_text_layout_patch_root_v1 as *const () as usize as u64,
             "viewCommonPatchRoot": generated_exports::iyon_view_common_patch_root_v1 as *const () as usize as u64,
             "viewAxisCreateBuffer": generated_exports::iyon_view_axis_create_buffer_v1 as *const () as usize as u64,
+            "viewAxisSetChild": generated_exports::iyon_view_axis_set_child_v1 as *const () as usize as u64,
+            "viewAxisSpliceBuffer": generated_exports::iyon_view_axis_splice_buffer_v1 as *const () as usize as u64,
+            "viewGridSetCell": generated_exports::iyon_view_grid_set_cell_v1 as *const () as usize as u64,
+            "viewAxisSetChildPath": generated_exports::iyon_view_axis_set_child_path_v1 as *const () as usize as u64,
+            "viewGridSetCellPath": generated_exports::iyon_view_grid_set_cell_path_v1 as *const () as usize as u64,
             "viewReleaseMany": generated_exports::iyon_view_release_many_v1 as *const () as usize as u64,
             "viewRefForNodeId": generated_exports::iyon_view_ref_for_node_id_v1 as *const () as usize as u64,
             "pathRoot": generated_exports::iyon_path_root_v1 as *const () as usize as u64,
@@ -1567,21 +1572,328 @@ pub unsafe extern "Rust" fn view_common_patch_root_impl(
     record_result(runtime, result)
 }
 
+const AXIS_KIND_ROW: u32 = 1;
+const AXIS_KIND_COLUMN: u32 = 2;
+const MAX_AXIS_CHILD_COUNT: u32 = 524_288;
+
+fn resolve_axis_children(
+    runtime: &mut NativeViewRuntime,
+    children: *const AxisChildInputV1,
+    used_child_count: u32,
+) -> Result<Vec<(u32, View)>, u32> {
+    if used_child_count > MAX_AXIS_CHILD_COUNT {
+        return Err(FAST_FALLBACK);
+    }
+    if used_child_count == 0 {
+        return Ok(Vec::new());
+    }
+    if children.is_null() {
+        return Err(FAST_INVALID);
+    }
+    let inputs = unsafe { std::slice::from_raw_parts(children, used_child_count as usize) };
+    inputs
+        .iter()
+        .map(|input| {
+            if input.track_word != 0 {
+                let kind = input.track_word & 0xff;
+                if !(1..=5).contains(&kind) {
+                    return Err(FAST_INVALID);
+                }
+            }
+            runtime
+                .resolve_ref(input.child_ref)
+                .map(|(view, _)| (input.track_word, view))
+        })
+        .collect()
+}
+
+fn publish_structural_path(
+    runtime: &mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    node_id_pairs: &[(u32, u32)],
+    axis_index: Option<usize>,
+    track_word: u32,
+    grid_row: Option<usize>,
+    grid_column: Option<usize>,
+    child_ref: u32,
+) -> u32 {
+    if path_depth > 4 || node_id_pairs.len() != path_depth as usize + 1 {
+        return FAST_INVALID;
+    }
+    if !is_valid_view_ref(base_root_ref) || !is_valid_view_ref(child_ref) {
+        return FAST_INVALID;
+    }
+    let steps = match runtime.path_steps(path_ref) {
+        Ok(steps) if steps.len() == path_depth as usize => steps,
+        Ok(_) => return FAST_INVALID,
+        Err(error) => return error,
+    };
+    let mut node_ids = Vec::with_capacity(node_id_pairs.len());
+    for &(low, high) in node_id_pairs {
+        let Ok(id) = node_id(low, high) else {
+            return FAST_INVALID;
+        };
+        node_ids.push(id);
+    }
+    let Ok((base_view, _)) = runtime.resolve_ref(base_root_ref) else {
+        return FAST_CACHE_MISS;
+    };
+    let Ok((child, _)) = runtime.resolve_ref(child_ref) else {
+        return FAST_CACHE_MISS;
+    };
+    let Ok((root, views)) = base_view.native_replace_at_path(
+        &steps,
+        axis_index,
+        track_word,
+        grid_row,
+        grid_column,
+        child,
+    ) else {
+        return FAST_INVALID;
+    };
+    if views.len() != node_ids.len() || views.last() != Some(&root) {
+        return FAST_INVALID;
+    }
+    if let Err(error) = validate_path_publication(runtime, &node_ids, &views) {
+        return error;
+    }
+    let publication =
+        match runtime.prepare_staged_publication(node_ids.into_iter().zip(views).collect()) {
+            Ok(publication) => publication,
+            Err(error) => return error,
+        };
+    runtime.commit_staged_publication(publication)
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "Rust" fn view_axis_create_buffer_impl(
     runtime: *mut NativeViewRuntime,
-    _node_id_low: u32,
-    _node_id_high: u32,
-    _axis_kind: u32,
-    _gap: u32,
-    _children: *const AxisChildInputV1,
+    node_id_low: u32,
+    node_id_high: u32,
+    axis_kind: u32,
+    gap: u32,
+    children: *const AxisChildInputV1,
     _children_capacity_bytes: usize,
-    _used_child_count: u32,
+    used_child_count: u32,
 ) -> u32 {
     let Ok(runtime) = runtime_mut(runtime) else {
         return FAST_INVALID;
     };
-    record_result(runtime, FAST_FALLBACK)
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let Ok(gap) = u16::try_from(gap) else {
+        return FAST_INVALID;
+    };
+    let children = match resolve_axis_children(runtime, children, used_child_count) {
+        Ok(children) => children,
+        Err(error) => return record_result(runtime, error),
+    };
+    let horizontal = match axis_kind {
+        AXIS_KIND_ROW => true,
+        AXIS_KIND_COLUMN => false,
+        _ => return FAST_INVALID,
+    };
+    let Ok(view) = View::native_axis_from_children(horizontal, gap, children) else {
+        return FAST_INVALID;
+    };
+    let result = runtime.publish(node_id, view).unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_axis_set_child_impl(
+    runtime: *mut NativeViewRuntime,
+    base_axis_ref: u32,
+    node_id_low: u32,
+    node_id_high: u32,
+    child_index: u32,
+    track_word: u32,
+    child_ref: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let Ok((base, _)) = runtime.resolve_ref(base_axis_ref) else {
+        return FAST_CACHE_MISS;
+    };
+    let Ok((child, _)) = runtime.resolve_ref(child_ref) else {
+        return FAST_CACHE_MISS;
+    };
+    let Ok(patched) = base.native_axis_set_child(child_index as usize, track_word, child) else {
+        return FAST_INVALID;
+    };
+    let result = runtime
+        .publish(node_id, patched)
+        .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_axis_splice_buffer_impl(
+    runtime: *mut NativeViewRuntime,
+    base_axis_ref: u32,
+    node_id_low: u32,
+    node_id_high: u32,
+    index: u32,
+    remove_count: u32,
+    children: *const AxisChildInputV1,
+    _children_capacity_bytes: usize,
+    used_child_count: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let Ok((base, _)) = runtime.resolve_ref(base_axis_ref) else {
+        return FAST_CACHE_MISS;
+    };
+    let inserted = match resolve_axis_children(runtime, children, used_child_count) {
+        Ok(inserted) => inserted,
+        Err(error) => return record_result(runtime, error),
+    };
+    let Ok(patched) = base.native_axis_splice(index as usize, remove_count as usize, inserted)
+    else {
+        return FAST_INVALID;
+    };
+    let result = runtime
+        .publish(node_id, patched)
+        .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_grid_set_cell_impl(
+    runtime: *mut NativeViewRuntime,
+    base_grid_ref: u32,
+    node_id_low: u32,
+    node_id_high: u32,
+    row: u32,
+    column: u32,
+    child_ref: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let Ok((base, _)) = runtime.resolve_ref(base_grid_ref) else {
+        return FAST_CACHE_MISS;
+    };
+    let Ok((child, _)) = runtime.resolve_ref(child_ref) else {
+        return FAST_CACHE_MISS;
+    };
+    let Ok(patched) = base.native_grid_set_cell(row as usize, column as usize, child) else {
+        return FAST_INVALID;
+    };
+    let result = runtime
+        .publish(node_id, patched)
+        .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_axis_set_child_path_impl(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    axis_index: u32,
+    track_word: u32,
+    child_ref: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    if path_depth > 4 {
+        return record_result(runtime, FAST_INVALID);
+    }
+    let ids = [
+        (target_node_id_low, target_node_id_high),
+        (ancestor0_node_id_low, ancestor0_node_id_high),
+        (ancestor1_node_id_low, ancestor1_node_id_high),
+        (ancestor2_node_id_low, ancestor2_node_id_high),
+        (ancestor3_node_id_low, ancestor3_node_id_high),
+    ];
+    let result = publish_structural_path(
+        runtime,
+        base_root_ref,
+        path_ref,
+        path_depth,
+        &ids[..path_depth as usize + 1],
+        Some(axis_index as usize),
+        track_word,
+        None,
+        None,
+        child_ref,
+    );
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_grid_set_cell_path_impl(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    grid_row: u32,
+    grid_column: u32,
+    child_ref: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    if path_depth > 4 {
+        return record_result(runtime, FAST_INVALID);
+    }
+    let ids = [
+        (target_node_id_low, target_node_id_high),
+        (ancestor0_node_id_low, ancestor0_node_id_high),
+        (ancestor1_node_id_low, ancestor1_node_id_high),
+        (ancestor2_node_id_low, ancestor2_node_id_high),
+        (ancestor3_node_id_low, ancestor3_node_id_high),
+    ];
+    let result = publish_structural_path(
+        runtime,
+        base_root_ref,
+        path_ref,
+        path_depth,
+        &ids[..path_depth as usize + 1],
+        None,
+        0,
+        Some(grid_row as usize),
+        Some(grid_column as usize),
+        child_ref,
+    );
+    record_result(runtime, result)
 }
 
 #[unsafe(no_mangle)]
@@ -1669,10 +1981,10 @@ fn decode_align(value: u32) -> Result<HorizontalAlign, ()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        FAST_CACHE_MISS, FAST_INVALID, MAX_EDIT_COUNT, NativeViewRuntime, PATH_ROOT_REF,
-        generated_exports, is_valid_edit_txn_ref,
+        AxisChildInputV1, FAST_CACHE_MISS, FAST_INVALID, MAX_EDIT_COUNT, NativeViewRuntime,
+        PATH_ROOT_REF, generated_exports, is_valid_edit_txn_ref,
     };
-    use iyon_tui::{IntoView, View};
+    use iyon_tui::{GridTrack, IntoView, View};
 
     fn runtime() -> NativeViewRuntime {
         NativeViewRuntime::new()
@@ -1909,6 +2221,69 @@ mod tests {
             unsafe { generated_exports::iyon_edit_txn_begin_v1(pointer, PATH_ROOT_REF, 1) },
             FAST_INVALID
         );
+    }
+
+    #[test]
+    fn generated_axis_and_grid_edits_copy_persistent_sequences() {
+        let mut runtime = runtime();
+        let axis = View::vertical(|column| {
+            for index in 0..2_048 {
+                column.child(View::text(format!("axis-{index}")));
+            }
+        })
+        .into_view();
+        let child = View::text("replacement").into_view();
+        let base_axis = runtime.publish(1, axis.clone()).expect("axis base ref");
+        let child_ref = runtime.publish(2, child.clone()).expect("child ref");
+        let pointer = &mut runtime as *mut NativeViewRuntime;
+        let replaced = unsafe {
+            generated_exports::iyon_view_axis_set_child_v1(
+                pointer, base_axis, 3, 0, 1_337, 0, child_ref,
+            )
+        };
+        assert!(replaced < 0x8000_0000);
+        assert_eq!(runtime.resolve_ref(base_axis), Ok((axis, true)));
+
+        let inserted = [AxisChildInputV1 {
+            track_word: 0,
+            child_ref,
+        }];
+        let spliced = unsafe {
+            generated_exports::iyon_view_axis_splice_buffer_v1(
+                pointer,
+                base_axis,
+                4,
+                0,
+                1_000,
+                0,
+                inserted.as_ptr(),
+                core::mem::size_of_val(&inserted),
+                1,
+            )
+        };
+        assert!(spliced < 0x8000_0000);
+
+        let grid = View::grid(|grid| {
+            grid.columns([GridTrack::fixed(12)]);
+            grid.row(|row| {
+                row.cell(View::text("grid-cell"));
+            });
+        })
+        .into_view();
+        let base_grid = runtime.publish(5, grid.clone()).expect("grid base ref");
+        let grid_replaced = unsafe {
+            generated_exports::iyon_view_grid_set_cell_v1(pointer, base_grid, 6, 0, 0, 0, child_ref)
+        };
+        assert!(grid_replaced < 0x8000_0000);
+        assert_eq!(runtime.resolve_ref(base_grid), Ok((grid, true)));
+
+        let path_root = unsafe { generated_exports::iyon_path_root_v1(pointer) };
+        let path_replaced = unsafe {
+            generated_exports::iyon_view_axis_set_child_path_v1(
+                pointer, base_axis, path_root, 0, 7, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1_000, 0, child_ref,
+            )
+        };
+        assert!(path_replaced < 0x8000_0000);
     }
 
     #[test]

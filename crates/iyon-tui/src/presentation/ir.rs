@@ -3,9 +3,12 @@
 //! Construction APIs lower immediately into these owned nodes. This module
 //! contains no terminal/backend state.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use crate::{
@@ -776,6 +779,32 @@ fn retained_track(track: RetainedAxisTrack) -> TrackSize {
     }
 }
 
+#[cfg(feature = "native-host")]
+fn decode_native_track_word(value: u32) -> Result<TrackSize, String> {
+    if value == 0 {
+        return Ok(TrackSize::Content { max: None });
+    }
+    let kind = value & 0xff;
+    let amount =
+        u16::try_from(value >> 8).map_err(|_| "native axis track value exceeds u16".to_owned())?;
+    match kind {
+        1 => {
+            if amount != 0 {
+                return Err("content axis track cannot carry a value".to_owned());
+            }
+            Ok(TrackSize::Content { max: None })
+        }
+        2 => Ok(TrackSize::Content { max: Some(amount) }),
+        3 => Ok(TrackSize::Fixed(amount)),
+        4 => Ok(TrackSize::Flex { min: amount.max(1) }),
+        5 => Ok(TrackSize::FlexMax {
+            min: 1,
+            max: amount,
+        }),
+        _ => Err("native axis track kind is invalid".to_owned()),
+    }
+}
+
 /// Opaque retained grid-cell sequence accepted by the benchmark/native transport.
 #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 #[doc(hidden)]
@@ -872,6 +901,13 @@ impl RetainedGridCells {
         while rows.len() < self.max_row {
             rows.push(GridTrack::content());
         }
+        let cell_indices = Arc::new(
+            self.cells
+                .iter()
+                .enumerate()
+                .map(|(index, cell)| ((cell.row, cell.column), index))
+                .collect::<HashMap<_, _>>(),
+        );
         View::new_kind(ViewKind::Grid(Arc::new(GridView {
             columns: PersistentSeq::from_vec(
                 columns.into_iter().map(|track| track.track).collect(),
@@ -880,6 +916,7 @@ impl RetainedGridCells {
             column_gap,
             row_gap,
             cells: self.cells,
+            cell_indices,
         })))
     }
 }
@@ -1103,6 +1140,227 @@ impl View {
         self.map_node(|node| {
             node.kind = kind;
         })
+    }
+
+    /// Constructs an axis from scalar track words and already-materialized
+    /// child Views. The sequence is built once and remains persistent for
+    /// subsequent structural edits.
+    #[cfg(feature = "native-host")]
+    #[doc(hidden)]
+    pub fn native_axis_from_children(
+        horizontal: bool,
+        gap: u16,
+        children: Vec<(u32, View)>,
+    ) -> Result<Self, String> {
+        let tracks = children
+            .into_iter()
+            .map(|(track_word, view)| {
+                let track = decode_native_track_word(track_word)?;
+                Ok((track, view))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let kind = if horizontal {
+            ViewKind::Row(Arc::new(RowView {
+                children: PersistentSeq::from_vec(
+                    tracks
+                        .into_iter()
+                        .map(|(track, view)| RowChild { track, view })
+                        .collect(),
+                ),
+                gap,
+                vertical_align: VerticalAlign::Top,
+            }))
+        } else {
+            ViewKind::Column(Arc::new(ColumnView {
+                children: PersistentSeq::from_vec(
+                    tracks
+                        .into_iter()
+                        .map(|(track, view)| ColumnChild { track, view })
+                        .collect(),
+                ),
+                gap,
+            }))
+        };
+        Ok(Self::new_kind(kind))
+    }
+
+    /// Replaces one axis child with a persistent sequence `set`. A zero track
+    /// word means preserve the existing track; nonzero words use the compact
+    /// `(track kind in low byte, value in high 16 bits)` representation.
+    #[cfg(feature = "native-host")]
+    #[doc(hidden)]
+    pub fn native_axis_set_child(
+        self,
+        index: usize,
+        track_word: u32,
+        child: View,
+    ) -> Result<Self, String> {
+        match self.kind() {
+            ViewKind::Row(row) => {
+                let current = row
+                    .children
+                    .get(index)
+                    .ok_or_else(|| "row child index is out of range".to_owned())?;
+                let replacement = RowChild {
+                    track: if track_word == 0 {
+                        current.track
+                    } else {
+                        decode_native_track_word(track_word)?
+                    },
+                    view: child,
+                };
+                let children = row.children.set(index, replacement);
+                Ok(self.map_node(|node| {
+                    let ViewKind::Row(row) = &mut node.kind else {
+                        unreachable!("validated row axis")
+                    };
+                    Arc::make_mut(row).children = children;
+                }))
+            }
+            ViewKind::Column(column) => {
+                let current = column
+                    .children
+                    .get(index)
+                    .ok_or_else(|| "column child index is out of range".to_owned())?;
+                let replacement = ColumnChild {
+                    track: if track_word == 0 {
+                        current.track
+                    } else {
+                        decode_native_track_word(track_word)?
+                    },
+                    view: child,
+                };
+                let children = column.children.set(index, replacement);
+                Ok(self.map_node(|node| {
+                    let ViewKind::Column(column) = &mut node.kind else {
+                        unreachable!("validated column axis")
+                    };
+                    Arc::make_mut(column).children = children;
+                }))
+            }
+            _ => Err("axis edit base is not a row or column".to_owned()),
+        }
+    }
+
+    /// Splices axis children through the persistent sequence split/concat
+    /// operations. No flat child vector is constructed by this method.
+    #[cfg(feature = "native-host")]
+    #[doc(hidden)]
+    pub fn native_axis_splice(
+        self,
+        index: usize,
+        remove_count: usize,
+        inserted: Vec<(u32, View)>,
+    ) -> Result<Self, String> {
+        let tracks = inserted
+            .into_iter()
+            .map(|(track_word, view)| Ok((decode_native_track_word(track_word)?, view)))
+            .collect::<Result<Vec<_>, String>>()?;
+        match self.kind() {
+            ViewKind::Row(row) => {
+                if index > row.children.len() || remove_count > row.children.len() - index {
+                    return Err("row axis splice range is out of bounds".to_owned());
+                }
+                let values = tracks
+                    .into_iter()
+                    .map(|(track, view)| RowChild { track, view })
+                    .collect();
+                let children = row.children.splice(index, remove_count, values);
+                Ok(self.map_node(|node| {
+                    let ViewKind::Row(row) = &mut node.kind else {
+                        unreachable!("validated row axis")
+                    };
+                    Arc::make_mut(row).children = children;
+                }))
+            }
+            ViewKind::Column(column) => {
+                if index > column.children.len() || remove_count > column.children.len() - index {
+                    return Err("column axis splice range is out of bounds".to_owned());
+                }
+                let values = tracks
+                    .into_iter()
+                    .map(|(track, view)| ColumnChild { track, view })
+                    .collect();
+                let children = column.children.splice(index, remove_count, values);
+                Ok(self.map_node(|node| {
+                    let ViewKind::Column(column) = &mut node.kind else {
+                        unreachable!("validated column axis")
+                    };
+                    Arc::make_mut(column).children = children;
+                }))
+            }
+            _ => Err("axis splice base is not a row or column".to_owned()),
+        }
+    }
+
+    /// Replaces the semantic View of one grid cell while retaining its
+    /// placement metadata and sharing every unchanged sequence node.
+    #[cfg(feature = "native-host")]
+    #[doc(hidden)]
+    pub fn native_grid_set_cell(
+        self,
+        row: usize,
+        column: usize,
+        child: View,
+    ) -> Result<Self, String> {
+        let ViewKind::Grid(grid) = self.kind() else {
+            return Err("grid edit base is not a grid".to_owned());
+        };
+        let index = *grid
+            .cell_indices
+            .get(&(row, column))
+            .ok_or_else(|| "grid cell coordinates are out of range".to_owned())?;
+        let current = grid
+            .cells
+            .get(index)
+            .ok_or_else(|| "grid cell index is out of range".to_owned())?;
+        let mut replacement = current.clone();
+        replacement.view = child;
+        let cells = grid.cells.set(index, replacement);
+        Ok(self.map_node(|node| {
+            let ViewKind::Grid(grid) = &mut node.kind else {
+                unreachable!("validated grid")
+            };
+            Arc::make_mut(grid).cells = cells;
+        }))
+    }
+
+    /// Applies a retained axis or grid child update at a path target.
+    #[cfg(feature = "native-host")]
+    #[doc(hidden)]
+    pub fn native_replace_at_path(
+        self,
+        steps: &[RetainedPathStep],
+        axis_index: Option<usize>,
+        track_word: u32,
+        grid_row: Option<usize>,
+        grid_column: Option<usize>,
+        child: View,
+    ) -> Result<(Self, Vec<Self>), String> {
+        let Some(step) = steps.first().copied() else {
+            let patched = if let Some(index) = axis_index {
+                self.native_axis_set_child(index, track_word, child)?
+            } else {
+                self.native_grid_set_cell(
+                    grid_row.ok_or_else(|| "grid row is missing".to_owned())?,
+                    grid_column.ok_or_else(|| "grid column is missing".to_owned())?,
+                    child,
+                )?
+            };
+            return Ok((patched.clone(), vec![patched]));
+        };
+        let nested = self.try_retained_child(step)?;
+        let (changed, mut views) = nested.native_replace_at_path(
+            &steps[1..],
+            axis_index,
+            track_word,
+            grid_row,
+            grid_column,
+            child,
+        )?;
+        let rebuilt = self.try_replace_retained_child(step, changed)?;
+        views.push(rebuilt.clone());
+        Ok((rebuilt, views))
     }
 
     /// Applies a retained grid-cell patch while preserving the grid's
@@ -1883,6 +2141,7 @@ pub(crate) struct GridView {
     pub(crate) column_gap: u16,
     pub(crate) row_gap: u16,
     pub(crate) cells: PersistentSeq<GridCellView>,
+    pub(crate) cell_indices: Arc<HashMap<(usize, usize), usize>>,
 }
 
 /// RETAINED SEMANTIC IR. One grid cell and its explicit track placement.

@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9
-// generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69
+// schema_blake3 = d678d329a5e75554bc9572deb3a4b0dbd95c505cbfc6b1c2de7635483ac81914
+// generator_blake3 = 6a3096554d5af17ad3d1aee961024cf2303a623e5ec4a1ecf60275343341dc91
 import type { Pointer } from "bun:ffi";
 import type { linkViewAbi } from "./view_abi";
 export type ViewAbiSymbols = ReturnType<typeof linkViewAbi>["symbols"];
@@ -44,6 +44,31 @@ export function viewCommonPatchRoot(symbols: ViewAbiSymbols, runtime: Pointer, b
 
 export function viewAxisCreateBuffer(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, axis_kind: number, gap: number, children: NodeJS.TypedArray | DataView, used_child_count: number): number {
   const result = symbols.viewAxisCreateBuffer(runtime, node_id_low, node_id_high, axis_kind, gap, children, children, used_child_count);
+  return checkedRef(result);
+}
+
+export function viewAxisSetChild(symbols: ViewAbiSymbols, runtime: Pointer, base_axis_ref: number, node_id_low: number, node_id_high: number, child_index: number, track_word: number, child_ref: number): number {
+  const result = symbols.viewAxisSetChild(runtime, base_axis_ref, node_id_low, node_id_high, child_index, track_word, child_ref);
+  return checkedRef(result);
+}
+
+export function viewAxisSpliceBuffer(symbols: ViewAbiSymbols, runtime: Pointer, base_axis_ref: number, node_id_low: number, node_id_high: number, index: number, remove_count: number, children: NodeJS.TypedArray | DataView, used_child_count: number): number {
+  const result = symbols.viewAxisSpliceBuffer(runtime, base_axis_ref, node_id_low, node_id_high, index, remove_count, children, children, used_child_count);
+  return checkedRef(result);
+}
+
+export function viewGridSetCell(symbols: ViewAbiSymbols, runtime: Pointer, base_grid_ref: number, node_id_low: number, node_id_high: number, row: number, column: number, child_ref: number): number {
+  const result = symbols.viewGridSetCell(runtime, base_grid_ref, node_id_low, node_id_high, row, column, child_ref);
+  return checkedRef(result);
+}
+
+export function viewAxisSetChildPath(symbols: ViewAbiSymbols, runtime: Pointer, base_root_ref: number, path_ref: number, path_depth: number, target_node_id_low: number, target_node_id_high: number, ancestor0_node_id_low: number, ancestor0_node_id_high: number, ancestor1_node_id_low: number, ancestor1_node_id_high: number, ancestor2_node_id_low: number, ancestor2_node_id_high: number, ancestor3_node_id_low: number, ancestor3_node_id_high: number, axis_index: number, track_word: number, child_ref: number): number {
+  const result = symbols.viewAxisSetChildPath(runtime, base_root_ref, path_ref, path_depth, target_node_id_low, target_node_id_high, ancestor0_node_id_low, ancestor0_node_id_high, ancestor1_node_id_low, ancestor1_node_id_high, ancestor2_node_id_low, ancestor2_node_id_high, ancestor3_node_id_low, ancestor3_node_id_high, axis_index, track_word, child_ref);
+  return checkedRef(result);
+}
+
+export function viewGridSetCellPath(symbols: ViewAbiSymbols, runtime: Pointer, base_root_ref: number, path_ref: number, path_depth: number, target_node_id_low: number, target_node_id_high: number, ancestor0_node_id_low: number, ancestor0_node_id_high: number, ancestor1_node_id_low: number, ancestor1_node_id_high: number, ancestor2_node_id_low: number, ancestor2_node_id_high: number, ancestor3_node_id_low: number, ancestor3_node_id_high: number, grid_row: number, grid_column: number, child_ref: number): number {
+  const result = symbols.viewGridSetCellPath(runtime, base_root_ref, path_ref, path_depth, target_node_id_low, target_node_id_high, ancestor0_node_id_low, ancestor0_node_id_high, ancestor1_node_id_low, ancestor1_node_id_high, ancestor2_node_id_low, ancestor2_node_id_high, ancestor3_node_id_low, ancestor3_node_id_high, grid_row, grid_column, child_ref);
   return checkedRef(result);
 }
 
