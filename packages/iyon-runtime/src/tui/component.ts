@@ -53,15 +53,26 @@ export class ViewSlot extends HandleBase<NativeViewSlotHandle, "component"> impl
     this.call(() => {
       const previous = this.currentView;
       if (previous !== undefined) {
-        const previousRef = tryNativeMaterialize(previous);
-        const nextRef = tryNativeViewBoundaryRender(this, previous, view, previousRef);
-        if (nextRef !== undefined) {
-          releaseNativeViewRef(nativeViewAbiSession(), nextRef);
-          if (previousRef !== undefined) releaseNativeViewRef(nativeViewAbiSession(), previousRef);
-          this.currentView = view;
-          return;
+        let previousRef = tryNativeMaterialize(previous);
+        try {
+          const nextRef = tryNativeViewBoundaryRender(this, previous, view, previousRef);
+          if (nextRef !== undefined) {
+            releaseNativeViewRef(nativeViewAbiSession(), nextRef);
+            if (previousRef !== undefined) {
+              const retainedRef = previousRef;
+              previousRef = undefined;
+              releaseNativeViewRef(nativeViewAbiSession(), retainedRef);
+            }
+            this.currentView = view;
+            return;
+          }
+        } finally {
+          if (previousRef !== undefined) {
+            const retainedRef = previousRef;
+            previousRef = undefined;
+            releaseNativeViewRef(nativeViewAbiSession(), retainedRef);
+          }
         }
-        if (previousRef !== undefined) releaseNativeViewRef(nativeViewAbiSession(), previousRef);
       }
       const ref = tryNativeMaterialize(view);
       if (ref !== undefined) {
@@ -86,30 +97,50 @@ export class ViewSlot extends HandleBase<NativeViewSlotHandle, "component"> impl
   private setAnimationWithRefs(frames: readonly View[], intervalMs: number, atCycleBoundary: boolean): void {
     this.call(() => {
       if (frames.length === 0) throw new Error("native view slot animation requires at least one frame");
-      const refs: number[] = [];
+      // Small animations can stay scalar. Large animations write acquired refs
+      // directly into the reusable native buffer; do not stage a second JS
+      // number[] copy of the frame list.
+      const scalarRefs: number[] | undefined = frames.length <= 4 ? [] : undefined;
+      let scratch: Uint32Array | undefined;
+      let acquiredCount = 0;
       try {
-        for (const frame of frames) {
+        if (scalarRefs === undefined) {
+          scratch = this.animationScratch(frames.length);
+        }
+        for (const [index, frame] of frames.entries()) {
           const ref = tryNativeMaterialize(frame);
           if (ref === undefined) {
             this.setAnimationBridge(frames, intervalMs, atCycleBoundary);
             return;
           }
-          refs.push(ref);
+          if (scratch !== undefined) scratch[index] = ref;
+          else scalarRefs!.push(ref);
+          acquiredCount += 1;
         }
-        if (!this.setFixedAnimationRefs(refs, intervalMs, atCycleBoundary)) {
-          let scratch = ANIMATION_REF_SCRATCH.get(this.nativeHandle as object);
-          if (scratch === undefined || scratch.length < refs.length) {
-            scratch = new Uint32Array(Math.max(refs.length, 4));
-            ANIMATION_REF_SCRATCH.set(this.nativeHandle as object, scratch);
-          }
-          scratch.set(refs);
-          if (atCycleBoundary) this.nativeHandle.setAnimationRefsAtCycleBoundary(scratch, refs.length, intervalMs);
-          else this.nativeHandle.setAnimationRefs(scratch, refs.length, intervalMs);
+        if (scalarRefs !== undefined && this.setFixedAnimationRefs(scalarRefs, intervalMs, atCycleBoundary)) return;
+        if (scratch === undefined) {
+          scratch = this.animationScratch(scalarRefs!.length);
+          scratch.set(scalarRefs!);
         }
+        if (atCycleBoundary) this.nativeHandle.setAnimationRefsAtCycleBoundary(scratch, acquiredCount, intervalMs);
+        else this.nativeHandle.setAnimationRefs(scratch, acquiredCount, intervalMs);
       } finally {
-        for (const ref of refs) releaseNativeViewRef(nativeViewAbiSession(), ref);
+        if (scratch !== undefined) {
+          for (let index = 0; index < acquiredCount; index += 1) releaseNativeViewRef(nativeViewAbiSession(), scratch[index]!);
+        } else {
+          for (const ref of scalarRefs ?? []) releaseNativeViewRef(nativeViewAbiSession(), ref);
+        }
       }
     });
+  }
+
+  private animationScratch(requiredLength: number): Uint32Array {
+    let scratch = ANIMATION_REF_SCRATCH.get(this.nativeHandle as object);
+    if (scratch === undefined || scratch.length < requiredLength) {
+      scratch = new Uint32Array(Math.max(requiredLength, 4));
+      ANIMATION_REF_SCRATCH.set(this.nativeHandle as object, scratch);
+    }
+    return scratch;
   }
   private setAnimationBridge(frames: readonly View[], intervalMs: number, atCycleBoundary: boolean): void {
     if (atCycleBoundary) this.nativeHandle.setAnimationAtCycleBoundary(frames.map(nodeForBridge), intervalMs);

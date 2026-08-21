@@ -3,6 +3,7 @@ import { native, type NativeViewAbiBootstrap } from "../native.ts";
 import { linkViewAbi, type NativeAbiPointers } from "./generated/view_abi.ts";
 import {
   hostRenderRef,
+  viewRenderRef,
   pathChild,
   pathRoot,
   viewCommonPatchRoot,
@@ -332,6 +333,24 @@ export function nativeViewRefForNodeId(view: View): number | undefined {
   return viewRefForNodeId(session.symbols, session.runtime, nodeIdLow, nodeIdHigh);
 }
 
+/** Installs an already-retained root without rebuilding or reacquiring it. */
+export function tryNativeRenderRef(
+  target: NativeViewRenderHost,
+  viewRef: number,
+): number | undefined {
+  if (!isValidNativeRef(viewRef) || !canInstallNativeRef(target)) return undefined;
+  const session = nativeViewAbiSession();
+  if (session === undefined) return undefined;
+  try {
+    const retainedRef = viewRenderRef(session.symbols, session.runtime, viewRef);
+    if (installNativeRef(target, session, retainedRef) !== 0) return undefined;
+    return retainedRef;
+  } catch (error) {
+    if (isExpectedNativeStatus(error)) return undefined;
+    throw error;
+  }
+}
+
 /** Materializes one pending text span through the direct cstring/buffer ABI. */
 export function tryNativeTextCreateRender(
   host: NativeViewRenderHost,
@@ -400,7 +419,7 @@ export function tryNativeViewBoundaryRender(
 ): number | undefined {
   const session = nativeViewAbiSession();
   if (session === undefined || !canInstallNativeRef(target)) return undefined;
-  let baseRef = previousRef;
+  const baseRef = previousRef;
   try {
     if (baseRef === undefined) return undefined;
     const scalar = tryNativeScalarRender(target, previous, baseRef, next);
@@ -873,7 +892,9 @@ export function tryNativeAxisSpliceRender(
   // Bun's checked buffer lowering still requires a non-null aligned pointer
   // when the used count is zero; the spare pair is ignored by native code.
   const refs = new Uint32Array(Math.max(children.length * 2, 2));
-  const temporaryRefs = new Set<number>();
+  // Keep one release entry per acquired lease. The same View may appear more
+  // than once in a splice, so a Set would under-release duplicate refs.
+  const temporaryRefs: number[] = [];
   let nextRef: number | undefined;
   try {
     for (const [childIndex, entry] of children.entries()) {
@@ -881,7 +902,7 @@ export function tryNativeAxisSpliceRender(
       if (childRef === undefined) return undefined;
       refs[childIndex * 2] = entry.trackWord ?? 0;
       refs[childIndex * 2 + 1] = childRef;
-      temporaryRefs.add(childRef);
+      temporaryRefs.push(childRef);
     }
     const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
     nextRef = viewAxisSpliceBuffer(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, index, removeCount, refs, children.length);
@@ -889,16 +910,15 @@ export function tryNativeAxisSpliceRender(
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
       nextRef = undefined;
-      for (const childRef of temporaryRefs) releaseNativeViewRef(session, childRef);
       return undefined;
     }
-    for (const childRef of temporaryRefs) releaseNativeViewRef(session, childRef);
     return nextRef;
   } catch (error) {
     if (nextRef !== undefined) releaseNativeViewRef(session, nextRef);
-    for (const childRef of temporaryRefs) releaseNativeViewRef(session, childRef);
     if (isExpectedNativeStatus(error)) return undefined;
     throw error;
+  } finally {
+    for (const childRef of temporaryRefs) releaseNativeViewRef(session, childRef);
   }
 }
 

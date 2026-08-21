@@ -19,6 +19,7 @@ import {
   tryNativeTextCreateRender,
   tryNativeViewBoundaryCreate,
   tryNativePathScalarRender,
+  tryNativeRenderRef,
   tryNativeScalarRender,
 } from "./native_view_abi.ts";
 import type {
@@ -115,10 +116,15 @@ export class Tui implements TuiRuntime {
     }
     const previousBody = this.currentScene?.body;
     const previousNativeRef = this.currentNativeRef;
-    let nextNativeRef = previousBody === undefined || previousNativeRef === undefined
-      ? undefined
-      : tryNativeScalarRender(this.host, previousBody, previousNativeRef, normalized.body);
-    if (nextNativeRef !== undefined) recordNativeViewRoute("scalar");
+    let nextNativeRef: number | undefined;
+    if (previousBody !== undefined && previousNativeRef !== undefined && previousBody === normalized.body) {
+      nextNativeRef = tryNativeRenderRef(this.host, previousNativeRef);
+      if (nextNativeRef !== undefined) recordNativeViewRoute("render_ref");
+    }
+    if (nextNativeRef === undefined && previousBody !== undefined && previousNativeRef !== undefined) {
+      nextNativeRef = tryNativeScalarRender(this.host, previousBody, previousNativeRef, normalized.body);
+      if (nextNativeRef !== undefined) recordNativeViewRoute("scalar");
+    }
     if (nextNativeRef === undefined && previousBody !== undefined && previousNativeRef !== undefined) {
       nextNativeRef = tryNativePathScalarRender(this.host, previousBody, previousNativeRef, normalized.body);
       if (nextNativeRef !== undefined) {
