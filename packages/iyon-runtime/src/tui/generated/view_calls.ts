@@ -1,5 +1,5 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 0e958fc44a24679d0503ae6606bcf1529e0b7caf5eed48097ddbe2ade7d60ef6
+// schema_blake3 = f7b30e32493e2e95f86541401308e5db64103bd8a7e694cbecbfe851040025d3
 // generator_blake3 = 20435cb0e211e543dd671e6c86669cf3f205c8e77c5070f47f4d181a4a9d3c71
 import type { Pointer } from "bun:ffi";
 import type { linkViewAbi } from "./view_abi";
@@ -224,6 +224,21 @@ export function viewTextCreateCstring(symbols: ViewAbiSymbols, runtime: Pointer,
 
 export function viewTextCreateUtf8(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, bytes: NodeJS.TypedArray | DataView, used_bytes: number, style_ref: number, wrap: number, align: number): number {
   const result = symbols.viewTextCreateUtf8(runtime, node_id_low, node_id_high, bytes, bytes, used_bytes, style_ref, wrap, align);
+  return checkedRef(result);
+}
+
+export function viewTextCreateUtf82(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, bytes: NodeJS.TypedArray | DataView, used_bytes: number, span0_bytes: number, style0: number, span1_bytes: number, style1: number, wrap: number, align: number): number {
+  const result = symbols.viewTextCreateUtf82(runtime, node_id_low, node_id_high, bytes, bytes, used_bytes, span0_bytes, style0, span1_bytes, style1, wrap, align);
+  return checkedRef(result);
+}
+
+export function viewTextCreateUtf83(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, bytes: NodeJS.TypedArray | DataView, used_bytes: number, span0_bytes: number, style0: number, span1_bytes: number, style1: number, span2_bytes: number, style2: number, wrap: number, align: number): number {
+  const result = symbols.viewTextCreateUtf83(runtime, node_id_low, node_id_high, bytes, bytes, used_bytes, span0_bytes, style0, span1_bytes, style1, span2_bytes, style2, wrap, align);
+  return checkedRef(result);
+}
+
+export function viewTextCreateUtf84(symbols: ViewAbiSymbols, runtime: Pointer, node_id_low: number, node_id_high: number, bytes: NodeJS.TypedArray | DataView, used_bytes: number, span0_bytes: number, style0: number, span1_bytes: number, style1: number, span2_bytes: number, style2: number, span3_bytes: number, style3: number, wrap: number, align: number): number {
+  const result = symbols.viewTextCreateUtf84(runtime, node_id_low, node_id_high, bytes, bytes, used_bytes, span0_bytes, style0, span1_bytes, style1, span2_bytes, style2, span3_bytes, style3, wrap, align);
   return checkedRef(result);
 }
 

@@ -1125,6 +1125,9 @@ pub fn bootstrap(env: Env) -> napi::Result<Value> {
             "styleCreateBits": generated_exports::iyon_style_create_bits_v1 as *const () as usize as u64,
             "viewTextCreateCstring": generated_exports::iyon_view_text_create_cstring_v1 as *const () as usize as u64,
             "viewTextCreateUtf8": generated_exports::iyon_view_text_create_utf8_v1 as *const () as usize as u64,
+            "viewTextCreateUtf82": generated_exports::iyon_view_text_create_utf8_2_v1 as *const () as usize as u64,
+            "viewTextCreateUtf83": generated_exports::iyon_view_text_create_utf8_3_v1 as *const () as usize as u64,
+            "viewTextCreateUtf84": generated_exports::iyon_view_text_create_utf8_4_v1 as *const () as usize as u64,
             "viewTextCreateCstring2": generated_exports::iyon_view_text_create_cstring_2_v1 as *const () as usize as u64,
             "viewTextCreateCstring3": generated_exports::iyon_view_text_create_cstring_3_v1 as *const () as usize as u64,
             "viewTextCreateCstring4": generated_exports::iyon_view_text_create_cstring_4_v1 as *const () as usize as u64,
@@ -2598,6 +2601,172 @@ pub unsafe extern "Rust" fn view_text_create_utf8_impl(
     record_result(runtime, result)
 }
 
+fn utf8_text_spans(
+    runtime: &NativeViewRuntime,
+    bytes: *const u8,
+    used_bytes: u32,
+    span_bytes: &[u32],
+    style_refs: &[u32],
+) -> Result<Vec<TextSpan>, u32> {
+    if span_bytes.len() != style_refs.len() {
+        return Err(FAST_INVALID);
+    }
+    let total = span_bytes.iter().try_fold(0usize, |total, length| {
+        total.checked_add(*length as usize).ok_or(FAST_INVALID)
+    })?;
+    if total != used_bytes as usize || total > MAX_NEW_TEXT_BYTES as usize {
+        return Err(FAST_INVALID);
+    }
+    let bytes = if total == 0 {
+        &[]
+    } else {
+        if bytes.is_null() {
+            return Err(FAST_INVALID);
+        }
+        unsafe { slice::from_raw_parts(bytes, total) }
+    };
+    let mut offset = 0usize;
+    span_bytes
+        .iter()
+        .zip(style_refs)
+        .map(|(length, style_ref)| {
+            let end = offset.checked_add(*length as usize).ok_or(FAST_INVALID)?;
+            let text = str::from_utf8(&bytes[offset..end])
+                .map(str::to_owned)
+                .map_err(|_| FAST_INVALID)?;
+            offset = end;
+            let style = runtime.style_for_ref(*style_ref)?;
+            Ok(TextSpan::styled(text, style))
+        })
+        .collect()
+}
+
+fn publish_utf8_text(
+    runtime: &mut NativeViewRuntime,
+    node_id: u64,
+    bytes: *const u8,
+    used_bytes: u32,
+    span_bytes: &[u32],
+    style_refs: &[u32],
+    wrap: u32,
+    align: u32,
+) -> Result<u32, u32> {
+    let spans = utf8_text_spans(runtime, bytes, used_bytes, span_bytes, style_refs)?;
+    let view = text_view_from_spans(spans, wrap, align)?;
+    runtime.publish(node_id, view)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_utf8_2_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    bytes: *const u8,
+    _bytes_capacity: usize,
+    used_bytes: u32,
+    span0_bytes: u32,
+    style0: u32,
+    span1_bytes: u32,
+    style1: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let result = publish_utf8_text(
+        runtime,
+        node_id,
+        bytes,
+        used_bytes,
+        &[span0_bytes, span1_bytes],
+        &[style0, style1],
+        wrap,
+        align,
+    )
+    .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_utf8_3_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    bytes: *const u8,
+    _bytes_capacity: usize,
+    used_bytes: u32,
+    span0_bytes: u32,
+    style0: u32,
+    span1_bytes: u32,
+    style1: u32,
+    span2_bytes: u32,
+    style2: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let result = publish_utf8_text(
+        runtime,
+        node_id,
+        bytes,
+        used_bytes,
+        &[span0_bytes, span1_bytes, span2_bytes],
+        &[style0, style1, style2],
+        wrap,
+        align,
+    )
+    .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_utf8_4_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    bytes: *const u8,
+    _bytes_capacity: usize,
+    used_bytes: u32,
+    span0_bytes: u32,
+    style0: u32,
+    span1_bytes: u32,
+    style1: u32,
+    span2_bytes: u32,
+    style2: u32,
+    span3_bytes: u32,
+    style3: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let result = publish_utf8_text(
+        runtime,
+        node_id,
+        bytes,
+        used_bytes,
+        &[span0_bytes, span1_bytes, span2_bytes, span3_bytes],
+        &[style0, style1, style2, style3],
+        wrap,
+        align,
+    )
+    .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "Rust" fn view_text_create_cstring_2_impl(
     runtime: *mut NativeViewRuntime,
@@ -2804,6 +2973,30 @@ mod tests {
         assert_eq!(
             runtime.resolve_ref(buffer_ref).map(|(view, _)| view),
             Ok(expected_buffer)
+        );
+
+        let spans = [b"left\0".as_slice(), "right\0✓".as_bytes()].concat();
+        let multi_ref = unsafe {
+            generated_exports::iyon_view_text_create_utf8_2_v1(
+                pointer,
+                503,
+                0,
+                spans.as_ptr(),
+                spans.len(),
+                spans.len() as u32,
+                5,
+                0,
+                (spans.len() - 5) as u32,
+                0,
+                1,
+                1,
+            )
+        };
+        let expected_multi =
+            View::styled_text([TextSpan::plain("left\0"), TextSpan::plain("right\0✓")]).into_view();
+        assert_eq!(
+            runtime.resolve_ref(multi_ref).map(|(view, _)| view),
+            Ok(expected_multi)
         );
     }
 

@@ -2991,6 +2991,321 @@
         },
         {
           "buffer_length_of": null,
+          "lowering": "buffer",
+          "name": "bytes",
+          "type": "u8[]"
+        },
+        {
+          "buffer_length_of": "bytes",
+          "lowering": "buffer_length",
+          "name": "bytes_capacity",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer_used",
+          "name": "used_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span0_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style0",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span1_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style1",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        2
+      ],
+      "benchmark_registration": "view.text_create_utf8_2",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_utf8_2_impl",
+      "max_buffer_bytes": 16777216,
+      "max_input_count": 16777216,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_utf8_2",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer",
+          "name": "bytes",
+          "type": "u8[]"
+        },
+        {
+          "buffer_length_of": "bytes",
+          "lowering": "buffer_length",
+          "name": "bytes_capacity",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer_used",
+          "name": "used_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span0_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style0",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span1_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style1",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span2_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style2",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        3
+      ],
+      "benchmark_registration": "view.text_create_utf8_3",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_utf8_3_impl",
+      "max_buffer_bytes": 16777216,
+      "max_input_count": 16777216,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_utf8_3",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer",
+          "name": "bytes",
+          "type": "u8[]"
+        },
+        {
+          "buffer_length_of": "bytes",
+          "lowering": "buffer_length",
+          "name": "bytes_capacity",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer_used",
+          "name": "used_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span0_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style0",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span1_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style1",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span2_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style2",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "span3_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style3",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        4
+      ],
+      "benchmark_registration": "view.text_create_utf8_4",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_utf8_4_impl",
+      "max_buffer_bytes": 16777216,
+      "max_input_count": 16777216,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_utf8_4",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
           "lowering": "cstring_ephemeral",
           "name": "text0",
           "type": "string"
@@ -3339,5 +3654,5 @@
       "size": 8
     }
   ],
-  "schema_blake3": "0e958fc44a24679d0503ae6606bcf1529e0b7caf5eed48097ddbe2ade7d60ef6"
+  "schema_blake3": "f7b30e32493e2e95f86541401308e5db64103bd8a7e694cbecbfe851040025d3"
 }
