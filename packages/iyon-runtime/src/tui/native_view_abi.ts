@@ -18,12 +18,13 @@ import {
 import {
   BRIDGE_VIEW_KIND,
   type BridgeViewNode,
-  type DecorationNode,
 } from "./ir.ts";
 import {
   nativePathLineage,
+  nativeScalarPatch,
   nodeForBridge,
   nodeIdPair,
+  viewNodeId,
   type NativePathLineage,
   type View,
 } from "./values/view.ts";
@@ -140,9 +141,9 @@ export function nativeViewRefForNodeId(view: View): number | undefined {
 }
 
 /**
- * Attempts the Tranche 5 scalar retained route. Unsupported lineage remains
- * on the existing direct/V4 fallback; no bridge node or command record is
- * constructed by this function.
+ * Attempts the Tranche 7 compact scalar route. Pending text/common patches
+ * expose only fixed scalar fields here; this function deliberately does not
+ * materialize either View's BridgeViewNode.
  */
 export function tryNativeScalarRender(
   host: NativeViewRenderHost,
@@ -150,22 +151,36 @@ export function tryNativeScalarRender(
   previousRef: number,
   next: View,
 ): number | undefined {
+  const patch = nativeScalarPatch(next);
+  if (patch === undefined || patch.base !== previous) return undefined;
   const hostPointer = host.tuiViewAbiHostPointer?.();
   if (!isValidPointer(hostPointer) || !isValidNativeRef(previousRef)) return undefined;
   const session = nativeViewAbiSession();
   if (session === undefined) return undefined;
 
-  const hostPtr = hostPointer as Pointer;
-  const previousNode = nodeForBridge(previous);
-  const nextNode = nodeForBridge(next);
   let nextRef: number | undefined;
   try {
-    nextRef = tryTextLayoutPatch(session, previousNode, nextNode, previousRef, next);
-    if (nextRef === undefined) {
-      nextRef = tryCommonPatch(session, previousNode, nextNode, previousRef, next);
-    }
-    if (nextRef === undefined) return undefined;
-    const status = hostRenderRef(session.symbols, session.runtime, hostPtr, nextRef);
+    const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
+    nextRef = patch.kind === "textLayout"
+      ? viewTextLayoutPatchRoot(session.symbols, session.runtime, previousRef, nodeIdLow, nodeIdHigh, patch.wrap, patch.align)
+      : viewCommonPatchRoot(
+        session.symbols,
+        session.runtime,
+        previousRef,
+        nodeIdLow,
+        nodeIdHigh,
+        patch.mask,
+        patch.paddingTopRight,
+        patch.paddingBottomLeft,
+        patch.widthRule,
+        patch.heightRule,
+        patch.minWidth,
+        patch.maxWidth,
+        patch.minHeight,
+        patch.maxHeight,
+        previousRef,
+      );
+    const status = hostRenderRef(session.symbols, session.runtime, hostPointer as Pointer, nextRef);
     if (status !== 0) {
       releaseNativeViewRef(session, nextRef);
       return undefined;
@@ -227,7 +242,7 @@ export function tryNativePathScalarRender(
   next: View,
 ): number | undefined {
   const lineage = nativePathLineage(next);
-  if (lineage === undefined || lineage.baseNodeId !== nodeForBridge(previous).id || lineage.depth < 1 || lineage.depth > 4) return undefined;
+  if (lineage === undefined || lineage.baseNodeId !== viewNodeId(previous) || lineage.depth < 1 || lineage.depth > 4) return undefined;
   const hostPointer = host.tuiViewAbiHostPointer?.();
   if (!isValidPointer(hostPointer) || !isValidNativeRef(previousRef)) return undefined;
   const session = nativeViewAbiSession();
@@ -351,86 +366,6 @@ function isValidNativeRef(value: number): boolean {
 
 function isExpectedNativeStatus(error: unknown): boolean {
   return error instanceof Error && /^native ABI status 0x[0-9a-f]+$/u.test(error.message);
-}
-
-function tryTextLayoutPatch(
-  session: NativeViewAbiSession,
-  previousNode: BridgeViewNode,
-  nextNode: BridgeViewNode,
-  previousRef: number,
-  next: View,
-): number | undefined {
-  if (previousNode.kind !== BRIDGE_VIEW_KIND.text || nextNode.kind !== BRIDGE_VIEW_KIND.text) return undefined;
-  if (previousNode.spans !== nextNode.spans) return undefined;
-  if (previousNode.wrap === nextNode.wrap && previousNode.align === nextNode.align) return undefined;
-  const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
-  return viewTextLayoutPatchRoot(
-    session.symbols,
-    session.runtime,
-    previousRef,
-    nodeIdLow,
-    nodeIdHigh,
-    nextNode.wrap,
-    nextNode.align,
-  );
-}
-
-function tryCommonPatch(
-  session: NativeViewAbiSession,
-  previousNode: BridgeViewNode,
-  nextNode: BridgeViewNode,
-  previousRef: number,
-  next: View,
-): number | undefined {
-  if (nextNode.kind !== BRIDGE_VIEW_KIND.decorated || nextNode.child.id !== previousNode.id) return undefined;
-  const decoration = nextNode.decoration;
-  if (!isScalarDecoration(decoration)) return undefined;
-
-  let mask = 0;
-  let paddingTopRight = 0;
-  let paddingBottomLeft = 0;
-  if (decoration.padding !== undefined) {
-    mask |= 4;
-    paddingTopRight = packInsets(decoration.padding.top, decoration.padding.right);
-    paddingBottomLeft = packInsets(decoration.padding.bottom, decoration.padding.left);
-  }
-  if (decoration.width !== undefined) mask |= 8;
-  if (decoration.height !== undefined) mask |= 16;
-  if (decoration.minWidth !== undefined) mask |= 32;
-  if (decoration.maxWidth !== undefined) mask |= 64;
-  if (decoration.minHeight !== undefined) mask |= 128;
-  if (decoration.maxHeight !== undefined) mask |= 256;
-  if (mask === 0) return undefined;
-
-  const [nodeIdLow, nodeIdHigh] = nodeIdPair(next);
-  return viewCommonPatchRoot(
-    session.symbols,
-    session.runtime,
-    previousRef,
-    nodeIdLow,
-    nodeIdHigh,
-    mask,
-    paddingTopRight,
-    paddingBottomLeft,
-    decoration.width === "fit" ? 1 : decoration.width === "fill" ? 2 : 0,
-    decoration.height === "fit" ? 1 : decoration.height === "fill" ? 2 : 0,
-    decoration.minWidth ?? 0,
-    decoration.maxWidth ?? 0,
-    decoration.minHeight ?? 0,
-    decoration.maxHeight ?? 0,
-    previousRef,
-  );
-}
-
-function isScalarDecoration(decoration: DecorationNode): boolean {
-  if (decoration.background !== undefined || decoration.foreground !== undefined || decoration.border !== undefined) return false;
-  if (decoration.styleStates !== undefined && Object.keys(decoration.styleStates).length > 0) return false;
-  if (decoration.style.theme !== undefined || decoration.style.foreground !== undefined || decoration.style.background !== undefined) return false;
-  return Object.keys(decoration.style.attributes).length === 0;
-}
-
-function packInsets(first: number, second: number): number {
-  return (first | (second << 16)) >>> 0;
 }
 
 /** Test-only reset; production sessions are environment-owned and stable. */
