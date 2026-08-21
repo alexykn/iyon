@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801
-// generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de
+// schema_blake3 = 2e4b86b766ff8db783e86905756b496e09f137e29bb0b36dc54dfa3834ebf809
+// generator_blake3 = a7337dcff858f38ae2b177f87758637fc2fcf2bb1d0ec1b1286722b66d00f052
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn iyon_abi_conformance_u8_8_v1(
     a0: u8,

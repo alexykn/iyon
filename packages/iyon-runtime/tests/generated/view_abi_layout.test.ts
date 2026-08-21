@@ -1,11 +1,11 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801
-// generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de
+// schema_blake3 = 2e4b86b766ff8db783e86905756b496e09f137e29bb0b36dc54dfa3834ebf809
+// generator_blake3 = a7337dcff858f38ae2b177f87758637fc2fcf2bb1d0ec1b1286722b66d00f052
 import { expect, test } from "bun:test";
 import manifest from "../../src/tui/generated/view_abi_manifest.json";
 
 test("generated ABI manifest is pinned and ordered", () => {
-  expect(manifest.schema_blake3).toBe("823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801");
+  expect(manifest.schema_blake3).toBe("2e4b86b766ff8db783e86905756b496e09f137e29bb0b36dc54dfa3834ebf809");
   expect(manifest.abi.version).toBe(1);
   expect(manifest.functions.map((item) => item.name)).toEqual([
     "runtime_noop",
@@ -47,6 +47,13 @@ test("generated ABI manifest is pinned and ordered", () => {
     "edit_txn_add_text_layout",
     "edit_txn_commit_render",
     "edit_txn_abort",
+    "style_atom_create_cstring",
+    "style_create_bits",
+    "view_text_create_cstring",
+    "view_text_create_utf8",
+    "view_text_create_cstring_2",
+    "view_text_create_cstring_3",
+    "view_text_create_cstring_4",
   ]);
   expect(manifest.conformance.map((item) => item.name)).toEqual([
     "u8_8",
@@ -123,5 +130,12 @@ test("generated ABI signatures and POD layouts are pinned", () => {
     ["runtime_ptr", "native_ref", "native_ref", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"],
     ["runtime_ptr", "host_ptr", "native_ref"],
     ["runtime_ptr", "native_ref"],
+    ["runtime_ptr", "cstring_ephemeral"],
+    ["runtime_ptr", "u32", "u32", "u32", "u32", "u32", "u32"],
+    ["runtime_ptr", "u32", "u32", "cstring_ephemeral", "u32", "u32", "u32"],
+    ["runtime_ptr", "u32", "u32", "buffer", "buffer_length", "buffer_used", "u32", "u32", "u32"],
+    ["runtime_ptr", "u32", "u32", "cstring_ephemeral", "u32", "cstring_ephemeral", "u32", "u32", "u32"],
+    ["runtime_ptr", "u32", "u32", "cstring_ephemeral", "u32", "cstring_ephemeral", "u32", "cstring_ephemeral", "u32", "u32", "u32"],
+    ["runtime_ptr", "u32", "u32", "cstring_ephemeral", "u32", "cstring_ephemeral", "u32", "cstring_ephemeral", "u32", "cstring_ephemeral", "u32", "u32", "u32"],
   ]);
 });

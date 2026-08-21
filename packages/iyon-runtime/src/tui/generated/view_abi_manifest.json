@@ -2738,6 +2738,497 @@
       "ownership": "runtime_owned",
       "return": "status_only",
       "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "value",
+          "type": "string"
+        }
+      ],
+      "arity_specializations": [],
+      "benchmark_registration": "style.atom_create_cstring",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "style_atom",
+      "hotness": "warm",
+      "implementation": "style_atom_create_cstring_impl",
+      "max_buffer_bytes": 4096,
+      "max_input_count": 1,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "style_atom_create_cstring",
+      "ownership": "runtime_owned",
+      "return": "StyleAtomRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "flags",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "attribute_present",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "attribute_true",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "foreground_ref",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "background_ref",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "theme_atom_ref",
+          "type": "u32"
+        }
+      ],
+      "arity_specializations": [],
+      "benchmark_registration": "style.create_bits",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "style_atom",
+      "hotness": "warm",
+      "implementation": "style_create_bits_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "style_create_bits",
+      "ownership": "runtime_owned",
+      "return": "StyleRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style_ref",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "view.text_create_cstring",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_cstring_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_cstring",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer",
+          "name": "bytes",
+          "type": "u8[]"
+        },
+        {
+          "buffer_length_of": "bytes",
+          "lowering": "buffer_length",
+          "name": "bytes_capacity",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "buffer_used",
+          "name": "used_bytes",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style_ref",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "view.text_create_utf8",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_utf8_impl",
+      "max_buffer_bytes": 16777216,
+      "max_input_count": 1000000,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_utf8",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text0",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style0",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text1",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style1",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        2
+      ],
+      "benchmark_registration": "view.text_create_cstring_2",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_cstring_2_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 2,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_cstring_2",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text0",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style0",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text1",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style1",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text2",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style2",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        3
+      ],
+      "benchmark_registration": "view.text_create_cstring_3",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_cstring_3_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 3,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_cstring_3",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text0",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style0",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text1",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style1",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text2",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style2",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "cstring_ephemeral",
+          "name": "text3",
+          "type": "string"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "style3",
+          "type": "StyleRef"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "wrap",
+          "type": "WrapMode"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "align",
+          "type": "HorizontalAlign"
+        }
+      ],
+      "arity_specializations": [
+        4
+      ],
+      "benchmark_registration": "view.text_create_cstring_4",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "constructor",
+      "hotness": "warm",
+      "implementation": "view_text_create_cstring_4_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 4,
+      "may_allocate_native_memory": true,
+      "mutates_host_state": false,
+      "name": "view_text_create_cstring_4",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
     }
   ],
   "generated_outputs": [
@@ -2755,7 +3246,7 @@
     "crates/iyon-native/tests/generated_view_abi.rs",
     "PERF-11-generated-abi-reference.md"
   ],
-  "generator_blake3": "9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de",
+  "generator_blake3": "a7337dcff858f38ae2b177f87758637fc2fcf2bb1d0ec1b1286722b66d00f052",
   "handles": [
     {
       "kind": null,
@@ -2788,6 +3279,24 @@
       "kind": "path",
       "lifetime": "runtime",
       "name": "PathRef",
+      "nullable": false,
+      "rust": "u32",
+      "typescript": "number",
+      "valid": "1..0x7fffffff"
+    },
+    {
+      "kind": "style",
+      "lifetime": "runtime",
+      "name": "StyleRef",
+      "nullable": false,
+      "rust": "u32",
+      "typescript": "number",
+      "valid": "1..0x7fffffff"
+    },
+    {
+      "kind": "style_atom",
+      "lifetime": "runtime",
+      "name": "StyleAtomRef",
       "nullable": false,
       "rust": "u32",
       "typescript": "number",
@@ -2830,5 +3339,5 @@
       "size": 8
     }
   ],
-  "schema_blake3": "823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801"
+  "schema_blake3": "2e4b86b766ff8db783e86905756b496e09f137e29bb0b36dc54dfa3834ebf809"
 }

@@ -1,6 +1,6 @@
 /* DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. */
-/* schema_blake3 = 823264c7f1539c872782879f296f3782e157960ece5969f64007bb7e5430d801 */
-/* generator_blake3 = 9c69e5f6b013b2655aa249b00601622b4d569cb6806fb25863e0d71fe93f53de */
+/* schema_blake3 = 2e4b86b766ff8db783e86905756b496e09f137e29bb0b36dc54dfa3834ebf809 */
+/* generator_blake3 = a7337dcff858f38ae2b177f87758637fc2fcf2bb1d0ec1b1286722b66d00f052 */
 #ifndef IYON_VIEW_ABI_H
 #define IYON_VIEW_ABI_H
 
@@ -110,6 +110,20 @@ int32_t iyon_edit_txn_add_text_layout_v1(NativeViewRuntime * runtime, uint32_t t
 uint32_t iyon_edit_txn_commit_render_v1(NativeViewRuntime * runtime, NativeHost * host, uint32_t txn_ref);
 
 int32_t iyon_edit_txn_abort_v1(NativeViewRuntime * runtime, uint32_t txn_ref);
+
+uint32_t iyon_style_atom_create_cstring_v1(NativeViewRuntime * runtime, const char * value);
+
+uint32_t iyon_style_create_bits_v1(NativeViewRuntime * runtime, uint32_t flags, uint32_t attribute_present, uint32_t attribute_true, uint32_t foreground_ref, uint32_t background_ref, uint32_t theme_atom_ref);
+
+uint32_t iyon_view_text_create_cstring_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, const char * text, uint32_t style_ref, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_view_text_create_utf8_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, const uint8_t * bytes, size_t bytes_capacity, uint32_t used_bytes, uint32_t style_ref, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_view_text_create_cstring_2_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, const char * text0, uint32_t style0, const char * text1, uint32_t style1, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_view_text_create_cstring_3_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, const char * text0, uint32_t style0, const char * text1, uint32_t style1, const char * text2, uint32_t style2, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_view_text_create_cstring_4_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, const char * text0, uint32_t style0, const char * text1, uint32_t style1, const char * text2, uint32_t style2, const char * text3, uint32_t style3, uint32_t wrap, uint32_t align);
 
 uint32_t iyon_abi_conformance_u8_8_v1(uint8_t a0, uint8_t a1, uint8_t a2, uint8_t a3, uint8_t a4, uint8_t a5, uint8_t a6, uint8_t a7);
 

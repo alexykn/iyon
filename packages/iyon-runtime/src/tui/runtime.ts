@@ -12,6 +12,7 @@ import {
   nativeViewRefForNodeId,
   releaseNativeViewRef,
   tryNativeColdRender,
+  tryNativeTextCreateRender,
   tryNativePathScalarRender,
   tryNativeScalarRender,
 } from "./native_view_abi.ts";
@@ -113,6 +114,9 @@ export class Tui implements TuiRuntime {
       nextNativeRef = tryNativePathScalarRender(this.host, previousBody, previousNativeRef, normalized.body);
     }
 
+    if (nextNativeRef === undefined) {
+      nextNativeRef = tryNativeTextCreateRender(this.host, normalized.body);
+    }
     if (nextNativeRef === undefined) {
       nextNativeRef = tryNativeColdRender(this.host, normalized.body);
     }

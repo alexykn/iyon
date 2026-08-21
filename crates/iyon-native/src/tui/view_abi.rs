@@ -1,10 +1,16 @@
 use super::NativeTuiHost;
 use crate::NativeError;
-use iyon_tui::{HorizontalAlign, Insets, RetainedPathStep, View, WrapMode};
+use iyon_tui::{
+    AnsiColor, ColorSpec, HorizontalAlign, Insets, IntoView, RetainedPathStep, StyleRef, StyleSpec,
+    TextAttribute, TextSpan, View, WrapMode,
+};
 use napi::Env;
 use napi_derive::napi;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::ffi::CStr;
+use std::slice;
+use std::str;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::ThreadId;
@@ -105,6 +111,11 @@ const MAX_PATH_DEPTH: u32 = 128;
 const MAX_EDIT_COUNT: u32 = 256;
 const MAX_TXN_STAGED_OBJECTS: usize = 4_096;
 const MAX_NEW_TEXT_BYTES: u32 = 16 * 1024 * 1024;
+const STYLE_ATOM_REF_START: u32 = 0x6000_0001;
+const STYLE_ATOM_REF_LIMIT: u32 = 0x7000_0000;
+const STYLE_REF_START: u32 = 0x7000_0001;
+const STYLE_REF_LIMIT: u32 = BUILDER_REF_START;
+const STYLE_ATTRIBUTE_BITS: u32 = 0x3f;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct PathKey {
@@ -182,6 +193,10 @@ pub(super) struct NativeViewRuntime {
     path_keys: HashMap<PathKey, u32>,
     builders: HashMap<u32, AxisBuilder>,
     edit_txns: HashMap<u32, EditTxn>,
+    style_atoms: HashMap<u32, String>,
+    styles: HashMap<u32, StyleRef>,
+    next_style_atom_ref: u32,
+    next_style_ref: u32,
     next_native_ref: u32,
     next_path_ref: u32,
     next_builder_ref: u32,
@@ -220,6 +235,10 @@ impl NativeViewRuntime {
             path_keys: HashMap::new(),
             builders: HashMap::new(),
             edit_txns: HashMap::new(),
+            style_atoms: HashMap::new(),
+            styles: HashMap::new(),
+            next_style_atom_ref: STYLE_ATOM_REF_START,
+            next_style_ref: STYLE_REF_START,
             next_native_ref: 1,
             next_path_ref: PATH_ROOT_REF + 1,
             next_builder_ref: BUILDER_REF_LIMIT - 1,
@@ -683,6 +702,77 @@ impl NativeViewRuntime {
         root_ref
     }
 
+    fn allocate_style_atom_ref(&mut self) -> Option<u32> {
+        while self.next_style_atom_ref < STYLE_ATOM_REF_LIMIT {
+            let candidate = self.next_style_atom_ref;
+            self.next_style_atom_ref = self.next_style_atom_ref.wrapping_add(1);
+            if !self.style_atoms.contains_key(&candidate) {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn style_atom(&mut self, value: &str) -> Result<u32, u32> {
+        if value.is_empty() || value.len() > 4096 {
+            return Err(FAST_INVALID);
+        }
+        if let Some((reference, _)) = self
+            .style_atoms
+            .iter()
+            .find(|(_, candidate)| candidate.as_str() == value)
+        {
+            return Ok(*reference);
+        }
+        let reference = self.allocate_style_atom_ref().ok_or(FAST_FALLBACK)?;
+        self.style_atoms.insert(reference, value.to_owned());
+        Ok(reference)
+    }
+
+    fn allocate_style_ref(&mut self) -> Option<u32> {
+        while self.next_style_ref < STYLE_REF_LIMIT {
+            let candidate = self.next_style_ref;
+            self.next_style_ref = self.next_style_ref.wrapping_add(1);
+            if !self.styles.contains_key(&candidate) {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn style(&mut self, style: StyleRef) -> Result<u32, u32> {
+        if let Some((reference, _)) = self
+            .styles
+            .iter()
+            .find(|(_, candidate)| **candidate == style)
+        {
+            return Ok(*reference);
+        }
+        let reference = self.allocate_style_ref().ok_or(FAST_FALLBACK)?;
+        self.styles.insert(reference, style);
+        Ok(reference)
+    }
+
+    fn style_for_ref(&self, reference: u32) -> Result<StyleRef, u32> {
+        if reference == 0 {
+            return Ok(StyleRef::default());
+        }
+        if !(STYLE_REF_START..STYLE_REF_LIMIT).contains(&reference) {
+            return Err(FAST_INVALID);
+        }
+        self.styles.get(&reference).cloned().ok_or(FAST_CACHE_MISS)
+    }
+
+    fn style_atom_value(&self, reference: u32) -> Result<&str, u32> {
+        if !(STYLE_ATOM_REF_START..STYLE_ATOM_REF_LIMIT).contains(&reference) {
+            return Err(FAST_INVALID);
+        }
+        self.style_atoms
+            .get(&reference)
+            .map(String::as_str)
+            .ok_or(FAST_CACHE_MISS)
+    }
+
     fn allocate_ref(&mut self) -> Option<u32> {
         while self.next_native_ref < PATH_ROOT_REF {
             let candidate = self.next_native_ref;
@@ -1031,6 +1121,13 @@ pub fn bootstrap(env: Env) -> napi::Result<Value> {
             "editTxnAddTextLayout": generated_exports::iyon_edit_txn_add_text_layout_v1 as *const () as usize as u64,
             "editTxnCommitRender": generated_exports::iyon_edit_txn_commit_render_v1 as *const () as usize as u64,
             "editTxnAbort": generated_exports::iyon_edit_txn_abort_v1 as *const () as usize as u64,
+            "styleAtomCreateCstring": generated_exports::iyon_style_atom_create_cstring_v1 as *const () as usize as u64,
+            "styleCreateBits": generated_exports::iyon_style_create_bits_v1 as *const () as usize as u64,
+            "viewTextCreateCstring": generated_exports::iyon_view_text_create_cstring_v1 as *const () as usize as u64,
+            "viewTextCreateUtf8": generated_exports::iyon_view_text_create_utf8_v1 as *const () as usize as u64,
+            "viewTextCreateCstring2": generated_exports::iyon_view_text_create_cstring_2_v1 as *const () as usize as u64,
+            "viewTextCreateCstring3": generated_exports::iyon_view_text_create_cstring_3_v1 as *const () as usize as u64,
+            "viewTextCreateCstring4": generated_exports::iyon_view_text_create_cstring_4_v1 as *const () as usize as u64,
         },
     }))
 }
@@ -2261,6 +2358,338 @@ fn path_step_matches_kind(step_kind: u32, expected_view_kind: u32) -> bool {
         7..=9 => expected_view_kind == 5,
         _ => false,
     }
+}
+
+fn style_from_bits(
+    runtime: &NativeViewRuntime,
+    flags: u32,
+    attribute_present: u32,
+    attribute_true: u32,
+    foreground_ref: u32,
+    background_ref: u32,
+    theme_atom_ref: u32,
+) -> Result<StyleRef, u32> {
+    if flags != 0
+        || attribute_present & !STYLE_ATTRIBUTE_BITS != 0
+        || attribute_true & !attribute_present != 0
+    {
+        return Err(FAST_INVALID);
+    }
+    let mut local = StyleSpec::new();
+    for (bit, attribute) in [
+        (1, TextAttribute::Bold),
+        (2, TextAttribute::Dim),
+        (4, TextAttribute::Italic),
+        (8, TextAttribute::Underline),
+        (16, TextAttribute::Reversed),
+        (32, TextAttribute::Strikethrough),
+    ] {
+        if attribute_present & bit != 0 {
+            local = local.attribute(attribute, attribute_true & bit != 0);
+        }
+    }
+    if foreground_ref != 0 {
+        local = local.foreground(parse_color_atom(runtime.style_atom_value(foreground_ref)?)?);
+    }
+    if background_ref != 0 {
+        local = local.background(parse_color_atom(runtime.style_atom_value(background_ref)?)?);
+    }
+    if theme_atom_ref == 0 {
+        Ok(StyleRef::direct(local))
+    } else {
+        let theme = runtime.style_atom_value(theme_atom_ref)?;
+        Ok(StyleRef::themed(
+            theme.strip_prefix("theme:").unwrap_or(theme),
+            local,
+        ))
+    }
+}
+
+fn parse_color_atom(value: &str) -> Result<ColorSpec, u32> {
+    if let Some(theme) = value.strip_prefix("theme:") {
+        return Ok(ColorSpec::theme(theme));
+    }
+    if let Some(ansi) = value.strip_prefix("ansi:") {
+        return ansi
+            .parse::<u8>()
+            .map(ColorSpec::ansi)
+            .map_err(|_| FAST_INVALID);
+    }
+    if let Some(hex) = value.strip_prefix('#') {
+        if hex.len() != 6 {
+            return Err(FAST_INVALID);
+        }
+        let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| FAST_INVALID)?;
+        let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| FAST_INVALID)?;
+        let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| FAST_INVALID)?;
+        return Ok(ColorSpec::rgb(r, g, b));
+    }
+    let color = match value.to_ascii_lowercase().as_str() {
+        "black" => AnsiColor::Black,
+        "red" => AnsiColor::Red,
+        "green" => AnsiColor::Green,
+        "yellow" => AnsiColor::Yellow,
+        "blue" => AnsiColor::Blue,
+        "magenta" => AnsiColor::Magenta,
+        "cyan" => AnsiColor::Cyan,
+        "gray" => AnsiColor::Gray,
+        "darkgray" => AnsiColor::DarkGray,
+        "lightred" => AnsiColor::LightRed,
+        "lightgreen" => AnsiColor::LightGreen,
+        "lightyellow" => AnsiColor::LightYellow,
+        "lightblue" => AnsiColor::LightBlue,
+        "lightmagenta" => AnsiColor::LightMagenta,
+        "lightcyan" => AnsiColor::LightCyan,
+        "white" => AnsiColor::White,
+        _ => return Err(FAST_INVALID),
+    };
+    Ok(ColorSpec::named(color))
+}
+
+fn text_view_from_spans(spans: Vec<TextSpan>, wrap: u32, align: u32) -> Result<View, u32> {
+    let wrap = decode_wrap(wrap).map_err(|_| FAST_INVALID)?;
+    let align = decode_align(align).map_err(|_| FAST_INVALID)?;
+    Ok(View::styled_text(spans)
+        .wrap(wrap)
+        .text_align(align)
+        .into_view())
+}
+
+fn text_view_from_owned(text: String, style: StyleRef, wrap: u32, align: u32) -> Result<View, u32> {
+    text_view_from_spans(vec![TextSpan::styled(text, style)], wrap, align)
+}
+
+fn cstring_text_spans(
+    runtime: &NativeViewRuntime,
+    inputs: &[(*const std::ffi::c_char, u32)],
+) -> Result<Vec<TextSpan>, u32> {
+    inputs
+        .iter()
+        .map(|(pointer, style_ref)| {
+            let text = unsafe { CStr::from_ptr(*pointer) }
+                .to_str()
+                .map(str::to_owned)
+                .map_err(|_| FAST_INVALID)?;
+            let style = runtime.style_for_ref(*style_ref)?;
+            Ok(TextSpan::styled(text, style))
+        })
+        .collect()
+}
+
+fn publish_cstring_text(
+    runtime: &mut NativeViewRuntime,
+    node_id: u64,
+    inputs: &[(*const std::ffi::c_char, u32)],
+    wrap: u32,
+    align: u32,
+) -> Result<u32, u32> {
+    let spans = cstring_text_spans(runtime, inputs)?;
+    let view = text_view_from_spans(spans, wrap, align)?;
+    runtime.publish(node_id, view)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn style_atom_create_cstring_impl(
+    runtime: *mut NativeViewRuntime,
+    value: *const std::ffi::c_char,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(value) = (unsafe { CStr::from_ptr(value) }).to_str() else {
+        return record_result(runtime, FAST_INVALID);
+    };
+    let result = runtime.style_atom(value).unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn style_create_bits_impl(
+    runtime: *mut NativeViewRuntime,
+    flags: u32,
+    attribute_present: u32,
+    attribute_true: u32,
+    foreground_ref: u32,
+    background_ref: u32,
+    theme_atom_ref: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let result = style_from_bits(
+        runtime,
+        flags,
+        attribute_present,
+        attribute_true,
+        foreground_ref,
+        background_ref,
+        theme_atom_ref,
+    )
+    .and_then(|style| runtime.style(style))
+    .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_cstring_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    text: *const std::ffi::c_char,
+    style_ref: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let Ok(text) = (unsafe { CStr::from_ptr(text) })
+        .to_str()
+        .map(str::to_owned)
+    else {
+        return record_result(runtime, FAST_INVALID);
+    };
+    let result = runtime
+        .style_for_ref(style_ref)
+        .and_then(|style| text_view_from_owned(text, style, wrap, align))
+        .and_then(|view| runtime.publish(node_id, view))
+        .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_utf8_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    bytes: *const u8,
+    _bytes_capacity: usize,
+    used_bytes: u32,
+    style_ref: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let bytes = if used_bytes == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(bytes, used_bytes as usize) }
+    };
+    let Ok(text) = str::from_utf8(bytes).map(str::to_owned) else {
+        return record_result(runtime, FAST_INVALID);
+    };
+    let result = runtime
+        .style_for_ref(style_ref)
+        .and_then(|style| text_view_from_owned(text, style, wrap, align))
+        .and_then(|view| runtime.publish(node_id, view))
+        .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_cstring_2_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    text0: *const std::ffi::c_char,
+    style0: u32,
+    text1: *const std::ffi::c_char,
+    style1: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let result = publish_cstring_text(
+        runtime,
+        node_id,
+        &[(text0, style0), (text1, style1)],
+        wrap,
+        align,
+    )
+    .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_cstring_3_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    text0: *const std::ffi::c_char,
+    style0: u32,
+    text1: *const std::ffi::c_char,
+    style1: u32,
+    text2: *const std::ffi::c_char,
+    style2: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let result = publish_cstring_text(
+        runtime,
+        node_id,
+        &[(text0, style0), (text1, style1), (text2, style2)],
+        wrap,
+        align,
+    )
+    .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_create_cstring_4_impl(
+    runtime: *mut NativeViewRuntime,
+    node_id_low: u32,
+    node_id_high: u32,
+    text0: *const std::ffi::c_char,
+    style0: u32,
+    text1: *const std::ffi::c_char,
+    style1: u32,
+    text2: *const std::ffi::c_char,
+    style2: u32,
+    text3: *const std::ffi::c_char,
+    style3: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let Ok(node_id) = node_id(node_id_low, node_id_high) else {
+        return FAST_INVALID;
+    };
+    let result = publish_cstring_text(
+        runtime,
+        node_id,
+        &[
+            (text0, style0),
+            (text1, style1),
+            (text2, style2),
+            (text3, style3),
+        ],
+        wrap,
+        align,
+    )
+    .unwrap_or_else(|error| error);
+    record_result(runtime, result)
 }
 
 fn decode_wrap(value: u32) -> Result<WrapMode, ()> {

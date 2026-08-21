@@ -204,7 +204,8 @@ fn ffi_args(argument: &ArgumentSpec) -> Vec<&'static str> {
 fn ffi_return(return_type: &str) -> &'static str {
     match return_type {
         "i32" | "status_only" => "i32",
-        "u32" | "ViewRefResult" | "PathRefResult" | "native_ref_result" => "u32",
+        "u32" | "ViewRefResult" | "PathRefResult" | "StyleRefResult" | "StyleAtomRefResult"
+        | "native_ref_result" => "u32",
         "f32" => "f32",
         "f64" => "f64",
         other => panic!("unsupported generated FFI return {other}"),
@@ -264,8 +265,8 @@ fn ts_type(argument: &ArgumentSpec, document: &AbiDocument) -> &'static str {
 
 fn ts_return(return_type: &str) -> &'static str {
     match return_type {
-        "i32" | "status_only" | "u32" | "ViewRefResult" | "PathRefResult" | "native_ref_result"
-        | "f32" | "f64" => "number",
+        "i32" | "status_only" | "u32" | "ViewRefResult" | "PathRefResult" | "StyleRefResult"
+        | "StyleAtomRefResult" | "native_ref_result" | "f32" | "f64" => "number",
         other => panic!("unsupported generated TS return {other}"),
     }
 }
@@ -273,7 +274,11 @@ fn ts_return(return_type: &str) -> &'static str {
 fn is_ref_result(return_type: &str) -> bool {
     matches!(
         return_type,
-        "ViewRefResult" | "PathRefResult" | "native_ref_result"
+        "ViewRefResult"
+            | "PathRefResult"
+            | "StyleRefResult"
+            | "StyleAtomRefResult"
+            | "native_ref_result"
     )
 }
 

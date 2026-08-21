@@ -24,7 +24,7 @@ pub fn types(
         schema_hash, generator_hash
     ));
     output.push_str(&format!("pub const ABI_NAME: &str = {:?};\npub const ABI_VERSION: u32 = {};\npub const SEMANTIC_SCHEMA_VERSION: u32 = {};\npub const MINIMUM_BUN: &str = {:?};\npub const QUALIFIED_BUN: &str = {:?};\npub const RESULT_ERROR_BIT: u32 = 0x8000_0000;\n\n", document.abi.name, document.abi.version, document.abi.semantic_schema, document.abi.minimum_bun, document.abi.qualified_bun));
-    output.push_str("pub type ViewRefResult = u32;\n\n");
+    output.push_str("pub type ViewRefResult = u32;\npub type StyleRefResult = u32;\npub type StyleAtomRefResult = u32;\n\n");
     for pod in &document.pods {
         output.push_str("#[repr(C)]\n#[derive(Clone, Copy, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]\n");
         output.push_str(&format!("pub struct {} {{\n", pod.name));
@@ -408,6 +408,9 @@ fn validation_statements(
 }
 
 fn buffer_element_size(argument: &ArgumentSpec, document: &AbiDocument) -> Option<u32> {
+    if argument.type_name == "u8[]" {
+        return Some(1);
+    }
     if argument.type_name == "u32[]" {
         return Some(4);
     }
@@ -486,7 +489,8 @@ fn rust_call_arguments(arguments: &[ArgumentSpec]) -> String {
 
 fn rust_type(type_name: &str) -> String {
     match type_name {
-        "ViewRefResult" | "PathRefResult" | "native_ref_result" | "u32" => "u32".to_owned(),
+        "ViewRefResult" | "PathRefResult" | "StyleRefResult" | "StyleAtomRefResult"
+        | "native_ref_result" | "u32" => "u32".to_owned(),
         "i32" | "status_only" => "i32".to_owned(),
         "u8" => "u8".to_owned(),
         "u16" => "u16".to_owned(),
