@@ -59,12 +59,35 @@ export interface EventQueueProbeContract {
   close(): void;
 }
 
+export interface NativeViewAbiBootstrap {
+  runtime_ptr: number;
+  abi_name: string;
+  abi_version: number;
+  semantic_version: number;
+  schema_blake3: string;
+  generator_blake3: string;
+  generation: number;
+  fast_view_abi: boolean;
+  function_count: number;
+  functions: {
+    runtimeNoop: number;
+    viewRenderRef: number;
+    viewSpacerCreate: number;
+    viewTextLayoutPatchRoot: number;
+    viewCommonPatchRoot: number;
+    viewAxisCreateBuffer: number;
+    viewReleaseMany: number;
+    viewRefForNodeId: number;
+  };
+}
+
 export interface NativeAddon {
   nativeVersion(): string;
   echoJson(value: JsonValue): JsonValue;
   echoString(value: string): string;
   echoBuffer(value: Buffer): Buffer;
   tuiSmoke(): string;
+  tuiViewAbiBootstrap?(): NativeViewAbiBootstrap;
   tuiPerfAbiProbe?(): {
     noop_ptr: number;
     u32_8_ptr: number;

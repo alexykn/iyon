@@ -86,6 +86,11 @@ export class Tui implements TuiRuntime {
     ensureSignal(signal);
     if (this.closed) throw tuiError("terminal", "TUI runtime is closed");
     const normalized = Scene.from(scene);
+    if (
+      this.currentScene !== undefined
+      && this.currentScene.body === normalized.body
+      && this.currentScene.history === normalized.history
+    ) return;
     if (normalized.history !== undefined) {
       const history = (normalized.history as unknown as { nativeObject(): object }).nativeObject() as { isDetached?: () => boolean };
       if (history.isDetached?.() === true) this.host.setHistory(history as object);

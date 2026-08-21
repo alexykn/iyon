@@ -416,6 +416,17 @@ export class View {
 }
 
 const nodes = new WeakMap<View, BridgeViewNode>();
+const nodeIdParts = new WeakMap<View, readonly [number, number]>();
+
+/** Returns the cached u32 halves of a View's full safe-integer NodeId. */
+export function nodeIdPair(view: View): readonly [number, number] {
+  const cached = nodeIdParts.get(view);
+  if (cached !== undefined) return cached;
+  const id = nodeForBridge(view).id;
+  const pair: readonly [number, number] = [id >>> 0, Math.floor(id / 0x1_0000_0000)];
+  nodeIdParts.set(view, pair);
+  return pair;
+}
 
 /** Private bridge access; the retained DAG is never part of the public API. */
 export function nodeForBridge(view: View): BridgeViewNode {

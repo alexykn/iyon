@@ -1,6 +1,6 @@
 /* DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. */
-/* schema_blake3 = d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951 */
-/* generator_blake3 = fd3bcd32d6995e625fada939bf2fd398b6dac2ec14400458b75f612cdc4d0d6d */
+/* schema_blake3 = 7fce882a8b31b7dab23c5515ffde2626513fed07f46366e3d9869a966fe1ccb1 */
+/* generator_blake3 = a32e416575faa290887b502f2a202006562af02cb1a05027ec41076f7b0a40d6 */
 #ifndef IYON_VIEW_ABI_H
 #define IYON_VIEW_ABI_H
 
@@ -46,6 +46,8 @@ uint32_t iyon_view_common_patch_root_v1(NativeViewRuntime * runtime, uint32_t ba
 uint32_t iyon_view_axis_create_buffer_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high, uint32_t axis_kind, uint32_t gap, const AxisChildInputV1 * children, size_t children_capacity_bytes, uint32_t used_child_count);
 
 int32_t iyon_view_release_many_v1(NativeViewRuntime * runtime, const uint32_t * refs, size_t refs_capacity_bytes, uint32_t used_ref_count);
+
+uint32_t iyon_view_ref_for_node_id_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high);
 
 uint32_t iyon_abi_conformance_u8_8_v1(uint8_t a0, uint8_t a1, uint8_t a2, uint8_t a3, uint8_t a4, uint8_t a5, uint8_t a6, uint8_t a7);
 

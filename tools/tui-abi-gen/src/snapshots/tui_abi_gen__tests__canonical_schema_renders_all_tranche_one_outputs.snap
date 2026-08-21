@@ -567,6 +567,45 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
       "ownership": "runtime_owned",
       "return": "i32",
       "thread_affinity": "owner_thread"
+    },
+    {
+      "args": [
+        {
+          "buffer_length_of": null,
+          "lowering": "runtime_ptr",
+          "name": "runtime",
+          "type": "RuntimePtr"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_low",
+          "type": "u32"
+        },
+        {
+          "buffer_length_of": null,
+          "lowering": "u32",
+          "name": "node_id_high",
+          "type": "u32"
+        }
+      ],
+      "arity_specializations": [
+        1
+      ],
+      "benchmark_registration": "view.ref_for_node_id",
+      "borrow_duration": "call",
+      "fallback": "v4",
+      "family": "exact_lookup",
+      "hotness": "critical",
+      "implementation": "view_ref_for_node_id_impl",
+      "max_buffer_bytes": 0,
+      "max_input_count": 1,
+      "may_allocate_native_memory": false,
+      "mutates_host_state": false,
+      "name": "view_ref_for_node_id",
+      "ownership": "runtime_owned",
+      "return": "ViewRefResult",
+      "thread_affinity": "owner_thread"
     }
   ],
   "generated_outputs": [
@@ -584,7 +623,7 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
     "crates/iyon-native/tests/generated_view_abi.rs",
     "PERF-11-generated-abi-reference.md"
   ],
-  "generator_blake3": "fd3bcd32d6995e625fada939bf2fd398b6dac2ec14400458b75f612cdc4d0d6d",
+  "generator_blake3": "a32e416575faa290887b502f2a202006562af02cb1a05027ec41076f7b0a40d6",
   "handles": [
     {
       "kind": null,
@@ -641,5 +680,5 @@ expression: "outputs.get(\"packages/iyon-runtime/src/tui/generated/view_abi_mani
       "size": 8
     }
   ],
-  "schema_blake3": "d243e278b8f4640f3ae5de70c311edd1a444f7a8f6359fdf90aea70187aa9951"
+  "schema_blake3": "7fce882a8b31b7dab23c5515ffde2626513fed07f46366e3d9869a966fe1ccb1"
 }
