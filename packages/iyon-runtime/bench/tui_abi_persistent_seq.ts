@@ -11,6 +11,7 @@ import {
 } from "../src/tui/native_view_abi.ts";
 import {
   nodeForBridge,
+  nodeIdPair,
   replaceAxisChildForPackedTransport,
   spliceAxisChildrenForPackedTransport,
   View,
@@ -36,9 +37,7 @@ type Prepared = {
   readonly base: View;
   readonly replacement: View;
   readonly replacementRef: number;
-  readonly setRoot: View;
-  readonly insertRoot: View;
-  readonly removeRoot: View;
+  readonly nodeIds: Readonly<Record<"replace" | "insert" | "remove", readonly (readonly [number, number])[]>>;
 };
 
 function median(values: readonly number[]): number {
@@ -52,12 +51,10 @@ function invoke(
   iteration: number,
 ): number {
   const { session, baseRef, replacementRef } = prepared;
-  // Each sample uses a distinct valid semantic identity so publication does
-  // not spend O(N) comparing an already-published wide root. The corresponding
-  // immutable JS roots are prebuilt outside the timed native operation.
-  const operationCode = operation === "replace" ? 1 : operation === "insert" ? 2 : 3;
-  const low = (0x0100_0000 + prepared.width + prepared.index + iteration * 4 + operationCode) >>> 0;
-  const high = 1;
+  // Each sample uses a distinct real JS semantic identity. The corresponding
+  // immutable roots are prebuilt outside the timed native operation, so native
+  // publication never compares an already-published wide root.
+  const [low, high] = prepared.nodeIds[operation][iteration]!;
   if (operation === "replace") {
     return viewAxisSetChild(session.symbols, session.runtime, baseRef, low, high, prepared.index, 0, replacementRef);
   }
@@ -103,9 +100,12 @@ function prepare(width: number, session: Prepared["session"]): Prepared {
   host.render(nodeForBridge(base));
   const baseRef = nativeViewRefForNodeId(base);
   if (baseRef === undefined) throw new Error("base ref unavailable");
-  const setRoot = replaceAxisChildForPackedTransport(base, 1_000, replacement);
-  const insertRoot = spliceAxisChildrenForPackedTransport(base, 1_000, 0, [replacement]);
-  const removeRoot = spliceAxisChildrenForPackedTransport(base, 1_000, 1, []);
+  const totalSamples = WARMUP + REPEATS * ITERATIONS;
+  const nodeIds = {
+    replace: Array.from({ length: totalSamples }, () => nodeIdPair(replaceAxisChildForPackedTransport(base, 1_000, replacement))),
+    insert: Array.from({ length: totalSamples }, () => nodeIdPair(spliceAxisChildrenForPackedTransport(base, 1_000, 0, [replacement]))),
+    remove: Array.from({ length: totalSamples }, () => nodeIdPair(spliceAxisChildrenForPackedTransport(base, 1_000, 1, []))),
+  } as const;
   return {
     session,
     host,
@@ -115,9 +115,7 @@ function prepare(width: number, session: Prepared["session"]): Prepared {
     base,
     replacement,
     replacementRef,
-    setRoot,
-    insertRoot,
-    removeRoot,
+    nodeIds,
   };
 }
 
