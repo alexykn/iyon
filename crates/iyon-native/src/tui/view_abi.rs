@@ -109,7 +109,9 @@ impl NativeViewRuntime {
             return Ok(view);
         }
         let Some(view) = slot.weak.upgrade() else {
-            self.node_refs.remove(&slot.node_id);
+            let node_id = slot.node_id;
+            self.node_refs.remove(&node_id);
+            self.slots.remove(&reference);
             return Err(FAST_CACHE_MISS);
         };
         Ok(view)
@@ -189,8 +191,20 @@ impl NativeViewRuntime {
     fn release_many(&mut self, refs: *const u32, used_count: u32) -> Result<i32, i32> {
         for index in 0..used_count as usize {
             let reference = unsafe { refs.add(index).read() };
-            if let Some(slot) = self.slots.get_mut(&reference) {
-                slot.leased = None;
+            let remove_slot = self
+                .slots
+                .get_mut(&reference)
+                .map(|slot| {
+                    slot.leased = None;
+                    slot.weak.upgrade().is_none()
+                })
+                .unwrap_or(false);
+            if remove_slot {
+                if let Some(slot) = self.slots.remove(&reference) {
+                    if self.node_refs.get(&slot.node_id) == Some(&reference) {
+                        self.node_refs.remove(&slot.node_id);
+                    }
+                }
             }
         }
         Ok(used_count as i32)
