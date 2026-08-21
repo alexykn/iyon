@@ -1,5 +1,5 @@
 /* DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. */
-/* schema_blake3 = b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193 */
+/* schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9 */
 /* generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69 */
 #ifndef IYON_VIEW_ABI_H
 #define IYON_VIEW_ABI_H
@@ -64,6 +64,14 @@ uint32_t iyon_view_text_layout_patch_path_d2_v1(NativeViewRuntime * runtime, uin
 uint32_t iyon_view_text_layout_patch_path_d3_v1(NativeViewRuntime * runtime, uint32_t base_root_ref, uint32_t path_ref, uint32_t target_node_id_low, uint32_t target_node_id_high, uint32_t ancestor0_node_id_low, uint32_t ancestor0_node_id_high, uint32_t ancestor1_node_id_low, uint32_t ancestor1_node_id_high, uint32_t ancestor2_node_id_low, uint32_t ancestor2_node_id_high, uint32_t wrap, uint32_t align);
 
 uint32_t iyon_view_text_layout_patch_path_d4_v1(NativeViewRuntime * runtime, uint32_t base_root_ref, uint32_t path_ref, uint32_t target_node_id_low, uint32_t target_node_id_high, uint32_t ancestor0_node_id_low, uint32_t ancestor0_node_id_high, uint32_t ancestor1_node_id_low, uint32_t ancestor1_node_id_high, uint32_t ancestor2_node_id_low, uint32_t ancestor2_node_id_high, uint32_t ancestor3_node_id_low, uint32_t ancestor3_node_id_high, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_edit_txn_begin_v1(NativeViewRuntime * runtime, uint32_t base_root_ref, uint32_t expected_edit_count);
+
+int32_t iyon_edit_txn_add_text_layout_v1(NativeViewRuntime * runtime, uint32_t txn_ref, uint32_t path_ref, uint32_t path_depth, uint32_t target_node_id_low, uint32_t target_node_id_high, uint32_t ancestor0_node_id_low, uint32_t ancestor0_node_id_high, uint32_t ancestor1_node_id_low, uint32_t ancestor1_node_id_high, uint32_t ancestor2_node_id_low, uint32_t ancestor2_node_id_high, uint32_t ancestor3_node_id_low, uint32_t ancestor3_node_id_high, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_edit_txn_commit_render_v1(NativeViewRuntime * runtime, NativeHost * host, uint32_t txn_ref);
+
+int32_t iyon_edit_txn_abort_v1(NativeViewRuntime * runtime, uint32_t txn_ref);
 
 uint32_t iyon_abi_conformance_u8_8_v1(uint8_t a0, uint8_t a1, uint8_t a2, uint8_t a3, uint8_t a4, uint8_t a5, uint8_t a6, uint8_t a7);
 

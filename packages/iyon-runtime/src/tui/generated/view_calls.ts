@@ -1,5 +1,5 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193
+// schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9
 // generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69
 import type { Pointer } from "bun:ffi";
 import type { linkViewAbi } from "./view_abi";
@@ -90,5 +90,25 @@ export function viewTextLayoutPatchPathD3(symbols: ViewAbiSymbols, runtime: Poin
 export function viewTextLayoutPatchPathD4(symbols: ViewAbiSymbols, runtime: Pointer, base_root_ref: number, path_ref: number, target_node_id_low: number, target_node_id_high: number, ancestor0_node_id_low: number, ancestor0_node_id_high: number, ancestor1_node_id_low: number, ancestor1_node_id_high: number, ancestor2_node_id_low: number, ancestor2_node_id_high: number, ancestor3_node_id_low: number, ancestor3_node_id_high: number, wrap: number, align: number): number {
   const result = symbols.viewTextLayoutPatchPathD4(runtime, base_root_ref, path_ref, target_node_id_low, target_node_id_high, ancestor0_node_id_low, ancestor0_node_id_high, ancestor1_node_id_low, ancestor1_node_id_high, ancestor2_node_id_low, ancestor2_node_id_high, ancestor3_node_id_low, ancestor3_node_id_high, wrap, align);
   return checkedRef(result);
+}
+
+export function editTxnBegin(symbols: ViewAbiSymbols, runtime: Pointer, base_root_ref: number, expected_edit_count: number): number {
+  const result = symbols.editTxnBegin(runtime, base_root_ref, expected_edit_count);
+  return checkedRef(result);
+}
+
+export function editTxnAddTextLayout(symbols: ViewAbiSymbols, runtime: Pointer, txn_ref: number, path_ref: number, path_depth: number, target_node_id_low: number, target_node_id_high: number, ancestor0_node_id_low: number, ancestor0_node_id_high: number, ancestor1_node_id_low: number, ancestor1_node_id_high: number, ancestor2_node_id_low: number, ancestor2_node_id_high: number, ancestor3_node_id_low: number, ancestor3_node_id_high: number, wrap: number, align: number): number {
+  const result = symbols.editTxnAddTextLayout(runtime, txn_ref, path_ref, path_depth, target_node_id_low, target_node_id_high, ancestor0_node_id_low, ancestor0_node_id_high, ancestor1_node_id_low, ancestor1_node_id_high, ancestor2_node_id_low, ancestor2_node_id_high, ancestor3_node_id_low, ancestor3_node_id_high, wrap, align);
+  return result;
+}
+
+export function editTxnCommitRender(symbols: ViewAbiSymbols, runtime: Pointer, host: Pointer, txn_ref: number): number {
+  const result = symbols.editTxnCommitRender(runtime, host, txn_ref);
+  return checkedRef(result);
+}
+
+export function editTxnAbort(symbols: ViewAbiSymbols, runtime: Pointer, txn_ref: number): number {
+  const result = symbols.editTxnAbort(runtime, txn_ref);
+  return result;
 }
 

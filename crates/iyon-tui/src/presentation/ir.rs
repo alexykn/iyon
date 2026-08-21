@@ -1241,6 +1241,223 @@ impl View {
         }
         patch_text_layout_path_with_nodes(self, steps, wrap, align)
     }
+
+    /// Returns the child selected by one validated retained-path step.
+    /// Transaction staging uses this to descend a native path trie without
+    /// rebuilding or flattening any unchanged sibling sequence.
+    #[doc(hidden)]
+    pub fn try_retained_child(&self, step: RetainedPathStep) -> Result<Self, String> {
+        if view_kind_tag(self.kind()) != step.expected_view_kind {
+            return Err("retained path expected view kind does not match base".to_owned());
+        }
+        match step.kind {
+            PATH_STEP_CONTAINER_CHILD => {
+                if step.selector != 0 {
+                    return Err("container path selector must be zero".to_owned());
+                }
+                let ViewKind::Container(container) = self.kind() else {
+                    return Err("container path step requires a container".to_owned());
+                };
+                Ok(container.child.clone())
+            }
+            PATH_STEP_CLAMP_CHILD => {
+                if step.selector != 0 {
+                    return Err("clamp path selector must be zero".to_owned());
+                }
+                let ViewKind::ClampRows(clamp) = self.kind() else {
+                    return Err("clamp path step requires a clamp".to_owned());
+                };
+                Ok(clamp.child.clone())
+            }
+            PATH_STEP_ROW_VIEWPORT_CHILD => {
+                if step.selector != 0 {
+                    return Err("row viewport path selector must be zero".to_owned());
+                }
+                let ViewKind::RowViewport(viewport) = self.kind() else {
+                    return Err("row viewport path step requires a viewport".to_owned());
+                };
+                Ok(viewport.child.clone())
+            }
+            PATH_STEP_COLUMN_CHILD => {
+                let ViewKind::Column(column) = self.kind() else {
+                    return Err("column path step requires a column".to_owned());
+                };
+                column
+                    .children
+                    .get(step.selector as usize)
+                    .map(|child| child.view.clone())
+                    .ok_or_else(|| "column path selector is out of range".to_owned())
+            }
+            PATH_STEP_ROW_CHILD => {
+                let ViewKind::Row(row) = self.kind() else {
+                    return Err("row path step requires a row".to_owned());
+                };
+                row.children
+                    .get(step.selector as usize)
+                    .map(|child| child.view.clone())
+                    .ok_or_else(|| "row path selector is out of range".to_owned())
+            }
+            PATH_STEP_GRID_CELL => {
+                let ViewKind::Grid(grid) = self.kind() else {
+                    return Err("grid path step requires a grid".to_owned());
+                };
+                grid.cells
+                    .get(step.selector as usize)
+                    .map(|cell| cell.view.clone())
+                    .ok_or_else(|| "grid path selector is out of range".to_owned())
+            }
+            PATH_STEP_HANGING_PREFIX | PATH_STEP_HANGING_CONTINUATION | PATH_STEP_HANGING_BODY => {
+                let ViewKind::Hanging(hanging) = self.kind() else {
+                    return Err("hanging path step requires a hanging view".to_owned());
+                };
+                if step.selector != 0 {
+                    return Err("hanging path selector must be zero".to_owned());
+                }
+                Ok(match step.kind {
+                    PATH_STEP_HANGING_PREFIX => hanging.prefix.clone(),
+                    PATH_STEP_HANGING_CONTINUATION => hanging.continuation_prefix.clone(),
+                    _ => hanging.body.clone(),
+                })
+            }
+            _ => Err("unknown retained path step".to_owned()),
+        }
+    }
+
+    /// Replaces one retained-path child with a persistent structural update.
+    /// The receiver is immutable; all unaffected subtrees and sequence nodes
+    /// remain shared with it.
+    #[doc(hidden)]
+    pub fn try_replace_retained_child(
+        self,
+        step: RetainedPathStep,
+        child: Self,
+    ) -> Result<Self, String> {
+        if view_kind_tag(self.kind()) != step.expected_view_kind {
+            return Err("retained path expected view kind does not match base".to_owned());
+        }
+        match step.kind {
+            PATH_STEP_CONTAINER_CHILD => {
+                if step.selector != 0 {
+                    return Err("container path selector must be zero".to_owned());
+                }
+                let ViewKind::Container(_) = self.kind() else {
+                    return Err("container path step requires a container".to_owned());
+                };
+                Ok(self.map_node(|node| {
+                    let ViewKind::Container(container) = &mut node.kind else {
+                        unreachable!("validated container path")
+                    };
+                    Arc::make_mut(container).child = child;
+                }))
+            }
+            PATH_STEP_CLAMP_CHILD => {
+                if step.selector != 0 {
+                    return Err("clamp path selector must be zero".to_owned());
+                }
+                let ViewKind::ClampRows(_) = self.kind() else {
+                    return Err("clamp path step requires a clamp".to_owned());
+                };
+                Ok(self.map_node(|node| {
+                    let ViewKind::ClampRows(clamp) = &mut node.kind else {
+                        unreachable!("validated clamp path")
+                    };
+                    Arc::make_mut(clamp).child = child;
+                }))
+            }
+            PATH_STEP_ROW_VIEWPORT_CHILD => {
+                if step.selector != 0 {
+                    return Err("row viewport path selector must be zero".to_owned());
+                }
+                let ViewKind::RowViewport(_) = self.kind() else {
+                    return Err("row viewport path step requires a viewport".to_owned());
+                };
+                Ok(self.map_node(|node| {
+                    let ViewKind::RowViewport(viewport) = &mut node.kind else {
+                        unreachable!("validated viewport path")
+                    };
+                    Arc::make_mut(viewport).child = child;
+                }))
+            }
+            PATH_STEP_COLUMN_CHILD => {
+                let ViewKind::Column(column) = self.kind() else {
+                    return Err("column path step requires a column".to_owned());
+                };
+                let current = column
+                    .children
+                    .get(step.selector as usize)
+                    .ok_or_else(|| "column path selector is out of range".to_owned())?;
+                let replacement = ColumnChild {
+                    track: current.track,
+                    view: child,
+                };
+                let children = column.children.set(step.selector as usize, replacement);
+                Ok(self.map_node(|node| {
+                    let ViewKind::Column(column) = &mut node.kind else {
+                        unreachable!("validated column path")
+                    };
+                    Arc::make_mut(column).children = children;
+                }))
+            }
+            PATH_STEP_ROW_CHILD => {
+                let ViewKind::Row(row) = self.kind() else {
+                    return Err("row path step requires a row".to_owned());
+                };
+                let current = row
+                    .children
+                    .get(step.selector as usize)
+                    .ok_or_else(|| "row path selector is out of range".to_owned())?;
+                let replacement = RowChild {
+                    track: current.track,
+                    view: child,
+                };
+                let children = row.children.set(step.selector as usize, replacement);
+                Ok(self.map_node(|node| {
+                    let ViewKind::Row(row) = &mut node.kind else {
+                        unreachable!("validated row path")
+                    };
+                    Arc::make_mut(row).children = children;
+                }))
+            }
+            PATH_STEP_GRID_CELL => {
+                let ViewKind::Grid(grid) = self.kind() else {
+                    return Err("grid path step requires a grid".to_owned());
+                };
+                let current = grid
+                    .cells
+                    .get(step.selector as usize)
+                    .ok_or_else(|| "grid path selector is out of range".to_owned())?;
+                let mut replacement = current.clone();
+                replacement.view = child;
+                let cells = grid.cells.set(step.selector as usize, replacement);
+                Ok(self.map_node(|node| {
+                    let ViewKind::Grid(grid) = &mut node.kind else {
+                        unreachable!("validated grid path")
+                    };
+                    Arc::make_mut(grid).cells = cells;
+                }))
+            }
+            PATH_STEP_HANGING_PREFIX | PATH_STEP_HANGING_CONTINUATION | PATH_STEP_HANGING_BODY => {
+                let ViewKind::Hanging(_) = self.kind() else {
+                    return Err("hanging path step requires a hanging view".to_owned());
+                };
+                if step.selector != 0 {
+                    return Err("hanging path selector must be zero".to_owned());
+                }
+                Ok(self.map_node(|node| {
+                    let ViewKind::Hanging(hanging) = &mut node.kind else {
+                        unreachable!("validated hanging path")
+                    };
+                    let hanging = Arc::make_mut(hanging);
+                    match step.kind {
+                        PATH_STEP_HANGING_PREFIX => hanging.prefix = child,
+                        PATH_STEP_HANGING_CONTINUATION => hanging.continuation_prefix = child,
+                        _ => hanging.body = child,
+                    }
+                }))
+            }
+            _ => Err("unknown retained path step".to_owned()),
+        }
+    }
 }
 
 #[cfg(feature = "native-host")]

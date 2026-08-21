@@ -1,5 +1,5 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193
+// schema_blake3 = 6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9
 // generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69
 #[allow(dead_code)]
 pub struct NativeViewRuntime;
@@ -345,9 +345,81 @@ pub unsafe extern "Rust" fn view_text_layout_patch_path_d4_impl(
     0x10f
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn edit_txn_begin_impl(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    expected_edit_count: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = base_root_ref;
+    let _ = expected_edit_count;
+    0x110
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn edit_txn_add_text_layout_impl(
+    runtime: *mut NativeViewRuntime,
+    txn_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> i32 {
+    let _ = runtime;
+    let _ = txn_ref;
+    let _ = path_ref;
+    let _ = path_depth;
+    let _ = target_node_id_low;
+    let _ = target_node_id_high;
+    let _ = ancestor0_node_id_low;
+    let _ = ancestor0_node_id_high;
+    let _ = ancestor1_node_id_low;
+    let _ = ancestor1_node_id_high;
+    let _ = ancestor2_node_id_low;
+    let _ = ancestor2_node_id_high;
+    let _ = ancestor3_node_id_low;
+    let _ = ancestor3_node_id_high;
+    let _ = wrap;
+    let _ = align;
+    117
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn edit_txn_commit_render_impl(
+    runtime: *mut NativeViewRuntime,
+    host: *mut NativeHost,
+    txn_ref: u32,
+) -> u32 {
+    let _ = runtime;
+    let _ = host;
+    let _ = txn_ref;
+    0x112
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn edit_txn_abort_impl(
+    runtime: *mut NativeViewRuntime,
+    txn_ref: u32,
+) -> i32 {
+    let _ = runtime;
+    let _ = txn_ref;
+    119
+}
+
 #[test]
 fn generated_function_count_is_stable() {
-    assert_eq!(generated::FUNCTION_COUNT, 16);
+    assert_eq!(generated::FUNCTION_COUNT, 20);
 }
 
 #[test]

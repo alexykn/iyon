@@ -86,6 +86,10 @@ export interface NativeViewAbiBootstrap {
     viewTextLayoutPatchPathD2: number;
     viewTextLayoutPatchPathD3: number;
     viewTextLayoutPatchPathD4: number;
+    editTxnBegin: number;
+    editTxnAddTextLayout: number;
+    editTxnCommitRender: number;
+    editTxnAbort: number;
   };
 }
 
