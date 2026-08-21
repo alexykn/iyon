@@ -21,13 +21,19 @@ export function nativeViewAbiSession(): NativeViewAbiSession | undefined {
   if (cachedSession !== undefined) return cachedSession;
   const bootstrap = native.tuiViewAbiBootstrap?.();
   if (bootstrap === undefined) return undefined;
+  const rawPointers = Object.values(bootstrap.functions);
   if (
     bootstrap.abi_name !== "iyon_tui_view"
     || bootstrap.abi_version !== 1
     || bootstrap.semantic_version !== 1
     || bootstrap.schema_blake3 !== manifest.schema_blake3
     || bootstrap.generator_blake3 !== manifest.generator_blake3
+    || !Number.isSafeInteger(bootstrap.generation)
+    || bootstrap.generation < 1
     || bootstrap.function_count !== manifest.functions.length
+    || !Number.isSafeInteger(bootstrap.runtime_ptr)
+    || bootstrap.runtime_ptr <= 0
+    || rawPointers.some((pointer) => !Number.isSafeInteger(pointer) || pointer <= 0)
   ) {
     throw new Error("native View ABI bootstrap metadata is incompatible");
   }
@@ -42,8 +48,12 @@ export function nativeViewAbiSession(): NativeViewAbiSession | undefined {
     viewRefForNodeId: bootstrap.functions.viewRefForNodeId as Pointer,
   };
   const linked = linkViewAbi(pointers);
+  const runtime = bootstrap.runtime_ptr as Pointer;
+  if (linked.symbols.runtimeNoop(runtime) !== 1) {
+    throw new Error("native View ABI bootstrap probe failed");
+  }
   cachedSession = {
-    runtime: bootstrap.runtime_ptr as Pointer,
+    runtime,
     symbols: linked.symbols,
     abi: bootstrap,
   };

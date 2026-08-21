@@ -216,7 +216,7 @@ fn runtime_for_env(env: &Env) -> napi::Result<*mut NativeViewRuntime> {
     let pointer = Box::into_raw(runtime);
     pointers.insert(env_key, pointer as usize);
     let cleanup_pointer = pointer as usize;
-    env.add_env_cleanup_hook(cleanup_pointer, |cleanup_pointer| {
+    if let Err(error) = env.add_env_cleanup_hook(cleanup_pointer, |cleanup_pointer| {
         if let Some(registry) = RUNTIME_POINTERS.get()
             && let Ok(mut pointers) = registry.lock()
         {
@@ -227,7 +227,13 @@ fn runtime_for_env(env: &Env) -> napi::Result<*mut NativeViewRuntime> {
             runtime.alive.store(0, Ordering::Release);
             drop(Box::from_raw(cleanup_pointer as *mut NativeViewRuntime));
         }
-    })?;
+    }) {
+        pointers.remove(&env_key);
+        unsafe {
+            drop(Box::from_raw(pointer));
+        }
+        return Err(error);
+    }
     Ok(pointer)
 }
 
@@ -285,10 +291,10 @@ pub unsafe extern "Rust" fn view_render_ref_impl(
     let Ok(runtime) = runtime_mut(runtime) else {
         return FAST_INVALID;
     };
-    runtime
-        .resolve_ref(base)
-        .map(|_| base)
-        .unwrap_or(FAST_CACHE_MISS)
+    match runtime.resolve_ref(base) {
+        Ok(_) => base,
+        Err(error) => error,
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -303,7 +309,10 @@ pub unsafe extern "Rust" fn view_ref_for_node_id_impl(
     let Ok(node_id) = node_id(node_id_low, node_id_high) else {
         return FAST_INVALID;
     };
-    runtime.ref_for_node_id(node_id).unwrap_or(FAST_CACHE_MISS)
+    match runtime.ref_for_node_id(node_id) {
+        Ok(reference) => reference,
+        Err(error) => error,
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -322,9 +331,10 @@ pub unsafe extern "Rust" fn view_spacer_create_impl(
     let Ok(rows) = u16::try_from(rows) else {
         return FAST_INVALID;
     };
-    runtime
-        .publish(node_id, View::spacer(rows))
-        .unwrap_or(FAST_FALLBACK)
+    match runtime.publish(node_id, View::spacer(rows)) {
+        Ok(reference) => reference,
+        Err(error) => error,
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -354,7 +364,10 @@ pub unsafe extern "Rust" fn view_text_layout_patch_root_impl(
     let Ok(patched) = base_view.try_with_text_layout_patch(Some(wrap), Some(align)) else {
         return FAST_INVALID;
     };
-    runtime.publish(node_id, patched).unwrap_or(FAST_FALLBACK)
+    match runtime.publish(node_id, patched) {
+        Ok(reference) => reference,
+        Err(error) => error,
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -436,7 +449,10 @@ pub unsafe extern "Rust" fn view_common_patch_root_impl(
         };
         patched = patched.max_height(value);
     }
-    runtime.publish(node_id, patched).unwrap_or(FAST_FALLBACK)
+    match runtime.publish(node_id, patched) {
+        Ok(reference) => reference,
+        Err(error) => error,
+    }
 }
 
 #[unsafe(no_mangle)]
