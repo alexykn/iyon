@@ -2,9 +2,9 @@
   "benchmark": "PERF-11.6-native-transaction",
   "bun_version": "1.4.0",
   "bun_revision": "34cbb9a40b4bd1bd767d134a7065e66c2432a676",
-  "git_sha": "5ce3b548092a5b0c9b7489292217a2c0c8ce24fc",
+  "git_sha": "7e22368aea143e3e0fed4a986998f1f5b8cdb464",
   "git_dirty": false,
-  "native_artifact_sha256": "9ba49610482ac19f68fdaa3e69b80f3ceed6b4bc1cef65e3e8703d9ab45f1595",
+  "native_artifact_sha256": "9ef02d18d3293c0e4b89dc58474815ddfa4a2cc52c4bc7deeee98503ab6f3d4d",
   "schema_blake3": "6d48b5fb628a89c0b15704063123680036403cf823929071fb92e0af92afe2d9",
   "generator_blake3": "18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69",
   "abi_version": 1,
@@ -19,10 +19,10 @@
   "path_arrays_written": 0,
   "node_id_arrays_written": 0,
   "results": {
-    "2": {"median_ns_per_render": 2494.4375, "checksum": 0},
-    "4": {"median_ns_per_render": 4247.708, "checksum": 0},
-    "8": {"median_ns_per_render": 7888.2085, "checksum": 0},
-    "16": {"median_ns_per_render": 16202.8545, "checksum": 0},
-    "64": {"median_ns_per_render": 75837.646, "checksum": 0}
+    "2": {"median_ns_per_render": 2594.2085, "checksum": 0},
+    "4": {"median_ns_per_render": 4104.917, "checksum": 0},
+    "8": {"median_ns_per_render": 7696.7915, "checksum": 0},
+    "16": {"median_ns_per_render": 15758.4165, "checksum": 0},
+    "64": {"median_ns_per_render": 71489.9585, "checksum": 0}
   }
 }
