@@ -99,7 +99,7 @@ pub fn validate(
         }
         if function.borrow_duration != "call"
             || function.thread_affinity != "owner_thread"
-            || function.max_input_count > 1_000_000
+            || function.max_input_count > 16 * 1024 * 1024
             || function.max_buffer_bytes > 16 * 1024 * 1024
             || function
                 .arity_specializations

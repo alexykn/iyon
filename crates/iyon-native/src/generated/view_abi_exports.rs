@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = 2e4b86b766ff8db783e86905756b496e09f137e29bb0b36dc54dfa3834ebf809
-// generator_blake3 = a7337dcff858f38ae2b177f87758637fc2fcf2bb1d0ec1b1286722b66d00f052
+// schema_blake3 = 0e958fc44a24679d0503ae6606bcf1529e0b7caf5eed48097ddbe2ade7d60ef6
+// generator_blake3 = 20435cb0e211e543dd671e6c86669cf3f205c8e77c5070f47f4d181a4a9d3c71
 // Generated C ABI wrappers. Semantic implementations are handwritten and linked below.
 use super::{NativeViewRuntime, NativeHost, AxisChildInputV1};
 pub mod generated_impls {
@@ -2192,7 +2192,7 @@ pub unsafe extern "C" fn iyon_view_text_create_utf8_v1(
                     generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
                 let bytes = generated_buffer(bytes, bytes_capacity, 1, 16777216, 0x8000_0002u32)?;
                 let used_bytes =
-                    generated_buffer_used(used_bytes, bytes_capacity, 1, 1000000, 0x8000_0003u32)?;
+                    generated_buffer_used(used_bytes, bytes_capacity, 1, 16777216, 0x8000_0003u32)?;
                 let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
                 let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
                 Ok(unsafe {
