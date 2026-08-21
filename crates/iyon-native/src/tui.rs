@@ -1659,6 +1659,99 @@ impl NativeViewSlot {
         self.set_animation_with_mode(frames, interval_ms, true)
     }
 
+    fn set_animation_ref_values(
+        &self,
+        refs: &[i64],
+        interval_ms: i64,
+        at_cycle_boundary: bool,
+    ) -> Result<()> {
+        let frames = refs
+            .iter()
+            .copied()
+            .map(|view_ref| resolve_native_view(self.view_runtime, view_ref))
+            .collect::<Result<Vec<_>>>()?;
+        self.set_animation_with_mode(frames, interval_ms, at_cycle_boundary)
+    }
+
+    #[napi(js_name = "setAnimationRef1")]
+    pub fn set_animation_ref1(&self, ref0: i64, interval_ms: i64) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.set_animation_ref_values(&[ref0], interval_ms, false)
+    }
+
+    #[napi(js_name = "setAnimationRef2")]
+    pub fn set_animation_ref2(&self, ref0: i64, ref1: i64, interval_ms: i64) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.set_animation_ref_values(&[ref0, ref1], interval_ms, false)
+    }
+
+    #[napi(js_name = "setAnimationRef3")]
+    pub fn set_animation_ref3(
+        &self,
+        ref0: i64,
+        ref1: i64,
+        ref2: i64,
+        interval_ms: i64,
+    ) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.set_animation_ref_values(&[ref0, ref1, ref2], interval_ms, false)
+    }
+
+    #[napi(js_name = "setAnimationRef4")]
+    pub fn set_animation_ref4(
+        &self,
+        ref0: i64,
+        ref1: i64,
+        ref2: i64,
+        ref3: i64,
+        interval_ms: i64,
+    ) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.set_animation_ref_values(&[ref0, ref1, ref2, ref3], interval_ms, false)
+    }
+
+    #[napi(js_name = "setAnimationRef1AtCycleBoundary")]
+    pub fn set_animation_ref1_at_cycle_boundary(&self, ref0: i64, interval_ms: i64) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.set_animation_ref_values(&[ref0], interval_ms, true)
+    }
+
+    #[napi(js_name = "setAnimationRef2AtCycleBoundary")]
+    pub fn set_animation_ref2_at_cycle_boundary(
+        &self,
+        ref0: i64,
+        ref1: i64,
+        interval_ms: i64,
+    ) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.set_animation_ref_values(&[ref0, ref1], interval_ms, true)
+    }
+
+    #[napi(js_name = "setAnimationRef3AtCycleBoundary")]
+    pub fn set_animation_ref3_at_cycle_boundary(
+        &self,
+        ref0: i64,
+        ref1: i64,
+        ref2: i64,
+        interval_ms: i64,
+    ) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.set_animation_ref_values(&[ref0, ref1, ref2], interval_ms, true)
+    }
+
+    #[napi(js_name = "setAnimationRef4AtCycleBoundary")]
+    pub fn set_animation_ref4_at_cycle_boundary(
+        &self,
+        ref0: i64,
+        ref1: i64,
+        ref2: i64,
+        ref3: i64,
+        interval_ms: i64,
+    ) -> Result<()> {
+        ensure_alive(&self.alive)?;
+        self.set_animation_ref_values(&[ref0, ref1, ref2, ref3], interval_ms, true)
+    }
+
     fn set_animation_with_mode(
         &self,
         frames: Vec<View>,

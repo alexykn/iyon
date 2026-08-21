@@ -1,5 +1,5 @@
 import { native } from "../native.ts";
-import { nodeForBridge } from "./values/view.ts";
+import { nativeTextLayoutTransaction, nodeForBridge } from "./values/view.ts";
 import { asTuiError, tuiError } from "./errors.ts";
 import { requireNativeClass } from "./handles.ts";
 import { Scene } from "./scene.ts";
@@ -11,6 +11,7 @@ import {
   nativeViewAbiSession,
   nativeViewRefForNodeId,
   releaseNativeViewRef,
+  tryNativeEditTransactionRender,
   tryNativeColdRender,
   tryNativeMaterialize,
   tryNativeStructuralRender,
@@ -118,6 +119,12 @@ export class Tui implements TuiRuntime {
     }
     if (nextNativeRef === undefined && previousBody !== undefined && previousNativeRef !== undefined) {
       nextNativeRef = tryNativeStructuralRender(this.host, previousBody, previousNativeRef, normalized.body);
+    }
+    if (nextNativeRef === undefined && previousBody !== undefined && previousNativeRef !== undefined) {
+      const edits = nativeTextLayoutTransaction(normalized.body);
+      if (edits !== undefined) {
+        nextNativeRef = tryNativeEditTransactionRender(this.host, previousBody, previousNativeRef, edits);
+      }
     }
 
     if (nextNativeRef === undefined) {

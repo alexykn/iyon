@@ -63,6 +63,7 @@ import {
   nativeSpacerRecipe,
   nativeTextRecipe,
   nativeStructuralEdit,
+  nativeTextLayoutTransaction,
   nodeForBridge,
   nodeIdPair,
   viewNodeId,
@@ -97,7 +98,10 @@ export interface NativeViewRenderHost {
  */
 export interface NativeTextLayoutTransactionEdit {
   readonly lineage: NativePathLineage;
-  readonly views: readonly View[];
+  /** Construction-time scalar NodeIds, ordered leaf toward root. */
+  readonly nodeIds?: readonly number[];
+  /** Legacy/test helper input; production metadata uses `nodeIds`. */
+  readonly views?: readonly View[];
   readonly wrap: number;
   readonly align: number;
 }
@@ -830,10 +834,7 @@ export function tryNativeAxisSpliceRender(
   try {
     for (const [childIndex, entry] of children.entries()) {
       const childRef = nativeViewRefForNodeId(entry.view);
-      if (childRef === undefined) {
-        for (const temporaryRef of temporaryRefs) releaseNativeViewRef(session, temporaryRef);
-        return undefined;
-      }
+      if (childRef === undefined) return undefined;
       refs[childIndex * 2] = entry.trackWord ?? 0;
       refs[childIndex * 2 + 1] = childRef;
       if (childRef !== previousRef) temporaryRefs.add(childRef);
@@ -895,9 +896,8 @@ export function tryNativeGridSetCellRender(
 
 /**
  * Stages multiple typed text-layout edits and atomically installs their shared
- * changed-path-trie result. The helper is intentionally explicit: broader
- * public View-boundary routing belongs to Tranche 12, while Tranche 8 proves
- * the native transaction lifecycle and shared-ancestor algorithm end to end.
+ * changed-path-trie result. Construction-time transaction metadata supplies
+ * scalar NodeIds; the legacy View-array form remains for differential tests.
  */
 export function tryNativeEditTransactionRender(
   host: NativeViewRenderHost,
@@ -915,19 +915,26 @@ export function tryNativeEditTransactionRender(
     txnRef = editTxnBegin(session.symbols, session.runtime, previousRef, edits.length);
     for (const edit of edits) {
       const depth = edit.lineage.depth;
-      if (depth < 0 || depth > 4 || edit.views.length !== depth + 1 || edit.lineage.baseNodeId !== viewNodeId(previous)) {
+      const pairs = transactionNodeIdPairs(edit, depth);
+      if (
+        depth < 0
+        || depth > 4
+        || pairs === undefined
+        || edit.lineage.baseNodeId !== viewNodeId(previous)
+      ) {
         editTxnAbort(session.symbols, session.runtime, txnRef);
         return undefined;
       }
       const pathRef = nativePathRefForLineage(session, edit.lineage);
-      const [targetLow, targetHigh] = nodeIdPair(edit.views[0]!);
+      const target = pairs[0]!;
+      const [targetLow, targetHigh] = target;
       // Generated checked wrappers validate every fixed NodeId lane. Unused
       // lanes carry the valid root identity and are ignored by native staging.
-      const fallbackId = nodeIdPair(edit.views[depth]!);
-      const [ancestor0Low, ancestor0High] = edit.views[1] === undefined ? fallbackId : nodeIdPair(edit.views[1]);
-      const [ancestor1Low, ancestor1High] = edit.views[2] === undefined ? fallbackId : nodeIdPair(edit.views[2]);
-      const [ancestor2Low, ancestor2High] = edit.views[3] === undefined ? fallbackId : nodeIdPair(edit.views[3]);
-      const [ancestor3Low, ancestor3High] = edit.views[4] === undefined ? fallbackId : nodeIdPair(edit.views[4]);
+      const fallbackId = pairs[depth]!;
+      const [ancestor0Low, ancestor0High] = pairs[1] ?? fallbackId;
+      const [ancestor1Low, ancestor1High] = pairs[2] ?? fallbackId;
+      const [ancestor2Low, ancestor2High] = pairs[3] ?? fallbackId;
+      const [ancestor3Low, ancestor3High] = pairs[4] ?? fallbackId;
       const status = editTxnAddTextLayout(
         session.symbols,
         session.runtime,
@@ -1120,6 +1127,25 @@ function pathNodes(root: BridgeViewNode, steps: readonly NativePathLineage["step
 function splitNodeId(id: number): readonly [number, number] {
   if (!Number.isSafeInteger(id) || id <= 0 || id > Number.MAX_SAFE_INTEGER) throw new RangeError("native path NodeId is invalid");
   return [id >>> 0, Math.floor(id / 0x1_0000_0000)];
+}
+
+function splitNodeIdSafely(id: number): readonly [number, number] | undefined {
+  return Number.isSafeInteger(id) && id > 0 && id <= Number.MAX_SAFE_INTEGER
+    ? [id >>> 0, Math.floor(id / 0x1_0000_0000)]
+    : undefined;
+}
+
+function transactionNodeIdPairs(
+  edit: NativeTextLayoutTransactionEdit,
+  depth: number,
+): readonly (readonly [number, number])[] | undefined {
+  if (depth < 0 || depth > 4) return undefined;
+  const ids = edit.nodeIds ?? edit.views?.map(viewNodeId);
+  if (ids === undefined || ids.length !== depth + 1) return undefined;
+  const pairs = ids.map(splitNodeIdSafely);
+  return pairs.every((pair): pair is readonly [number, number] => pair !== undefined)
+    ? pairs
+    : undefined;
 }
 
 function canInstallNativeRef(target: NativeViewRenderHost): boolean {
