@@ -389,7 +389,7 @@ bun run check:tui-abi
 
 `check:tui-abi` renders into a temporary directory and compares every generated artifact byte-for-byte with the checked-in files. The authoritative CI check also runs `git diff --exit-code` on the generated paths.
 
-Documentation commits recording the handoff and review state are `1e56c92`, `ad82d5a`, `4715436`, `46889ff`, `31ee207`, `153eef2`, `5239a94`, `d14e9f4`, and the benchmark commits `7bf0d41`, `97722e7`, `060d9c6`, and `0913858`. Tranche 2 implementation is `1559191`, with final conformance evidence correction `c4c2132`; Tranche 3 implementation is `e89e1fe`, with NodeId-pair construction correction `935c09a`.
+Documentation commits recording the handoff and review state are `1e56c92`, `ad82d5a`, `4715436`, `46889ff`, `31ee207`, `153eef2`, `5239a94`, `d14e9f4`, and the benchmark commits `7bf0d41`, `97722e7`, `060d9c6`, and `0913858`. Tranche 2 implementation is `1559191`, with final conformance evidence correction `c4c2132`; Tranche 3 implementation is `e89e1fe`, with NodeId-pair construction correction `935c09a` and final ABI/lifetime audit corrections `fc26d72`, `a9ff56e`, `39a0752`, and `4c785b7`, recorded by final evidence commit `f53a736`.
 
 ---
 
