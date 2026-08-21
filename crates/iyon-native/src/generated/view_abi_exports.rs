@@ -1,6 +1,6 @@
 // DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml.
-// schema_blake3 = e533d64e5293b56a70b81e67a9aee34c17cdfd0a9d1199420cfcb263b2d0f470
-// generator_blake3 = 55f2f1590b18e72152621b4c5272e892f224c5d3b4e4d10e489551129f713903
+// schema_blake3 = b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193
+// generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69
 // Generated C ABI wrappers. Semantic implementations are handwritten and linked below.
 use super::{NativeViewRuntime, NativeHost, AxisChildInputV1};
 pub mod generated_impls {
@@ -79,6 +79,102 @@ pub mod generated_impls {
             runtime: *mut NativeViewRuntime,
             node_id_low: u32,
             node_id_high: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn path_root_impl(runtime: *mut NativeViewRuntime) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn path_child_impl(
+            runtime: *mut NativeViewRuntime,
+            parent_path_ref: u32,
+            step_kind: u32,
+            expected_view_kind: u32,
+            selector: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_layout_patch_path_impl(
+            runtime: *mut NativeViewRuntime,
+            base_root_ref: u32,
+            path_ref: u32,
+            path_depth: u32,
+            target_node_id_low: u32,
+            target_node_id_high: u32,
+            ancestor0_node_id_low: u32,
+            ancestor0_node_id_high: u32,
+            ancestor1_node_id_low: u32,
+            ancestor1_node_id_high: u32,
+            ancestor2_node_id_low: u32,
+            ancestor2_node_id_high: u32,
+            ancestor3_node_id_low: u32,
+            ancestor3_node_id_high: u32,
+            wrap: u32,
+            align: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_layout_patch_path_d1_impl(
+            runtime: *mut NativeViewRuntime,
+            base_root_ref: u32,
+            path_ref: u32,
+            target_node_id_low: u32,
+            target_node_id_high: u32,
+            ancestor0_node_id_low: u32,
+            ancestor0_node_id_high: u32,
+            wrap: u32,
+            align: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_layout_patch_path_d2_impl(
+            runtime: *mut NativeViewRuntime,
+            base_root_ref: u32,
+            path_ref: u32,
+            target_node_id_low: u32,
+            target_node_id_high: u32,
+            ancestor0_node_id_low: u32,
+            ancestor0_node_id_high: u32,
+            ancestor1_node_id_low: u32,
+            ancestor1_node_id_high: u32,
+            wrap: u32,
+            align: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_layout_patch_path_d3_impl(
+            runtime: *mut NativeViewRuntime,
+            base_root_ref: u32,
+            path_ref: u32,
+            target_node_id_low: u32,
+            target_node_id_high: u32,
+            ancestor0_node_id_low: u32,
+            ancestor0_node_id_high: u32,
+            ancestor1_node_id_low: u32,
+            ancestor1_node_id_high: u32,
+            ancestor2_node_id_low: u32,
+            ancestor2_node_id_high: u32,
+            wrap: u32,
+            align: u32,
+        ) -> u32;
+    }
+    unsafe extern "Rust" {
+        pub fn view_text_layout_patch_path_d4_impl(
+            runtime: *mut NativeViewRuntime,
+            base_root_ref: u32,
+            path_ref: u32,
+            target_node_id_low: u32,
+            target_node_id_high: u32,
+            ancestor0_node_id_low: u32,
+            ancestor0_node_id_high: u32,
+            ancestor1_node_id_low: u32,
+            ancestor1_node_id_high: u32,
+            ancestor2_node_id_low: u32,
+            ancestor2_node_id_high: u32,
+            ancestor3_node_id_low: u32,
+            ancestor3_node_id_high: u32,
+            wrap: u32,
+            align: u32,
         ) -> u32;
     }
 }
@@ -429,6 +525,360 @@ pub unsafe extern "C" fn iyon_view_ref_for_node_id_v1(
                     generated_node_id(node_id_low, node_id_high, 0x8000_0001u32)?;
                 Ok(unsafe {
                     generated_impls::view_ref_for_node_id_impl(runtime, node_id_low, node_id_high)
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_path_root_v1(runtime: *mut NativeViewRuntime) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                Ok(unsafe { generated_impls::path_root_impl(runtime) })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_path_child_v1(
+    runtime: *mut NativeViewRuntime,
+    parent_path_ref: u32,
+    step_kind: u32,
+    expected_view_kind: u32,
+    selector: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let parent_path_ref = generated_native_ref(parent_path_ref, 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::path_child_impl(
+                        runtime,
+                        parent_path_ref,
+                        step_kind,
+                        expected_view_kind,
+                        selector,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_layout_patch_path_v1(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let base_root_ref = generated_native_ref(base_root_ref, 0x8000_0001u32)?;
+                let path_ref = generated_native_ref(path_ref, 0x8000_0001u32)?;
+                let (target_node_id_low, target_node_id_high) =
+                    generated_node_id(target_node_id_low, target_node_id_high, 0x8000_0001u32)?;
+                let (ancestor0_node_id_low, ancestor0_node_id_high) = generated_node_id(
+                    ancestor0_node_id_low,
+                    ancestor0_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor1_node_id_low, ancestor1_node_id_high) = generated_node_id(
+                    ancestor1_node_id_low,
+                    ancestor1_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor2_node_id_low, ancestor2_node_id_high) = generated_node_id(
+                    ancestor2_node_id_low,
+                    ancestor2_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor3_node_id_low, ancestor3_node_id_high) = generated_node_id(
+                    ancestor3_node_id_low,
+                    ancestor3_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_layout_patch_path_impl(
+                        runtime,
+                        base_root_ref,
+                        path_ref,
+                        path_depth,
+                        target_node_id_low,
+                        target_node_id_high,
+                        ancestor0_node_id_low,
+                        ancestor0_node_id_high,
+                        ancestor1_node_id_low,
+                        ancestor1_node_id_high,
+                        ancestor2_node_id_low,
+                        ancestor2_node_id_high,
+                        ancestor3_node_id_low,
+                        ancestor3_node_id_high,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_layout_patch_path_d1_v1(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let base_root_ref = generated_native_ref(base_root_ref, 0x8000_0001u32)?;
+                let path_ref = generated_native_ref(path_ref, 0x8000_0001u32)?;
+                let (target_node_id_low, target_node_id_high) =
+                    generated_node_id(target_node_id_low, target_node_id_high, 0x8000_0001u32)?;
+                let (ancestor0_node_id_low, ancestor0_node_id_high) = generated_node_id(
+                    ancestor0_node_id_low,
+                    ancestor0_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_layout_patch_path_d1_impl(
+                        runtime,
+                        base_root_ref,
+                        path_ref,
+                        target_node_id_low,
+                        target_node_id_high,
+                        ancestor0_node_id_low,
+                        ancestor0_node_id_high,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_layout_patch_path_d2_v1(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let base_root_ref = generated_native_ref(base_root_ref, 0x8000_0001u32)?;
+                let path_ref = generated_native_ref(path_ref, 0x8000_0001u32)?;
+                let (target_node_id_low, target_node_id_high) =
+                    generated_node_id(target_node_id_low, target_node_id_high, 0x8000_0001u32)?;
+                let (ancestor0_node_id_low, ancestor0_node_id_high) = generated_node_id(
+                    ancestor0_node_id_low,
+                    ancestor0_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor1_node_id_low, ancestor1_node_id_high) = generated_node_id(
+                    ancestor1_node_id_low,
+                    ancestor1_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_layout_patch_path_d2_impl(
+                        runtime,
+                        base_root_ref,
+                        path_ref,
+                        target_node_id_low,
+                        target_node_id_high,
+                        ancestor0_node_id_low,
+                        ancestor0_node_id_high,
+                        ancestor1_node_id_low,
+                        ancestor1_node_id_high,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_layout_patch_path_d3_v1(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let base_root_ref = generated_native_ref(base_root_ref, 0x8000_0001u32)?;
+                let path_ref = generated_native_ref(path_ref, 0x8000_0001u32)?;
+                let (target_node_id_low, target_node_id_high) =
+                    generated_node_id(target_node_id_low, target_node_id_high, 0x8000_0001u32)?;
+                let (ancestor0_node_id_low, ancestor0_node_id_high) = generated_node_id(
+                    ancestor0_node_id_low,
+                    ancestor0_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor1_node_id_low, ancestor1_node_id_high) = generated_node_id(
+                    ancestor1_node_id_low,
+                    ancestor1_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor2_node_id_low, ancestor2_node_id_high) = generated_node_id(
+                    ancestor2_node_id_low,
+                    ancestor2_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_layout_patch_path_d3_impl(
+                        runtime,
+                        base_root_ref,
+                        path_ref,
+                        target_node_id_low,
+                        target_node_id_high,
+                        ancestor0_node_id_low,
+                        ancestor0_node_id_high,
+                        ancestor1_node_id_low,
+                        ancestor1_node_id_high,
+                        ancestor2_node_id_low,
+                        ancestor2_node_id_high,
+                        wrap,
+                        align,
+                    )
+                })
+            })()
+        },
+        0x8000_00ffu32,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iyon_view_text_layout_patch_path_d4_v1(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    generated_catch_unwind(
+        || {
+            (|| -> Result<u32, u32> {
+                let runtime = generated_nonnull(runtime, 0x8000_0001u32)?;
+                let base_root_ref = generated_native_ref(base_root_ref, 0x8000_0001u32)?;
+                let path_ref = generated_native_ref(path_ref, 0x8000_0001u32)?;
+                let (target_node_id_low, target_node_id_high) =
+                    generated_node_id(target_node_id_low, target_node_id_high, 0x8000_0001u32)?;
+                let (ancestor0_node_id_low, ancestor0_node_id_high) = generated_node_id(
+                    ancestor0_node_id_low,
+                    ancestor0_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor1_node_id_low, ancestor1_node_id_high) = generated_node_id(
+                    ancestor1_node_id_low,
+                    ancestor1_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor2_node_id_low, ancestor2_node_id_high) = generated_node_id(
+                    ancestor2_node_id_low,
+                    ancestor2_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let (ancestor3_node_id_low, ancestor3_node_id_high) = generated_node_id(
+                    ancestor3_node_id_low,
+                    ancestor3_node_id_high,
+                    0x8000_0001u32,
+                )?;
+                let wrap = generated_enum(wrap, &[1, 2, 3], 0x8000_0001u32)?;
+                let align = generated_enum(align, &[1, 2, 3], 0x8000_0001u32)?;
+                Ok(unsafe {
+                    generated_impls::view_text_layout_patch_path_d4_impl(
+                        runtime,
+                        base_root_ref,
+                        path_ref,
+                        target_node_id_low,
+                        target_node_id_high,
+                        ancestor0_node_id_low,
+                        ancestor0_node_id_high,
+                        ancestor1_node_id_low,
+                        ancestor1_node_id_high,
+                        ancestor2_node_id_low,
+                        ancestor2_node_id_high,
+                        ancestor3_node_id_low,
+                        ancestor3_node_id_high,
+                        wrap,
+                        align,
+                    )
                 })
             })()
         },

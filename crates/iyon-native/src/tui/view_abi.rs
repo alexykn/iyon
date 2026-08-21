@@ -1,6 +1,6 @@
 use super::NativeTuiHost;
 use crate::NativeError;
-use iyon_tui::{HorizontalAlign, Insets, View, WrapMode};
+use iyon_tui::{HorizontalAlign, Insets, RetainedPathStep, View, WrapMode};
 use napi::Env;
 use napi_derive::napi;
 use serde_json::Value;
@@ -92,6 +92,26 @@ struct NativeViewSlot {
     kind: NativeViewKindTag,
 }
 
+// PathRefs occupy a disjoint valid-handle range so a ViewRef can never be
+// accepted as a path handle (and vice versa).
+const PATH_ROOT_REF: u32 = 0x4000_0001;
+const MAX_PATH_DEPTH: u32 = 128;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct PathKey {
+    parent: u32,
+    kind: u32,
+    expected_view_kind: u32,
+    selector: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PathNode {
+    parent: u32,
+    step: RetainedPathStep,
+    depth: u32,
+}
+
 #[repr(C)]
 pub(super) struct NativeViewRuntime {
     pub magic: u32,
@@ -106,7 +126,10 @@ pub(super) struct NativeViewRuntime {
     pub(super) nodes: HashMap<u64, iyon_tui::WeakView>,
     slots: HashMap<u32, NativeViewSlot>,
     node_refs: HashMap<u64, u32>,
+    path_nodes: HashMap<u32, PathNode>,
+    path_keys: HashMap<PathKey, u32>,
     next_native_ref: u32,
+    next_path_ref: u32,
     pub(super) generation: u32,
     #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
     pub(super) packed_v3: packed_v3::PackedState,
@@ -130,7 +153,17 @@ impl NativeViewRuntime {
             nodes: HashMap::new(),
             slots: HashMap::new(),
             node_refs: HashMap::new(),
+            path_nodes: HashMap::from([(
+                PATH_ROOT_REF,
+                PathNode {
+                    parent: 0,
+                    step: RetainedPathStep::new(0, 0, 0),
+                    depth: 0,
+                },
+            )]),
+            path_keys: HashMap::new(),
             next_native_ref: 1,
+            next_path_ref: PATH_ROOT_REF + 1,
             generation: 1,
             #[cfg(any(feature = "perf-packed-benchmark", feature = "perf-packed-timing"))]
             packed_v3: packed_v3::PackedState::new(),
@@ -158,8 +191,80 @@ impl NativeViewRuntime {
             && self.owner_thread == std::thread::current().id()
     }
 
+    fn allocate_path_ref(&mut self) -> Option<u32> {
+        while self.next_path_ref < 0x8000_0000 {
+            let candidate = self.next_path_ref;
+            self.next_path_ref = self.next_path_ref.wrapping_add(1);
+            if candidate != 0 && !self.path_nodes.contains_key(&candidate) {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn path_root(&mut self) -> u32 {
+        PATH_ROOT_REF
+    }
+
+    fn path_child(
+        &mut self,
+        parent: u32,
+        kind: u32,
+        expected_view_kind: u32,
+        selector: u32,
+    ) -> Result<u32, u32> {
+        let Some(parent_node) = self.path_nodes.get(&parent).copied() else {
+            return Err(FAST_CACHE_MISS);
+        };
+        if !(1..=9).contains(&kind)
+            || !(1..=8).contains(&expected_view_kind)
+            || !path_step_matches_kind(kind, expected_view_kind)
+            || parent_node.depth >= MAX_PATH_DEPTH
+            || selector > 1_000_000
+        {
+            return Err(FAST_INVALID);
+        }
+        let key = PathKey {
+            parent,
+            kind,
+            expected_view_kind,
+            selector,
+        };
+        if let Some(reference) = self.path_keys.get(&key).copied() {
+            return Ok(reference);
+        }
+        let reference = self.allocate_path_ref().ok_or(FAST_FALLBACK)?;
+        self.path_keys.insert(key, reference);
+        self.path_nodes.insert(
+            reference,
+            PathNode {
+                parent,
+                step: RetainedPathStep::new(kind, expected_view_kind, selector),
+                depth: parent_node.depth + 1,
+            },
+        );
+        Ok(reference)
+    }
+
+    fn path_steps(&self, reference: u32) -> Result<Vec<RetainedPathStep>, u32> {
+        let Some(node) = self.path_nodes.get(&reference).copied() else {
+            return Err(FAST_CACHE_MISS);
+        };
+        let mut steps = Vec::with_capacity(node.depth as usize);
+        let mut current = reference;
+        while current != PATH_ROOT_REF {
+            let Some(node) = self.path_nodes.get(&current).copied() else {
+                return Err(FAST_CACHE_MISS);
+            };
+            steps.push(node.step);
+            current = node.parent;
+        }
+        steps.reverse();
+        Ok(steps)
+    }
+
     fn allocate_ref(&mut self) -> Option<u32> {
-        while self.next_native_ref < 0x8000_0000 {
+        while self.next_native_ref < PATH_ROOT_REF {
             let candidate = self.next_native_ref;
             self.next_native_ref = self.next_native_ref.wrapping_add(1);
             if candidate != 0 && !self.slots.contains_key(&candidate) {
@@ -441,6 +546,13 @@ pub fn bootstrap(env: Env) -> napi::Result<Value> {
             "viewAxisCreateBuffer": generated_exports::iyon_view_axis_create_buffer_v1 as *const () as usize as u64,
             "viewReleaseMany": generated_exports::iyon_view_release_many_v1 as *const () as usize as u64,
             "viewRefForNodeId": generated_exports::iyon_view_ref_for_node_id_v1 as *const () as usize as u64,
+            "pathRoot": generated_exports::iyon_path_root_v1 as *const () as usize as u64,
+            "pathChild": generated_exports::iyon_path_child_v1 as *const () as usize as u64,
+            "viewTextLayoutPatchPath": generated_exports::iyon_view_text_layout_patch_path_v1 as *const () as usize as u64,
+            "viewTextLayoutPatchPathD1": generated_exports::iyon_view_text_layout_patch_path_d1_v1 as *const () as usize as u64,
+            "viewTextLayoutPatchPathD2": generated_exports::iyon_view_text_layout_patch_path_d2_v1 as *const () as usize as u64,
+            "viewTextLayoutPatchPathD3": generated_exports::iyon_view_text_layout_patch_path_d3_v1 as *const () as usize as u64,
+            "viewTextLayoutPatchPathD4": generated_exports::iyon_view_text_layout_patch_path_d4_v1 as *const () as usize as u64,
         },
     }))
 }
@@ -536,6 +648,301 @@ pub unsafe extern "Rust" fn view_ref_for_node_id_impl(
         Err(error) => error,
     };
     record_result(runtime, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn path_root_impl(runtime: *mut NativeViewRuntime) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let reference = runtime.path_root();
+    record_result(runtime, reference)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn path_child_impl(
+    runtime: *mut NativeViewRuntime,
+    parent_path_ref: u32,
+    step_kind: u32,
+    expected_view_kind: u32,
+    selector: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    let result = runtime
+        .path_child(parent_path_ref, step_kind, expected_view_kind, selector)
+        .unwrap_or_else(|error| error);
+    record_result(runtime, result)
+}
+
+fn publish_text_path(
+    runtime: &mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    node_ids: &[(u32, u32)],
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    if path_depth > 4 || node_ids.len() != path_depth as usize + 1 {
+        return FAST_INVALID;
+    }
+    let Ok(steps) = runtime.path_steps(path_ref) else {
+        return FAST_CACHE_MISS;
+    };
+    if steps.len() != path_depth as usize {
+        return FAST_INVALID;
+    }
+    let Ok(wrap) = decode_wrap(wrap) else {
+        return FAST_INVALID;
+    };
+    let Ok(align) = decode_align(align) else {
+        return FAST_INVALID;
+    };
+    let mut decoded_ids = Vec::with_capacity(node_ids.len());
+    for &(low, high) in node_ids {
+        let Ok(node_id) = node_id(low, high) else {
+            return FAST_INVALID;
+        };
+        decoded_ids.push(node_id);
+    }
+    let Ok((base_view, _)) = runtime.resolve_ref(base_root_ref) else {
+        return FAST_CACHE_MISS;
+    };
+    let Ok((root, views)) =
+        base_view.try_with_text_layout_patch_path_with_nodes(&steps, wrap, align)
+    else {
+        return FAST_INVALID;
+    };
+    if views.len() != decoded_ids.len() || views.last() != Some(&root) {
+        return FAST_INVALID;
+    }
+    if let Err(error) = validate_path_publication(runtime, &decoded_ids, &views) {
+        return error;
+    }
+    let mut root_ref = 0;
+    let last_index = views.len().saturating_sub(1);
+    for (index, (node_id, view)) in decoded_ids.into_iter().zip(views).enumerate() {
+        let result = if index == last_index {
+            runtime.publish(node_id, view)
+        } else {
+            runtime.publish_bulk(node_id, view)
+        };
+        match result {
+            Ok(reference) => root_ref = reference,
+            Err(error) => return error,
+        }
+    }
+    record_result(runtime, root_ref)
+}
+
+fn validate_path_publication(
+    runtime: &mut NativeViewRuntime,
+    node_ids: &[u64],
+    views: &[View],
+) -> Result<(), u32> {
+    let mut unique = std::collections::HashSet::with_capacity(node_ids.len());
+    for (node_id, view) in node_ids.iter().copied().zip(views) {
+        if !unique.insert(node_id) {
+            return Err(FAST_INVALID);
+        }
+        if let Some(existing) = runtime
+            .nodes
+            .get(&node_id)
+            .and_then(iyon_tui::WeakView::upgrade)
+            && existing != *view
+        {
+            return Err(FAST_INVALID);
+        }
+        if let Some(reference) = runtime.node_refs.get(&node_id).copied()
+            && let Ok((existing, _)) = runtime.resolve_ref(reference)
+            && existing != *view
+        {
+            return Err(FAST_INVALID);
+        }
+    }
+    if runtime.next_native_ref >= PATH_ROOT_REF.saturating_sub(node_ids.len() as u32) {
+        return Err(FAST_FALLBACK);
+    }
+    Ok(())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_layout_patch_path_impl(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    path_depth: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    if path_depth > 4 {
+        return record_result(runtime, FAST_INVALID);
+    }
+    let node_ids = [
+        (target_node_id_low, target_node_id_high),
+        (ancestor0_node_id_low, ancestor0_node_id_high),
+        (ancestor1_node_id_low, ancestor1_node_id_high),
+        (ancestor2_node_id_low, ancestor2_node_id_high),
+        (ancestor3_node_id_low, ancestor3_node_id_high),
+    ];
+    publish_text_path(
+        runtime,
+        base_root_ref,
+        path_ref,
+        path_depth,
+        &node_ids[..path_depth as usize + 1],
+        wrap,
+        align,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_layout_patch_path_d1_impl(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    publish_text_path(
+        runtime,
+        base_root_ref,
+        path_ref,
+        1,
+        &[
+            (target_node_id_low, target_node_id_high),
+            (ancestor0_node_id_low, ancestor0_node_id_high),
+        ],
+        wrap,
+        align,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_layout_patch_path_d2_impl(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    publish_text_path(
+        runtime,
+        base_root_ref,
+        path_ref,
+        2,
+        &[
+            (target_node_id_low, target_node_id_high),
+            (ancestor0_node_id_low, ancestor0_node_id_high),
+            (ancestor1_node_id_low, ancestor1_node_id_high),
+        ],
+        wrap,
+        align,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_layout_patch_path_d3_impl(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    publish_text_path(
+        runtime,
+        base_root_ref,
+        path_ref,
+        3,
+        &[
+            (target_node_id_low, target_node_id_high),
+            (ancestor0_node_id_low, ancestor0_node_id_high),
+            (ancestor1_node_id_low, ancestor1_node_id_high),
+            (ancestor2_node_id_low, ancestor2_node_id_high),
+        ],
+        wrap,
+        align,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn view_text_layout_patch_path_d4_impl(
+    runtime: *mut NativeViewRuntime,
+    base_root_ref: u32,
+    path_ref: u32,
+    target_node_id_low: u32,
+    target_node_id_high: u32,
+    ancestor0_node_id_low: u32,
+    ancestor0_node_id_high: u32,
+    ancestor1_node_id_low: u32,
+    ancestor1_node_id_high: u32,
+    ancestor2_node_id_low: u32,
+    ancestor2_node_id_high: u32,
+    ancestor3_node_id_low: u32,
+    ancestor3_node_id_high: u32,
+    wrap: u32,
+    align: u32,
+) -> u32 {
+    let Ok(runtime) = runtime_mut(runtime) else {
+        return FAST_INVALID;
+    };
+    publish_text_path(
+        runtime,
+        base_root_ref,
+        path_ref,
+        4,
+        &[
+            (target_node_id_low, target_node_id_high),
+            (ancestor0_node_id_low, ancestor0_node_id_high),
+            (ancestor1_node_id_low, ancestor1_node_id_high),
+            (ancestor2_node_id_low, ancestor2_node_id_high),
+            (ancestor3_node_id_low, ancestor3_node_id_high),
+        ],
+        wrap,
+        align,
+    )
 }
 
 #[unsafe(no_mangle)]
@@ -711,6 +1118,19 @@ pub unsafe extern "Rust" fn view_release_many_impl(
     runtime.release_many(refs, used_ref_count).unwrap_or(-1)
 }
 
+fn path_step_matches_kind(step_kind: u32, expected_view_kind: u32) -> bool {
+    match step_kind {
+        1 => expected_view_kind == 6,
+        2 => expected_view_kind == 7,
+        3 => expected_view_kind == 8,
+        4 => expected_view_kind == 3,
+        5 => expected_view_kind == 2,
+        6 => expected_view_kind == 4,
+        7..=9 => expected_view_kind == 5,
+        _ => false,
+    }
+}
+
 fn decode_wrap(value: u32) -> Result<WrapMode, ()> {
     match value {
         1 => Ok(WrapMode::WordThenGrapheme),
@@ -731,7 +1151,7 @@ fn decode_align(value: u32) -> Result<HorizontalAlign, ()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FAST_CACHE_MISS, NativeViewRuntime, generated_exports};
+    use super::{FAST_CACHE_MISS, FAST_INVALID, NativeViewRuntime, generated_exports};
     use iyon_tui::{IntoView, View};
 
     fn runtime() -> NativeViewRuntime {
@@ -790,5 +1210,72 @@ mod tests {
         assert!(common < 0x8000_0000);
         assert_ne!(base, patched);
         assert_ne!(patched, common);
+    }
+
+    #[test]
+    fn path_refs_are_interned_and_depth_specialization_rebuilds_only_the_path() {
+        let mut runtime = runtime();
+        let base_view = View::vertical(|column| {
+            column.child(View::text("hello"));
+        })
+        .into_view();
+        let base = runtime.publish(1, base_view).expect("base ref");
+        let pointer = &mut runtime as *mut NativeViewRuntime;
+        let root = unsafe { generated_exports::iyon_path_root_v1(pointer) };
+        let path = unsafe { generated_exports::iyon_path_child_v1(pointer, root, 4, 3, 0) };
+        assert_eq!(
+            unsafe { generated_exports::iyon_path_child_v1(pointer, root, 4, 3, 0) },
+            path
+        );
+        let patched = unsafe {
+            generated_exports::iyon_view_text_layout_patch_path_d1_v1(
+                pointer, base, path, 2, 0, 3, 0, 3, 2,
+            )
+        };
+        assert!(patched < 0x8000_0000);
+        assert_ne!(patched, base);
+        assert!(
+            runtime
+                .nodes
+                .get(&2)
+                .and_then(iyon_tui::WeakView::upgrade)
+                .is_some()
+        );
+        assert!(
+            runtime
+                .nodes
+                .get(&3)
+                .and_then(iyon_tui::WeakView::upgrade)
+                .is_some()
+        );
+        assert!(runtime.resolve_ref(patched).is_ok());
+    }
+
+    #[test]
+    fn path_validation_rejects_wrong_parent_kind_and_preserves_publication() {
+        let mut runtime = runtime();
+        let base = runtime
+            .publish(
+                1,
+                View::vertical(|column| {
+                    column.child(View::text("hello"));
+                })
+                .into_view(),
+            )
+            .expect("base ref");
+        let pointer = &mut runtime as *mut NativeViewRuntime;
+        let root = unsafe { generated_exports::iyon_path_root_v1(pointer) };
+        let path = unsafe { generated_exports::iyon_path_child_v1(pointer, root, 4, 3, 0) };
+        let invalid = unsafe {
+            generated_exports::iyon_view_text_layout_patch_path_d1_v1(
+                pointer, base, path, 9, 0, 1, 0, 3, 2,
+            )
+        };
+        assert!(invalid >= 0x8000_0000);
+        assert!(!runtime.nodes.contains_key(&9));
+        assert_eq!(
+            unsafe { generated_exports::iyon_path_child_v1(pointer, root, 4, 1, 0) },
+            FAST_INVALID
+        );
     }
 }

@@ -79,6 +79,13 @@ export interface NativeViewAbiBootstrap {
     viewAxisCreateBuffer: number;
     viewReleaseMany: number;
     viewRefForNodeId: number;
+    pathRoot: number;
+    pathChild: number;
+    viewTextLayoutPatchPath: number;
+    viewTextLayoutPatchPathD1: number;
+    viewTextLayoutPatchPathD2: number;
+    viewTextLayoutPatchPathD3: number;
+    viewTextLayoutPatchPathD4: number;
   };
 }
 

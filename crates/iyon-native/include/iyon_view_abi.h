@@ -1,6 +1,6 @@
 /* DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. */
-/* schema_blake3 = e533d64e5293b56a70b81e67a9aee34c17cdfd0a9d1199420cfcb263b2d0f470 */
-/* generator_blake3 = 55f2f1590b18e72152621b4c5272e892f224c5d3b4e4d10e489551129f713903 */
+/* schema_blake3 = b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193 */
+/* generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69 */
 #ifndef IYON_VIEW_ABI_H
 #define IYON_VIEW_ABI_H
 
@@ -50,6 +50,20 @@ uint32_t iyon_view_axis_create_buffer_v1(NativeViewRuntime * runtime, uint32_t n
 int32_t iyon_view_release_many_v1(NativeViewRuntime * runtime, const uint32_t * refs, size_t refs_capacity_bytes, uint32_t used_ref_count);
 
 uint32_t iyon_view_ref_for_node_id_v1(NativeViewRuntime * runtime, uint32_t node_id_low, uint32_t node_id_high);
+
+uint32_t iyon_path_root_v1(NativeViewRuntime * runtime);
+
+uint32_t iyon_path_child_v1(NativeViewRuntime * runtime, uint32_t parent_path_ref, uint32_t step_kind, uint32_t expected_view_kind, uint32_t selector);
+
+uint32_t iyon_view_text_layout_patch_path_v1(NativeViewRuntime * runtime, uint32_t base_root_ref, uint32_t path_ref, uint32_t path_depth, uint32_t target_node_id_low, uint32_t target_node_id_high, uint32_t ancestor0_node_id_low, uint32_t ancestor0_node_id_high, uint32_t ancestor1_node_id_low, uint32_t ancestor1_node_id_high, uint32_t ancestor2_node_id_low, uint32_t ancestor2_node_id_high, uint32_t ancestor3_node_id_low, uint32_t ancestor3_node_id_high, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_view_text_layout_patch_path_d1_v1(NativeViewRuntime * runtime, uint32_t base_root_ref, uint32_t path_ref, uint32_t target_node_id_low, uint32_t target_node_id_high, uint32_t ancestor0_node_id_low, uint32_t ancestor0_node_id_high, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_view_text_layout_patch_path_d2_v1(NativeViewRuntime * runtime, uint32_t base_root_ref, uint32_t path_ref, uint32_t target_node_id_low, uint32_t target_node_id_high, uint32_t ancestor0_node_id_low, uint32_t ancestor0_node_id_high, uint32_t ancestor1_node_id_low, uint32_t ancestor1_node_id_high, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_view_text_layout_patch_path_d3_v1(NativeViewRuntime * runtime, uint32_t base_root_ref, uint32_t path_ref, uint32_t target_node_id_low, uint32_t target_node_id_high, uint32_t ancestor0_node_id_low, uint32_t ancestor0_node_id_high, uint32_t ancestor1_node_id_low, uint32_t ancestor1_node_id_high, uint32_t ancestor2_node_id_low, uint32_t ancestor2_node_id_high, uint32_t wrap, uint32_t align);
+
+uint32_t iyon_view_text_layout_patch_path_d4_v1(NativeViewRuntime * runtime, uint32_t base_root_ref, uint32_t path_ref, uint32_t target_node_id_low, uint32_t target_node_id_high, uint32_t ancestor0_node_id_low, uint32_t ancestor0_node_id_high, uint32_t ancestor1_node_id_low, uint32_t ancestor1_node_id_high, uint32_t ancestor2_node_id_low, uint32_t ancestor2_node_id_high, uint32_t ancestor3_node_id_low, uint32_t ancestor3_node_id_high, uint32_t wrap, uint32_t align);
 
 uint32_t iyon_abi_conformance_u8_8_v1(uint8_t a0, uint8_t a1, uint8_t a2, uint8_t a3, uint8_t a4, uint8_t a5, uint8_t a6, uint8_t a7);
 

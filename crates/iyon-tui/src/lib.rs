@@ -216,6 +216,9 @@ pub use presentation::api::{
     TextAttribute, TextAttributeSpec, TextSpan, ThemeColor, ThemeKey, Vertical, VerticalAlign,
     View, WrapMode,
 };
+#[cfg(feature = "native-host")]
+#[doc(hidden)]
+pub use presentation::ir::RetainedPathStep;
 
 #[cfg(all(feature = "native-host", feature = "native-shared-memory"))]
 pub use presentation::api::SharedUtf8Source;

@@ -486,7 +486,7 @@ fn rust_call_arguments(arguments: &[ArgumentSpec]) -> String {
 
 fn rust_type(type_name: &str) -> String {
     match type_name {
-        "ViewRefResult" | "native_ref_result" | "u32" => "u32".to_owned(),
+        "ViewRefResult" | "PathRefResult" | "native_ref_result" | "u32" => "u32".to_owned(),
         "i32" | "status_only" => "i32".to_owned(),
         "u8" => "u8".to_owned(),
         "u16" => "u16".to_owned(),

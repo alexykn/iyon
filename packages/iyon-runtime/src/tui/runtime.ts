@@ -11,6 +11,7 @@ import {
   nativeViewAbiSession,
   nativeViewRefForNodeId,
   releaseNativeViewRef,
+  tryNativePathScalarRender,
   tryNativeScalarRender,
 } from "./native_view_abi.ts";
 import type {
@@ -107,6 +108,9 @@ export class Tui implements TuiRuntime {
     let nextNativeRef = previousBody === undefined || previousNativeRef === undefined
       ? undefined
       : tryNativeScalarRender(this.host, previousBody, previousNativeRef, normalized.body);
+    if (nextNativeRef === undefined && previousBody !== undefined && previousNativeRef !== undefined) {
+      nextNativeRef = tryNativePathScalarRender(this.host, previousBody, previousNativeRef, normalized.body);
+    }
 
     if (nextNativeRef === undefined) {
       this.host.render(nodeForBridge(normalized.body));

@@ -1,11 +1,11 @@
-<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = e533d64e5293b56a70b81e67a9aee34c17cdfd0a9d1199420cfcb263b2d0f470; generator_blake3 = 55f2f1590b18e72152621b4c5272e892f224c5d3b4e4d10e489551129f713903 -->
+<!-- DO NOT EDIT. Generated from tools/tui-abi/view_abi.toml. schema_blake3 = b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193; generator_blake3 = 18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69 -->
 
 # PERF-11 generated ABI reference
 
 > This file is generated. Do not edit it directly.
 
-- Schema BLAKE3: `e533d64e5293b56a70b81e67a9aee34c17cdfd0a9d1199420cfcb263b2d0f470`
-- Generator BLAKE3: `55f2f1590b18e72152621b4c5272e892f224c5d3b4e4d10e489551129f713903`
+- Schema BLAKE3: `b6632774c610ea06e51392e4bd1e333cc9cbbb6f39a7ac4c0addff8052b71193`
+- Generator BLAKE3: `18452de0513ba234d9b3eab4afe3301ece61e22b53d7d8d242ef1bd7545f6e69`
 - ABI: `iyon_tui_view` v1
 - Semantic schema: v1
 - Minimum Bun: `1.4.0`
@@ -56,6 +56,13 @@
 | `view_axis_create_buffer` | `constructor` | `warm` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 | `view_release_many` | `lifecycle` | `cold` | `i32` | `none` | `owner_thread` | `false` | `false` |
 | `view_ref_for_node_id` | `exact_lookup` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `false` | `false` |
+| `path_root` | `path` | `warm` | `PathRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `path_child` | `path` | `warm` | `PathRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_text_layout_patch_path` | `path_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_text_layout_patch_path_d1` | `path_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_text_layout_patch_path_d2` | `path_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_text_layout_patch_path_d3` | `path_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
+| `view_text_layout_patch_path_d4` | `path_patch` | `critical` | `ViewRefResult` | `v4` | `owner_thread` | `true` | `false` |
 
 ## ABI conformance fixtures
 

@@ -41,6 +41,44 @@ import { PersistentSeq } from "../persistent_seq.ts";
 
 type ChildBuilder = readonly View[] | ((builder: ChildrenBuilder) => void);
 type CounterBox = { next: number };
+
+/** Native retained-path metadata; it stores selectors, never a View graph. */
+export interface NativePathStep {
+  readonly kind: number;
+  readonly expectedViewKind: number;
+  readonly selector: number;
+}
+
+export interface NativePathLineage {
+  /** Full JS semantic NodeId of the previous root; no View is retained. */
+  readonly baseNodeId: number;
+  readonly parent?: NativePathLineage;
+  readonly step?: NativePathStep;
+  readonly depth: number;
+}
+
+export const NATIVE_PATH_VIEW_KIND = Object.freeze({
+  text: 1,
+  row: 2,
+  column: 3,
+  grid: 4,
+  hanging: 5,
+  container: 6,
+  clampRows: 7,
+  rowViewport: 8,
+});
+
+export const NATIVE_PATH_STEP = Object.freeze({
+  containerChild: 1,
+  clampChild: 2,
+  rowViewportChild: 3,
+  columnChild: 4,
+  rowChild: 5,
+  gridCell: 6,
+  hangingPrefix: 7,
+  hangingContinuation: 8,
+  hangingBody: 9,
+});
 const NODE_ID_COUNTER = Symbol.for("iyon:tui:private-view-node-counter");
 const globalRoot = globalThis as typeof globalThis & { [NODE_ID_COUNTER]?: CounterBox };
 const nodeIdCounter = globalRoot[NODE_ID_COUNTER] ??= { next: 1 };
@@ -227,10 +265,16 @@ function freezeBridgeNode(node: BridgeViewNode): BridgeViewNode {
 
 export class View {
   readonly kind = "view" as const;
-  private constructor(node: BridgeViewNode | BridgeViewNodeDraft, lineage?: PackedLineage, seed?: PackedMetaSeed) {
+  private constructor(
+    node: BridgeViewNode | BridgeViewNodeDraft,
+    lineage?: PackedLineage,
+    seed?: PackedMetaSeed,
+    nativePath?: NativePathLineage,
+  ) {
     const identity = withPrivateIdentity(node, lineage, seed);
     nodes.set(this, identity);
     nodeIdParts.set(this, [identity.id >>> 0, Math.floor(identity.id / 0x1_0000_0000)]);
+    if (nativePath !== undefined) nativePathLineages.set(this, nativePath);
     Object.freeze(this);
   }
 
@@ -393,6 +437,20 @@ export class View {
   noWrap(): View { return this.wrap("noWrap"); }
   textAlign(align: HorizontalAlign): View { return this.mapText((text) => ({ ...text, align: horizontalAlignCode(align) })); }
 
+  /** Internal retained-path constructor; not part of the public semantic API. */
+  static textLayoutAtNativePathForTransport(
+    view: View,
+    steps: readonly NativePathStep[],
+    wrap: WrapMode,
+    align: HorizontalAlign,
+  ): View {
+    if (steps.length > 4) throw new RangeError("native retained path depth must be at most 4");
+    const nextNode = patchBridgeTextPath(nodeForBridge(view), steps, wrapCode(wrap), horizontalAlignCode(align));
+    let lineage: NativePathLineage = { baseNodeId: nodeForBridge(view).id, depth: 0 };
+    for (const step of steps) lineage = nativePathChildLineage(view, lineage, step);
+    return new View(nextNode, undefined, undefined, lineage);
+  }
+
   private decoratedNode(): Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.decorated }> | undefined {
     const node = nodeForBridge(this);
     return node.kind === BRIDGE_VIEW_KIND.decorated ? node as Extract<BridgeViewNode, { kind: typeof BRIDGE_VIEW_KIND.decorated }> : undefined;
@@ -419,6 +477,30 @@ export class View {
 
 const nodes = new WeakMap<View, BridgeViewNode>();
 const nodeIdParts = new WeakMap<View, readonly [number, number]>();
+const nativePathLineages = new WeakMap<View, NativePathLineage>();
+
+/** Returns the one-time retained path lineage attached during construction. */
+export function nativePathLineage(view: View): NativePathLineage | undefined {
+  return nativePathLineages.get(view);
+}
+
+/** Internal construction helper used by path-aware retained tests/builders. */
+export function nativePathChildLineage(
+  base: View,
+  parent: NativePathLineage | undefined,
+  step: NativePathStep,
+): NativePathLineage {
+  const baseNodeId = nodeForBridge(base).id;
+  if (parent !== undefined && parent.baseNodeId !== baseNodeId) throw new Error("native path lineage base mismatch");
+  const lineage = { baseNodeId, parent, step, depth: (parent?.depth ?? 0) + 1 } satisfies NativePathLineage;
+  return lineage;
+}
+
+/** Attaches a root/child path lineage without retaining any child View. */
+export function attachNativePathLineage(view: View, lineage: NativePathLineage): void {
+  if (lineage.baseNodeId === nodeForBridge(view).id) throw new Error("native path lineage base must be the previous root");
+  nativePathLineages.set(view, lineage);
+}
 
 /** Returns the cached u32 halves of a View's full safe-integer NodeId. */
 export function nodeIdPair(view: View): readonly [number, number] {
@@ -435,6 +517,103 @@ export function nodeForBridge(view: View): BridgeViewNode {
   const node = nodes.get(view);
   if (node === undefined) throw new TypeError("view is not a runtime semantic value");
   return node;
+}
+
+/**
+ * Builds a path-aware immutable value for retained-path differential tests and
+ * future structural builders. Construction assigns a fresh NodeId to the
+ * changed leaf and every rebuilt ancestor; render only passes those cached
+ * scalar halves to the generated depth specialization.
+ */
+export function textLayoutAtNativePathForTransport(
+  view: View,
+  steps: readonly NativePathStep[],
+  wrap: WrapMode,
+  align: HorizontalAlign,
+): View {
+  return View.textLayoutAtNativePathForTransport(view, steps, wrap, align);
+}
+
+function patchBridgeTextPath(
+  node: BridgeViewNode,
+  steps: readonly NativePathStep[],
+  wrap: number,
+  align: number,
+): BridgeViewNode {
+  const step = steps[0];
+  if (step === undefined) {
+    if (node.kind !== BRIDGE_VIEW_KIND.text) throw new TypeError("native retained text path must terminate at text");
+    return withPrivateIdentity({ ...node, wrap, align });
+  }
+  if (bridgePathViewKind(node.kind) !== step.expectedViewKind) {
+    throw new TypeError("native retained path expected view kind does not match bridge node");
+  }
+  const tail = steps.slice(1);
+  switch (step.kind) {
+    case NATIVE_PATH_STEP.containerChild:
+    case NATIVE_PATH_STEP.clampChild: {
+      if (step.selector !== 0 || (node.kind !== BRIDGE_VIEW_KIND.container && node.kind !== BRIDGE_VIEW_KIND.clamp && node.kind !== BRIDGE_VIEW_KIND.contentMax)) {
+        throw new RangeError("native retained single-child path is invalid");
+      }
+      return withPrivateIdentity({ ...node, child: patchBridgeTextPath(node.child, tail, wrap, align) });
+    }
+    case NATIVE_PATH_STEP.columnChild: {
+      if (node.kind !== BRIDGE_VIEW_KIND.column) throw new TypeError("native retained column path kind is invalid");
+      if (!Number.isInteger(step.selector) || step.selector < 0 || step.selector >= node.children.length) throw new RangeError("native retained column path selector is out of range");
+      const children = node.children.map((child, index) => index === step.selector
+        ? { ...child, child: patchBridgeTextPath(child.child, tail, wrap, align) }
+        : child);
+      return withPrivateIdentity({ ...node, children });
+    }
+    case NATIVE_PATH_STEP.rowChild: {
+      if (node.kind !== BRIDGE_VIEW_KIND.row) throw new TypeError("native retained row path kind is invalid");
+      if (!Number.isInteger(step.selector) || step.selector < 0 || step.selector >= node.children.length) throw new RangeError("native retained row path selector is out of range");
+      const children = node.children.map((child, index) => index === step.selector
+        ? { ...child, child: patchBridgeTextPath(child.child, tail, wrap, align) }
+        : child);
+      return withPrivateIdentity({ ...node, children });
+    }
+    case NATIVE_PATH_STEP.gridCell: {
+      if (node.kind !== BRIDGE_VIEW_KIND.grid || !Number.isInteger(step.selector) || step.selector < 0) throw new TypeError("native retained grid path kind is invalid");
+      let remaining = step.selector;
+      let changed = false;
+      const rows = node.rows.map((row) => ({
+        ...row,
+        cells: row.cells.map((cell) => {
+          if (changed || remaining !== 0) {
+            if (!changed) remaining -= 1;
+            return cell;
+          }
+          changed = true;
+          return { ...cell, view: patchBridgeTextPath(cell.view, tail, wrap, align) };
+        }),
+      }));
+      if (!changed || remaining !== 0) throw new RangeError("native retained grid path selector is out of range");
+      return withPrivateIdentity({ ...node, rows });
+    }
+    case NATIVE_PATH_STEP.hangingPrefix:
+    case NATIVE_PATH_STEP.hangingContinuation:
+    case NATIVE_PATH_STEP.hangingBody: {
+      if (node.kind !== BRIDGE_VIEW_KIND.hanging || step.selector !== 0) throw new TypeError("native retained hanging path is invalid");
+      const key = step.kind === NATIVE_PATH_STEP.hangingPrefix ? "prefix" : step.kind === NATIVE_PATH_STEP.hangingContinuation ? "continuation" : "body";
+      return withPrivateIdentity({ ...node, [key]: patchBridgeTextPath(node[key], tail, wrap, align) });
+    }
+    default: throw new TypeError("unknown native retained path step");
+  }
+}
+
+function bridgePathViewKind(kind: number): number {
+  switch (kind) {
+    case BRIDGE_VIEW_KIND.text: return NATIVE_PATH_VIEW_KIND.text;
+    case BRIDGE_VIEW_KIND.row: return NATIVE_PATH_VIEW_KIND.row;
+    case BRIDGE_VIEW_KIND.column: return NATIVE_PATH_VIEW_KIND.column;
+    case BRIDGE_VIEW_KIND.grid: return NATIVE_PATH_VIEW_KIND.grid;
+    case BRIDGE_VIEW_KIND.hanging: return NATIVE_PATH_VIEW_KIND.hanging;
+    case BRIDGE_VIEW_KIND.container: return NATIVE_PATH_VIEW_KIND.container;
+    case BRIDGE_VIEW_KIND.clamp:
+    case BRIDGE_VIEW_KIND.contentMax: return NATIVE_PATH_VIEW_KIND.clampRows;
+    default: return 0;
+  }
 }
 
 /**
