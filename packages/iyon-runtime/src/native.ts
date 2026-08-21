@@ -69,6 +69,20 @@ export interface NativeViewAbiBootstrap {
   generation: number;
   fast_view_abi: boolean;
   function_count: number;
+  diagnostics?: {
+    semantic_cache_entries: number;
+    native_ref_slots: number;
+    leased_slots: number;
+    path_nodes: number;
+    builders: number;
+    edit_transactions: number;
+    style_atoms: number;
+    styles: number;
+    fast_slot_tables: number;
+    fast_slots: number;
+    generation: number;
+    alive: boolean;
+  };
   functions: {
     runtimeNoop: number;
     viewRenderRef: number;

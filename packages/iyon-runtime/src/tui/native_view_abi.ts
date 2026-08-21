@@ -91,6 +91,50 @@ export interface NativeViewRenderHost {
   readonly tuiViewAbiInstallRef?: (viewRef: number) => void;
 }
 
+export type NativeViewRoute =
+  | "no_op"
+  | "render_ref"
+  | "scalar"
+  | "shallow_depth"
+  | "path_ref"
+  | "structural"
+  | "edit_transaction"
+  | "native_builder"
+  | "fallback"
+  | "recovery";
+
+export type NativeViewRouteSnapshot = Readonly<Record<NativeViewRoute, number>>;
+
+const ROUTE_NAMES: readonly NativeViewRoute[] = [
+  "no_op",
+  "render_ref",
+  "scalar",
+  "shallow_depth",
+  "path_ref",
+  "structural",
+  "edit_transaction",
+  "native_builder",
+  "fallback",
+  "recovery",
+];
+const routeCounts: Record<NativeViewRoute, number> = Object.fromEntries(
+  ROUTE_NAMES.map((name) => [name, 0]),
+) as Record<NativeViewRoute, number>;
+
+/** Benchmark-only route counters; disabled unless explicitly requested. */
+export function resetNativeViewRouteCounters(): void {
+  for (const name of ROUTE_NAMES) routeCounts[name] = 0;
+}
+
+export function nativeViewRouteSnapshot(): NativeViewRouteSnapshot {
+  return Object.freeze({ ...routeCounts });
+}
+
+export function recordNativeViewRoute(route: NativeViewRoute): void {
+  if (Bun.env.PERF_NATIVE_VIEW_STATS !== "1") return;
+  routeCounts[route] += 1;
+}
+
 /**
  * One typed transaction edit. `views` is ordered from changed leaf toward the
  * new root, matching the fixed NodeId lanes in the generated ABI. It contains

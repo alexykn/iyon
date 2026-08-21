@@ -270,6 +270,26 @@ impl NativeViewRuntime {
             && self.owner_thread == std::thread::current().id()
     }
 
+    pub(super) fn diagnostic_counts(
+        &self,
+    ) -> (usize, usize, usize, usize, usize, usize, usize, usize) {
+        let leased_slots = self
+            .slots
+            .values()
+            .filter(|slot| slot.js_lease_count > 0)
+            .count();
+        (
+            self.nodes.len(),
+            self.slots.len(),
+            leased_slots,
+            self.path_nodes.len(),
+            self.builders.len(),
+            self.edit_txns.len(),
+            self.style_atoms.len(),
+            self.styles.len(),
+        )
+    }
+
     fn allocate_path_ref(&mut self) -> Option<u32> {
         while self.next_path_ref < PATH_REF_LIMIT {
             let candidate = self.next_path_ref;
@@ -1071,9 +1091,25 @@ pub(super) fn abort_all_edit_txns(pointer: *mut NativeViewRuntime) {
 #[napi(js_name = "tuiViewAbiBootstrap")]
 pub fn bootstrap(env: Env) -> napi::Result<Value> {
     let runtime = runtime_for_env(&env)?;
+    let diagnostics = unsafe { &*runtime }.diagnostic_counts();
+    let diagnostics = serde_json::json!({
+        "semantic_cache_entries": diagnostics.0,
+        "native_ref_slots": diagnostics.1,
+        "leased_slots": diagnostics.2,
+        "path_nodes": diagnostics.3,
+        "builders": diagnostics.4,
+        "edit_transactions": diagnostics.5,
+        "style_atoms": diagnostics.6,
+        "styles": diagnostics.7,
+        "fast_slot_tables": 0,
+        "fast_slots": 0,
+        "generation": unsafe { &*runtime }.generation,
+        "alive": unsafe { &*runtime }.alive.load(Ordering::Acquire) != 0,
+    });
     Ok(serde_json::json!({
         "runtime_ptr": runtime as usize as u64,
         "abi_name": generated_types::ABI_NAME,
+        "diagnostics": diagnostics,
         "abi_version": generated_types::ABI_VERSION,
         "semantic_version": generated_types::SEMANTIC_SCHEMA_VERSION,
         "schema_blake3": generated_types::SCHEMA_BLAKE3,

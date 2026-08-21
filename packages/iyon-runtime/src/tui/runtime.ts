@@ -1,5 +1,5 @@
 import { native } from "../native.ts";
-import { nativeTextLayoutTransaction, nodeForBridge } from "./values/view.ts";
+import { nativePathLineage, nativeTextLayoutTransaction, nodeForBridge } from "./values/view.ts";
 import { asTuiError, tuiError } from "./errors.ts";
 import { requireNativeClass } from "./handles.ts";
 import { Scene } from "./scene.ts";
@@ -10,6 +10,7 @@ import { NativeScrollPane } from "./scroll-pane.ts";
 import {
   nativeViewAbiSession,
   nativeViewRefForNodeId,
+  recordNativeViewRoute,
   releaseNativeViewRef,
   tryNativeEditTransactionRender,
   tryNativeColdRender,
@@ -104,7 +105,10 @@ export class Tui implements TuiRuntime {
       this.currentScene !== undefined
       && this.currentScene.body === normalized.body
       && this.currentScene.history === normalized.history
-    ) return;
+    ) {
+      recordNativeViewRoute("no_op");
+      return;
+    }
     if (normalized.history !== undefined) {
       const history = (normalized.history as unknown as { nativeObject(): object }).nativeObject() as { isDetached?: () => boolean };
       if (history.isDetached?.() === true) this.host.setHistory(history as object);
@@ -114,29 +118,40 @@ export class Tui implements TuiRuntime {
     let nextNativeRef = previousBody === undefined || previousNativeRef === undefined
       ? undefined
       : tryNativeScalarRender(this.host, previousBody, previousNativeRef, normalized.body);
+    if (nextNativeRef !== undefined) recordNativeViewRoute("scalar");
     if (nextNativeRef === undefined && previousBody !== undefined && previousNativeRef !== undefined) {
       nextNativeRef = tryNativePathScalarRender(this.host, previousBody, previousNativeRef, normalized.body);
+      if (nextNativeRef !== undefined) {
+        const depth = nativePathLineage(normalized.body)?.depth ?? 0;
+        recordNativeViewRoute(depth <= 4 ? "shallow_depth" : "path_ref");
+      }
     }
     if (nextNativeRef === undefined && previousBody !== undefined && previousNativeRef !== undefined) {
       nextNativeRef = tryNativeStructuralRender(this.host, previousBody, previousNativeRef, normalized.body);
+      if (nextNativeRef !== undefined) recordNativeViewRoute("structural");
     }
     if (nextNativeRef === undefined && previousBody !== undefined && previousNativeRef !== undefined) {
       const edits = nativeTextLayoutTransaction(normalized.body);
       if (edits !== undefined) {
         nextNativeRef = tryNativeEditTransactionRender(this.host, previousBody, previousNativeRef, edits);
+        if (nextNativeRef !== undefined) recordNativeViewRoute("edit_transaction");
       }
     }
 
     if (nextNativeRef === undefined) {
       nextNativeRef = tryNativeTextCreateRender(this.host, normalized.body);
+      if (nextNativeRef !== undefined) recordNativeViewRoute("native_builder");
     }
     if (nextNativeRef === undefined) {
       nextNativeRef = tryNativeColdRender(this.host, normalized.body);
+      if (nextNativeRef !== undefined) recordNativeViewRoute("native_builder");
     }
     if (nextNativeRef === undefined) {
       nextNativeRef = tryNativeViewBoundaryCreate(this.host, normalized.body);
+      if (nextNativeRef !== undefined) recordNativeViewRoute("native_builder");
     }
     if (nextNativeRef === undefined) {
+      recordNativeViewRoute("fallback");
       this.host.render(nodeForBridge(normalized.body));
       nextNativeRef = this.host.tuiViewAbiHostPointer === undefined
         ? undefined
