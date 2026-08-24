@@ -1,5 +1,11 @@
 # AGENTS.md
 
+## Application Repository Boundary
+- This repository owns Iyon application, kernel, protocol, providers, agents, tools, CLI, SDK, and plugins.
+- Consume the generic TUI only through public `@iyon/tui` APIs (`@iyon/runtime/tui` / `iyon:tui` during migration).
+- Never deep-import or copy TUI internals. Product behavior belongs here, not in `alexykn/iyon-tui`.
+- Temporary local TUI paths are compatibility-only and have mandatory removal tranches in `APPLICATION-EXTRACTION-COMPATIBILITY.md`.
+
 ## Defaults
 - IMPORTANT: Be brief and concise in your replies.
 - Preserve existing behavior unless the task explicitly requires a change.
