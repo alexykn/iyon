@@ -1,5 +1,10 @@
 {
   "canonicalPerformanceHistory": "alexykn/iyon-tui; original SHAs are never rewritten there",
+  "destinationRepository": "alexykn/iyon",
+  "destinationRepositoryId": "R_kgDOUDBIpA",
+  "extractionProvenanceCommit": "2f0053186e756a043d25d38a6499d99efd5bf146",
+  "sourceRepositoryAfterCutover": "alexykn/iyon-tui",
+  "sourceRepositoryId": "R_kgDOTw9laA",
   "extractionCommand": "uv run --with git-filter-repo git-filter-repo --force --path .bun-version --path .github --path .gitignore --path AGENTS.md --path ARCHITECTURE.md --path APPLICATION-EXTRACTION-COMPATIBILITY.md --path Cargo.lock --path Cargo.toml --path IYON-TUI-REPOSITORY-SEPARATION-HANDOFF.md --path LICENSE --path PERF-11-generated-abi-reference.md --path bun.lock --path bun_refactor.md --path deferred.md --path ideas.md --path iyon-api.md --path iyon-core.md --path iyon.md --path justfile --path making_it_smoller.md --path package.json --path tsconfig.json --path crates/iyon-api --path crates/iyon-core --path crates/iyon --path crates/iyon-native --path crates/iyon-tui --path packages/iyon-cli --path packages/iyon-plugins --path packages/iyon-runtime --path packages/iyon-sdk --path plugins --path tools/api-surface --path tools/bun-revision.txt --path tools/ownership --path tools/tui-abi --path tools/tui-abi-gen --path docs/repository-separation/s0",
   "extractionToolVersion": "git-filter-repo 2.47.0",
   "filteredHeadBeforeProvenanceCommit": "ffe17687c159aece8a3b4648e3cfcdf7119312e9",
