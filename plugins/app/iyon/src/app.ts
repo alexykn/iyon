@@ -312,12 +312,14 @@ class IyonAppImpl implements IyonApp {
     }
     const event = action.event;
     if (event.type === "assistantDelta") {
+      await this.hideWorking();
       await this.freezeUserBatch();
       await this.openAssistantStream();
       await this.assistantStream?.append("text", event.text);
       return true;
     }
     if (event.type === "thinkingDelta") {
+      await this.hideWorking();
       await this.freezeUserBatch();
       await this.openAssistantStream();
       await this.assistantStream?.append("thinking", event.text);
@@ -424,6 +426,13 @@ class IyonAppImpl implements IyonApp {
       return false;
     }
     return false;
+  }
+
+  private async hideWorking(): Promise<void> {
+    if (this.workingHandle === undefined) return;
+    this.workingHandle.stopAnimation(View.spacer(0));
+    this.workingAnimationMode = undefined;
+    this.chrome.activityVisible.set(false);
   }
 
   private async openAssistantStream(): Promise<void> {
