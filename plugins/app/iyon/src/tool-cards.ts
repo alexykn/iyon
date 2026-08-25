@@ -44,7 +44,7 @@ export class ToolCardStore {
 
   update(toolCallId: string, update: ToolUpdatePresentation): LiveTool | undefined {
     toolCallId = normalizeToolCallId(toolCallId)!;
-    return this.map(toolCallId, (card) => update.type === "text" ? { ...card, update: card.update?.type === "text" ? { ...update, text: card.update.text + update.text } : update } : update.type === "progress" ? { ...card, update, progress: update } : { ...card, update, details: update.details });
+    return this.map(toolCallId, (card) => update.type === "text" ? { ...card, update } : update.type === "progress" ? { ...card, update, progress: update } : { ...card, update, details: update.details });
   }
   approval(toolCallId: string): LiveTool | undefined { return this.map(normalizeToolCallId(toolCallId)!, (card) => ({ ...card, status: "pendingApproval" as const })); }
   resolveApproval(toolCallId: string, approved: boolean): LiveTool | undefined { return this.map(normalizeToolCallId(toolCallId)!, (card) => ({ ...card, status: approved ? "running" as const : "cancelled" as const, frozen: !approved })); }
