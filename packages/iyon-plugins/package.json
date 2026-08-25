@@ -6,7 +6,8 @@
   "types": "./src/index.ts",
   "dependencies": {
     "@iyon/runtime": "workspace:*",
-    "@iyon/sdk": "workspace:*"
+    "@iyon/sdk": "workspace:*",
+    "@iyon/tui": "github:alexykn/iyon-tui#e322f10dff490c1423d988982c0782c22774f85d"
   },
   "exports": {
     ".": "./src/index.ts"

@@ -11,7 +11,7 @@ import {
 } from "../src/native.ts";
 import { runWithAbortSignal } from "../src/smoke.ts";
 
-describe("T1 native boundary", () => {
+describe("S5 core-native boundary", () => {
   test("JSON, large strings, and Buffer values remain lossless", () => {
     const value = { nested: [null, true, 42, "text"] };
     expect(echoJson(value)).toEqual(value);
@@ -44,6 +44,6 @@ describe("T1 native boundary", () => {
   });
 
   test("native version is a real addon marker", () => {
-    expect(nativeVersion()).toBe("iyon-native/t1");
+    expect(nativeVersion()).toBe("iyon-core-native/s5");
   });
 });

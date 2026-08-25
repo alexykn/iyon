@@ -4,8 +4,8 @@ import { defineView, state } from "iyon:tui";
 import type { State } from "iyon:tui";
 import { renderGenericCall, renderGenericResult } from "@iyon/runtime";
 import { collapseResultView } from "@iyon/plugins";
-import { History as RuntimeHistory, TextInput as RuntimeTextInput } from "@iyon/runtime/tui";
-import type { History as HistoryHandle, ScrollPane, TextInput as TextInputHandle, TuiEvent, TuiRuntime, ViewSlot } from "@iyon/runtime/tui";
+import { History as RuntimeHistory, TextInput as RuntimeTextInput } from "@iyon/tui";
+import type { History as HistoryHandle, ScrollPane, TextInput as TextInputHandle, TuiEvent, TuiRuntime, ViewSlot } from "@iyon/tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
 import type {
   IyonAgent,

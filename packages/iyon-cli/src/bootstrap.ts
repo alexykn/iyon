@@ -45,10 +45,8 @@ export function createProductionStages(options: { readonly authOnly?: boolean } 
     async loadConfig() { return { env: { ...process.env } }; },
     async initializeNative() {
       const version = native.nativeVersion();
-      const tui = native.tuiSmoke();
-      if (version !== "iyon-native/t1") throw new Error(`native addon verification failed: ${version}`);
-      if (tui !== "iyon-tui/t1") throw new Error(`native TUI verification failed: ${tui}`);
-      return { version, tui };
+      if (version !== "iyon-core-native/s5") throw new Error(`core native addon verification failed: ${version}`);
+      return { version };
     },
     async initializeVirtualModules() { installIyonVirtualModules(); },
     async discoverPackages() { return discoverPackages({ bundled: roots }); },

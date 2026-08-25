@@ -1,8 +1,9 @@
 # `api-surface`
 
-`api-surface` is the stable-Rust, source-driven parity gate for the four public
-library targets in this workspace: `iyon-api`, `iyon-core`, `iyon-tui`, and the
-`iyon` compatibility library. It uses Cargo metadata and `syn`; rustdoc JSON is
+`api-surface` is the stable-Rust, source-driven parity gate for the three
+application library targets in this workspace: `iyon-api`, `iyon-core`, and the
+`iyon` compatibility library. The generic TUI surface is owned by the external
+`alexykn/iyon-tui` repository. It uses Cargo metadata and `syn`; rustdoc JSON is
 not required.
 
 ## Commands

@@ -1,320 +1,166 @@
 /**
- * S1 ownership gates (IYON-TUI-REPOSITORY-SEPARATION-HANDOFF §7).
+ * Standalone application ownership gates for repository separation S5.
  *
- * Machine-checks framework/application ownership while both still live in one
- * checkout. Run with `bun run check:ownership`. Every failure names the file
- * and rule; no gate relies on prose alone.
+ * The application consumes the generic TUI through exact external revisions.
+ * This checker rejects local TUI copies, deep imports, and TUI symbols in the
+ * application native addon.
  */
 
-import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
-import { join, relative, resolve, dirname } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "../..");
+const TUI_REVISION = "e322f10dff490c1423d988982c0782c22774f85d";
 let failed = false;
 
 function pass(name: string, detail?: string): void {
   console.log(`PASS ${name}${detail ? ` — ${detail}` : ""}`);
 }
+
 function fail(name: string, detail: string): void {
   failed = true;
   console.log(`FAIL ${name} — ${detail}`);
 }
 
 function walk(dir: string, out: string[] = []): string[] {
+  if (!existsSync(dir)) return out;
   for (const entry of Array.from(readdirSync(dir)).sort()) {
     if (entry === "node_modules" || entry.startsWith(".")) continue;
     const path = join(dir, entry);
     if (statSync(path).isDirectory()) walk(path, out);
-    else if (path.endsWith(".ts")) out.push(path);
+    else out.push(path);
   }
   return out;
 }
 
-/** Resolve a relative TS specifier to a file path, or null when unresolvable. */
-function resolveRelative(fromFile: string, specifier: string): string | null {
-  const clean = specifier.replace(/[?#].*$/, "");
-  const base = resolve(dirname(fromFile), clean);
-  for (const candidate of [base, `${base}.ts`, join(base, "index.ts")]) {
-    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
-  }
-  return null;
-}
-
-/** All module specifiers referenced by a TS source (static, dynamic, bare). */
 function specifiersOf(source: string): string[] {
   return [
-    ...[...source.matchAll(/(?:^|\s)from\s+"([^"]+)"/g)].map((m) => m[1]!),
-    ...[...source.matchAll(/import\(\s*"([^"]+)"\s*\)/g)].map((m) => m[1]!),
-    ...[...source.matchAll(/(?:^|\s)import\s+"([^"]+)"/g)].map((m) => m[1]!),
+    ...[...source.matchAll(/(?:^|\s)from\s+["']([^"']+)["']/g)].map((match) => match[1]!),
+    ...[...source.matchAll(/import\(\s*["']([^"']+)["']\s*\)/g)].map((match) => match[1]!),
+    ...[...source.matchAll(/(?:^|\s)import\s+["']([^"']+)["']/g)].map((match) => match[1]!),
   ];
 }
 
-// ---------------------------------------------------------------------------
-// Gate 1: Rust dependency direction
-// ---------------------------------------------------------------------------
-
-function rustDependencyGate(): void {
-  const meta = JSON.parse(
-    new TextDecoder().decode(
-      Bun.spawnSync(["cargo", "metadata", "--format-version", "1", "--no-deps"], { cwd: ROOT }).stdout,
-    ),
-  );
-  const byName = new Map<string, string[]>();
-  for (const pkg of meta.packages as { name: string; dependencies: { name: string }[] }[]) {
-    if (!byName.has(pkg.name)) byName.set(pkg.name, pkg.dependencies.map((d) => d.name));
-  }
-
-  function closure(rootName: string): Set<string> {
-    const seen = new Set<string>();
-    const queue = [rootName];
-    while (queue.length > 0) {
-      const name = queue.pop()!;
-      if (seen.has(name)) continue;
-      seen.add(name);
-      for (const dep of byName.get(name) ?? []) {
-        if (byName.has(dep)) queue.push(dep);
-      }
-    }
-    return seen;
-  }
-
-  const forbidden = ["iyon-core", "iyon-api"];
-  const tuiClosure = closure("iyon-tui");
-  const leaked = forbidden.filter((name) => tuiClosure.has(name));
-  if (leaked.length > 0) fail("rust-dependency-direction", `closure(iyon-tui) reaches ${leaked.join(", ")}`);
-  else pass("rust-dependency-direction", `closure(iyon-tui) excludes ${forbidden.join(" and ")}`);
-
-  // The mixed native crate is module-gated until S3 splits it.
-  const tuiNativePaths = [
-    "crates/iyon-native/src/tui.rs",
-    "crates/iyon-native/src/tui",
-    "crates/iyon-native/src/generated",
-    "crates/iyon-native/tests/generated_view_abi.rs",
-  ];
-  const offenders: string[] = [];
-  for (const path of tuiNativePaths) {
-    const full = join(ROOT, path);
-    if (!existsSync(full)) continue;
-    const files = statSync(full).isDirectory()
-      ? Array.from(new Bun.Glob("**/*.rs").scanSync({ cwd: full })).map((f) => join(full, f))
-      : [full];
-    for (const file of files) {
-      if (/\biyon_(core|api)\b/.test(readFileSync(file, "utf8"))) offenders.push(relative(ROOT, file));
-    }
-  }
-  if (offenders.length > 0) fail("tui-native-module-purity", `references iyon_core/iyon_api: ${offenders.join(", ")}`);
-  else pass("tui-native-module-purity", "TUI-native modules reference no application crate");
-
-  const appNativeFiles = Array.from(new Bun.Glob("src/*.rs").scanSync({ cwd: join(ROOT, "crates/iyon-native") }))
-    .filter((f) => !f.startsWith("tui"))
-    .map((f) => join(ROOT, "crates/iyon-native", f));
-  const appOffenders = appNativeFiles.filter((f) => /\bcrate::tui\b/.test(readFileSync(f, "utf8")));
-  if (appOffenders.length > 0)
-    fail("app-native-module-purity", `application native modules import TUI ABI: ${appOffenders.map((f) => relative(ROOT, f)).join(", ")}`);
-  else pass("app-native-module-purity", "application native modules reference no TUI module");
-
-  const tuiRustOffenders = Array.from(
-    new Bun.Glob("**/*.rs").scanSync({ cwd: join(ROOT, "crates/iyon-tui") }),
-  ).filter((f) => /\biyon_(core|api)\b/.test(readFileSync(join(ROOT, "crates/iyon-tui", f), "utf8")));
-  if (tuiRustOffenders.length > 0) fail("framework-rust-purity", `crates/iyon-tui references app crates: ${tuiRustOffenders.join(", ")}`);
-  else pass("framework-rust-purity", "crates/iyon-tui sources reference no application crate");
+function parseJson(path: string): Record<string, any> {
+  return JSON.parse(readFileSync(path, "utf8")) as Record<string, any>;
 }
 
-// ---------------------------------------------------------------------------
-// Gate 2: TypeScript import direction
-// ---------------------------------------------------------------------------
+function noLocalTuiPathsGate(): void {
+  const forbidden = [
+    "crates/iyon-tui",
+    "crates/iyon-native",
+    "packages/iyon-runtime/src/tui",
+    "packages/iyon-runtime/bench",
+    "tools/tui-abi",
+    "tools/tui-abi-gen",
+    "PERF-11-generated-abi-reference.md",
+  ];
+  const present = forbidden.filter((path) => existsSync(join(ROOT, path)));
+  if (present.length > 0) fail("no-local-tui-compatibility", present.join(", "));
+  else pass("no-local-tui-compatibility", "temporary local TUI paths are absent");
+}
 
-const FRAMEWORK_SRC = join(ROOT, "packages/iyon-runtime/src/tui");
-const NATIVE_CONTRACT = resolve(ROOT, "packages/iyon-runtime/src/native.ts");
-
-function tsImportGate(): void {
-  const files = walk(FRAMEWORK_SRC);
+function rustConsumerGate(): void {
+  const manifest = readFileSync(join(ROOT, "Cargo.toml"), "utf8");
+  const expected = `iyon-tui = { git = "https://github.com/alexykn/iyon-tui.git", rev = "${TUI_REVISION}" }`;
   const violations: string[] = [];
-  const seams: string[] = [];
+  if (!manifest.includes(expected)) violations.push("workspace iyon-tui dependency is not pinned to the S5 revision");
+  if (/iyon-tui\s*=\s*\{\s*path\s*=/.test(manifest)) violations.push("workspace iyon-tui dependency uses a local path");
 
-  for (const file of files) {
-    const source = readFileSync(file, "utf8");
-    const specifiers = specifiersOf(source);
-    for (const spec of specifiers) {
-      if (!spec.startsWith(".") && !spec.startsWith("/")) {
-        if (/^(bun|node):/.test(spec)) continue;
-        violations.push(`${relative(ROOT, file)} -> "${spec}"`);
-        continue;
-      }
-      const resolved = resolveRelative(file, spec);
-      if (resolved === null) {
-        violations.push(`${relative(ROOT, file)} -> "${spec}" (unresolved)`);
-        continue;
-      }
-      if (resolved.startsWith(FRAMEWORK_SRC)) continue;
-      if (resolved === NATIVE_CONTRACT) {
-        seams.push(`${relative(ROOT, file)} -> ../native.ts`);
-        continue;
-      }
-      violations.push(`${relative(ROOT, file)} -> "${spec}" escapes framework`);
-    }
+  const nativeManifest = join(ROOT, "crates/iyon-core-native/Cargo.toml");
+  if (!existsSync(nativeManifest)) violations.push("crates/iyon-core-native/Cargo.toml is missing");
+  else if (/iyon-tui|native-host|view_abi/i.test(readFileSync(nativeManifest, "utf8"))) {
+    violations.push("core-native manifest mentions TUI/native View ABI dependencies");
   }
-  if (violations.length > 0) fail("framework-ts-import-direction", violations.join("; "));
-  else pass("framework-ts-import-direction", `${files.length} files import only framework modules (+${seams.length} recorded native-contract seams)`);
 
-  // Application production sources must use public TUI entrypoints only.
-  const appRoots = [
+  const nativeSources = walk(join(ROOT, "crates/iyon-core-native")).filter((path) => path.endsWith(".rs"));
+  const nativeHits = nativeSources.filter((path) => /iyon_tui|NativeTui|tuiView|view_abi|generated_view_abi/.test(readFileSync(path, "utf8")));
+  if (nativeHits.length > 0) violations.push(`core-native TUI symbols: ${nativeHits.map((path) => relative(ROOT, path)).join(", ")}`);
+
+  if (violations.length > 0) fail("external-rust-tui-consumer", violations.join("; "));
+  else pass("external-rust-tui-consumer", `iyon-tui is pinned to ${TUI_REVISION.slice(0, 12)}`);
+}
+
+function nativeContractGate(): void {
+  const nativePath = join(ROOT, "packages/iyon-runtime/src/native.ts");
+  const source = readFileSync(nativePath, "utf8");
+  const violations: string[] = [];
+  if (!source.includes("NativeCoreAddon")) violations.push("NativeCoreAddon contract is missing");
+  if (/\bNativeAddon\b|NativeTui|NativeView|tuiView|NativeHistory|NativeTextStream|NativeScrollPane/.test(source)) {
+    violations.push("application native contract still exposes TUI or shared-addon names");
+  }
+  if (!source.includes("iyon-core-native.node")) violations.push("core-native addon path is not loaded");
+  if (source.includes("iyon-native.node")) violations.push("obsolete iyon-native.node path remains");
+  if (violations.length > 0) fail("core-native-contract-purity", violations.join("; "));
+  else pass("core-native-contract-purity", "NativeCoreAddon contains application/kernel exports only");
+}
+
+function tsConsumerGate(): void {
+  const roots = [
     "plugins",
     "packages/iyon-cli/src",
+    "packages/iyon-cli/test",
     "packages/iyon-plugins/src",
+    "packages/iyon-plugins/tests",
+    "packages/iyon-plugins/test",
+    "packages/iyon-runtime/src",
+    "packages/iyon-runtime/test",
+    "packages/iyon-runtime/tests",
     "packages/iyon-sdk/src",
-  ].map((p) => join(ROOT, p));
-  const bannedInternals =
-    /retained_dag|view_abi|native_view_policy|internal-composition|tui-execution|execution-context|persistent_seq|packed(_v[34])?_meta/;
-  const subpathImport = /^@iyon\/runtime\/tui\/.+$/;
-
-  const appViolations: string[] = [];
-  let appFilesChecked = 0;
-  const seenAppFiles = new Set<string>();
-  for (const root of appRoots) {
-    if (!existsSync(root)) continue;
-    for (const file of walk(root)) {
-      if (file.includes("/test/") || file.includes("/tests/") || file.endsWith(".test.ts")) continue;
-      seenAppFiles.add(file);
-    }
-  }
-  for (const file of seenAppFiles) {
-    appFilesChecked += 1;
-    const source = readFileSync(file, "utf8");
-    const specs = specifiersOf(source);
-    for (const spec of specs) {
-      const rel = relative(ROOT, file);
-      // Path-pattern rules apply to bare specifiers only; relative imports are
-      // judged by where they actually resolve.
-      if (!spec.startsWith(".") && !spec.startsWith("/")) {
-        if (bannedInternals.test(spec)) appViolations.push(`${rel} -> "${spec}"`);
-        else if (subpathImport.test(spec)) appViolations.push(`${rel} -> "${spec}"`);
-        continue;
-      }
-      const resolved = resolveRelative(file, spec);
-      if (resolved !== null && resolved.startsWith(FRAMEWORK_SRC) && resolved !== join(FRAMEWORK_SRC, "index.ts")) {
-        appViolations.push(`${rel} -> "${spec}" (non-public framework path)`);
+    "packages/iyon-sdk/tests",
+  ];
+  const violations: string[] = [];
+  let filesChecked = 0;
+  for (const root of roots) {
+    for (const file of walk(join(ROOT, root)).filter((path) => path.endsWith(".ts") || path.endsWith(".d.ts"))) {
+      filesChecked += 1;
+      for (const spec of specifiersOf(readFileSync(file, "utf8"))) {
+        if (spec === "@iyon/tui" || spec === "iyon:tui") continue;
+        if (spec.startsWith("@iyon/tui/") || spec === "@iyon/runtime/tui" || spec.startsWith("@iyon/runtime/tui/")) {
+          violations.push(`${relative(ROOT, file)} -> "${spec}"`);
+          continue;
+        }
+        if (spec.startsWith(".") || spec.startsWith("/")) {
+          const resolved = resolve(dirname(file), spec);
+          if (resolved.includes(`${join(ROOT, "packages/iyon-runtime/src/tui")}/`)) {
+            violations.push(`${relative(ROOT, file)} -> "${spec}" enters a local TUI path`);
+          }
+        }
       }
     }
   }
-  if (appViolations.length > 0) fail("app-ts-public-entrypoints-only", appViolations.join("; "));
-  else pass("app-ts-public-entrypoints-only", `${appFilesChecked} application source files use public TUI surfaces only`);
-
-  // Runtime non-TUI sources may enter the framework only through tui/index.ts,
-  // except virtual-modules.ts — the recorded S4/S5 bundler-compatibility seam.
-  const runtimeRoot = join(ROOT, "packages/iyon-runtime/src");
-  const runtimeViolations: string[] = [];
-  const runtimeSeams: string[] = [];
-  for (const file of walk(runtimeRoot)) {
-    if (file.startsWith(FRAMEWORK_SRC)) continue;
-    if (file.endsWith(".test.ts")) continue;
-    const rel = relative(ROOT, file);
-    const isVirtualModuleSeam =
-      rel === "packages/iyon-runtime/src/virtual-modules.ts" ||
-      rel === "packages/iyon-runtime/src/virtual-modules.d.ts";
-    const specs = specifiersOf(readFileSync(file, "utf8"));
-    for (const spec of specs) {
-      if (!spec.startsWith(".")) continue;
-      const resolved = resolveRelative(file, spec);
-      if (resolved !== null && resolved.startsWith(FRAMEWORK_SRC) && resolved !== join(FRAMEWORK_SRC, "index.ts")) {
-        if (isVirtualModuleSeam) runtimeSeams.push(`virtual-modules.ts -> "${spec}"`);
-        else runtimeViolations.push(`${rel} -> "${spec}"`);
-      }
-    }
-  }
-  if (runtimeViolations.length > 0) fail("runtime-ts-public-entrypoints-only", runtimeViolations.join("; "));
-  else
-    pass(
-      "runtime-ts-public-entrypoints-only",
-      `runtime non-TUI sources enter via tui/index.ts only (${runtimeSeams.length} recorded virtual-module alias seams)`,
-    );
+  if (violations.length > 0) fail("application-ts-public-tui-entrypoints", violations.join("; "));
+  else pass("application-ts-public-tui-entrypoints", `${filesChecked} TypeScript files use public external TUI entrypoints only`);
 }
 
-// ---------------------------------------------------------------------------
-// Gate 3: Public API surface guard
-// ---------------------------------------------------------------------------
-
-const BANNED_SURFACE_NAMES = [
-  "Agent",
-  "Assistant",
-  "Provider",
-  "Prompt",
-  "ModelTurn",
-  "ToolCall",
-  "ToolExecution",
-  "Approval",
-  "Conversation",
-  "Transcript",
-  "KernelSession",
-  "Steering",
-  "ReasoningEffort",
-];
-
-async function publicSurfaceGate(): Promise<void> {
-  // TypeScript facade exports vs frozen S0 snapshot.
-  const baselinePath = join(ROOT, "docs/repository-separation/s0/api-surface.json");
-  const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
-  const mod = await import(join(FRAMEWORK_SRC, "index.ts"));
-  const values = Object.keys(mod).sort();
-  const typeExports: string[] = [];
-  const source = readFileSync(join(FRAMEWORK_SRC, "index.ts"), "utf8");
-  for (const block of source.matchAll(/export\s+type\s*\{(.*?)\}\s*from/gs)) {
-    for (const item of block[1]!.split(",")) {
-      const name = item.replace(/\/\/.*$/, "").trim();
-      if (name) typeExports.push(name.split(" as ").pop()!.trim());
+function packagePinGate(): void {
+  const manifests = [
+    "package.json",
+    "packages/iyon-runtime/package.json",
+    "packages/iyon-plugins/package.json",
+    "plugins/app/iyon/package.json",
+    "plugins/tools/edit/package.json",
+  ];
+  const expected = `github:alexykn/iyon-tui#${TUI_REVISION}`;
+  const violations: string[] = [];
+  for (const path of manifests) {
+    const manifest = parseJson(join(ROOT, path));
+    if (manifest.dependencies?.["@iyon/tui"] !== expected) {
+      violations.push(`${path} does not pin @iyon/tui to ${TUI_REVISION.slice(0, 12)}`);
     }
   }
-  const types = [...new Set(typeExports)].sort();
-
-  const expectedValues: string[] = baseline.typescriptTui.valueExports;
-  const expectedTypes: string[] = baseline.typescriptTui.typeExports;
-  const addedValues = values.filter((v) => !expectedValues.includes(v));
-  const removedValues = expectedValues.filter((v) => !values.includes(v));
-  const addedTypes = types.filter((v) => !expectedTypes.includes(v));
-  const removedTypes = expectedTypes.filter((v) => !types.includes(v));
-
-  if ([...addedValues, ...removedValues, ...addedTypes, ...removedTypes].length > 0) {
-    fail(
-      "ts-surface-snapshot",
-      `drift vs S0 snapshot — added values [${addedValues}] removed values [${removedValues}] added types [${addedTypes}] removed types [${removedTypes}]; update docs/repository-separation/s0/api-surface.json deliberately`,
-    );
-  } else {
-    pass("ts-surface-snapshot", `${values.length} value + ${types.length} type exports match the frozen S0 snapshot`);
-  }
-
-  const bannedRe = new RegExp(`^(${BANNED_SURFACE_NAMES.join("|")})$`, "i");
-  const surfaceHits = [...values, ...types].filter((name) => bannedRe.test(name));
-  if (surfaceHits.length > 0) fail("ts-surface-banned-names", `application-specific exports: ${surfaceHits.join(", ")}`);
-  else pass("ts-surface-banned-names", "no application concepts in the TypeScript TUI surface");
-
-  // Rust mapping surface vs committed snapshot.
-  const mappingPath = join(ROOT, "tools/api-surface/mappings/iyon-tui.toml");
-  const ids = [...readFileSync(mappingPath, "utf8").matchAll(/^item_id\s*=\s*"([^"]+)"/gm)].map((m) => m[1]!).sort();
-  const snapshotPath = join(ROOT, "tools/ownership/snapshots/iyon-tui-rust-surface.txt");
-  const snapshotIds = existsSync(snapshotPath)
-    ? readFileSync(snapshotPath, "utf8").split("\n").map((l) => l.trim()).filter(Boolean).sort()
-    : [];
-  const drifted = ids.length !== snapshotIds.length || ids.some((id, i) => id !== snapshotIds[i]);
-  if (drifted) {
-    fail("rust-surface-snapshot", `mapping drift vs tools/ownership/snapshots/iyon-tui-rust-surface.txt (${ids.length} records); regenerate deliberately`);
-  } else {
-    pass("rust-surface-snapshot", `${ids.length} mapped Rust items match the committed snapshot`);
-  }
-  const lastSegment = (id: string) => id.split(/[.:]/).pop() ?? id;
-  const bannedSet = new Set(BANNED_SURFACE_NAMES.map((n) => n.toLowerCase()));
-  const rustHits = ids.filter((id) => bannedSet.has(lastSegment(id).toLowerCase()));
-  if (rustHits.length > 0) fail("rust-surface-banned-names", `application-specific mapped items: ${rustHits.join(", ")}`);
-  else pass("rust-surface-banned-names", "no application concepts in the mapped iyon-tui Rust surface");
+  if (violations.length > 0) fail("external-ts-tui-consumer", violations.join("; "));
+  else pass("external-ts-tui-consumer", `${manifests.length} manifests pin @iyon/tui to ${TUI_REVISION.slice(0, 12)}`);
 }
 
-// ---------------------------------------------------------------------------
-
-rustDependencyGate();
-tsImportGate();
-await publicSurfaceGate();
+noLocalTuiPathsGate();
+rustConsumerGate();
+nativeContractGate();
+tsConsumerGate();
+packagePinGate();
 
 if (failed) {
-  console.log("\nOWNERSHIP CHECKS FAILED");
+  console.log("\nAPPLICATION OWNERSHIP CHECKS FAILED");
   process.exit(1);
 }
-console.log("\nALL OWNERSHIP CHECKS PASSED");
+console.log("\nALL APPLICATION OWNERSHIP CHECKS PASSED");

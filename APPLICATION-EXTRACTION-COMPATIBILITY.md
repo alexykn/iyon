@@ -1,24 +1,21 @@
-# Temporary extraction compatibility paths
+# S5 application extraction compatibility record
 
-S2 creates the application repository without changing behavior. The following
-TUI-owned paths are retained temporarily because the current workspace still
-builds one mixed native addon and one mixed TypeScript runtime. This is not
-shared ownership and must not become a permanent third architecture.
+S5 completed the temporary application-side compatibility paths created by S2.
+The generic TUI is now consumed from `alexykn/iyon-tui` at exact revision
+`e322f10dff490c1423d988982c0782c22774f85d`.
 
-| Temporary path/surface | Canonical owner | Removal tranche |
-|---|---|---|
-| `crates/iyon-tui/**` | `alexykn/iyon-tui` | S5: replace local path with exact external crate revision/version, then delete local copy |
-| TUI portions of `crates/iyon-native/**` | `alexykn/iyon-tui/crates/iyon-tui-native` | S5: retain only `iyon-core-native`; delete TUI modules/ABI/generated files |
-| `packages/iyon-runtime/src/tui/**` | `@iyon/tui` | S5: consume exact external package and delete local subtree |
-| TUI tests/benches under `packages/iyon-runtime/**` | `alexykn/iyon-tui` | S5: delete after app compatibility suite uses the external package |
-| `tools/tui-abi`, `tools/tui-abi-gen/**`, `PERF-11-generated-abi-reference.md` | `alexykn/iyon-tui` | S5: delete after the app no longer builds the TUI addon |
-| `tools/ownership/**` TUI snapshot and `docs/repository-separation/s0/**` | `alexykn/iyon-tui` canonical evidence | S5: replace with app-only external-consumer checks; retain only extraction provenance needed by this repository |
-| TUI portions of root manifests, locks, scripts, and workflows | independently derived per repository | S3–S5: reduce as each local TUI dependency disappears |
-| `IYON-TUI-REPOSITORY-SEPARATION-HANDOFF.md` | `alexykn/iyon-tui` canonical record | S5: retain a link or app-specific completion record; do not fork normative architecture |
+| Former temporary path | S5 result |
+|---|---|
+| `crates/iyon-tui/**` | Deleted; Rust uses the exact external `iyon-tui` git dependency |
+| TUI portions of `crates/iyon-native/**` | Deleted; remaining addon is `crates/iyon-core-native` |
+| `packages/iyon-runtime/src/tui/**` | Deleted; TypeScript uses exact external `@iyon/tui` |
+| TUI tests/benches under `packages/iyon-runtime/**` | Deleted; authoritative TUI tests/benches remain in `alexykn/iyon-tui` |
+| `tools/tui-abi/**`, `tools/tui-abi-gen/**`, `PERF-11-generated-abi-reference.md` | Deleted; ABI ownership is exclusively `alexykn/iyon-tui` |
+| TUI ownership snapshots and S0 baseline evidence | Deleted from the application checkout; S2 extraction provenance remains at the repository root |
+| TUI portions of root manifests, locks, scripts, and workflows | Root manifests/lock/scripts now resolve exact external pins; CI files were not modified per tranche instructions |
+| `IYON-TUI-REPOSITORY-SEPARATION-HANDOFF.md` | Canonical copy remains in `alexykn/iyon-tui`; this file records application completion |
 
-Until removal:
-
-- no new application code may import these internals;
-- all TUI changes land in `alexykn/iyon-tui` first and are consumed through an
-  exact revision or released package;
-- local copies exist only to preserve the S2 behavior-neutral build.
+The application native artifact is `packages/iyon-runtime/native/iyon-core-native.node`.
+The external package owns `@iyon/tui` loading and `iyon-tui-native.node` staging.
+No local TUI source, generated ABI module, or shared `NativeAddon` contract is
+retained.

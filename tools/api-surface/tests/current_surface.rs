@@ -37,7 +37,6 @@ fn current_surface_contains_inventory_oracle_paths() {
     for expected in [
         "iyon-api::ModelApi",
         "iyon-core::ids::SessionId",
-        "iyon-tui::View",
         "iyon::tui::build_app",
     ] {
         assert!(paths.contains(expected), "missing {expected}");
@@ -93,8 +92,8 @@ fn checked_in_artifacts_are_fresh() {
     for file in [
         "iyon-api.d.ts",
         "iyon-core.d.ts",
-        "iyon-tui.d.ts",
         "iyon-plugins.d.ts",
+        "iyon-tui.d.ts",
     ] {
         let expected = std::fs::read(config.sdk_output_dir.join(file)).unwrap();
         let actual = std::fs::read(temporary_sdk.join(file)).unwrap();

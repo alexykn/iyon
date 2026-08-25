@@ -3,10 +3,8 @@ members = [
     "crates/iyon",
     "crates/iyon-core",
     "crates/iyon-api",
-    "crates/iyon-tui",
-    "crates/iyon-native",
+    "crates/iyon-core-native",
     "tools/api-surface",
-    "tools/tui-abi-gen",
 ]
 resolver = "3"
 
@@ -64,4 +62,4 @@ trybuild = "1.0.114"
 
 iyon-api = {path = "crates/iyon-api"}
 iyon-core = {path = "crates/iyon-core"}
-iyon-tui = {path = "crates/iyon-tui"}
+iyon-tui = { git = "https://github.com/alexykn/iyon-tui.git", rev = "e322f10dff490c1423d988982c0782c22774f85d" }

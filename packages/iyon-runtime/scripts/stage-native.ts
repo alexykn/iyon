@@ -4,32 +4,32 @@ const runtimeDirectory = new URL("../", import.meta.url);
 const repositoryDirectory = new URL("../../", runtimeDirectory);
 const targetDirectory = new URL("target/release/", repositoryDirectory);
 const nativeDirectory = new URL("native/", runtimeDirectory);
-const stagedAddon = new URL("iyon-native.node", nativeDirectory);
+const stagedAddon = new URL("iyon-core-native.node", nativeDirectory);
 
 const targetKey = `${process.platform}-${process.arch}`;
 const artifactByTarget: Record<string, string> = {
-  "darwin-arm64": "libiyon_native.dylib",
-  "darwin-x64": "libiyon_native.dylib",
-  "linux-x64": "libiyon_native.so",
-  "linux-arm64": "libiyon_native.so",
-  "win32-x64": "iyon_native.dll",
+  "darwin-arm64": "libiyon_core_native.dylib",
+  "darwin-x64": "libiyon_core_native.dylib",
+  "linux-x64": "libiyon_core_native.so",
+  "linux-arm64": "libiyon_core_native.so",
+  "win32-x64": "iyon_core_native.dll",
 };
 const artifactName = artifactByTarget[targetKey];
 
 if (artifactName === undefined) {
-  throw new Error(`unsupported iyon-native staging target: ${targetKey}`);
+  throw new Error(`unsupported iyon-core-native staging target: ${targetKey}`);
 }
 
 const nativeFeatures = process.env.ION_NATIVE_FEATURES?.split(",").map((feature) => feature.trim()).filter(Boolean) ?? [];
-const cargoCommand = ["cargo", "build", "--release", "-p", "iyon-native"];
+const cargoCommand = ["cargo", "build", "--release", "-p", "iyon-core-native"];
 if (nativeFeatures.length > 0) cargoCommand.push("--features", nativeFeatures.join(","));
 
 const cargo = Bun.spawnSync({
   cmd: cargoCommand,
   cwd: repositoryDirectory.pathname,
-  // The native addon links the full TUI dependency graph. Keep the default
-  // staging path reliable on constrained developer/CI machines; callers can
-  // opt into more parallelism explicitly with CARGO_BUILD_JOBS.
+  // Keep the default staging path reliable on constrained developer/CI
+  // machines; callers can opt into more parallelism explicitly with
+  // CARGO_BUILD_JOBS.
   env: { ...process.env, CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS ?? "1" },
   stdout: "pipe",
   stderr: "pipe",
@@ -37,7 +37,7 @@ const cargo = Bun.spawnSync({
 
 if (cargo.exitCode !== 0) {
   const stderr = new TextDecoder().decode(cargo.stderr);
-  throw new Error(`cargo failed while building iyon-native (${cargo.exitCode}):\n${stderr}`);
+  throw new Error(`cargo failed while building iyon-core-native (${cargo.exitCode}):\n${stderr}`);
 }
 
 const nativeArtifact = new URL(artifactName, targetDirectory);
@@ -50,9 +50,8 @@ await Bun.write(stagedAddon, Bun.file(nativeArtifact));
 
 const addon = require(stagedAddon.pathname) as {
   nativeVersion?: () => string;
-  tuiSmoke?: () => string;
 };
-if (addon.nativeVersion?.() !== "iyon-native/t1" || addon.tuiSmoke?.() !== "iyon-tui/t1") {
+if (addon.nativeVersion?.() !== "iyon-core-native/s5") {
   throw new Error(`staged addon failed the Bun load probe: ${stagedAddon.pathname}`);
 }
 

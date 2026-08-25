@@ -1,15 +1,14 @@
 {
   "schema_version": 1,
-  "reachable": 2331,
-  "mapped": 2331,
+  "reachable": 799,
+  "mapped": 799,
   "missing": [],
   "stale": [],
-  "aliases": 330,
+  "aliases": 90,
   "packages": [
     "iyon",
     "iyon-api",
-    "iyon-core",
-    "iyon-tui"
+    "iyon-core"
   ],
   "profiles": [
     {
@@ -31,14 +30,6 @@
     {
       "package": "iyon-core",
       "target": "iyon_core",
-      "selected_features": [],
-      "use_default_features": true,
-      "target_triple": "x86_64-unknown-linux-gnu",
-      "cfg": []
-    },
-    {
-      "package": "iyon-tui",
-      "target": "iyon_tui",
       "selected_features": [],
       "use_default_features": true,
       "target_triple": "x86_64-unknown-linux-gnu",

@@ -10,7 +10,7 @@ Iyon plugins / runtime orchestration
         |
         +------> iyon-api / iyon-core / iyon-core-native
         |
-        `------> @iyon/tui (currently @iyon/runtime/tui / iyon:tui during migration)
+        `------> @iyon/tui (optional application-owned `iyon:tui` alias)
 ```
 
 ## Ownership
@@ -30,21 +30,25 @@ controls, its native addon, and its public TypeScript facade.
 
 ## Boundary rules
 
-- Use only public `@iyon/tui` APIs. During S2–S4 compatibility, use the public
-  `@iyon/runtime/tui` or `iyon:tui` entrypoint; never deep-import TUI internals.
+- Use only public `@iyon/tui` APIs. The application-owned `iyon:tui` alias may
+  re-export that package for bundler compatibility; never deep-import TUI internals.
 - Do not import generated View ABI modules, retained-DAG internals, NodeId,
   NativeRef, native component registries, or TUI addon implementation modules.
 - Product behavior stays here. Do not modify the TUI framework to encode agent,
   provider, model, prompt, tool, approval, transcript, queue, or product-status
   semantics.
-- The application native addon must contain no TUI handles after S5.
+- The application native addon contains only core/API/credential handles. TUI
+  handles and View ABI operations belong to the external addon.
 
-## Temporary S2 compatibility
+## Exact external pins
 
-The extraction intentionally retains local TUI compatibility paths so the
-application checkout remains behavior-neutral and testable until the public
-package/addon split lands. Every retained path and removal tranche is listed in
-`APPLICATION-EXTRACTION-COMPATIBILITY.md`. They are not shared ownership.
+- Rust consumes `alexykn/iyon-tui` revision
+  `e322f10dff490c1423d988982c0782c22774f85d`.
+- TypeScript consumes the same revision as `@iyon/tui`.
+- The TUI addon is staged through the package-owned
+  `iyon-tui-native-stage` command; the core addon is staged separately as
+  `iyon-core-native.node`.
+- No local TUI source, ABI generator, or TUI native contract remains here.
 
 Run local boundary checks with:
 

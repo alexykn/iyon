@@ -1,4 +1,4 @@
-import { View } from "@iyon/runtime/tui";
+import { View } from "@iyon/tui";
 import type { View as ContributionView } from "iyon:tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
 import { renderDiff, resultStyle, resultText, statusLabel, toolCallLine, toolCallPreview, resultBlock, toolText } from "@iyon/plugins";

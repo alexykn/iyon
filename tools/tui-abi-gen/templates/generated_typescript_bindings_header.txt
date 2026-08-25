@@ -1,2 +1,0 @@
-{{ banner }}import { linkSymbols, type Pointer } from "bun:ffi";
-

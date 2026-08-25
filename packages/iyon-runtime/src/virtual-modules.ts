@@ -15,7 +15,6 @@ import {
   cancellationOperation,
   coreSmoke,
   runWithAbortSignal,
-  tuiSmoke,
 } from "./smoke.ts";
 import {
   AgentSession,
@@ -26,7 +25,7 @@ import {
   asIyonError,
   isCancelledError,
 } from "./modules/core.ts";
-import { AppHarness, Component, DiffHunk, DiffLine, DiffRange, DiffRenderer, History, Insets, NativeScrollPane, Scene, Style, StyleSpec, Tui, TextInput, TextSelector, TextSpan, TextStream, Theme, View } from "./tui/index.ts";
+import * as tui from "@iyon/tui";
 
 const virtualModules = {
   "iyon:api": `
@@ -47,7 +46,7 @@ const virtualModules = {
     } from "@iyon/runtime/native";
   `,
   "iyon:tui": `
-    export * from "@iyon/runtime/tui";
+    export * from "@iyon/tui";
   `,
   "iyon:plugins": `
     export * from "@iyon/plugins";
@@ -110,34 +109,7 @@ function registerRuntimeModules(build: Bun.PluginBuilder): void {
     loader: "object",
   }));
   build.module("iyon:tui", () => ({
-    exports: {
-      tuiSmoke,
-      AppHarness,
-      Component,
-      DiffHunk,
-      DiffLine,
-      DiffRange,
-      DiffRenderer,
-      History,
-      Insets,
-      Scene,
-      Style,
-      StyleSpec,
-      Tui,
-      TextInput,
-      TextSelector,
-      TextSpan,
-      TextStream,
-      NativeScrollPane,
-      Theme,
-      View,
-      defineView: require("./tui/define-view.ts").defineView,
-      state: require("./tui/tracked-state.ts").state,
-      TuiError: require("./tui/errors.ts").TuiError,
-      asTuiError: require("./tui/errors.ts").asTuiError,
-      isTuiCancelledError: require("./tui/errors.ts").isTuiCancelledError,
-      isTuiError: require("./tui/errors.ts").isTuiError,
-    },
+    exports: tui,
     loader: "object",
   }));
   build.module("iyon:plugins", () => ({

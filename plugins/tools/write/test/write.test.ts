@@ -3,7 +3,6 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installIyonVirtualModules } from "../../../../packages/iyon-runtime/src/virtual-modules.ts";
-import { nodeForBridge } from "../../../../packages/iyon-runtime/src/tui/values/view.ts";
 installIyonVirtualModules();
 const { writeTool } = await import("../src/execute.ts");
 const context = (root: string) => ({ workspace: { root }, signal: new AbortController().signal } as never);
@@ -11,11 +10,11 @@ const context = (root: string) => ({ workspace: { root }, signal: new AbortContr
 describe("write tool", () => {
   test("compiles lifecycle, multiline, and diff fixtures through native views", () => {
     for (const state of ["preparing", "prepared", "running"] as const) {
-      expect(nodeForBridge(writeTool.renderCall({ id: "call" as never, name: "write", arguments: { path: "file.txt", content: "one\ntwo\n" }, state }) as never)).toBeDefined();
+      expect(writeTool.renderCall({ id: "call" as never, name: "write", arguments: { path: "file.txt", content: "one\ntwo\n" }, state })).toBeDefined();
     }
     const details = { diff: "@@ -0,0 +1,2 @@\n+one\n+two\n" };
-    expect(nodeForBridge(writeTool.renderResult({ content: [{ type: "text", text: "wrote\nfile" }], details, isError: false }) as never)).toBeDefined();
-    expect(nodeForBridge(writeTool.renderResult({ content: [{ type: "text", text: "write failed\nagain" }], details, isError: true }) as never)).toBeDefined();
+    expect(writeTool.renderResult({ content: [{ type: "text", text: "wrote\nfile" }], details, isError: false })).toBeDefined();
+    expect(writeTool.renderResult({ content: [{ type: "text", text: "write failed\nagain" }], details, isError: true })).toBeDefined();
   });
 
   test("creates parent directories and reports a new-file diff", async () => {

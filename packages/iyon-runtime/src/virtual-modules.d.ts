@@ -10,9 +10,11 @@ declare module "iyon:api" {
 declare module "iyon:core" {
   export const AgentSession: any;
   export const IyonNativeError: any;
+  export type AmbientCoreEvent = { readonly type: string; readonly [key: string]: unknown };
   export const KernelSession: new (...args: any[]) => {
     snapshot(): SessionSnapshot;
-    appendMessage(...args: any[]): number;
+    events(): AsyncIterable<any>;
+    nextEvents(max?: number): Promise<any[]>;
     [key: string]: any;
   };
   export const ModelTurn: any;
@@ -35,10 +37,7 @@ declare module "iyon:core" {
     cancel(): void;
   };
   export const asyncSleep: (ms: number) => Promise<string>;
-  export const CancellationProbe: new () => {
-    run(ms: number): Promise<string>;
-    cancel(): void;
-  };
+  export const CancellationProbe: new () => import("./native.ts").CancellationProbeContract;
   export const NativeCounter: new () => import("./native.ts").NativeCounterContract;
   export const EventQueueProbe: new () => import("./native.ts").EventQueueProbeContract;
   export const nativeCounterStats: () => import("./native.ts").NativeCounterStats;
@@ -46,32 +45,7 @@ declare module "iyon:core" {
 }
 
 declare module "iyon:tui" {
-  export const tuiSmoke: "iyon:tui/t1";  export const View: typeof import("./tui/values/view.ts").View;
-  export const Insets: typeof import("./tui/values/geometry.ts").Insets;
-  export const Style: typeof import("./tui/values/style.ts").Style;
-  export const StyleSpec: typeof import("./tui/values/style.ts").StyleSpec;
-  export const TextSpan: typeof import("./tui/values/text.ts").TextSpan;
-  export const TextSelector: typeof import("./tui/values/text.ts").TextSelector;
-  export const Theme: typeof import("./tui/values/theme.ts").Theme;
-  export const History: typeof import("./tui/history.ts").History;
-  export const TextInput: typeof import("./tui/text-input.ts").TextInput;
-  export const TextStream: typeof import("./tui/stream.ts").TextStream;
-  export const NativeScrollPane: typeof import("./tui/scroll-pane.ts").NativeScrollPane;
-  export const Component: typeof import("./tui/component.ts").Component;
-  export const defineView: typeof import("./tui/define-view.ts").defineView;
-  export const state: typeof import("./tui/tracked-state.ts").state;
-  export type State<T> = import("./tui/tracked-state.ts").State<T>;
-  export const Scene: typeof import("./tui/scene.ts").Scene;
-  export const Tui: typeof import("./tui/runtime.ts").Tui;
-  export const AppHarness: typeof import("./tui/testing.ts").AppHarness;
-  export class TuiError extends Error {
-    readonly category: import("./tui/errors.ts").TuiErrorCategory;
-    readonly nativeCode?: string;
-    readonly context?: Readonly<Record<string, unknown>>;
-  }
-  export function asTuiError(error: unknown): TuiError;
-  export function isTuiError(error: unknown): error is TuiError;
-  export function isTuiCancelledError(error: unknown): boolean;
+  export * from "@iyon/tui";
 }
 
 declare module "iyon:plugins" {
@@ -79,6 +53,6 @@ declare module "iyon:plugins" {
 }
 
 declare module "*.node" {
-  const nativeAddon: import("./native.ts").NativeAddon;
+  const nativeAddon: import("./native.ts").NativeCoreAddon;
   export default nativeAddon;
 }

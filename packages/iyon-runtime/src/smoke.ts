@@ -1,11 +1,12 @@
 import { native } from "./native.ts";
+import { tuiSmoke } from "@iyon/tui";
 import { runWithAbortSignal } from "./modules/abort.ts";
 
 export { runWithAbortSignal } from "./modules/abort.ts";
 
 export const apiSmoke = "iyon:api/t1" as const;
 export const coreSmoke = "iyon:core/t1" as const;
-export const tuiSmoke = "iyon:tui/t1" as const;
+export { tuiSmoke };
 
 export type CancellableOperation<T> = {
   run(): Promise<T>;

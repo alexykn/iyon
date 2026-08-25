@@ -11,7 +11,7 @@ const modules = await Promise.all([
 ]);
 const [api, core, tui] = modules;
 
-describe("T1 named native probes", () => {
+describe("S5 named native probes", () => {
   test("async_rust_resolves_to_promise", async () => {
     const pending = core.asyncSleep(0);
     expect(pending).toBeInstanceOf(Promise);
