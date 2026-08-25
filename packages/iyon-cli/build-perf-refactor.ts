@@ -1,6 +1,7 @@
-import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { access, chmod, copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const APP_ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -8,6 +9,11 @@ const TUI_REPOSITORY = "https://github.com/alexykn/iyon-tui.git";
 const TUI_BRANCH = "perf-refactor";
 const TUI_PACKAGE_PATTERN = /github:alexykn\/iyon-tui#[0-9a-f]+/g;
 const TUI_CARGO_PATTERN = /(git\s*=\s*"https:\/\/github\.com\/alexykn\/iyon-tui\.git"\s*,\s*)(?:rev|branch)\s*=\s*"[^"]+"/g;
+const CACHE_ROOT = process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache");
+const WORKTREE_ID = createHash("sha256").update(APP_ROOT).digest("hex").slice(0, 12);
+const PERSISTENT_WORKTREE = resolve(
+  process.env.IYON_PERF_WORKTREE ?? join(CACHE_ROOT, "iyon", `perf-refactor-${WORKTREE_ID}`),
+);
 
 interface CommandResult {
   exitCode: number;
@@ -43,6 +49,16 @@ function runChecked(command: string[], cwd: string): CommandResult {
   return result;
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 async function packageJsonFiles(directory: string): Promise<string[]> {
   const files: string[] = [];
   const entries = await readdir(directory, { withFileTypes: true });
@@ -68,6 +84,30 @@ function resolvePerfRefactorSha(): string {
     throw new Error(`remote did not return a valid ${TUI_BRANCH} branch head`);
   }
   return sha;
+}
+
+async function ensurePersistentWorktree(appHead: string): Promise<"created" | "reused"> {
+  await mkdir(dirname(PERSISTENT_WORKTREE), { recursive: true });
+  let registered = runChecked(["git", "worktree", "list", "--porcelain"], APP_ROOT).stdout
+    .split(/\r?\n/)
+    .some((line) => line === `worktree ${PERSISTENT_WORKTREE}`);
+
+  if (registered && !(await pathExists(PERSISTENT_WORKTREE))) {
+    runChecked(["git", "worktree", "prune"], APP_ROOT);
+    registered = false;
+  }
+  if (registered) {
+    runChecked(["git", "reset", "--hard", appHead], PERSISTENT_WORKTREE);
+    return "reused";
+  }
+  if (await pathExists(PERSISTENT_WORKTREE)) {
+    throw new Error(
+      `persistent worktree path exists but is not registered with this app checkout: ${PERSISTENT_WORKTREE}`,
+    );
+  }
+
+  runChecked(["git", "worktree", "add", "--detach", PERSISTENT_WORKTREE, appHead], APP_ROOT);
+  return "created";
 }
 
 async function switchTuiDependencies(worktree: string, tuiSha: string): Promise<void> {
@@ -99,17 +139,17 @@ async function main(): Promise<void> {
     throw new Error("build:iyon:perf-refactor requires a clean application checkout");
   }
 
+  const appHead = runChecked(["git", "rev-parse", "HEAD"], APP_ROOT).stdout.trim();
   const tuiSha = resolvePerfRefactorSha();
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "iyon-perf-refactor-"));
-  const worktree = join(temporaryRoot, "app");
-  let worktreeAdded = false;
+  const worktree = PERSISTENT_WORKTREE;
   const output = join(APP_ROOT, "dist", "iyon");
   const temporaryOutput = `${output}.perf-refactor.tmp`;
 
   try {
-    console.log(`building Iyon against iyon-tui/${TUI_BRANCH} @ ${tuiSha}`);
-    runChecked(["git", "worktree", "add", "--detach", worktree, "HEAD"], APP_ROOT);
-    worktreeAdded = true;
+    const worktreeState = await ensurePersistentWorktree(appHead);
+    console.log(
+      `${worktreeState} persistent perf-refactor worktree: ${worktree}; building against iyon-tui/${TUI_BRANCH} @ ${tuiSha}`,
+    );
     await switchTuiDependencies(worktree, tuiSha);
     runChecked(["bun", "install"], worktree);
     runChecked(["cargo", "update", "-p", "iyon-tui"], worktree);
@@ -123,8 +163,6 @@ async function main(): Promise<void> {
     console.log(`built ${output} against iyon-tui/${TUI_BRANCH} @ ${tuiSha}`);
   } finally {
     await rm(temporaryOutput, { force: true });
-    if (worktreeAdded) runChecked(["git", "worktree", "remove", "--force", worktree], APP_ROOT);
-    await rm(temporaryRoot, { recursive: true, force: true });
   }
 }
 
