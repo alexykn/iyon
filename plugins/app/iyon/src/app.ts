@@ -311,6 +311,9 @@ class IyonAppImpl implements IyonApp {
       return action.type === "cycleReasoningEffort";
     }
     const event = action.event;
+    // Collapse the working row *before* pushing the stream into history so
+    // the layout is stable — if the chrome shrinks after the stream lands,
+    // the stream content shifts up by one line ("one line too high" bug).
     if (event.type === "assistantDelta") {
       await this.hideWorking();
       await this.freezeUserBatch();
@@ -428,11 +431,21 @@ class IyonAppImpl implements IyonApp {
     return false;
   }
 
+  /**
+   * Hides the working spinner and drains microtasks so the chrome layout
+   * collapses before any history mutation touches the space.
+   *
+   * Without the microtask drain, tracked-state flushes are queued but not
+   * yet committed — the layout still thinks the working row exists when the
+   * stream lands, then shrinks and shifts content up.
+   */
   private async hideWorking(): Promise<void> {
     if (this.workingHandle === undefined) return;
     this.workingHandle.stopAnimation(View.spacer(0));
     this.workingAnimationMode = undefined;
     this.chrome.activityVisible.set(false);
+    await Promise.resolve();
+    await Promise.resolve();
   }
 
   private async openAssistantStream(): Promise<void> {
@@ -442,6 +455,17 @@ class IyonAppImpl implements IyonApp {
   }
 
   private async openUserBatch(text: string, queueId?: string | number): Promise<void> {
+    // Show the working spinner *before* pushing the user batch into history
+    // so the layout is stable from frame 1. Otherwise the batch positions
+    // itself without the working row, then the spinner appears 0.1s later
+    // and pushes everything up ("jagged first message" bug).
+    if (this.workingHandle !== undefined && this.workingAnimationMode === undefined) {
+      this.workingHandle.setAnimation(workingFrames(false), 80);
+      this.workingAnimationMode = false;
+      this.chrome.activityVisible.set(true);
+      await Promise.resolve();
+      await Promise.resolve();
+    }
     if (this.liveUserBatch !== undefined) {
       this.liveUserBatch.messages.push(text);
       await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme) as never);
