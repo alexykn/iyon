@@ -28,8 +28,9 @@
     "t5:check": "cargo run -p api-surface -- check --config tools/api-surface/surface.toml && bun run typecheck && bun test packages/iyon-runtime/tests packages/iyon-runtime/test packages/iyon-sdk/tests",
     "check:ownership": "bun run tools/ownership/check.ts",
     "build:standalone": "bun run native:stage && bun run native:tui:stage && bun run packages/iyon-runtime/scripts/stage-native.ts --standalone",
-    "build:iyon": "bun run native:stage && bun run native:tui:stage && bun run packages/iyon-cli/build.ts",
-    "build:iyon:perf-refactor": "bun run packages/iyon-cli/build-perf-refactor.ts"
+    "build:iyon": "bun run packages/iyon-cli/build-perf-refactor.ts",
+    "build:iyon:perf-refactor": "bun run build:iyon -- perf-refactor",
+    "clean:iyon": "bun run packages/iyon-cli/build-perf-refactor.ts --clean"
   },
   "dependencies": {
     "@iyon/cli": "workspace:*",
