@@ -3,7 +3,7 @@ import { History, Scene, Style, TextInput, Tui, View } from "iyon:tui";
 import { defineView, state } from "iyon:tui";
 import type { State } from "iyon:tui";
 import { renderGenericCall, renderGenericResult } from "@iyon/runtime";
-import { collapseResultView, resultText } from "@iyon/plugins";
+import { collapseResultView } from "@iyon/plugins";
 import { History as RuntimeHistory, TextInput as RuntimeTextInput } from "@iyon/tui";
 import type { History as HistoryHandle, ScrollPane, TextInput as TextInputHandle, TuiEvent, TuiRuntime, ViewSlot } from "@iyon/tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
@@ -247,7 +247,10 @@ class IyonAppImpl implements IyonApp {
         forwardPaste: (text) => this.tui?.forwardPaste?.(text),
         runAgent: () => this.startAgentRun(),
         onExit: () => { this.exitAfterRender = true; },
-        isAgentRunning: () => this.activeAgentRun !== undefined,
+        // The run promise may outlive a cancellation. Once the reduced UI
+        // state is idle, Ctrl+C must be allowed to request application exit
+        // instead of repeatedly cancelling an already-cancelled run.
+        isAgentRunning: () => this.activeAgentRun !== undefined && this.currentState.activeTurn,
       });
       const previous = this.currentState;
       this.currentState = result.state;
@@ -311,18 +314,18 @@ class IyonAppImpl implements IyonApp {
       return action.type === "cycleReasoningEffort";
     }
     const event = action.event;
-    // Collapse the working row *before* pushing the stream into history so
-    // the layout is stable — if the chrome shrinks after the stream lands,
-    // the stream content shifts up by one line ("one line too high" bug).
+    // Collapse the working row once, before an unqueued stream enters
+    // history. A queued stream must keep the waiting row, and repeated
+    // deltas must not restart or stop the spinner.
     if (event.type === "assistantDelta") {
-      await this.hideWorking();
+      if (!next.activityVisible) await this.hideWorking();
       await this.freezeUserBatch();
       await this.openAssistantStream();
       await this.assistantStream?.append("text", event.text);
       return true;
     }
     if (event.type === "thinkingDelta") {
-      await this.hideWorking();
+      if (!next.activityVisible) await this.hideWorking();
       await this.freezeUserBatch();
       await this.openAssistantStream();
       await this.assistantStream?.append("thinking", event.text);
@@ -432,20 +435,19 @@ class IyonAppImpl implements IyonApp {
   }
 
   /**
-   * Hides the working spinner and drains microtasks so the chrome layout
-   * collapses before any history mutation touches the space.
-   *
-   * Without the microtask drain, tracked-state flushes are queued but not
-   * yet committed — the layout still thinks the working row exists when the
-   * stream lands, then shrinks and shifts content up.
+   * Hides the working spinner once and lets the tracked chrome commit before
+   * the stream changes the history layout.
    */
   private async hideWorking(): Promise<void> {
     if (this.workingHandle === undefined) return;
+    if (!this.chrome.activityVisible.value && this.workingAnimationMode === undefined) return;
     this.workingHandle.stopAnimation(View.spacer(0));
     this.workingAnimationMode = undefined;
-    this.chrome.activityVisible.set(false);
-    await Promise.resolve();
-    await Promise.resolve();
+    if (this.chrome.activityVisible.value) {
+      this.chrome.activityVisible.set(false);
+      await Promise.resolve();
+      await Promise.resolve();
+    }
   }
 
   private async openAssistantStream(): Promise<void> {
@@ -560,30 +562,17 @@ class IyonAppImpl implements IyonApp {
   }
 
   private async updateToolSlotResult(key: string, result: ToolResult): Promise<void> {
-    const slot = this.toolSlots.get(key);
-    const pane = this.toolPanes.get(key);
-    if (slot !== undefined && pane !== undefined) {
-      // ⚠️ DO NOT build a per-line View list here. The scroll pane accepts
-      // a single View.text() block and handles line-wrapping internally.
-      // Creating one View per line (e.g. via resultLines) generates thousands
-      // of DAG nodes that must sync across the TS↔Rust bridge, freezing the
-      // TUI for large outputs. Always write tool output as a single
-      // View.text().fillWidth() to the existing scroll pane.
-      const animation = this.toolAnimationSlots.get(key);
-      if (animation !== undefined) await animation.stopAnimation(this.renderToolCallById(key, undefined, false));
-      const text = resultText(result);
-      const isError = result.isError;
-      const style = Style.new().foreground(`theme:${isError ? "tool.error" : "text.muted"}`);
-      await pane.setContent(View.text(text).fillWidth().style(style));
-      await pane.followEnd();
-      this.toolCards.finish(result.toolCallId, result.isError);
-      return;
-    }
     const card = this.toolCards.getByKey(key);
     const call = card === undefined ? undefined : this.renderToolCallById(key, undefined, false);
     const resultView = this.renderToolResult(result);
     const view = call === undefined ? resultView : View.vertical([call, resultView]).fillWidth();
+    const slot = this.toolSlots.get(key);
     if (slot !== undefined) {
+      // A final result ends the live card. Replace the live call/pane unit with
+      // one static view, then dispose the progressive handles. Leaving the
+      // result in the ScrollPane keeps history live and can block promotion.
+      const animation = this.toolAnimationSlots.get(key);
+      if (animation !== undefined && call !== undefined) await animation.stopAnimation(call as never);
       await this.freezeToolSlot(key, view);
       return;
     }
@@ -687,8 +676,10 @@ class IyonAppImpl implements IyonApp {
   private syncWorkingAnimation(state: IyonState): void {
     if (this.workingHandle === undefined) return;
     if (!state.activityVisible) {
-      this.workingHandle.stopAnimation(View.spacer(0));
-      this.workingAnimationMode = undefined;
+      if (this.chrome.activityVisible.value || this.workingAnimationMode !== undefined) {
+        this.workingHandle.stopAnimation(View.spacer(0));
+        this.workingAnimationMode = undefined;
+      }
     } else {
       const waiting = state.steering.length > 0;
       if (this.workingAnimationMode === undefined) {

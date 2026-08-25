@@ -1,6 +1,6 @@
 import { View } from "iyon:tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
-import { resultLines, resultStyle, resultText, statusLabel, toolCallLine, toolResultLine } from "@iyon/plugins";
+import { resultStyle, resultText, statusLabel, toolCallLine, toolResultLine } from "@iyon/plugins";
 
 export function renderReadCall(call: ToolCall<{ path: string; offset?: number; limit?: number }>): View {
   if (call.arguments === undefined) return toolCallLine(`read — ${statusLabel(call.state)}`, call.state, call.pulse) as unknown as View;
@@ -11,5 +11,7 @@ export function renderReadCall(call: ToolCall<{ path: string; offset?: number; l
 
 export function renderReadResult(result: ToolResult): View {
   const style = resultStyle(result.isError);
-  return View.vertical([toolResultLine(result.isError ? "read failed" : "read result", style), ...resultLines(resultText(result), style)]).fillWidth() as unknown as View;
+  // Keep multiline content in one text node; the terminal renderer still
+  // wraps it into rows without creating one retained view per source line.
+  return View.vertical([toolResultLine(result.isError ? "read failed" : "read result", style), toolResultLine(resultText(result), style)]).fillWidth() as unknown as View;
 }

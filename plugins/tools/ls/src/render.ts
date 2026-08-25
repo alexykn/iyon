@@ -1,6 +1,6 @@
 import { View } from "iyon:tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
-import { resultLines, resultStyle, resultText, statusLabel, toolCallLine, toolResultLine } from "@iyon/plugins";
+import { resultStyle, resultText, statusLabel, toolCallLine, toolResultLine } from "@iyon/plugins";
 
 export function renderLsCall(call: ToolCall<{ path?: string }>): View {
   const path = call.arguments?.path;
@@ -9,5 +9,5 @@ export function renderLsCall(call: ToolCall<{ path?: string }>): View {
 
 export function renderLsResult(result: ToolResult): View {
   const style = resultStyle(result.isError);
-  return View.vertical([toolResultLine(result.isError ? "ls failed" : "ls result", style), ...resultLines(resultText(result), style)]).fillWidth() as unknown as View;
+  return View.vertical([toolResultLine(result.isError ? "ls failed" : "ls result", style), toolResultLine(resultText(result), style)]).fillWidth() as unknown as View;
 }

@@ -59,9 +59,15 @@ function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState 
     case "toolApprovalResolved": return { ...updateTool(showActivity(state), normalizeToolCallId(event.toolCallId)!, (tool) => ({ ...tool, status: event.approved ? "running" : "cancelled", frozen: !event.approved })), pendingApproval: undefined };
     case "toolResult": return updateTool(showActivity(state), normalizeToolCallId(event.toolCallId)!, (tool) => ({ ...tool, toolName: event.toolName, result: { content: [{ type: "text", text: event.text }], details: event.details, isError: event.isError, toolCallId: normalizeToolCallId(event.toolCallId) as never, toolName: event.toolName, text: event.text }, status: event.isError ? "failed" : "finished", isError: event.isError, frozen: true }));
     case "toolCallFinished": return state;
-    case "turnFinished": return hasPreparedTool(state)
-      ? { ...state, activeTurn: true, assistantOpen: false, working: true, activityVisible: true }
-      : { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: finalizeLiveTools(state.liveTools) };
+    case "turnFinished": {
+      // A steer can be accepted at the same boundary where the current turn
+      // emits TurnFinished. Keep its preview until the matching userMessage
+      // arrives; otherwise the waiting row flickers and disappears.
+      if (state.steering.length > 0 || hasPreparedTool(state)) {
+        return { ...state, activeTurn: true, assistantOpen: false, working: true, activityVisible: true };
+      }
+      return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: finalizeLiveTools(state.liveTools) };
+    }
     case "turnFailed": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: finalizeLiveTools(state.liveTools), info: { ...state.info, status: event.message } };
     case "turnCancelled": return { ...state, activeTurn: false, assistantOpen: false, working: false, activityVisible: false, steering: [], steeringQueueIds: [], liveTools: cancelLiveTools(state.liveTools) };
   }
