@@ -185,7 +185,9 @@ async function buildBranch(branch: string): Promise<void> {
     await switchTuiDependencies(worktree.path, tuiSha);
     runChecked(["bun", "install"], worktree.path);
     runChecked(["cargo", "update", "-p", "iyon-tui"], worktree.path);
-    runChecked(["bun", "run", "build:iyon", "--", branch], worktree.path);
+    runChecked(["bun", "run", "native:stage"], worktree.path);
+    runChecked(["bun", "run", "native:tui:stage"], worktree.path);
+    runChecked(["bun", "run", "packages/iyon-cli/build.ts"], worktree.path);
 
     const builtOutput = join(worktree.path, "dist", "iyon");
     await mkdir(dirname(output), { recursive: true });
