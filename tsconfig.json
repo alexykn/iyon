@@ -16,6 +16,8 @@
       "iyon:tui": ["./packages/iyon-runtime/src/virtual-modules.d.ts"],
       "iyon:plugins": ["./packages/iyon-runtime/src/virtual-modules.d.ts"],
       "@iyon/plugins": ["./packages/iyon-plugins/src/index.ts"],
+      "@iyon/runtime": ["./packages/iyon-runtime/src/index.ts"],
+      "@iyon/sdk": ["./packages/iyon-sdk/src/index.ts"],
       "*.node": ["./packages/iyon-runtime/src/virtual-modules.d.ts"]
     }
   },
@@ -23,5 +25,8 @@
     "packages/**/*.ts",
     "packages/**/*.d.ts",
     "plugins/tools/**/*.ts"
+  ],
+  "exclude": [
+    "packages/iyon-sdk/generated/**/*.d.ts"
   ]
 }
