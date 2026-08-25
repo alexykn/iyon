@@ -11,6 +11,7 @@ const WORKTREE_ROOT = resolve(
   process.env.IYON_PERF_WORKTREE_ROOT ?? join(CACHE_ROOT, "iyon", "tui-branches"),
 );
 const APP_ID = createHash("sha256").update(APP_ROOT).digest("hex").slice(0, 12);
+const LEGACY_WORKTREE = join(CACHE_ROOT, "iyon", `perf-refactor-${APP_ID}`);
 const TUI_PACKAGE_PATTERN = /github:alexykn\/iyon-tui#[0-9a-f]+/g;
 const TUI_CARGO_PATTERN = /(git\s*=\s*"https:\/\/github\.com\/alexykn\/iyon-tui\.git"\s*,\s*)(?:rev|branch)\s*=\s*"[^"]+"/g;
 
@@ -68,7 +69,8 @@ function worktreePath(branch: string): string {
 }
 
 function isManagedWorktree(path: string): boolean {
-  return path.startsWith(`${WORKTREE_ROOT}${sep}`) && path.includes(`${sep}app-${APP_ID}-`);
+  return path === LEGACY_WORKTREE ||
+    (path.startsWith(`${WORKTREE_ROOT}${sep}`) && path.includes(`${sep}app-${APP_ID}-`));
 }
 
 function registeredWorktreePaths(): string[] {
@@ -202,13 +204,21 @@ async function buildBranch(branch: string): Promise<void> {
 
 async function cleanBranch(branch: string): Promise<void> {
   validateBranch(branch);
-  const path = worktreePath(branch);
-  const registered = registeredWorktreePaths().includes(path);
-  if (registered) {
-    runChecked(["git", "worktree", "remove", "--force", path], APP_ROOT);
-  } else if (await pathExists(path)) {
-    await rm(path, { recursive: true, force: true });
-  } else {
+  const paths = [worktreePath(branch), ...(branch === "perf-refactor" ? [LEGACY_WORKTREE] : [])];
+  const registeredPaths = new Set(registeredWorktreePaths());
+  let removed = false;
+  for (const path of paths) {
+    if (registeredPaths.has(path)) {
+      runChecked(["git", "worktree", "remove", "--force", path], APP_ROOT);
+      removed = true;
+      continue;
+    }
+    if (await pathExists(path)) {
+      await rm(path, { recursive: true, force: true });
+      removed = true;
+    }
+  }
+  if (!removed) {
     console.log(`no cached worktree for iyon-tui/${branch}`);
     return;
   }
@@ -230,6 +240,7 @@ async function cleanAll(): Promise<void> {
       await rm(join(WORKTREE_ROOT, entry.name), { recursive: true, force: true });
     }
   }
+  await rm(LEGACY_WORKTREE, { recursive: true, force: true });
   runChecked(["git", "worktree", "prune"], APP_ROOT, false);
   console.log(`removed all cached TUI branch worktrees for this app checkout`);
 }
