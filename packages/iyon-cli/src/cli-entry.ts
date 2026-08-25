@@ -8,7 +8,12 @@ installBundledExtensionModules();
 const handleSignal = () => { void requestProcessSignal(); };
 process.on("SIGINT", handleSignal);
 process.on("SIGTERM", handleSignal);
-const exitCode = await runProduction();
-process.removeListener("SIGINT", handleSignal);
-process.removeListener("SIGTERM", handleSignal);
-if (exitCode !== 0) process.exitCode = exitCode;
+
+async function main() {
+  const exitCode = await runProduction();
+  process.removeListener("SIGINT", handleSignal);
+  process.removeListener("SIGTERM", handleSignal);
+  if (exitCode !== 0) process.exitCode = exitCode;
+}
+
+main();
