@@ -45,10 +45,7 @@ function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState 
     }
     case "assistantDelta": return { ...state, assistantText: state.assistantText + event.text, assistantOpen: true, activityVisible: state.activeTurn && state.steering.length > 0 };
     case "thinkingDelta": return { ...state, thinkingText: state.thinkingText + event.text, assistantOpen: true, activityVisible: state.activeTurn && state.steering.length > 0 };
-    case "steerQueued": {
-      const queueId = event.queueId === undefined ? undefined : String(event.queueId);
-      return { ...state, steering: [...state.steering, event.text], steeringQueueIds: [...state.steeringQueueIds, queueId], activityVisible: state.activeTurn };
-    }
+    case "steerQueued": return enqueueSteer(state, event.text, event.queueId);
     case "configChanged": return updateInfo(state, { provider: event.provider, modelId: event.modelId, reasoningEffort: event.reasoningEffort });
     case "toolCallPreparing": return withDraft(showActivity(state), event.key, { draftKey: event.key, toolCallId: normalizeToolCallId(event.toolCallId), toolName: event.toolName, argumentPreview: "", status: "preparing", isError: false, frozen: false });
     case "toolCallArguments": return updateDraft(showActivity(state), event.key, (tool) => ({ ...tool, argumentPreview: tool.argumentPreview + event.delta, toolCallId: event.toolCallId === undefined ? tool.toolCallId : normalizeToolCallId(event.toolCallId), toolName: event.toolName ?? tool.toolName }));
@@ -75,6 +72,30 @@ function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState 
 
 function showActivity(state: IyonState): IyonState {
   return { ...state, activeTurn: true, working: true, activityVisible: true };
+}
+
+/**
+ * The submit action adds a local queue preview immediately, while core also
+ * emits SteerQueued as the authoritative acknowledgement. Reconcile those
+ * two paths instead of appending the same message twice.
+ */
+function enqueueSteer(state: IyonState, text: string, rawQueueId?: string | number): IyonState {
+  const queueId = rawQueueId === undefined ? undefined : String(rawQueueId);
+  if (queueId !== undefined && state.steeringQueueIds.includes(queueId)) return state;
+  if (queueId === undefined && state.steering.some((item, index) => item === text && state.steeringQueueIds[index] === undefined)) return state;
+
+  // A fallback core may not return an ID locally, while its event still does.
+  // Upgrade the matching local preview in place so later delivery can remove
+  // the exact queue item without collapsing identical messages.
+  if (queueId !== undefined) {
+    const localIndex = state.steering.findIndex((item, index) => item === text && state.steeringQueueIds[index] === undefined);
+    if (localIndex >= 0) {
+      const steeringQueueIds = [...state.steeringQueueIds];
+      steeringQueueIds[localIndex] = queueId;
+      return { ...state, steeringQueueIds };
+    }
+  }
+  return { ...state, steering: [...state.steering, text], steeringQueueIds: [...state.steeringQueueIds, queueId], activityVisible: state.activeTurn };
 }
 
 function hasPreparedTool(state: IyonState): boolean {
