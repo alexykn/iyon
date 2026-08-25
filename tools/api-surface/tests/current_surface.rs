@@ -37,7 +37,7 @@ fn current_surface_contains_inventory_oracle_paths() {
     for expected in [
         "iyon-api::ModelApi",
         "iyon-core::ids::SessionId",
-        "iyon::tui::build_app",
+        "iyon-core::tools::ToolExecutor",
     ] {
         assert!(paths.contains(expected), "missing {expected}");
     }

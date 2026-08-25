@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "crates/iyon",
     "crates/iyon-core",
     "crates/iyon-api",
     "crates/iyon-core-native",
