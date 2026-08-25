@@ -14,7 +14,9 @@ export function renderBashResult(result: ToolResult): View {
   const text = resultText(result);
   // Use a single View.text block instead of per-line Views (resultLines)
   // so large outputs don't create thousands of DAG nodes that freeze the
-  // TS↔Rust bridge sync. The text is clamped to 16 rows downstream.
+  // TS↔Rust bridge sync. The scroll pane handles line wrapping internally.
+  // ⚠️ If you need per-line styling, add it to the scroll pane renderer on
+  // the Rust side — do NOT split into per-line View nodes here.
   const children = [
     toolResultLine(result.isError ? "bash failed" : "bash result", style),
     View.text(text).fillWidth().style(style),

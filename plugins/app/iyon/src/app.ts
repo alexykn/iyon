@@ -3,7 +3,7 @@ import { History, Scene, Style, TextInput, Tui, View } from "iyon:tui";
 import { defineView, state } from "iyon:tui";
 import type { State } from "iyon:tui";
 import { renderGenericCall, renderGenericResult } from "@iyon/runtime";
-import { collapseResultView } from "@iyon/plugins";
+import { collapseResultView, resultText } from "@iyon/plugins";
 import { History as RuntimeHistory, TextInput as RuntimeTextInput } from "@iyon/tui";
 import type { History as HistoryHandle, ScrollPane, TextInput as TextInputHandle, TuiEvent, TuiRuntime, ViewSlot } from "@iyon/tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
@@ -561,8 +561,26 @@ class IyonAppImpl implements IyonApp {
 
   private async updateToolSlotResult(key: string, result: ToolResult): Promise<void> {
     const slot = this.toolSlots.get(key);
+    const pane = this.toolPanes.get(key);
+    if (slot !== undefined && pane !== undefined) {
+      // ⚠️ DO NOT build a per-line View list here. The scroll pane accepts
+      // a single View.text() block and handles line-wrapping internally.
+      // Creating one View per line (e.g. via resultLines) generates thousands
+      // of DAG nodes that must sync across the TS↔Rust bridge, freezing the
+      // TUI for large outputs. Always write tool output as a single
+      // View.text().fillWidth() to the existing scroll pane.
+      const animation = this.toolAnimationSlots.get(key);
+      if (animation !== undefined) await animation.stopAnimation(this.renderToolCallById(key, undefined, false));
+      const text = resultText(result);
+      const isError = result.isError;
+      const style = Style.new().foreground(`theme:${isError ? "tool.error" : "text.muted"}`);
+      await pane.setContent(View.text(text).fillWidth().style(style));
+      await pane.followEnd();
+      this.toolCards.finish(result.toolCallId, result.isError);
+      return;
+    }
     const card = this.toolCards.getByKey(key);
-    const call = card === undefined ? undefined : this.renderToolCall(card, key, false);
+    const call = card === undefined ? undefined : this.renderToolCallById(key, undefined, false);
     const resultView = this.renderToolResult(result);
     const view = call === undefined ? resultView : View.vertical([call, resultView]).fillWidth();
     if (slot !== undefined) {
@@ -592,6 +610,12 @@ class IyonAppImpl implements IyonApp {
     this.toolCardStates.delete(key);
   }
 
+  private renderToolCallById(key: string, card: LiveTool | undefined, pulse: boolean) {
+    if (card === undefined) card = this.toolCards.getByKey(key);
+    if (card === undefined) return undefined;
+    return this.renderToolCall(card, key, pulse);
+  }
+
   private renderToolCall(card: LiveTool, key: string, pulse: boolean) {
     const call: ToolCall = {
       id: (card.toolCallId ?? key) as never,
@@ -610,6 +634,9 @@ class IyonAppImpl implements IyonApp {
   private renderToolUpdate(card: LiveTool) {
     const update = toolUpdateText(card);
     if (update === undefined) return View.spacer(0);
+    // ⚠️ Single View.text() — do not split into per-line views. Scroll
+    // pane handles wrapping internally. Per-line views create thousands of
+    // DAG nodes that freeze the TS↔Rust bridge.
     const output = View.hanging(
       View.text("  ").noWrap(),
       View.text("  ").noWrap(),

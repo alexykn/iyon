@@ -169,11 +169,6 @@ async function buildStable(): Promise<void> {
 }
 
 async function buildBranch(branch: string): Promise<void> {
-  const status = runChecked(["git", "status", "--porcelain"], APP_ROOT, false);
-  if (status.stdout.trim().length > 0) {
-    throw new Error("branch builds require a clean application checkout");
-  }
-
   const appHead = runChecked(["git", "rev-parse", "HEAD"], APP_ROOT, false).stdout.trim();
   const tuiSha = resolveBranchSha(branch);
   const worktree = await ensurePersistentWorktree(branch, appHead);
