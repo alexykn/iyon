@@ -710,16 +710,37 @@ class IyonAppImpl implements IyonApp {
    * update provenance (§24.3: identity logic never relocates into the app).
    * The advance tick preserves today's side effect where repeated exact-root
    * updates still advance spinners/streams/headless time.
+   *
+   * FIXED: detect which tracked chrome values changed BEFORE
+   * `syncChromeStates` writes them, so we drain microtasks when any state
+   * (not just activityVisible) changed. The old condition read after the
+   * write, making it always false — so the flush never fired for effort
+   * cycling, leaving the footer text stale until the next keyboard event.
+   * Advance is also called AFTER the microtask drain so the native
+   * renderer sees the published View outputs.
    */
   private async applyChrome(next: IyonState): Promise<void> {
     if (this.tui === undefined || !this.started) return;
+    // Snapshot pre-sync values to detect what changed.
+    const info = this.chrome.footerInfo.value;
+    const effortChanged = next.info.reasoningEffort !== this.chrome.effort.value;
+    const footerChanged = info.status !== next.info.status || info.provider !== next.info.provider
+      || info.modelId !== next.info.modelId || info.reasoningEffort !== next.info.reasoningEffort;
+    const activityChanged = next.activityVisible !== this.chrome.activityVisible.value;
+    const goodbyeChanged = next.goodbye !== this.chrome.goodbye.value;
+    const steering = this.chrome.steering.value;
+    const steeringChanged = next.steering.length !== steering.length
+      || next.steering.some((v, i) => v !== steering[i]);
+    const chromeChanged = effortChanged || footerChanged || activityChanged || goodbyeChanged || steeringChanged;
+
     this.syncWorkingAnimation(next);
     syncChromeStates(this.chrome, next);
-    // Drain microtasks only when the spinner is starting (first submit) or
-    // stopping (first stream delta). During streaming, the working state
-    // is already stable and the drains are wasted TS↔Rust roundtrips that
-    // accumulate lag at 800 units/sec pacing.
-    if (next.activityVisible !== this.chrome.activityVisible.value) {
+    // Drain microtasks only when something actually changed, so the
+    // tracked-state flush re-evaluates the affected scopes before we
+    // advance. During streaming the working/steering state is already
+    // stable and we skip the drain to avoid wasted TS↔Rust roundtrips
+    // that accumulate lag at 800 units/sec pacing.
+    if (chromeChanged) {
       await Promise.resolve();
       await Promise.resolve();
     }
