@@ -97,7 +97,7 @@ function normalizeToolCallId(toolCallId: string | number | undefined): string | 
   return toolCallId === undefined ? undefined : String(toolCallId);
 }
 function applyToolUpdate(tool: LiveTool, update: ToolUpdatePresentation): LiveTool {
-  if (update.type === "text") return { ...tool, update: tool.update?.type === "text" ? { ...update, text: tool.update.text + update.text } : update };
+  if (update.type === "text") return { ...tool, update };
   if (update.type === "progress") return { ...tool, progress: update };
   return { ...tool, update };
 }
