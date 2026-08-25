@@ -64,6 +64,7 @@ if (Bun.argv.includes("--standalone")) {
     entrypoints: [new URL("../iyon-cli/src/index.ts", runtimeDirectory).pathname],
     outdir: repositoryDirectory.pathname,
     plugins: [iyonVirtualModulePlugin],
+    bytecode: true,
     compile: {
       outfile: output,
     },
