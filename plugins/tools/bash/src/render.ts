@@ -19,7 +19,9 @@ export function renderBashResult(result: ToolResult): View {
   // the Rust side — do NOT split into per-line View nodes here.
   const children = [
     toolResultLine(result.isError ? "bash failed" : "bash result", style),
-    View.text(text).fillWidth().style(style),
+    // Keep final output on the same two-column hanging indent as live
+    // updates; multiline text remains one retained node.
+    toolResultLine(text, style),
   ];
   const fullOutputPath = typeof result.details === "object" && result.details !== null && typeof (result.details as { fullOutputPath?: unknown }).fullOutputPath === "string" ? (result.details as { fullOutputPath: string }).fullOutputPath : undefined;
   if (fullOutputPath) children.push(toolResultLine(`[Full output: ${fullOutputPath}]`, style.theme("text.warning")));
