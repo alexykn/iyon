@@ -715,11 +715,14 @@ class IyonAppImpl implements IyonApp {
     if (this.tui === undefined || !this.started) return;
     this.syncWorkingAnimation(next);
     syncChromeStates(this.chrome, next);
-    // Drain the scheduled flush so scoped updates commit before callers
-    // observe the screen (same effective ordering as the awaited render it
-    // replaces), then advance headless animations.
-    await Promise.resolve();
-    await Promise.resolve();
+    // Drain microtasks only when the spinner is starting (first submit) or
+    // stopping (first stream delta). During streaming, the working state
+    // is already stable and the drains are wasted TS↔Rust roundtrips that
+    // accumulate lag at 800 units/sec pacing.
+    if (next.activityVisible !== this.chrome.activityVisible.value) {
+      await Promise.resolve();
+      await Promise.resolve();
+    }
     (this.tui as { advance?: (ms: number) => void }).advance?.(0);
   }
 
