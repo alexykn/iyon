@@ -20,6 +20,7 @@ import type {
   ToolLifecycleEvent,
   ToolLifecycleState,
   ToolResult,
+  ToolUpdateEvent,
 } from "../../../iyon-sdk/src/core.ts";
 import type { ModelError, ModelStreamEvent } from "../../../iyon-sdk/src/api.ts";
 import { eventsFromNextEvent } from "./async-events.ts";
@@ -78,6 +79,10 @@ export class ToolExecution {
     this.handle.start();
   }
 
+  sendUpdate(update: ToolUpdateEvent): void {
+    this.handle.sendUpdate(jsonValue(update));
+  }
+
   requestApproval(requirement?: unknown): ApprovalState | null {
     return this.handle.requestApproval(jsonValue(requirement)) as unknown as ApprovalState | null;
   }
@@ -130,6 +135,10 @@ export class KernelSession implements KernelSessionContract {
 
   nextEvent(): Promise<CoreEvent | null> {
     return this.handle.nextEvent() as Promise<CoreEvent | null>;
+  }
+
+  nextEvents(max = 64): Promise<CoreEvent[]> {
+    return this.handle.nextEvents(max) as Promise<CoreEvent[]>;
   }
 
   events(): AsyncIterable<CoreEvent> {

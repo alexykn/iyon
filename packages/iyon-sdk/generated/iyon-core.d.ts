@@ -160,6 +160,8 @@ declare module "iyon:core" {
   export interface event__CoreEvent__MessageStarted__turn_id { readonly __nativeHandle: unique symbol; }
   // iyon-core::event::CoreEvent::SteerQueued [MirrorValue / T4]
   export type event__CoreEvent__SteerQueued = Record<string, unknown>;
+  // iyon-core::event::CoreEvent::SteerQueued::queue_id [MirrorValue / T4]
+  export type event__CoreEvent__SteerQueued__queue_id = Record<string, unknown>;
   // iyon-core::event::CoreEvent::SteerQueued::text [NativeHandle / T4]
   export interface event__CoreEvent__SteerQueued__text { readonly __nativeHandle: unique symbol; }
   // iyon-core::event::CoreEvent::ToolApprovalRequested [MirrorValue / T4]
@@ -382,6 +384,10 @@ declare module "iyon:core" {
   export type ids__MessageId = Record<string, unknown>;
   // iyon-core::ids::MessageId::0 [NativeHandle / T4]
   export interface ids__MessageId__0 { readonly __nativeHandle: unique symbol; }
+  // iyon-core::ids::QueueItemId [MirrorValue / T4]
+  export type ids__QueueItemId = Record<string, unknown>;
+  // iyon-core::ids::QueueItemId::0 [MirrorValue / T4]
+  export type ids__QueueItemId__0 = Record<string, unknown>;
   // iyon-core::ids::SessionId [MirrorValue / T4]
   export type ids__SessionId = Record<string, unknown>;
   // iyon-core::ids::SessionId::0 [NativeHandle / T4]
@@ -432,6 +438,8 @@ declare module "iyon:core" {
   export type kernel__ModelTurnState = Record<string, unknown>;
   // iyon-core::kernel::QueueFull [MirrorValue / T4]
   export type kernel__QueueFull = Record<string, unknown>;
+  // iyon-core::kernel::QueueIdAllocator [MirrorValue / T4]
+  export type kernel__QueueIdAllocator = Record<string, unknown>;
   // iyon-core::kernel::QueueKind [MirrorValue / T4]
   export type kernel__QueueKind = Record<string, unknown>;
   // iyon-core::kernel::QueueOperation [MirrorValue / T4]
@@ -604,10 +612,16 @@ declare module "iyon:core" {
   export type kernel__queue__KernelQueues__apply = (...args: readonly unknown[]) => unknown;
   // iyon-core::kernel::queue::KernelQueues::drain_follow_ups_after_settle [MirrorValue / T4]
   export type kernel__queue__KernelQueues__drain_follow_ups_after_settle = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::drain_follow_ups_after_settle_with_id [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__drain_follow_ups_after_settle_with_id = (...args: readonly unknown[]) => unknown;
   // iyon-core::kernel::queue::KernelQueues::drain_steers_at_boundary [MirrorValue / T4]
   export type kernel__queue__KernelQueues__drain_steers_at_boundary = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::drain_steers_at_boundary_with_id [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__drain_steers_at_boundary_with_id = (...args: readonly unknown[]) => unknown;
   // iyon-core::kernel::queue::KernelQueues::follow_up [MirrorValue / T4]
   export type kernel__queue__KernelQueues__follow_up = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::follow_up_with_id [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__follow_up_with_id = (...args: readonly unknown[]) => unknown;
   // iyon-core::kernel::queue::KernelQueues::new [MirrorValue / T4]
   export type kernel__queue__KernelQueues__new = (...args: readonly unknown[]) => unknown;
   // iyon-core::kernel::queue::KernelQueues::pending_follow_ups [MirrorValue / T4]
@@ -618,16 +632,26 @@ declare module "iyon:core" {
   export type kernel__queue__KernelQueues__pending_steers = (...args: readonly unknown[]) => unknown;
   // iyon-core::kernel::queue::KernelQueues::prompt [MirrorValue / T4]
   export type kernel__queue__KernelQueues__prompt = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::prompt_with_id [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__prompt_with_id = (...args: readonly unknown[]) => unknown;
   // iyon-core::kernel::queue::KernelQueues::set_active [MirrorValue / T4]
   export type kernel__queue__KernelQueues__set_active = (...args: readonly unknown[]) => unknown;
   // iyon-core::kernel::queue::KernelQueues::steer [MirrorValue / T4]
   export type kernel__queue__KernelQueues__steer = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::steer_with_id [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__steer_with_id = (...args: readonly unknown[]) => unknown;
   // iyon-core::kernel::queue::KernelQueues::submit_turn_compat [MirrorValue / T4]
   export type kernel__queue__KernelQueues__submit_turn_compat = (...args: readonly unknown[]) => unknown;
   // iyon-core::kernel::queue::KernelQueues::take_prompt [MirrorValue / T4]
   export type kernel__queue__KernelQueues__take_prompt = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::KernelQueues::take_prompt_with_id [MirrorValue / T4]
+  export type kernel__queue__KernelQueues__take_prompt_with_id = (...args: readonly unknown[]) => unknown;
   // iyon-core::kernel::queue::QueueFull::kind [MirrorValue / T4]
   export type kernel__queue__QueueFull__kind = Record<string, unknown>;
+  // iyon-core::kernel::queue::QueueIdAllocator::new [MirrorValue / T4]
+  export type kernel__queue__QueueIdAllocator__new = (...args: readonly unknown[]) => unknown;
+  // iyon-core::kernel::queue::QueueIdAllocator::next [MirrorValue / T4]
+  export type kernel__queue__QueueIdAllocator__next = (...args: readonly unknown[]) => unknown;
   // iyon-core::kernel::queue::QueueKind::FollowUp [MirrorValue / T4]
   export type kernel__queue__QueueKind__FollowUp = Record<string, unknown>;
   // iyon-core::kernel::queue::QueueKind::Prompt [MirrorValue / T4]

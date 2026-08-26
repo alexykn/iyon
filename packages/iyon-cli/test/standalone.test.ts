@@ -6,7 +6,7 @@ import { join } from "node:path";
 const repositoryDirectory = join(import.meta.dir, "../../..");
 const standalone = join(repositoryDirectory, "iyon-smoke");
 
-describe("T1 standalone distribution", () => {
+describe("S5 standalone distribution", () => {
   test("addon_is_embedded_in_standalone_executable", async () => {
     const emptyWorkingDirectory = await mkdtemp(join(tmpdir(), "iyon-t1-"));
     const result = Bun.spawnSync({
@@ -22,7 +22,7 @@ describe("T1 standalone distribution", () => {
     expect(stderr).toBe("");
     expect(JSON.parse(stdout)).toEqual({
       ok: true,
-      native: "iyon-native/t1",
+      native: "iyon-core-native/s5",
       tui: "iyon:tui/t1",
       concurrent: 100,
       event: "fifo-and-close",

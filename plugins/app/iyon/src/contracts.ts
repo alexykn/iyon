@@ -6,7 +6,7 @@ import type {
   ToolCallId,
 } from "@iyon/sdk";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
-import type { View } from "@iyon/runtime/tui";
+import type { View } from "@iyon/tui";
 
 export interface ToolDraftKey {
   readonly messageId: MessageId | number;
@@ -34,6 +34,7 @@ export interface LiveTool {
   readonly arguments?: JsonValue;
   readonly argumentPreview: string;
   readonly update?: ToolUpdatePresentation;
+  readonly text?: string;
   readonly result?: ToolResult;
   readonly status: LiveToolStatus;
   readonly progress?: { readonly label: string; readonly current?: number; readonly total?: number };

@@ -44,13 +44,13 @@ export class ToolCardStore {
 
   update(toolCallId: string, update: ToolUpdatePresentation): LiveTool | undefined {
     toolCallId = normalizeToolCallId(toolCallId)!;
-    return this.map(toolCallId, (card) => update.type === "text" ? { ...card, update: card.update?.type === "text" ? { ...update, text: card.update.text + update.text } : update } : update.type === "progress" ? { ...card, update, progress: update } : { ...card, update, details: update.details });
+    return this.map(toolCallId, (card) => update.type === "text" ? { ...card, update } : update.type === "progress" ? { ...card, update, progress: update } : { ...card, update, details: update.details });
   }
   approval(toolCallId: string): LiveTool | undefined { return this.map(normalizeToolCallId(toolCallId)!, (card) => ({ ...card, status: "pendingApproval" as const })); }
   resolveApproval(toolCallId: string, approved: boolean): LiveTool | undefined { return this.map(normalizeToolCallId(toolCallId)!, (card) => ({ ...card, status: approved ? "running" as const : "cancelled" as const, frozen: !approved })); }
   cancel(toolCallId: string): LiveTool | undefined { return this.map(normalizeToolCallId(toolCallId)!, (card) => ({ ...card, status: "cancelled" as const, frozen: true, isError: true })); }
   finish(toolCallId: string, isError: boolean): LiveTool | undefined { return this.map(normalizeToolCallId(toolCallId)!, (card) => ({ ...card, status: isError ? "failed" as const : "finished" as const, isError, frozen: true })); }
-  result(toolCallId: string, toolName: string, text: string, details: JsonValue, isError: boolean): LiveTool | undefined { toolCallId = normalizeToolCallId(toolCallId)!; return this.map(toolCallId, (card) => ({ ...card, toolName, result: { content: [{ type: "text", text }], details, isError, toolCallId: toolCallId as never, toolName, text }, status: isError ? "failed" as const : "finished" as const, isError, frozen: true })); }
+  result(toolCallId: string, toolName: string, text: string, details: JsonValue, isError: boolean): LiveTool | undefined { toolCallId = normalizeToolCallId(toolCallId)!; return this.map(toolCallId, (card) => ({ ...card, toolName, text, result: { content: [{ type: "text", text }], details, isError, toolCallId: toolCallId as never, toolName, text }, status: isError ? "failed" as const : "finished" as const, isError, frozen: true })); }
   get(toolCallId: string): LiveTool | undefined { const id = this.ids.get(toolCallId); return id === undefined ? undefined : this.cards.get(id); }
   keyFor(toolCallId: string): string | undefined { return this.ids.get(toolCallId); }
   keyForDraft(key: ToolDraftKey): string { return draftIdFor(key); }

@@ -232,6 +232,7 @@ export interface NativeKernelSession {
   deliverUserMessage(text: string): MessageId;
   appendEntry(entry: SessionEntry): void;
   nextEvent(): Promise<CoreEvent | null>;
+  nextEvents(max?: number): Promise<CoreEvent[]>;
   beginModelTurn(options: ModelTurnOptions): ModelTurn;
   prepareToolExecution(request: ToolExecutionRequest): ToolExecution;
   enqueue(kind: "prompt" | "steer" | "followUp", text: string): Promise<number>;
@@ -256,6 +257,7 @@ export interface NativeToolExecution {
   requestApproval(requirement: ApprovalRequirement): ApprovalState | null;
   approve(approvalId: ApprovalId): void;
   reject(approvalId: ApprovalId, reason?: string): void;
+  sendUpdate(update: ToolUpdateEvent): void;
   finish(result: ToolResult): void;
   fail(error: string): void;
   cancel(reason?: string): void;

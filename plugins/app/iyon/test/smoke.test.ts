@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { installIyonVirtualModules } from "@iyon/runtime";
-import { createAppHarness } from "@iyon/runtime/tui";
+import { createAppHarness } from "@iyon/tui";
 import { discoverPackageRoot, PackageLoader, selectApp } from "@iyon/plugins";
 import type { IyonApp } from "../src/app.ts";
 
@@ -55,6 +55,8 @@ describe("default app package", () => {
     await app.handleAction({ type: "submit", text: second?.payload ?? "" });
     expect(runs).toBe(1);
     expect(submits).toEqual(["hello", "steer"]);
+    expect(harness.screenRows().some((row) => row.includes("Queue: steer") && row.includes("Working"))).toBe(true);
+    for (let index = 0; index < 5; index += 1) harness.advance(80);
     expect(harness.screenRows().some((row) => row.includes("Queue: steer") && row.includes("waiting"))).toBe(true);
     const queuedRows = [...harness.screenRows(), ...harness.nativeHistoryRows()];
     expect(queuedRows.filter((row) => row.includes("hello")).length).toBe(1);

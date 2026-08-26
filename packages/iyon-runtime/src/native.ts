@@ -17,6 +17,7 @@ export interface NativeToolExecutionContract {
   requestApproval(requirement?: JsonValue): JsonValue | null;
   approve(approvalId: number): void;
   reject(approvalId: number, reason?: string): void;
+  sendUpdate(update: JsonValue): void;
   finish(result: JsonValue): void;
   fail(error: string): void;
   cancel(reason?: string): void;
@@ -28,6 +29,7 @@ export interface NativeKernelSessionContract {
   deliverUserMessage(text: string): number;
   appendEntry(entry: JsonValue): void;
   nextEvent(): Promise<JsonValue | null>;
+  nextEvents(max?: number): Promise<JsonValue[]>;
   beginModelTurn(options: JsonValue): NativeModelTurnContract;
   prepareToolExecution(request: JsonValue): NativeToolExecutionContract;
   enqueue(kind: string, text: string): number;
@@ -58,12 +60,12 @@ export interface EventQueueProbeContract {
   close(): void;
 }
 
-export interface NativeAddon {
+/** Private application/kernel native contract. It must not contain TUI APIs. */
+export interface NativeCoreAddon {
   nativeVersion(): string;
   echoJson(value: JsonValue): JsonValue;
   echoString(value: string): string;
   echoBuffer(value: Buffer): Buffer;
-  tuiSmoke(): string;
   asyncSleep(ms: number): Promise<string>;
   CancellationProbe: new () => CancellationProbeContract;
   NativeCounter: new () => NativeCounterContract;
@@ -75,62 +77,16 @@ export interface NativeAddon {
   credentialSet(service: string, account: string, secret: string): void;
   credentialDelete(service: string, account: string): void;
   credentialHas(service: string, account: string): boolean;
-  materializeView?(value: unknown): object;
-  NativeHistory?: new () => { dispose(): void; layout(): object; setLayout(layout: object): void; isDetached(): boolean; push(view: object): number; freeze(unit: number, view: object): void; discardLive(unit: number): void; pushStream(stream: object): void; sealStream(stream: object): void };
-  NativeTextInput?: new (multiline?: boolean) => { dispose(): void; text(): string; cursorBytes(): number; setText(value: string): void; clear(): void; submitted(): NativeTuiOutputContract; setMultiline(enabled: boolean): void; isMultiline(): boolean; componentId(): number | null };
-  NativeTuiHost?: new (width?: number, height?: number, headless?: boolean) => NativeTuiHostContract;
-  NativeTuiOutput?: new () => NativeTuiOutputContract;
-  NativeTextStream?: new (projector?: "markdown") => { dispose(): void; update(text: string): void; appendSegment(kind: "text" | "thinking", text: string): void; seal(): void; snapshot(): object };
-  NativeMarkdownProjector?: new () => { dispose(): void; project(text: string, sealed?: boolean): object };
-  NativePlainProjector?: new () => { dispose(): void; project(text: string): object };
-  NativeWorking?: new () => { dispose(): void; componentId(): number | null; setActive(active: boolean): void; setPending(pending: string[]): void };
-  NativeViewSlot?: new (initial: object) => { dispose(): void; revision(): number; componentId(): number | null; setView(view: object): void; setAnimation(frames: object[], intervalMs: number): void; stopAnimation(view: object): void };
-  NativeScrollPane?: new (initial: object) => { dispose(): void; componentId(): number | null; setContent(view: object): void; followEnd(): void };
 }
 
-export interface NativeTuiOutputContract { readonly output?: unknown; }
-
-export interface NativeTuiHostContract {
-  dispose(): void;
-  exit(): void;
-  history(): object;
-  textInput(multiline?: boolean, border?: object): object;
-  working(config?: object): object;
-  setTheme(theme: object): void;
-  setHistory(history: object): void;
-  exited(): boolean;
-  bindKey(key: string, modifiers: readonly string[] | undefined, actionId: string): void;
-  route(output: NativeTuiOutputContract, actionId: string): void;
-  interceptPaste(input: object, actionId: string): void;
-  render(view: object): void;
-  dispatchKey(key: string, modifiers?: readonly string[]): void;
-  dispatchPaste(text: string): void;
-  forwardPaste(text: string): void;
-  pollTerminal(): void;
-  nextWakeMs(): number;
-  nextAction(): { action_id: string; payload?: string | null } | null;
-  waitForAction(): Promise<{ action_id: string; payload?: string | null } | null>;
-  screenRows(): string[];
-  nativeHistoryRows(): string[];
-  resize(width: number, height: number): void;
-  advanceTime(milliseconds: number): void;
-  createViewSlot(initial: object): object;
-  scrollPane(initial: object): object;
-  styleAt(row: number, column: number): object | null;
-  cellXOfText(row: number, text: string): number | null;
-}
-
-// This is the one static addon seam. The stage script materializes this exact
-// path before Bun typechecking, tests, or standalone compilation. A static
-// require keeps the .node reachable to Bun's compiler for embedding.
-export const native = require("../native/iyon-native.node") as NativeAddon;
+// This is the application/kernel native seam. TUI loading belongs to @iyon/tui.
+export const native = require("../native/iyon-core-native.node") as NativeCoreAddon;
 
 export const {
   nativeVersion,
   echoJson,
   echoString,
   echoBuffer,
-  tuiSmoke: nativeTuiSmoke,
   asyncSleep,
   CancellationProbe,
   NativeCounter,

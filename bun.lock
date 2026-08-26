@@ -9,9 +9,10 @@
         "@iyon/plugins": "workspace:*",
         "@iyon/runtime": "workspace:*",
         "@iyon/sdk": "workspace:*",
+        "@iyon/tui": "github:alexykn/iyon-tui#e322f10dff490c1423d988982c0782c22774f85d",
       },
       "devDependencies": {
-        "bun-types": "latest",
+        "bun-types": "1.4.0",
       },
     },
     "packages/iyon-cli": {
@@ -32,6 +33,7 @@
       "dependencies": {
         "@iyon/runtime": "workspace:*",
         "@iyon/sdk": "workspace:*",
+        "@iyon/tui": "github:alexykn/iyon-tui#e322f10dff490c1423d988982c0782c22774f85d",
       },
     },
     "packages/iyon-runtime": {
@@ -40,6 +42,7 @@
       "dependencies": {
         "@iyon/plugins": "workspace:*",
         "@iyon/sdk": "workspace:*",
+        "@iyon/tui": "github:alexykn/iyon-tui#e322f10dff490c1423d988982c0782c22774f85d",
       },
     },
     "packages/iyon-sdk": {
@@ -62,6 +65,7 @@
         "@iyon/plugins": "workspace:*",
         "@iyon/runtime": "workspace:*",
         "@iyon/sdk": "workspace:*",
+        "@iyon/tui": "github:alexykn/iyon-tui#e322f10dff490c1423d988982c0782c22774f85d",
       },
     },
     "plugins/providers/mock": {
@@ -105,6 +109,7 @@
       "dependencies": {
         "@iyon/plugins": "workspace:*",
         "@iyon/sdk": "workspace:*",
+        "@iyon/tui": "github:alexykn/iyon-tui#e322f10dff490c1423d988982c0782c22774f85d",
       },
     },
     "plugins/tools/find": {
@@ -181,9 +186,11 @@
 
     "@iyon/tool-write": ["@iyon/tool-write@workspace:plugins/tools/write"],
 
+    "@iyon/tui": ["iyon-tui-workspace@github:alexykn/iyon-tui#e322f10", { "bin": { "iyon-tui-native-stage": "./packages/iyon-tui/scripts/stage-native.ts" } }, "alexykn-iyon-tui-e322f10", "sha512-syHS+FNEnd7dk7aSkN+mGBH6k9I4Tcv8iDQ7k1Farc/D5anZr6z0X6E64UEUi36gmPZrS8BLtadtc+7pBTkmPA=="],
+
     "@types/node": ["@types/node@26.2.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
 
-    "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
+    "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
     "undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
   }

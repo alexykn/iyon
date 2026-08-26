@@ -9,6 +9,7 @@ const result = await Bun.build({
   entrypoints: [new URL("./src/cli-entry.ts", import.meta.url).pathname],
   outdir: outputDirectory.pathname,
   plugins: [iyonVirtualModulePlugin],
+  bytecode: true,
   compile: { outfile: output },
 });
 if (!result.success) throw new Error(`iyon standalone compilation failed:\n${result.logs.map((log) => log.message).join("\n")}`);

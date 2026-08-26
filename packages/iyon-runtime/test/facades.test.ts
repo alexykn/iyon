@@ -24,8 +24,10 @@ describe("T4 core façade", () => {
         metadata: {},
       },
     });
-    await turn.push({ type: "textDelta", contentIndex: 0, delta: "world" });
-    await turn.push({ type: "done", stopReason: "stop" });
+    await turn.pushMany([
+      { type: "textDelta", contentIndex: 0, delta: "world" },
+      { type: "done", stopReason: "stop" },
+    ]);
     await turn.finish();
 
     const events = [];
@@ -48,12 +50,21 @@ describe("T4 core façade", () => {
     session.close();
   });
 
+  test("delivers queued core events in bounded batches", async () => {
+    const session = new core.KernelSession({ id: 24 });
+    expect(session.deliverUserMessage("batch")).toBe(1);
+    const events = await session.nextEvents(3);
+    expect(events.map((event: { readonly type: string }) => event.type)).toEqual(["messageStarted", "messageDelta", "messageFinished"]);
+    session.close();
+    expect(await session.nextEvents(3)).toEqual([]);
+  });
+
   test("deliverUserMessage appends and emits the canonical user triple", async () => {
     const session = new core.KernelSession({ id: 23 });
     expect(session.deliverUserMessage("wh")).toBe(1);
     expect(session.snapshot().entries.map((entry) => entry.role)).toEqual(["user"]);
     session.close();
-    const events = [];
+    const events: Array<{ readonly type: string; readonly [key: string]: unknown }> = [];
     for await (const event of session.events()) events.push(event);
     expect(events.map((event) => event.type)).toEqual([
       "messageStarted",

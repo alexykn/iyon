@@ -3,7 +3,6 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installIyonVirtualModules } from "../../../../packages/iyon-runtime/src/virtual-modules.ts";
-import { materializeView } from "../../../../packages/iyon-runtime/src/tui/index.ts";
 
 installIyonVirtualModules();
 const { readTool } = await import("../src/execute.ts");
@@ -12,10 +11,10 @@ const context = (root: string) => ({ workspace: { root }, signal: new AbortContr
 describe("read tool", () => {
   test("compiles lifecycle and multiline result fixtures through native views", () => {
     for (const state of ["preparing", "prepared", "running"] as const) {
-      expect(materializeView(readTool.renderCall({ id: "call" as never, name: "read", arguments: { path: "file.txt", offset: 2, limit: 4 }, state }) as never)).toBeDefined();
+      expect(readTool.renderCall({ id: "call" as never, name: "read", arguments: { path: "file.txt", offset: 2, limit: 4 }, state })).toBeDefined();
     }
-    expect(materializeView(readTool.renderResult({ content: [{ type: "text", text: "one\ntwo" }], details: {}, isError: false }) as never)).toBeDefined();
-    expect(materializeView(readTool.renderResult({ content: [{ type: "text", text: "read failed\nagain" }], details: {}, isError: true }) as never)).toBeDefined();
+    expect(readTool.renderResult({ content: [{ type: "text", text: "one\ntwo" }], details: {}, isError: false })).toBeDefined();
+    expect(readTool.renderResult({ content: [{ type: "text", text: "read failed\nagain" }], details: {}, isError: true })).toBeDefined();
   });
 
   test("reads UTF-8 files and keeps the path in details", async () => {

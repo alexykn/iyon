@@ -1,10 +1,8 @@
 [workspace]
 members = [
-    "crates/iyon",
     "crates/iyon-core",
     "crates/iyon-api",
-    "crates/iyon-tui",
-    "crates/iyon-native",
+    "crates/iyon-core-native",
     "tools/api-surface",
 ]
 resolver = "3"
@@ -15,6 +13,9 @@ edition = "2024"
 
 [workspace.dependencies]
 anyhow = "1.0.102"
+askama = "0.14.0"
+blake3 = "1.8.2"
+bytemuck = { version = "1.25.0", features = ["derive"] }
 clap = { version = "4.6.1", features = ["derive"] }
 crossterm = "0.29.0"
 futures-core = "0.3.31"
@@ -25,6 +26,15 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 syn = { version = "2.0.106", features = ["full", "visit", "extra-traits"] }
 cargo_metadata = "0.23.1"
+indexmap = { version = "2.13.0", features = ["serde"] }
+miette = { version = "7.6.0", features = ["fancy"] }
+prettyplease = "0.2.37"
+proc-macro2 = "1.0.106"
+quote = "1.0.0"
+serde_path_to_error = "0.1.20"
+static_assertions = "1.1.0"
+thiserror = "2.0.17"
+toml_edit = { version = "0.23.7", features = ["serde"] }
 tokio = { version = "1.52.1", features = ["full", "test-util"] }
 reqwest = { version = "0.12.23", default-features = false, features = ["json", "stream", "rustls-tls"] }
 secrecy = "0.10.3"
@@ -51,4 +61,4 @@ trybuild = "1.0.114"
 
 iyon-api = {path = "crates/iyon-api"}
 iyon-core = {path = "crates/iyon-core"}
-iyon-tui = {path = "crates/iyon-tui"}
+iyon-tui = { git = "https://github.com/alexykn/iyon-tui.git", rev = "e322f10dff490c1423d988982c0782c22774f85d" }

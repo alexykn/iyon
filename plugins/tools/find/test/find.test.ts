@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installIyonVirtualModules } from "../../../../packages/iyon-runtime/src/virtual-modules.ts";
-import { materializeView } from "../../../../packages/iyon-runtime/src/tui/index.ts";
 installIyonVirtualModules();
 const { findTool } = await import("../src/execute.ts");
 const context = (root: string) => ({ workspace: { root }, cwd: root, signal: new AbortController().signal } as never);
@@ -11,10 +10,10 @@ const context = (root: string) => ({ workspace: { root }, cwd: root, signal: new
 describe("find tool", () => {
   test("compiles lifecycle and multiline result fixtures through native views", () => {
     for (const state of ["preparing", "prepared", "running"] as const) {
-      expect(materializeView(findTool.renderCall({ id: "call" as never, name: "find", arguments: { pattern: "*.ts", path: "." }, state }) as never)).toBeDefined();
+      expect(findTool.renderCall({ id: "call" as never, name: "find", arguments: { pattern: "*.ts", path: "." }, state })).toBeDefined();
     }
-    expect(materializeView(findTool.renderResult({ content: [{ type: "text", text: "src/a.ts\nsrc/b.ts" }], details: {}, isError: false }) as never)).toBeDefined();
-    expect(materializeView(findTool.renderResult({ content: [{ type: "text", text: "find failed\nagain" }], details: {}, isError: true }) as never)).toBeDefined();
+    expect(findTool.renderResult({ content: [{ type: "text", text: "src/a.ts\nsrc/b.ts" }], details: {}, isError: false })).toBeDefined();
+    expect(findTool.renderResult({ content: [{ type: "text", text: "find failed\nagain" }], details: {}, isError: true })).toBeDefined();
   });
 
   test("returns relative POSIX paths and excludes node_modules", async () => {

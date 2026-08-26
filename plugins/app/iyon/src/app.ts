@@ -1,9 +1,11 @@
 import type { App } from "iyon:plugins";
 import { History, Scene, Style, TextInput, Tui, View } from "iyon:tui";
+import { defineView, state } from "iyon:tui";
+import type { State } from "iyon:tui";
 import { renderGenericCall, renderGenericResult } from "@iyon/runtime";
 import { collapseResultView } from "@iyon/plugins";
-import { History as RuntimeHistory, TextInput as RuntimeTextInput } from "@iyon/runtime/tui";
-import type { History as HistoryHandle, ScrollPane, TextInput as TextInputHandle, TuiRuntime, ViewSlot, WorkingActivityHandle } from "@iyon/runtime/tui";
+import { History as RuntimeHistory, TextInput as RuntimeTextInput } from "@iyon/tui";
+import type { History as HistoryHandle, ScrollPane, TextInput as TextInputHandle, TuiEvent, TuiRuntime, ViewSlot } from "@iyon/tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
 import type {
   IyonAgent,
@@ -17,7 +19,8 @@ import { ComposerPasteStore } from "./composer.ts";
 import { ApprovalStore } from "./approvals.ts";
 import { createInitialState, hasActiveWork, reduceIyonState } from "./state.ts";
 import { createIyonTheme, type IyonTheme } from "./theme.ts";
-import { createIyonView, footerText, userBatchView } from "./view.ts";
+import { createIyonChrome, syncChromeStates, IyonRootView, userBatchView, workingFrames } from "./view.ts";
+import type { ChromeState } from "./view.ts";
 import { handleIyonAction } from "./actions.ts";
 import { startCoreEventBridge, type CoreEventBridge, type CoreEventSource } from "./backend.ts";
 import { NativeAssistantStream } from "./streaming.ts";
@@ -29,6 +32,28 @@ interface LiveUserBatch {
   readonly messages: string[];
   readonly queueId?: string | number;
 }
+
+/**
+ * PERF-12 T13.1 R9: live tool-card line as a retained component. The card
+ * reads its tracked {@link LiveTool} snapshot inside its own execution
+ * scope, so progressive events (argument streaming, status transitions)
+ * execute exactly this card's body and skip every other scope.
+ */
+export const toolCardExecutionCounters = new Map<string, number>();
+
+const ToolCallCard = defineView<{
+  readonly cardState: State<LiveTool>;
+  readonly animation: ViewSlot;
+  readonly fallbackKey: string;
+}>(({ cardState, animation, fallbackKey }) => {
+  toolCardExecutionCounters.set(fallbackKey, (toolCardExecutionCounters.get(fallbackKey) ?? 0) + 1);
+  // The call line is animated by a separate specialized slot. Keeping the
+  // retained component scope mounted means progressive State updates still
+  // execute this card only, while animation ownership can correctly take over
+  // its own slot without disposing the component scope.
+  void cardState.value;
+  return View.component(animation);
+});
 
 export interface IyonAppDependencies {
   readonly agent: IyonAgent;
@@ -45,7 +70,7 @@ export interface IyonApp extends App {
   readonly model: IyonModelMetadata;
   readonly history: HistoryHandle;
   readonly composer: TextInputHandle;
-  readonly working?: WorkingActivityHandle;
+  readonly working?: ViewSlot;
   readonly theme: IyonTheme;
   readonly state: IyonState;
   start(tui?: TuiRuntime): Promise<void>;
@@ -68,16 +93,20 @@ class IyonAppImpl implements IyonApp {
   readonly pasteStore = new ComposerPasteStore();
   readonly theme: IyonTheme = createIyonTheme();
   private currentState: IyonState;
+  private readonly chrome: ChromeState = createIyonChrome();
   private tui?: TuiRuntime;
   private ownsTui = false;
   private started = false;
   private exitAfterRender = false;
   private exiting = false;
-  private workingHandle?: WorkingActivityHandle;
+  private workingHandle?: ViewSlot;
+  private workingAnimationMode?: boolean;
   private assistantStream?: NativeAssistantStream;
   private readonly toolCards = new ToolCardStore();
   private readonly toolSlots = new Map<string, ViewSlot>();
+  private readonly toolAnimationSlots = new Map<string, ViewSlot>();
   private readonly toolPanes = new Map<string, ScrollPane>();
+  private readonly toolCardStates = new Map<string, State<LiveTool>>();
   private readonly toolHistoryUnits = new Map<string, number>();
   private readonly mountedToolCards = new Set<string>();
   private readonly renderedToolResults = new Set<string>();
@@ -87,7 +116,6 @@ class IyonAppImpl implements IyonApp {
   private shutdownComplete = false;
   private liveUserBatch?: LiveUserBatch;
   private historyMutation: Promise<void> = Promise.resolve();
-  private renderedBodyKey?: string;
   private lastCtrlCAt = 0;
 
   constructor(
@@ -99,7 +127,7 @@ class IyonAppImpl implements IyonApp {
   get state(): IyonState { return this.currentState; }
   get history(): HistoryHandle { return this.historyHandle; }
   get composer(): TextInputHandle { return this.composerHandle; }
-  get working(): WorkingActivityHandle | undefined { return this.workingHandle; }
+  get working(): ViewSlot | undefined { return this.workingHandle; }
   get agent(): IyonAgent { return this.dependencies.agent; }
   get core(): IyonCoreCommands { return this.dependencies.core; }
   get model(): IyonModelMetadata { return this.dependencies.model; }
@@ -124,8 +152,8 @@ class IyonAppImpl implements IyonApp {
         multiline: true,
         border: { style: "plain", edges: "topBottom", color: this.theme.inputBorder },
       }) as unknown as RuntimeTextInput;
-      if (this.tui.createWorking === undefined) throw new Error("native working activity is unavailable");
-      this.workingHandle = this.tui.createWorking();
+      if (this.tui.createViewSlot === undefined) throw new Error("native view slots are unavailable");
+      this.workingHandle = this.tui.createViewSlot(View.spacer(0));
       this.tui.bindKey("c", "ctrlC", ["control"]);
       this.tui.bindKey("\u0003", "ctrlC");
       this.tui.bindKey("Escape", "escape");
@@ -134,7 +162,23 @@ class IyonAppImpl implements IyonApp {
       this.tui.interceptPaste?.(this.composerHandle, "composerPaste");
     }
     this.started = true;
-    await this.renderCurrentScene();
+    // Seed tracked chrome slices before the first evaluation so the root
+    // body reads the real initial state, then publish once canonically.
+    syncChromeStates(this.chrome, this.currentState);
+    await this.publishRootScene();
+  }
+
+  /**
+   * PERF-12 T13.1 R9: canonical retained publication. The producer closure
+   * is owned by the Tui's root scope; every later chrome change flows
+   * through tracked-state invalidation — never another whole-scene render.
+   */
+  private async publishRootScene(): Promise<void> {
+    if (this.tui === undefined) return;
+    await this.tui.render(() => new Scene(
+      IyonRootView({ chrome: this.chrome, composer: this.composerHandle, theme: this.theme, working: this.workingHandle }),
+      this.history,
+    ));
   }
 
   async stop(): Promise<void> {
@@ -149,8 +193,11 @@ class IyonAppImpl implements IyonApp {
       await this.assistantStream?.dispose();
       for (const slot of this.toolSlots.values()) await slot.dispose();
       this.toolSlots.clear();
+      for (const slot of this.toolAnimationSlots.values()) await slot.dispose();
+      this.toolAnimationSlots.clear();
       for (const pane of this.toolPanes.values()) await pane.dispose();
       this.toolPanes.clear();
+      this.toolCardStates.clear();
       this.toolHistoryUnits.clear();
       this.mountedToolCards.clear();
       this.toolCards.clear();
@@ -177,7 +224,7 @@ class IyonAppImpl implements IyonApp {
     if (this.started) {
       this.historyMutation = this.historyMutation.then(async () => {
         await this.appendHistory(action, previous, next);
-        await this.renderCurrentScene();
+        await this.applyChrome(next);
       });
     }
     return this.historyMutation;
@@ -200,7 +247,10 @@ class IyonAppImpl implements IyonApp {
         forwardPaste: (text) => this.tui?.forwardPaste?.(text),
         runAgent: () => this.startAgentRun(),
         onExit: () => { this.exitAfterRender = true; },
-        isAgentRunning: () => this.activeAgentRun !== undefined,
+        // The run promise may outlive a cancellation. Once the reduced UI
+        // state is idle, Ctrl+C must be allowed to request application exit
+        // instead of repeatedly cancelling an already-cancelled run.
+        isAgentRunning: () => this.activeAgentRun !== undefined && this.currentState.activeTurn,
       });
       const previous = this.currentState;
       this.currentState = result.state;
@@ -211,7 +261,7 @@ class IyonAppImpl implements IyonApp {
           ? { type: "backend" as const, event: { type: "turnCancelled" as const } }
           : action;
       await this.appendHistory(effectiveAction, previous, this.currentState);
-      await this.renderCurrentScene();
+      await this.applyChrome(this.currentState);
       if ((result.exited && this.exitAfterRender) || (action.type === "requestExit" && result.state.goodbye)) {
         this.exitAfterRender = false;
         await this.shutdown();
@@ -247,7 +297,7 @@ class IyonAppImpl implements IyonApp {
     const previous = this.currentState;
     this.currentState = reduceIyonState(this.currentState, action);
     await this.appendHistory(action, previous, this.currentState);
-    await this.renderCurrentScene();
+    await this.applyChrome(this.currentState);
   }
 
   private async appendHistory(
@@ -264,13 +314,18 @@ class IyonAppImpl implements IyonApp {
       return action.type === "cycleReasoningEffort";
     }
     const event = action.event;
+    // Collapse the working row once, before an unqueued stream enters
+    // history. A queued stream must keep the waiting row, and repeated
+    // deltas must not restart or stop the spinner.
     if (event.type === "assistantDelta") {
+      if (!next.activityVisible) await this.hideWorking();
       await this.freezeUserBatch();
       await this.openAssistantStream();
       await this.assistantStream?.append("text", event.text);
       return true;
     }
     if (event.type === "thinkingDelta") {
+      if (!next.activityVisible) await this.hideWorking();
       await this.freezeUserBatch();
       await this.openAssistantStream();
       await this.assistantStream?.append("thinking", event.text);
@@ -379,6 +434,22 @@ class IyonAppImpl implements IyonApp {
     return false;
   }
 
+  /**
+   * Hides the working spinner once and lets the tracked chrome commit before
+   * the stream changes the history layout.
+   */
+  private async hideWorking(): Promise<void> {
+    if (this.workingHandle === undefined) return;
+    if (!this.chrome.activityVisible.value && this.workingAnimationMode === undefined) return;
+    this.workingHandle.stopAnimation(View.spacer(0));
+    this.workingAnimationMode = undefined;
+    if (this.chrome.activityVisible.value) {
+      this.chrome.activityVisible.set(false);
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+  }
+
   private async openAssistantStream(): Promise<void> {
     if (this.assistantStream !== undefined) return;
     this.assistantStream = new NativeAssistantStream();
@@ -386,6 +457,17 @@ class IyonAppImpl implements IyonApp {
   }
 
   private async openUserBatch(text: string, queueId?: string | number): Promise<void> {
+    // Show the working spinner *before* pushing the user batch into history
+    // so the layout is stable from frame 1. Otherwise the batch positions
+    // itself without the working row, then the spinner appears 0.1s later
+    // and pushes everything up ("jagged first message" bug).
+    if (this.workingHandle !== undefined && this.workingAnimationMode === undefined) {
+      this.workingHandle.setAnimation(workingFrames(false), 80);
+      this.workingAnimationMode = false;
+      this.chrome.activityVisible.set(true);
+      await Promise.resolve();
+      await Promise.resolve();
+    }
     if (this.liveUserBatch !== undefined) {
       this.liveUserBatch.messages.push(text);
       await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme) as never);
@@ -417,44 +499,62 @@ class IyonAppImpl implements IyonApp {
 
   private async updateToolSlot(key: string, card: LiveTool | undefined): Promise<void> {
     if (card === undefined) return;
-    const view = this.renderToolCall(card, key, false);
     if (card.frozen) {
-      await this.freezeToolSlot(key, card.result === undefined ? view : View.vertical([view, this.renderToolResult(card.result)]).fillWidth());
+      const frozenCall = this.renderToolCall(card, key, false);
+      const finalView = card.result === undefined
+        ? frozenCall
+        : View.vertical([frozenCall, this.renderToolResult(card.result)]).fillWidth();
+      await this.freezeToolSlot(key, finalView);
       return;
     }
     const pulsing = !["finished", "failed", "cancelled"].includes(card.status);
     const slot = this.toolSlots.get(key);
     if (slot !== undefined) {
       await this.updateToolContent(key, card);
-      if (pulsing) {
-        await slot.setAnimation([view as never, this.renderToolCall(card, key, true) as never], 480);
-      } else {
-        await slot.stopAnimation(view as never);
+      const animation = this.toolAnimationSlots.get(key);
+      if (animation !== undefined) {
+        if (pulsing) {
+          await animation.setAnimation([this.renderToolCall(card, key, false) as never, this.renderToolCall(card, key, true) as never], 480);
+        } else {
+          await animation.stopAnimation(this.renderToolCall(card, key, false) as never);
+        }
       }
       return;
     }
     if (this.tui?.createViewSlot === undefined || this.tui.createScrollPane === undefined) {
       if (this.mountedToolCards.has(key)) return;
       this.mountedToolCards.add(key);
+      const view = this.renderToolCall(card, key, false);
       await this.history.push(View.vertical([view, this.renderToolUpdate(card)]).fillWidth() as never);
       return;
     }
     const pane = this.tui.createScrollPane(View.spacer(0));
     this.toolPanes.set(key, pane);
-    const created = this.tui.createViewSlot(view as never);
+    const created = this.tui.createViewSlot(View.spacer(0));
+    const animation = this.tui.createViewSlot(View.spacer(0));
     this.toolSlots.set(key, created);
+    this.toolAnimationSlots.set(key, animation);
     this.mountedToolCards.add(key);
+    // Builder ownership: the card line is a retained component reading its
+    // tracked snapshot; progressive updates execute exactly this scope.
+    const cardState = state<LiveTool>(card);
+    this.toolCardStates.set(key, cardState);
+    created.setView(() => ToolCallCard({ cardState, animation, fallbackKey: key }));
     await this.updateToolContent(key, card);
     const historyUnit = await this.history.push(View.vertical((column) => {
       column.child(View.component(created).fillWidth());
       column.flexMax(16, View.component(pane).fillWidth());
     }).fillWidth());
     this.toolHistoryUnits.set(key, historyUnit);
-    if (pulsing) await created.setAnimation([view as never, this.renderToolCall(card, key, true) as never], 480);
+    if (pulsing) await animation.setAnimation([this.renderToolCall(card, key, false) as never, this.renderToolCall(card, key, true) as never], 480);
   }
 
   private async updateToolContent(key: string, card: LiveTool | undefined): Promise<void> {
     if (card === undefined) return;
+    // Scoped invalidation drives the card line; the pane stays on its
+    // specialized direct channel (progressive output is stream-like and
+    // never enters the execution graph — isolation invariant §32.2).
+    this.toolCardStates.get(key)?.set(card);
     const pane = this.toolPanes.get(key);
     if (pane === undefined) return;
     await pane.setContent(this.renderToolUpdate(card));
@@ -462,12 +562,17 @@ class IyonAppImpl implements IyonApp {
   }
 
   private async updateToolSlotResult(key: string, result: ToolResult): Promise<void> {
-    const slot = this.toolSlots.get(key);
     const card = this.toolCards.getByKey(key);
-    const call = card === undefined ? undefined : this.renderToolCall(card, key, false);
+    const call = card === undefined ? undefined : this.renderToolCallById(key, undefined, false);
     const resultView = this.renderToolResult(result);
     const view = call === undefined ? resultView : View.vertical([call, resultView]).fillWidth();
+    const slot = this.toolSlots.get(key);
     if (slot !== undefined) {
+      // A final result ends the live card. Replace the live call/pane unit with
+      // one static view, then dispose the progressive handles. Leaving the
+      // result in the ScrollPane keeps history live and can block promotion.
+      const animation = this.toolAnimationSlots.get(key);
+      if (animation !== undefined && call !== undefined) await animation.stopAnimation(call as never);
       await this.freezeToolSlot(key, view);
       return;
     }
@@ -483,11 +588,21 @@ class IyonAppImpl implements IyonApp {
     await this.history.freeze(unit, view as never);
     const slot = this.toolSlots.get(key);
     if (slot !== undefined) await slot.dispose();
+    const animation = this.toolAnimationSlots.get(key);
+    if (animation !== undefined) await animation.dispose();
     const pane = this.toolPanes.get(key);
     if (pane !== undefined) await pane.dispose();
     this.toolHistoryUnits.delete(key);
     this.toolSlots.delete(key);
+    this.toolAnimationSlots.delete(key);
     this.toolPanes.delete(key);
+    this.toolCardStates.delete(key);
+  }
+
+  private renderToolCallById(key: string, card: LiveTool | undefined, pulse: boolean) {
+    if (card === undefined) card = this.toolCards.getByKey(key);
+    if (card === undefined) return undefined;
+    return this.renderToolCall(card, key, pulse);
   }
 
   private renderToolCall(card: LiveTool, key: string, pulse: boolean) {
@@ -508,6 +623,9 @@ class IyonAppImpl implements IyonApp {
   private renderToolUpdate(card: LiveTool) {
     const update = toolUpdateText(card);
     if (update === undefined) return View.spacer(0);
+    // ⚠️ Single View.text() — do not split into per-line views. Scroll
+    // pane handles wrapping internally. Per-line views create thousands of
+    // DAG nodes that freeze the TS↔Rust bridge.
     const output = View.hanging(
       View.text("  ").noWrap(),
       View.text("  ").noWrap(),
@@ -533,8 +651,8 @@ class IyonAppImpl implements IyonApp {
     this.exiting = true;
     this.agent.cancel?.();
     await this.sealAssistantStream();
-    await this.workingHandle?.setActive(false);
-    await this.workingHandle?.setPending([]);
+    await this.workingHandle?.stopAnimation(View.spacer(0));
+    this.workingAnimationMode = undefined;
     const pendingApproval = this.currentState.pendingApproval;
     if (pendingApproval !== undefined) {
       await this.core.reject?.(pendingApproval.approvalId, "application exiting");
@@ -550,46 +668,88 @@ class IyonAppImpl implements IyonApp {
     }
     this.currentState = { ...this.currentState, activeTurn: false, assistantOpen: false, goodbye: true, liveTools, pendingApproval: undefined, working: false, activityVisible: false };
     await this.history.push(View.text("Goodbye.").fillWidth());
-    await this.renderCurrentScene();
+    await this.applyChrome(this.currentState);
     await this.tui?.exit();
     this.shutdownComplete = true;
   }
 
-  private bodyKey(state: IyonState): string {
-    return [
-      Number(state.goodbye),
-      footerText(state),
-      state.info.reasoningEffort,
-      state.pendingApproval?.approvalId ?? "",
-      Number(state.activityVisible),
-    ].join("|");
+  private syncWorkingAnimation(state: IyonState): void {
+    if (this.workingHandle === undefined) return;
+    if (!state.activityVisible) {
+      if (this.chrome.activityVisible.value || this.workingAnimationMode !== undefined) {
+        this.workingHandle.stopAnimation(View.spacer(0));
+        this.workingAnimationMode = undefined;
+      }
+    } else {
+      const waiting = state.steering.length > 0;
+      if (this.workingAnimationMode === undefined) {
+        this.workingHandle.setAnimation(workingFrames(waiting), 80);
+      } else if (this.workingAnimationMode !== waiting) {
+        this.workingHandle.setAnimationAtCycleBoundary(workingFrames(waiting), 80);
+      }
+      this.workingAnimationMode = waiting;
+    }
   }
 
-  private async renderCurrentScene(): Promise<void> {
+  /**
+   * Applies a reduced state to the reactive chrome: working-spinner
+   * choreography first (unchanged side-effect channel), then tracked-state
+   * writes whose auto-flush re-executes exactly the reading scopes.
+   *
+   * R10 (Step 14R): `bodyKey` is REMOVED — the application no longer
+   * computes any renderer-identity key. Tracked-state invalidation IS the
+   * update provenance (§24.3: identity logic never relocates into the app).
+   * The advance tick preserves today's side effect where repeated exact-root
+   * updates still advance spinners/streams/headless time.
+   *
+   * FIXED: detect which tracked chrome values changed BEFORE
+   * `syncChromeStates` writes them, so we drain microtasks when any state
+   * (not just activityVisible) changed. The old condition read after the
+   * write, making it always false — so the flush never fired for effort
+   * cycling, leaving the footer text stale until the next keyboard event.
+   * Advance is also called AFTER the microtask drain so the native
+   * renderer sees the published View outputs.
+   */
+  private async applyChrome(next: IyonState): Promise<void> {
     if (this.tui === undefined || !this.started) return;
-    await this.workingHandle?.setActive(this.currentState.activityVisible);
-    await this.workingHandle?.setPending(this.currentState.steering);
-    const key = this.bodyKey(this.currentState);
-    if (key === this.renderedBodyKey) {
-      (this.tui as { advance?: (ms: number) => void }).advance?.(0);
-      return;
+    // Snapshot pre-sync values to detect what changed.
+    const info = this.chrome.footerInfo.value;
+    const effortChanged = next.info.reasoningEffort !== this.chrome.effort.value;
+    const footerChanged = info.status !== next.info.status || info.provider !== next.info.provider
+      || info.modelId !== next.info.modelId || info.reasoningEffort !== next.info.reasoningEffort;
+    const activityChanged = next.activityVisible !== this.chrome.activityVisible.value;
+    const goodbyeChanged = next.goodbye !== this.chrome.goodbye.value;
+    const steering = this.chrome.steering.value;
+    const steeringChanged = next.steering.length !== steering.length
+      || next.steering.some((v, i) => v !== steering[i]);
+    const chromeChanged = effortChanged || footerChanged || activityChanged || goodbyeChanged || steeringChanged;
+
+    this.syncWorkingAnimation(next);
+    syncChromeStates(this.chrome, next);
+    // Drain microtasks only when something actually changed, so the
+    // tracked-state flush re-evaluates the affected scopes before we
+    // advance. During streaming the working/steering state is already
+    // stable and we skip the drain to avoid wasted TS↔Rust roundtrips
+    // that accumulate lag at 800 units/sec pacing.
+    if (chromeChanged) {
+      await Promise.resolve();
+      await Promise.resolve();
     }
-    this.renderedBodyKey = key;
-    await this.tui.render(new Scene(createIyonView({ composer: this.composer, history: this.history, state: this.currentState, theme: this.theme, working: this.workingHandle }), this.history));
+    (this.tui as { advance?: (ms: number) => void }).advance?.(0);
   }
 
   async run(signal?: AbortSignal): Promise<void> {
     await this.start();
     const tui = this.tui;
-    if (tui === undefined || tui.nextAction === undefined) throw new Error("native TUI action driver is unavailable");
+    if (tui === undefined) throw new Error("Iyon app TUI is unavailable after start");
     while (!this.state.goodbye) {
       if (signal?.aborted) {
         await this.shutdown();
         return;
       }
-      let action;
+      let event: TuiEvent;
       try {
-        action = await tui.nextAction(signal);
+        event = await tui.nextEvent(signal);
       } catch (error) {
         if (signal?.aborted) {
           await this.shutdown();
@@ -599,11 +759,11 @@ class IyonAppImpl implements IyonApp {
         await this.shutdown();
         return;
       }
-      if (action === null) {
+      if (event.type === "terminate") {
         await this.shutdown();
         return;
       }
-      await this.handleAction(actionFromNative(action));
+      if (event.type === "output") await this.handleAction(actionFromNative(event));
     }
   }
 
@@ -622,13 +782,13 @@ function toolUpdateText(card: LiveTool): string | undefined {
   return card.details === undefined ? undefined : JSON.stringify(card.details);
 }
 
-function actionFromNative(action: { readonly actionId: string; readonly payload?: string }): import("./contracts.ts").IyonAction {
-  switch (action.actionId) {
+function actionFromNative(action: { readonly routeId: string; readonly payload?: string }): import("./contracts.ts").IyonAction {
+  switch (action.routeId) {
     case "submit": return { type: "submit", text: action.payload ?? "" };
     case "composerPaste": return { type: "composerPaste", text: action.payload ?? "" };
     case "ctrlC": return { type: "ctrlC" };
     case "escape": return { type: "escape" };
     case "cycleReasoningEffort": return { type: "cycleReasoningEffort" };
-    default: throw new Error(`unknown Iyon TUI action: ${action.actionId}`);
+    default: throw new Error(`unknown Iyon TUI route: ${action.routeId}`);
   }
 }

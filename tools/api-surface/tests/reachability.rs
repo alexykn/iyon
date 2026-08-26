@@ -40,8 +40,7 @@ fn scans_current_library_targets() {
     for (package, expected) in [
         ("iyon-api", "iyon-api::ModelApi"),
         ("iyon-core", "iyon-core::ids::SessionId"),
-        ("iyon-tui", "iyon-tui::View"),
-        ("iyon", "iyon::tui::build_app"),
+        ("iyon-core", "iyon-core::ids::SessionId"),
     ] {
         let (target, profile) = CargoMetadataLoader::new(&manifest)
             .resolve_target(package, None)

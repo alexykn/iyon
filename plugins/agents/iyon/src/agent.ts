@@ -51,9 +51,18 @@ export class IyonAgent implements Agent {
     const runContext = { ...context, signal: linked.signal, reasoningEffort: this.reasoningEffort };
 
     try {
+      // A single agent run may contain several model/tool cycles. Once the
+      // model has requested a tool, keep new steering messages queued until
+      // the run produces its final non-tool response. Draining at the top of
+      // every loop made a message submitted during `read`/`bash` appear in
+      // history as soon as that tool returned, even though the agent was
+      // still working.
+      let toolCycleStarted = false;
       while (!runContext.signal.aborted) {
         const queued = drainPrompts(runContext.session);
-        drainSteering(runContext.session, runContext.steering).forEach((message) => queued.push(message));
+        if (!toolCycleStarted) {
+          drainSteering(runContext.session, runContext.steering).forEach((message) => queued.push(message));
+        }
         injectSteeredMessages(runContext.session, queued);
         if (runContext.session.snapshot().entries.every((entry) => entry.kind !== "message")) return;
         const request = buildModelRequest(runContext);
@@ -62,11 +71,15 @@ export class IyonAgent implements Agent {
 
         const action = classifyStopReason(result.stopReason, hasRequestedCalls(result));
         if (action === "executeTools") {
+          toolCycleStarted = true;
           const toolExecution = await executeRequestedTools({ ...runContext, messageId: assistantMessageId(result) }, result);
           if (!toolExecution.completed) return;
           continue;
         }
 
+        // At this point the response completed without requesting another
+        // tool. The tool cycle, if any, is over, so deliver queued messages
+        // at the agent-run boundary and let the next response address them.
         const pending = drainPrompts(runContext.session);
         drainSteering(runContext.session, runContext.steering).forEach((message) => pending.push(message));
         if (shouldContinue(result.stopReason, result, pending.length > 0)) {

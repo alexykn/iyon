@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { installIyonVirtualModules } from "../src/virtual-modules.ts";
 
-describe("T1 virtual modules", () => {
+describe("S5 virtual modules", () => {
   test("load before application imports", async () => {
     installIyonVirtualModules();
     const [api, core, tui] = await Promise.all([

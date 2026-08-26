@@ -64,8 +64,8 @@ export async function runSmokeCommand(): Promise<{
   concurrent: number;
   event: string;
 }> {
-  assert(nativeVersion() === "iyon-native/t1", "native version probe failed");
-  assert(tuiSmoke === "iyon:tui/t1", "TUI smoke marker failed");
+  assert(nativeVersion() === "iyon-core-native/s5", "core native version probe failed");
+  assert(tuiSmoke === "iyon:tui/t1", "TUI package smoke marker failed");
 
   const jsonValue = { nested: [null, true, 42, "text"] };
   assertDeepEqual(echoJson(jsonValue), jsonValue, "JSON round trip failed");

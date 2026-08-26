@@ -32,13 +32,14 @@ export async function runSelectedApp(options: RunnerOptions): Promise<void> {
   const requestAction = () => {
     if (signalAction !== undefined) return signalAction;
     const app = options.app as RunnableApp & { handleAction?: (action: unknown) => Promise<void> };
-    if (app.handleAction === undefined) {
+    const handleAction = app.handleAction;
+    if (handleAction === undefined) {
       onAbort();
       signalAction = Promise.resolve();
       return signalAction;
     }
     const pending = Promise.resolve()
-      .then(() => app.handleAction({ type: "ctrlC" }))
+      .then(() => handleAction({ type: "ctrlC" }))
       .catch((error: unknown) => { signalError = error; })
       .finally(() => { if (signalAction === pending) signalAction = undefined; });
     signalAction = pending;

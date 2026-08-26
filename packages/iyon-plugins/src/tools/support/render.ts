@@ -1,6 +1,6 @@
 import { parseUnifiedDiff } from "./diff.ts";
-import type { DiffHunk } from "./diff.ts";
-import { Style, View } from "@iyon/runtime/tui";
+import type { DiffHunk as ParsedDiffHunk } from "./diff.ts";
+import { DiffHunk, DiffLine, DiffRange, DiffRenderer, Style, View } from "@iyon/tui";
 import type { ToolCall, ToolLifecycleState, ToolResult } from "@iyon/sdk";
 
 export const MAX_COLLAPSED_TOOL_ROWS = 16;
@@ -67,13 +67,19 @@ export function renderDiff(details: unknown): View | undefined {
   try { return renderHunks(parseUnifiedDiff(diff)); } catch { return View.vertical(diff.split("\n").map((line) => toolText(line, Style.new().theme("diff.meta")).fillWidth())).fillWidth(); }
 }
 
-export function renderHunks(hunks: readonly DiffHunk[]): View {
-  return View.vertical(hunks.flatMap((hunk) => [
-    toolText(`@@ -${diffRange(hunk.oldStart, hunk.oldCount)} +${diffRange(hunk.newStart, hunk.newCount)} @@`, Style.new().theme("diff.header")).fillWidth(),
-    ...hunk.lines.map((line) => toolText(`${line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}${line.text}`, Style.new().theme(line.kind === "addition" ? "diff.addition" : line.kind === "deletion" ? "diff.deletion" : "diff.context")).fillWidth()),
-  ])).fillWidth();
+export function renderHunks(hunks: readonly ParsedDiffHunk[]): View {
+  return new DiffRenderer().render(hunks.map(toSemanticHunk));
 }
 
-function diffRange(start: number, count: number): string {
-  return count === 1 ? `${start}` : `${start},${count}`;
+function toSemanticHunk(hunk: ParsedDiffHunk): DiffHunk {
+  return new DiffHunk(
+    toSemanticRange(hunk.oldStart, hunk.oldCount),
+    toSemanticRange(hunk.newStart, hunk.newCount),
+    hunk.lines.map((line) => new DiffLine(line.kind, line.text, line.termination ?? "lf")),
+  );
+}
+
+function toSemanticRange(start: number, count: number): DiffRange {
+  const offset = count === 0 ? start : start - 1;
+  return new DiffRange(offset, count);
 }
