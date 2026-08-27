@@ -244,7 +244,7 @@ class IyonAppImpl implements IyonApp {
         pasteStore: this.pasteStore,
         clearComposer: () => this.composer.clear(),
         composerText: () => this.composer.text(),
-        forwardPaste: (text) => this.tui?.forwardPaste?.(text),
+        forwardPaste: (text) => this.tui?.forwardPaste(text),
         runAgent: () => this.startAgentRun(),
         onExit: () => { this.exitAfterRender = true; },
         // The run promise may outlive a cancellation. Once the reduced UI

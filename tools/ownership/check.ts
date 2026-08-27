@@ -115,7 +115,11 @@ function tsConsumerGate(): void {
     for (const file of walk(join(ROOT, root)).filter((path) => path.endsWith(".ts") || path.endsWith(".d.ts"))) {
       filesChecked += 1;
       for (const spec of specifiersOf(readFileSync(file, "utf8"))) {
-        if (spec === "@iyon/tui" || spec === "iyon:tui") continue;
+        if (spec === "@iyon/tui") continue;
+        if (spec === "iyon:tui") {
+          violations.push(`${relative(ROOT, file)} -> "${spec}" (canonical source imports must use @iyon/tui)`);
+          continue;
+        }
         if (spec === "@iyon/tui/testing") {
           const relativeFile = relative(ROOT, file);
           if (/(^|\/)(?:test|tests)(?:\/|$)/u.test(relativeFile)) continue;
