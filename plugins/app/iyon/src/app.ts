@@ -1,11 +1,8 @@
 import type { App } from "iyon:plugins";
-import { History, Scene, Style, TextInput, Tui, View } from "iyon:tui";
-import { defineView, state } from "iyon:tui";
-import type { State } from "iyon:tui";
+import { defineView, Scene, StyleRef, Tui, View, state } from "@iyon/tui";
+import type { History as HistoryHandle, ScrollPane, State, TextInput as TextInputHandle, TuiEvent, TuiRuntime, ViewSlot } from "@iyon/tui";
 import { renderGenericCall, renderGenericResult } from "@iyon/runtime";
 import { collapseResultView } from "@iyon/plugins";
-import { History as RuntimeHistory, TextInput as RuntimeTextInput } from "@iyon/tui";
-import type { History as HistoryHandle, ScrollPane, TextInput as TextInputHandle, TuiEvent, TuiRuntime, ViewSlot } from "@iyon/tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
 import type {
   IyonAgent,
@@ -52,7 +49,7 @@ const ToolCallCard = defineView<{
   // execute this card only, while animation ownership can correctly take over
   // its own slot without disposing the component scope.
   void cardState.value;
-  return View.component(animation);
+  return animation.view();
 });
 
 export interface IyonAppDependencies {
@@ -88,8 +85,8 @@ export function createIyonApp(dependencies: IyonAppDependencies): IyonApp {
 class IyonAppImpl implements IyonApp {
   [key: string]: unknown;
   readonly id = "iyon" as const;
-  private historyHandle: HistoryHandle = new History();
-  private composerHandle: TextInputHandle = new TextInput({ multiline: true });
+  private historyHandle?: HistoryHandle;
+  private composerHandle?: TextInputHandle;
   readonly pasteStore = new ComposerPasteStore();
   readonly theme: IyonTheme = createIyonTheme();
   private currentState: IyonState;
@@ -125,8 +122,16 @@ class IyonAppImpl implements IyonApp {
   }
 
   get state(): IyonState { return this.currentState; }
-  get history(): HistoryHandle { return this.historyHandle; }
-  get composer(): TextInputHandle { return this.composerHandle; }
+  get history(): HistoryHandle {
+    const history = this.historyHandle;
+    if (history === undefined) throw new Error("Iyon app has not started");
+    return history;
+  }
+  get composer(): TextInputHandle {
+    const composer = this.composerHandle;
+    if (composer === undefined) throw new Error("Iyon app has not started");
+    return composer;
+  }
   get working(): ViewSlot | undefined { return this.workingHandle; }
   get agent(): IyonAgent { return this.dependencies.agent; }
   get core(): IyonCoreCommands { return this.dependencies.core; }
@@ -139,28 +144,21 @@ class IyonAppImpl implements IyonApp {
     this.ownsTui = tui === undefined;
     this.shutdownComplete = false;
     this.shutdownPromise = undefined;
-    if (this.tui.bindKey === undefined || this.tui.route === undefined) {
-      throw new Error("native TUI action bindings are unavailable");
-    }
-    await this.tui.setTheme?.(this.theme);
-    if (this.tui.createHistory !== undefined && this.tui.createTextInput !== undefined) {
-      await this.historyHandle.dispose();
-      await this.composerHandle.dispose();
-      this.historyHandle = this.tui.createHistory() as unknown as RuntimeHistory;
-      await this.historyHandle.setLayout({ padding: 1, gap: 1 });
-      this.composerHandle = this.tui.createTextInput({
-        multiline: true,
-        border: { style: "plain", edges: "topBottom", color: this.theme.inputBorder },
-      }) as unknown as RuntimeTextInput;
-      if (this.tui.createViewSlot === undefined) throw new Error("native view slots are unavailable");
-      this.workingHandle = this.tui.createViewSlot(View.spacer(0));
-      this.tui.bindKey("c", "ctrlC", ["control"]);
-      this.tui.bindKey("\u0003", "ctrlC");
-      this.tui.bindKey("Escape", "escape");
-      this.tui.bindKey("Tab", "cycleReasoningEffort", ["shift"]);
-      this.tui.route(await this.composerHandle.submitted(), "submit");
-      this.tui.interceptPaste?.(this.composerHandle, "composerPaste");
-    }
+    this.tui.setTheme(this.theme);
+    this.historyHandle?.dispose();
+    this.historyHandle = this.tui.createHistory();
+    this.historyHandle.setLayout({ padding: 1, gap: 1 });
+    this.composerHandle = this.tui.createTextInput({
+      multiline: true,
+      border: { style: "plain", edges: "topBottom", color: this.theme.inputBorder },
+    });
+    this.workingHandle = this.tui.createViewSlot(View.spacer(0));
+    this.tui.bindKey("c", "ctrlC", ["control"]);
+    this.tui.bindKey("\u0003", "ctrlC");
+    this.tui.bindKey("Escape", "escape");
+    this.tui.bindKey("Tab", "cycleReasoningEffort", ["shift"]);
+    this.tui.route(this.composer.submitted(), "submit");
+    this.tui.interceptPaste(this.composer, "composerPaste");
     this.started = true;
     // Seed tracked chrome slices before the first evaluation so the root
     // body reads the real initial state, then publish once canonically.
@@ -176,7 +174,7 @@ class IyonAppImpl implements IyonApp {
   private async publishRootScene(): Promise<void> {
     if (this.tui === undefined) return;
     await this.tui.render(() => new Scene(
-      IyonRootView({ chrome: this.chrome, composer: this.composerHandle, theme: this.theme, working: this.workingHandle }),
+      IyonRootView({ chrome: this.chrome, composer: this.composer, theme: this.theme, working: this.workingHandle }),
       this.history,
     ));
   }
@@ -187,9 +185,11 @@ class IyonAppImpl implements IyonApp {
     try {
       if (this.ownsTui && !this.shutdownComplete) await this.tui?.close();
     } finally {
-      await this.composerHandle.dispose();
-      await this.historyHandle.dispose();
-      await this.workingHandle?.dispose();
+      this.composerHandle?.dispose();
+      this.historyHandle?.dispose();
+      this.composerHandle = undefined;
+      this.historyHandle = undefined;
+      this.workingHandle?.dispose();
       await this.assistantStream?.dispose();
       for (const slot of this.toolSlots.values()) await slot.dispose();
       this.toolSlots.clear();
@@ -339,7 +339,7 @@ class IyonAppImpl implements IyonApp {
           : String(event.queueId) === String(this.liveUserBatch.queueId);
         if (!isCanonicalPrompt) {
           this.liveUserBatch.messages.push(event.text);
-          await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme) as never);
+          await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme));
         }
         return true;
       }
@@ -470,15 +470,13 @@ class IyonAppImpl implements IyonApp {
     }
     if (this.liveUserBatch !== undefined) {
       this.liveUserBatch.messages.push(text);
-      await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme) as never);
+      await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme));
       return;
     }
-    if (this.tui?.createViewSlot === undefined) {
-      await this.history.push(userBatchView([text], this.theme));
-      return;
-    }
-    const slot = this.tui.createViewSlot(userBatchView([text], this.theme) as never);
-    const unit = await this.history.push(View.component(slot).fillWidth());
+    const tui = this.tui;
+    if (tui === undefined) throw new Error("Iyon app TUI is unavailable");
+    const slot = tui.createViewSlot(userBatchView([text], this.theme));
+    const unit = await this.history.push(slot.view().fillWidth());
     this.liveUserBatch = { unit, slot, messages: [text], queueId };
   }
 
@@ -514,24 +512,23 @@ class IyonAppImpl implements IyonApp {
       const animation = this.toolAnimationSlots.get(key);
       if (animation !== undefined) {
         if (pulsing) {
-          await animation.setAnimation([this.renderToolCall(card, key, false) as never, this.renderToolCall(card, key, true) as never], 480);
+          await animation.setAnimation([this.renderToolCall(card, key, false), this.renderToolCall(card, key, true)], 480);
         } else {
-          await animation.stopAnimation(this.renderToolCall(card, key, false) as never);
+          await animation.stopAnimation(this.renderToolCall(card, key, false));
         }
       }
       return;
     }
-    if (this.tui?.createViewSlot === undefined || this.tui.createScrollPane === undefined) {
-      if (this.mountedToolCards.has(key)) return;
-      this.mountedToolCards.add(key);
-      const view = this.renderToolCall(card, key, false);
-      await this.history.push(View.vertical([view, this.renderToolUpdate(card)]).fillWidth() as never);
-      return;
-    }
-    const pane = this.tui.createScrollPane(View.spacer(0));
+    const tui = this.tui;
+    if (tui === undefined) throw new Error("Iyon app TUI is unavailable");
+    const pane = tui.createScrollPane(View.spacer(0));
     this.toolPanes.set(key, pane);
-    const created = this.tui.createViewSlot(View.spacer(0));
-    const animation = this.tui.createViewSlot(View.spacer(0));
+    const created = tui.createViewSlot(View.spacer(0));
+    // History captures component references from their current native content;
+    // seed the animation slot with the call before mounting the history unit,
+    // then install the recurring frames below.
+    const initialCall = this.renderToolCall(card, key, false);
+    const animation = tui.createViewSlot(initialCall);
     this.toolSlots.set(key, created);
     this.toolAnimationSlots.set(key, animation);
     this.mountedToolCards.add(key);
@@ -540,13 +537,13 @@ class IyonAppImpl implements IyonApp {
     const cardState = state<LiveTool>(card);
     this.toolCardStates.set(key, cardState);
     created.setView(() => ToolCallCard({ cardState, animation, fallbackKey: key }));
-    await this.updateToolContent(key, card);
     const historyUnit = await this.history.push(View.vertical((column) => {
-      column.child(View.component(created).fillWidth());
-      column.flexMax(16, View.component(pane).fillWidth());
+      column.child(created.view().fillWidth());
+      column.flexMax(16, pane.view().fillWidth());
     }).fillWidth());
     this.toolHistoryUnits.set(key, historyUnit);
-    if (pulsing) await animation.setAnimation([this.renderToolCall(card, key, false) as never, this.renderToolCall(card, key, true) as never], 480);
+    await this.updateToolContent(key, card);
+    if (pulsing) await animation.setAnimation([initialCall, this.renderToolCall(card, key, true)], 480);
   }
 
   private async updateToolContent(key: string, card: LiveTool | undefined): Promise<void> {
@@ -572,20 +569,20 @@ class IyonAppImpl implements IyonApp {
       // one static view, then dispose the progressive handles. Leaving the
       // result in the ScrollPane keeps history live and can block promotion.
       const animation = this.toolAnimationSlots.get(key);
-      if (animation !== undefined && call !== undefined) await animation.stopAnimation(call as never);
+      if (animation !== undefined && call !== undefined) await animation.stopAnimation(call);
       await this.freezeToolSlot(key, view);
       return;
     }
     if (!this.mountedToolCards.has(key)) {
       this.mountedToolCards.add(key);
-      await this.history.push(view as never);
+      await this.history.push(view);
     }
   }
 
-  private async freezeToolSlot(key: string, view: unknown): Promise<void> {
+  private async freezeToolSlot(key: string, view: View): Promise<void> {
     const unit = this.toolHistoryUnits.get(key);
     if (unit === undefined) return;
-    await this.history.freeze(unit, view as never);
+    await this.history.freeze(unit, view);
     const slot = this.toolSlots.get(key);
     if (slot !== undefined) await slot.dispose();
     const animation = this.toolAnimationSlots.get(key);
@@ -629,7 +626,7 @@ class IyonAppImpl implements IyonApp {
     const output = View.hanging(
       View.text("  ").noWrap(),
       View.text("  ").noWrap(),
-      View.text(update).style(Style.new().theme("text.muted")).fillWidth(),
+      View.text(update).style(StyleRef.theme("text.muted")).fillWidth(),
     ).fillWidth();
     return output;
   }
@@ -699,16 +696,14 @@ class IyonAppImpl implements IyonApp {
    * R10 (Step 14R): `bodyKey` is REMOVED — the application no longer
    * computes any renderer-identity key. Tracked-state invalidation IS the
    * update provenance (§24.3: identity logic never relocates into the app).
-   * The advance tick preserves today's side effect where repeated exact-root
-   * updates still advance spinners/streams/headless time.
    *
    * FIXED: detect which tracked chrome values changed BEFORE
    * `syncChromeStates` writes them, so we drain microtasks when any state
    * (not just activityVisible) changed. The old condition read after the
    * write, making it always false — so the flush never fired for effort
    * cycling, leaving the footer text stale until the next keyboard event.
-   * Advance is also called AFTER the microtask drain so the native
-   * renderer sees the published View outputs.
+   * Deterministic inspection flushes zero-time native work through
+   * `@iyon/tui/testing`; application code stays on `TuiRuntime`.
    */
   private async applyChrome(next: IyonState): Promise<void> {
     if (this.tui === undefined || !this.started) return;
@@ -735,7 +730,6 @@ class IyonAppImpl implements IyonApp {
       await Promise.resolve();
       await Promise.resolve();
     }
-    (this.tui as { advance?: (ms: number) => void }).advance?.(0);
   }
 
   async run(signal?: AbortSignal): Promise<void> {

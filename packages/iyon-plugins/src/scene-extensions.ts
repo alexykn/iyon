@@ -1,5 +1,4 @@
-/** The T5 Scene boundary; its body/history remain owned by iyon:tui. */
-export interface T5Scene { readonly body: unknown; readonly history?: unknown }
+import type { Scene } from "@iyon/tui";
 import { LayeredRegistry } from "./registry.ts";
 import type { ContributionValue, RegisteredContribution, RegistrationOptions, SourceMetadata } from "./contributions.ts";
 import type { Disposable } from "./disposable.ts";
@@ -9,8 +8,8 @@ export interface SceneExtensionContext {
   readonly [key: string]: unknown;
 }
 
-export type SceneComposer = (scene: T5Scene, context: SceneExtensionContext) => T5Scene | Promise<T5Scene>;
-export type SceneReplacer = (context: SceneExtensionContext) => T5Scene | Promise<T5Scene>;
+export type SceneComposer = (scene: Scene, context: SceneExtensionContext) => Scene | Promise<Scene>;
+export type SceneReplacer = (context: SceneExtensionContext) => Scene | Promise<Scene>;
 export interface SceneComposerRegistration { readonly id: string; readonly compose: SceneComposer; readonly order?: number }
 export interface SceneReplacerRegistration { readonly id: string; readonly replace: SceneReplacer; readonly order?: number }
 
@@ -45,7 +44,7 @@ export class SceneExtensions {
   lookup(id: string): RegisteredContribution<SceneExtensionContribution> | undefined { return this.registry.lookup(id); }
   removeOwned(packageId: string, extensionId: string): readonly RegisteredContribution<SceneExtensionContribution>[] { return this.registry.removeOwned(packageId, extensionId); }
 
-  async apply(scene: T5Scene, context: SceneExtensionContext = {}): Promise<T5Scene> {
+  async apply(scene: Scene, context: SceneExtensionContext = {}): Promise<Scene> {
     let current = scene;
     const extensions = [...this.list()].sort((left, right) => (left.value.order ?? 0) - (right.value.order ?? 0) || left.generation - right.generation);
     for (const extension of extensions) {
@@ -54,7 +53,7 @@ export class SceneExtensions {
       } catch (error) {
         throw new SceneCompositionError(extension.source, error);
       }
-      if (!current || typeof current !== "object" || !("body" in current)) throw new SceneCompositionError(extension.source, new Error("Scene extension did not return a T5 Scene"));
+      if (!current || typeof current !== "object" || !("body" in current)) throw new SceneCompositionError(extension.source, new Error("Scene extension did not return a Scene"));
     }
     return current;
   }

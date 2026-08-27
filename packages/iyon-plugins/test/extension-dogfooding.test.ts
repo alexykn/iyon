@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { AgentSession, ApprovalBroker, installIyonVirtualModules, selectProvider } from "@iyon/runtime";
 import { discoverPackages, PackageLoader, selectApp } from "../src/index.ts";
+import { Scene, View } from "@iyon/tui";
 import { selectIyonAgent } from "../../iyon-cli/src/selection.ts";
 
 installIyonVirtualModules();
@@ -54,8 +55,9 @@ describe("extension dogfooding", () => {
       expect(app.source.packageId).toBe("fixture-dogfood");
       expect(await customAppCreated()).toBe(1);
 
-      const scene = await loader.registries.scene.apply({ body: "base" }, { appId: app.id });
-      expect(scene).toEqual({ body: "replaced:fixture-app:composed" });
+      const scene = await loader.registries.scene.apply(new Scene(View.text("base")), { appId: app.id });
+      expect(scene).toBeInstanceOf(Scene);
+      expect(scene.body.kind).toBe("view");
 
       expect(await runtimeProbe()).toEqual({ npm: "function", file: true, process: "process-marker", network: "local-network" });
       const capturedContext = await selectedAgentContext() as { readonly approval?: unknown };

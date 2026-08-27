@@ -1,6 +1,7 @@
 import { parseUnifiedDiff } from "./diff.ts";
 import type { DiffHunk as ParsedDiffHunk } from "./diff.ts";
-import { DiffHunk, DiffLine, DiffRange, DiffRenderer, Style, View } from "@iyon/tui";
+import { DiffHunk, DiffLine, DiffRange, DiffRenderer, Style, StyleRef, View, themeColor } from "@iyon/tui";
+import type { StyleSpec } from "@iyon/tui";
 import type { ToolCall, ToolLifecycleState, ToolResult } from "@iyon/sdk";
 
 export const MAX_COLLAPSED_TOOL_ROWS = 16;
@@ -9,20 +10,20 @@ export function collapseResultView(view: View): View {
   return view.clampRows(MAX_COLLAPSED_TOOL_ROWS, {
     kind: "footer",
     prefix: "… more lines (full result retained)",
-    style: Style.new().foreground("theme:truncation_footer").italic().dim(),
+    style: Style.new().foreground(themeColor("truncation_footer")).italic().dim(),
   });
 }
 
 export function toolStyle(state: ToolLifecycleState) {
   const key = state === "preparing" || state === "running" ? "tool.running" : state === "pendingApproval" ? "text.warning" : state === "failed" || state === "cancelled" ? "tool.error" : "tool.finished";
-  return Style.new().foreground(`theme:${key}`);
+  return Style.new().foreground(themeColor(key));
 }
 
 export function resultStyle(isError: boolean) {
-  return Style.new().foreground(`theme:${isError ? "tool.error" : "text.muted"}`);
+  return Style.new().foreground(themeColor(isError ? "tool.error" : "text.muted"));
 }
 
-export function toolText(value: string, style: ReturnType<typeof Style.new>): View {
+export function toolText(value: string, style: StyleSpec | StyleRef): View {
   return View.text(value).style(style);
 }
 
@@ -32,11 +33,11 @@ export function toolCallLine(value: string, state: ToolLifecycleState, pulse = f
   return View.hanging(toolText("● ", bullet).noWrap(), View.text("  ").noWrap(), toolText(value, style).fillWidth()).fillWidth();
 }
 
-export function toolResultLine(value: string, style: ReturnType<typeof Style.new>): View {
+export function toolResultLine(value: string, style: StyleSpec | StyleRef): View {
   return View.hanging(View.text("  ").noWrap(), View.text("  ").noWrap(), toolText(value, style).fillWidth()).fillWidth();
 }
 
-export function resultLines(value: string, style: ReturnType<typeof Style.new>): View[] {
+export function resultLines(value: string, style: StyleSpec | StyleRef): View[] {
   return value.split(/\r?\n/u).map((line) => toolResultLine(line, style));
 }
 
@@ -64,7 +65,7 @@ export function toolCallPreview<T>(call: ToolCall<T>): View | undefined {
 export function renderDiff(details: unknown): View | undefined {
   const diff = typeof details === "object" && details !== null && typeof (details as { diff?: unknown }).diff === "string" ? (details as { diff: string }).diff : undefined;
   if (!diff) return undefined;
-  try { return renderHunks(parseUnifiedDiff(diff)); } catch { return View.vertical(diff.split("\n").map((line) => toolText(line, Style.new().theme("diff.meta")).fillWidth())).fillWidth(); }
+  try { return renderHunks(parseUnifiedDiff(diff)); } catch { return View.vertical(diff.split("\n").map((line) => toolText(line, StyleRef.theme("diff.meta")).fillWidth())).fillWidth(); }
 }
 
 export function renderHunks(hunks: readonly ParsedDiffHunk[]): View {

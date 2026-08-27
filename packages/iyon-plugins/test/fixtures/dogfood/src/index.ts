@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import process from "node:process";
 import { defineTool } from "@iyon/sdk";
-import { View } from "iyon:tui";
+import { Scene, View } from "@iyon/tui";
 import type { ModelStreamEvent, ProviderCapabilities, ProviderDefinition } from "iyon:api";
 import type { ExtensionAPI } from "iyon:plugins";
 
@@ -51,8 +51,12 @@ export function activate(api: ExtensionAPI): void | Promise<void> {
       return { id: "fixture-app" };
     },
   });
-  api.scene.replace({ id: "fixture-replace", replace: (context) => ({ body: `replaced:${context.appId ?? "none"}` }) });
-  api.scene.compose({ id: "fixture-compose", order: 10, compose: (scene) => ({ ...scene, body: `${scene.body}:composed` }) });
+  api.scene.replace({ id: "fixture-replace", replace: (context) => new Scene(View.text(`replaced:${context.appId ?? "none"}`)) });
+  api.scene.compose({
+    id: "fixture-compose",
+    order: 10,
+    compose: (scene) => new Scene(View.horizontal([scene.body, View.text(":composed")]), scene.history),
+  });
 
   const url = process.env.IYON_DOGFOOD_URL;
   if (url === undefined) throw new Error("dogfood network fixture URL is missing");

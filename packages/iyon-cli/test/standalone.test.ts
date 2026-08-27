@@ -23,7 +23,6 @@ describe("S5 standalone distribution", () => {
     expect(JSON.parse(stdout)).toEqual({
       ok: true,
       native: "iyon-core-native/s5",
-      tui: "iyon:tui/t1",
       concurrent: 100,
       event: "fifo-and-close",
     });

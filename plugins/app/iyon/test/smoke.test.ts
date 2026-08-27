@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { installIyonVirtualModules } from "@iyon/runtime";
-import { createAppHarness } from "@iyon/tui";
+import { createAppHarness } from "@iyon/tui/testing";
+import type { AppHarness } from "@iyon/tui/testing";
+import type { OutputEvent } from "@iyon/tui";
 import { discoverPackageRoot, PackageLoader, selectApp } from "@iyon/plugins";
 import type { IyonApp } from "../src/app.ts";
+
+async function nextOutputEvent(harness: AppHarness): Promise<OutputEvent> {
+  const event = await harness.nextEvent();
+  if (event.type !== "output") throw new Error(`expected output event, received ${event.type}`);
+  return event;
+}
 
 installIyonVirtualModules();
 
@@ -36,9 +44,9 @@ describe("default app package", () => {
     for (const key of "hello") harness.pressKey(key);
     expect(await app.composer.text()).toBe("hello");
     harness.pressKey("Enter");
-    const first = await harness.nextAction();
-    expect(first).toEqual({ actionId: "submit", payload: "hello" });
-    await app.handleAction({ type: "submit", text: first?.payload ?? "" });
+    const first = await nextOutputEvent(harness);
+    expect(first).toEqual({ type: "output", routeId: "submit", payload: "hello" });
+    await app.handleAction({ type: "submit", text: first.payload ?? "" });
     expect(await app.composer.text()).toBe("");
     expect(runs).toBe(1);
     expect(submits).toEqual(["hello"]);
@@ -50,9 +58,9 @@ describe("default app package", () => {
     for (const key of "steer") harness.pressKey(key);
     expect(await app.composer.text()).toBe("steer");
     harness.pressKey("Enter");
-    const second = await harness.nextAction();
-    expect(second).toEqual({ actionId: "submit", payload: "steer" });
-    await app.handleAction({ type: "submit", text: second?.payload ?? "" });
+    const second = await nextOutputEvent(harness);
+    expect(second).toEqual({ type: "output", routeId: "submit", payload: "steer" });
+    await app.handleAction({ type: "submit", text: second.payload ?? "" });
     expect(runs).toBe(1);
     expect(submits).toEqual(["hello", "steer"]);
     expect(harness.screenRows().some((row) => row.includes("Queue: steer") && row.includes("Working"))).toBe(true);

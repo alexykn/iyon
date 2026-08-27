@@ -1,4 +1,4 @@
-import { View } from "iyon:tui";
+import { StyleRef, View } from "@iyon/tui";
 import type { ToolCall, ToolResult } from "@iyon/sdk";
 import { resultStyle, resultText, statusLabel, toolCallLine, toolResultLine } from "@iyon/plugins";
 
@@ -6,7 +6,7 @@ export function renderBashCall(call: ToolCall<{ command: string }>): View {
   const label = call.arguments === undefined
     ? `${call.name} — ${statusLabel(call.state)}`
     : `$ ${call.arguments.command} — ${statusLabel(call.state)}`;
-  return toolCallLine(label, call.state, call.pulse) as unknown as View;
+  return toolCallLine(label, call.state, call.pulse);
 }
 
 export function renderBashResult(result: ToolResult): View {
@@ -24,6 +24,6 @@ export function renderBashResult(result: ToolResult): View {
     toolResultLine(text, style),
   ];
   const fullOutputPath = typeof result.details === "object" && result.details !== null && typeof (result.details as { fullOutputPath?: unknown }).fullOutputPath === "string" ? (result.details as { fullOutputPath: string }).fullOutputPath : undefined;
-  if (fullOutputPath) children.push(toolResultLine(`[Full output: ${fullOutputPath}]`, style.theme("text.warning")));
-  return View.vertical(children).fillWidth() as unknown as View;
+  if (fullOutputPath) children.push(toolResultLine(`[Full output: ${fullOutputPath}]`, StyleRef.theme("text.warning", style)));
+  return View.vertical(children).fillWidth();
 }

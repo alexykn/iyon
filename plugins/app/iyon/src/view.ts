@@ -1,7 +1,6 @@
-import { Insets, View } from "iyon:tui";
-import { defineView, state } from "iyon:tui";
+import { defineView, Insets, View, state } from "@iyon/tui";
 import type { ReasoningLevel } from "@iyon/sdk";
-import type { History, State, TextInput, ViewSlot, View as ViewValue } from "@iyon/tui";
+import type { State, TextInput, ViewSlot } from "@iyon/tui";
 import type { IyonState, InfoState, PendingApproval } from "./contracts.ts";
 import { MAX_COMPOSER_ROWS } from "./composer.ts";
 import { approvalView } from "./approvals.ts";
@@ -100,7 +99,7 @@ export interface IyonRootProps {
 
 const SPINNER_FRAMES = ["⠋⣠", "⢁⡴", "⣠⠞", "⡴⠋", "⠞⢁"] as const;
 
-export function workingFrames(waiting: boolean): ViewValue[] {
+export function workingFrames(waiting: boolean): View[] {
   return SPINNER_FRAMES.map((frame, index) => {
     const spinner = waiting ? frame : SPINNER_FRAMES[SPINNER_FRAMES.length - 1 - index];
     return View.text(`${spinner} ${waiting ? "waiting" : "Working"}`).noWrap();
@@ -113,7 +112,7 @@ export function workingQueueTexts(steering: readonly string[]): { preview: strin
   return { preview: first.split(/\s+/).filter(Boolean).join(" "), extra: steering.length - 1 };
 }
 
-export function workingQueueView(state: IyonState, theme: IyonTheme): ViewValue | undefined {
+export function workingQueueView(state: IyonState, theme: IyonTheme): View | undefined {
   const queue = workingQueueTexts(state.steering);
   if (queue === undefined) return undefined;
   const muted = (text: string) => View.text(text).noWrap().italic().foreground(theme.mutedColor);
@@ -139,7 +138,7 @@ const Footer = defineView<{ chrome: ChromeState; theme: IyonTheme }>(({ chrome, 
 
 const ComposerChrome = defineView<{ chrome: ChromeState; composer: TextInput; theme: IyonTheme }>(({ chrome, composer, theme }) => {
   chromeExecutionCounters.composer += 1;
-  return View.component(composer)
+  return composer.view()
     .style(theme.composer)
     .styleState("iyon.agent.effort", chrome.effort.value)
     .fillWidth();
@@ -152,7 +151,7 @@ const Working = defineView<{ chrome: ChromeState; working?: ViewSlot; theme: Iyo
   const muted = (text: string) => View.text(text).noWrap().italic().foreground(theme.mutedColor);
   return View.horizontal((row) => {
     row.gap(4);
-    row.child(View.component(working));
+    row.child(working.view());
     if (queue !== undefined) {
       row.flex(muted(`Queue: ${queue.preview}`));
       if (queue.extra > 0) row.child(muted(` + ${queue.extra} more`));
@@ -182,7 +181,7 @@ export const IyonRootView = defineView<IyonRootProps>((props) => {
   }).fillWidth().fillHeight();
 });
 
-export function userBatchView(messages: readonly string[], theme: IyonTheme): ViewValue {
+export function userBatchView(messages: readonly string[], theme: IyonTheme): View {
   return View.vertical(messages.map((message) => View.text(message).fillWidth()))
     .fillWidth()
     .border({ style: "plain", edges: "topBottom", color: theme.inputBorder });

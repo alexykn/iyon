@@ -4,6 +4,7 @@ import {
   advance,
   closeFixture,
   draft,
+  nextOutputEvent,
   openFixture,
   send,
   toolStatusCount,
@@ -44,8 +45,8 @@ describe("Iyon public native TUI", () => {
     await withFixture(40, 12, async ({ app, harness }) => {
       for (const key of "hello") harness.pressKey(key);
       harness.pressKey("Enter");
-      const action = await harness.nextAction();
-      expect(action).toEqual({ actionId: "submit", payload: "hello" });
+      const action = await nextOutputEvent(harness);
+      expect(action).toEqual({ type: "output", routeId: "submit", payload: "hello" });
       await app.handleAction({ type: "submit", text: action?.payload ?? "" });
       await send({ harness, app }, { type: "userMessage", text: "hello" });
       expect(await app.composer.text()).toBe("");
@@ -60,8 +61,8 @@ describe("Iyon public native TUI", () => {
     await withFixture(40, 12, async ({ app, harness }) => {
       for (const key of "hello") harness.pressKey(key);
       harness.pressKey("Enter");
-      const action = await harness.nextAction();
-      await app.handleAction({ type: "submit", text: action?.payload ?? "" });
+      const action = await nextOutputEvent(harness);
+      await app.handleAction({ type: "submit", text: action.payload ?? "" });
       expect(await app.composer.text()).toBe("");
       expect(harness.screenRows().some((line) => line.includes("Working"))).toBe(true);
       expect(harness.exited()).toBe(false);
@@ -75,8 +76,8 @@ describe("Iyon public native TUI", () => {
       };
       for (const key of "hello") harness.pressKey(key);
       harness.pressKey("Enter");
-      const action = await harness.nextAction();
-      await expect(app.handleAction({ type: "submit", text: action?.payload ?? "" })).resolves.toBeUndefined();
+      const action = await nextOutputEvent(harness);
+      await expect(app.handleAction({ type: "submit", text: action.payload ?? "" })).resolves.toBeUndefined();
       expect(harness.exited()).toBe(false);
       expect(app.state.info.status).toBe("provider failed");
       expect(harness.screenRows().some((line) => line.includes("Goodbye."))).toBe(false);
@@ -92,8 +93,8 @@ describe("Iyon public native TUI", () => {
         await originalExit();
       };
       harness.pressKey("c", ["control"]);
-      const action = await harness.nextAction();
-      expect(action).toEqual({ actionId: "ctrlC" });
+      const action = await nextOutputEvent(harness);
+      expect(action).toEqual({ type: "output", routeId: "ctrlC" });
       await app.handleAction({ type: "ctrlC" });
       expect(harness.exited()).toBe(true);
     });
@@ -102,7 +103,7 @@ describe("Iyon public native TUI", () => {
   test("idle_ctrl_c_leaves_goodbye_in_native_history", async () => {
     await withFixture(40, 12, async ({ app, harness }) => {
       harness.pressKey("c", ["control"]);
-      await harness.nextAction();
+      await nextOutputEvent(harness);
       await app.handleAction({ type: "ctrlC" });
       expect(harness.nativeHistoryRows().some((line) => line.includes("Goodbye."))).toBe(true);
     });
@@ -112,8 +113,8 @@ describe("Iyon public native TUI", () => {
     await withFixture(40, 12, async ({ app, harness }) => {
       for (const key of "hello") harness.pressKey(key);
       harness.pressKey("\u0003");
-      const action = await harness.nextAction();
-      expect(action).toEqual({ actionId: "ctrlC" });
+      const action = await nextOutputEvent(harness);
+      expect(action).toEqual({ type: "output", routeId: "ctrlC" });
       await app.handleAction({ type: "ctrlC" });
       expect(await app.composer.text()).toBe("");
       expect(harness.exited()).toBe(false);
@@ -125,8 +126,8 @@ describe("Iyon public native TUI", () => {
     await withFixture(40, 12, async ({ app, harness }) => {
       await send({ app, harness }, { type: "turnStarted" });
       harness.pressKey("c", ["control"]);
-      const action = await harness.nextAction();
-      expect(action).toEqual({ actionId: "ctrlC" });
+      const action = await nextOutputEvent(harness);
+      expect(action).toEqual({ type: "output", routeId: "ctrlC" });
       await app.handleAction({ type: "ctrlC" });
       expect(app.state.activeTurn).toBe(false);
       expect(app.state.working).toBe(false);
@@ -139,7 +140,7 @@ describe("Iyon public native TUI", () => {
     for (const key of ["\u0003", "c"] as const) {
       await withFixture(40, 12, async ({ app, harness }) => {
         harness.pressKey(key, key === "c" ? ["control"] : undefined);
-        await expect(harness.nextAction()).resolves.toEqual({ actionId: "ctrlC" });
+        await expect(nextOutputEvent(harness)).resolves.toEqual({ type: "output", routeId: "ctrlC" });
         await app.stop();
         await harness.close();
       });
@@ -151,8 +152,8 @@ describe("Iyon public native TUI", () => {
       expect(harness.screenRows().filter((line) => line.includes("─")).length).toBeGreaterThanOrEqual(2);
       expect(harness.screenRows().at(-1)).toContain("effort");
       harness.pressKey("Escape");
-      const action = await harness.nextAction();
-      expect(action).toEqual({ actionId: "escape" });
+      const action = await nextOutputEvent(harness);
+      expect(action).toEqual({ type: "output", routeId: "escape" });
       expect(harness.screenRows().filter((line) => line.includes("─")).length).toBeGreaterThanOrEqual(2);
       expect(harness.screenRows().at(-1)).toContain("effort");
       expect(harness.exited()).toBe(false);
@@ -167,7 +168,7 @@ describe("Iyon public native TUI", () => {
     await withFixture(40, 12, async ({ app, harness }) => {
       await send({ app, harness }, { type: "turnStarted" });
       harness.pressKey("Escape");
-      expect(await harness.nextAction()).toEqual({ actionId: "escape" });
+      expect(await nextOutputEvent(harness)).toEqual({ type: "output", routeId: "escape" });
       expect(harness.screenRows().filter((line) => line.includes("─")).length).toBeGreaterThanOrEqual(2);
       expect(harness.screenRows().at(-1)).toContain("effort");
       await app.handleAction({ type: "escape" });
@@ -213,7 +214,7 @@ describe("Iyon public native TUI", () => {
     });
   });
 
-  test("run_loop_null_next_action_still_runs_goodbye_shutdown", async () => {
+  test("run_loop_terminate_event_still_runs_goodbye_shutdown", async () => {
     await withFixture(40, 12, async ({ app, harness }) => {
       const tui = new Proxy(harness, {
         get(target, property, receiver) {
@@ -478,10 +479,10 @@ describe("Iyon public native TUI", () => {
   test("composer_paste_inserts_forwarded_text_without_reintercepting", async () => {
     await withFixture(60, 20, async (fixture) => {
       fixture.harness.paste("hello paste");
-      const action = await fixture.harness.nextAction();
-      expect(action?.actionId).toBe("composerPaste");
-      expect(action?.payload).toBe("hello paste");
-      await fixture.app.handleAction({ type: "composerPaste", text: action?.payload ?? "" });
+      const action = await nextOutputEvent(fixture.harness);
+      expect(action.routeId).toBe("composerPaste");
+      expect(action.payload).toBe("hello paste");
+      await fixture.app.handleAction({ type: "composerPaste", text: action.payload ?? "" });
       expect(await fixture.app.composer.text()).toBe("hello paste");
       expect(fixture.harness.screenRows().some((line) => line.includes("hello paste"))).toBe(true);
     });
@@ -491,8 +492,8 @@ describe("Iyon public native TUI", () => {
     await withFixture(40, 20, async (fixture) => {
       await send(fixture, { type: "assistantDelta", text: "assistant before composer" });
       fixture.harness.paste(Array.from({ length: 12 }, (_, index) => `line ${index}`).join("\n"));
-      const action = await fixture.harness.nextAction();
-      await fixture.app.handleAction({ type: "composerPaste", text: action?.payload ?? "" });
+      const action = await nextOutputEvent(fixture.harness);
+      await fixture.app.handleAction({ type: "composerPaste", text: action.payload ?? "" });
       advance(fixture, 16, 40);
       const rows = fixture.harness.screenRows();
       expect(rows.some((line) => line.includes("assistant before composer"))).toBe(true);
@@ -505,8 +506,8 @@ describe("Iyon public native TUI", () => {
       await send(fixture, { type: "userMessage", text: "history slack" });
       await send(fixture, { type: "assistantDelta", text: "history assistant" });
       fixture.harness.paste("one\ntwo\nthree\nfour\nfive");
-      const action = await fixture.harness.nextAction();
-      await fixture.app.handleAction({ type: "composerPaste", text: action?.payload ?? "" });
+      const action = await nextOutputEvent(fixture.harness);
+      await fixture.app.handleAction({ type: "composerPaste", text: action.payload ?? "" });
       const rows = fixture.harness.screenRows();
       expect(rows.some((line) => line.includes("history slack"))).toBe(true);
       expect(rows.length).toBe(20);

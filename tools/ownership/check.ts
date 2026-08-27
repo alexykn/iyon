@@ -116,6 +116,10 @@ function tsConsumerGate(): void {
       filesChecked += 1;
       for (const spec of specifiersOf(readFileSync(file, "utf8"))) {
         if (spec === "@iyon/tui" || spec === "iyon:tui") continue;
+        if (spec === "@iyon/tui/testing") {
+          const relativeFile = relative(ROOT, file);
+          if (/(^|\/)(?:test|tests)(?:\/|$)/u.test(relativeFile)) continue;
+        }
         if (spec.startsWith("@iyon/tui/") || spec === "@iyon/runtime/tui" || spec.startsWith("@iyon/runtime/tui/")) {
           violations.push(`${relative(ROOT, file)} -> "${spec}"`);
           continue;

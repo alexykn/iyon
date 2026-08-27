@@ -1,8 +1,9 @@
 import { installIyonVirtualModules } from "@iyon/runtime";
-import { createAppHarness } from "@iyon/tui";
-import type { AppHarness } from "@iyon/tui";
+import { createAppHarness } from "@iyon/tui/testing";
+import type { AppHarness } from "@iyon/tui/testing";
 import { registerBundledTools } from "@iyon/plugins";
 import type { IyonApp } from "../src/app.ts";
+import type { OutputEvent } from "@iyon/tui";
 import type { FrontendEvent, ToolDraftKey, ToolRendererContribution } from "../src/contracts.ts";
 
 installIyonVirtualModules();
@@ -46,6 +47,12 @@ export async function closeFixture(fixture: PublicAppFixture): Promise<void> {
 
 export async function send(fixture: PublicAppFixture, event: FrontendEvent): Promise<void> {
   await fixture.app.handleAction({ type: "backend", event });
+}
+
+export async function nextOutputEvent(harness: AppHarness): Promise<OutputEvent> {
+  const event = await harness.nextEvent();
+  if (event.type !== "output") throw new Error(`expected output event, received ${event.type}`);
+  return event;
 }
 
 export function transcriptLines(harness: AppHarness): string[] {

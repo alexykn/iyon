@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { installIyonVirtualModules } from "@iyon/runtime";
-import { createAppHarness } from "@iyon/tui";
+import { createAppHarness } from "@iyon/tui/testing";
 import { KernelSession } from "@iyon/runtime";
 import { registerBundledTools } from "@iyon/plugins";
 import type { ModelApi, ModelStreamEvent } from "iyon:api";
 import type { CoreEvent } from "@iyon/sdk";
-import type { AppHarness } from "@iyon/tui";
+import type { AppHarness } from "@iyon/tui/testing";
 import { advance, draft, send, transcriptLines } from "./public_app_fixtures.ts";
 import type { IyonApp } from "../src/app.ts";
 

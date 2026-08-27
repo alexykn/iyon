@@ -7,9 +7,8 @@ installIyonVirtualModules();
 const modules = await Promise.all([
   import("iyon:api"),
   import("iyon:core"),
-  import("iyon:tui"),
 ]);
-const [api, core, tui] = modules;
+const [api, core] = modules;
 
 describe("S5 named native probes", () => {
   test("async_rust_resolves_to_promise", async () => {
@@ -77,6 +76,5 @@ describe("S5 named native probes", () => {
     const waiting = queue.nextEvent();
     queue.close();
     expect(await waiting).toBeNull();
-    expect(tui.tuiSmoke).toBe("iyon:tui/t1");
   });
 });

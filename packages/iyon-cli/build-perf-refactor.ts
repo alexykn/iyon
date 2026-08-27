@@ -162,6 +162,22 @@ async function ensurePersistentWorktree(branch: string, appHead: string): Promis
   return { path, state: "created" };
 }
 
+function updateTuiCargoLock(worktree: string): void {
+  const result = run(["cargo", "update", "-p", "iyon-tui"], worktree);
+  if (result.exitCode === 0) {
+    if (result.stdout.length > 0) process.stdout.write(result.stdout);
+    if (result.stderr.length > 0) process.stderr.write(result.stderr);
+    return;
+  }
+  // The extracted application workspace keeps the TUI dependency declaration
+  // for branch rewriting, but no application crate currently uses that Rust
+  // crate. A fresh lockfile therefore has no iyon-tui package to update.
+  if (result.stderr.includes("package ID specification `iyon-tui` did not match any packages")) return;
+  if (result.stdout.length > 0) process.stdout.write(result.stdout);
+  if (result.stderr.length > 0) process.stderr.write(result.stderr);
+  throw new Error(`command failed (${result.exitCode}): cargo update -p iyon-tui`);
+}
+
 async function buildStable(): Promise<void> {
   runChecked(["bun", "run", "native:stage"], APP_ROOT);
   runChecked(["bun", "run", "native:tui:stage"], APP_ROOT);
@@ -181,7 +197,7 @@ async function buildBranch(branch: string): Promise<void> {
     );
     await switchTuiDependencies(worktree.path, tuiSha);
     runChecked(["bun", "install"], worktree.path);
-    runChecked(["cargo", "update", "-p", "iyon-tui"], worktree.path);
+    updateTuiCargoLock(worktree.path);
     runChecked(["bun", "run", "native:stage"], worktree.path);
     runChecked(["bun", "run", "native:tui:stage"], worktree.path);
     runChecked(["bun", "run", "packages/iyon-cli/build.ts"], worktree.path);

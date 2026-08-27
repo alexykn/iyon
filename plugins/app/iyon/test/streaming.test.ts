@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { installIyonVirtualModules } from "@iyon/runtime";
-import { Scene, Tui, View } from "@iyon/tui";
+import { createAppHarness } from "@iyon/tui/testing";
+import { Scene, View } from "@iyon/tui";
 import { AssistantStreamBuffer, NativeAssistantStream } from "../src/streaming.ts";
-
-installIyonVirtualModules();
 
 describe("assistant streaming", () => {
   test("coalesces adjacent semantic segments and seals", () => {
@@ -17,7 +15,7 @@ describe("assistant streaming", () => {
   });
 
   test("keeps an open reference definition out of the resident prefix", async () => {
-    const tui = await Tui.open({ width: 12, height: 5, headless: true });
+    const tui = await createAppHarness({ width: 12, height: 5 });
     const history = tui.createHistory();
     const stream = new NativeAssistantStream();
     const chunks = [

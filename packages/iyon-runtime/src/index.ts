@@ -22,7 +22,6 @@ export {
   cancellationOperation,
   coreSmoke,
   runWithAbortSignal,
-  tuiSmoke,
 } from "./smoke.ts";
 export {
   installIyonVirtualModules,
