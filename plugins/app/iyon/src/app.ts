@@ -526,7 +526,7 @@ class IyonAppImpl implements IyonApp {
     }
     const tui = this.tui;
     if (tui === undefined) throw new Error("Iyon app TUI is unavailable");
-    const pane = tui.createScrollPane(View.spacer(0));
+    const pane = tui.createScrollPane(this.renderToolUpdate(card));
     this.toolPanes.set(key, pane);
     const created = tui.createViewSlot(View.spacer(0));
     // History captures component references from their current native content;
@@ -547,7 +547,6 @@ class IyonAppImpl implements IyonApp {
       column.flexMax(16, pane.view().fillWidth());
     }).fillWidth());
     this.toolHistoryUnits.set(key, historyUnit);
-    await this.updateToolContent(key, card);
     if (pulsing) await animation.setAnimation([initialCall, this.renderToolCall(card, key, true)], 480);
   }
 
