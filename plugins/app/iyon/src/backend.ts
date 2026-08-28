@@ -3,6 +3,8 @@ import type { FrontendEvent, ToolUpdatePresentation } from "./contracts.ts";
 
 export interface CoreEventSource {
   nextEvent(signal?: AbortSignal): Promise<CoreEvent | null>;
+  /** Optional native batch path; sources without it use nextEvent(). */
+  nextEvents?(max?: number): Promise<CoreEvent[]>;
   close?(): void;
 }
 
@@ -34,6 +36,27 @@ export function startCoreEventBridge(source: CoreEventSource, dispatcher: Fronte
 async function consumeCoreEvents(source: CoreEventSource, dispatcher: FrontendDispatcher, signal: AbortSignal): Promise<void> {
   const mapper = new CoreEventMapper();
   let eventsSinceYield = 0;
+  const nextEvents = source.nextEvents;
+  if (nextEvents !== undefined) {
+    while (!signal.aborted) {
+      let events: CoreEvent[];
+      try {
+        events = await nextEvents.call(source, CORE_EVENTS_PER_TURN);
+      } catch (error) {
+        if (signal.aborted || isAbortError(error)) return;
+        throw error;
+      }
+      if (events.length === 0) return;
+      eventsSinceYield += events.length;
+      await dispatchMappedEvents(events, mapper, dispatcher, signal);
+      if (eventsSinceYield >= CORE_EVENTS_PER_TURN) {
+        eventsSinceYield = 0;
+        await yieldToEventLoop();
+      }
+    }
+    return;
+  }
+
   while (!signal.aborted) {
     let event: CoreEvent | null;
     try {
@@ -45,11 +68,44 @@ async function consumeCoreEvents(source: CoreEventSource, dispatcher: FrontendDi
     if (event === null) return;
     eventsSinceYield += 1;
     const mapped = mapper.map(event);
-    if (mapped !== undefined && !signal.aborted) await dispatcher.dispatch({ type: "backend", event: mapped });
+    if (mapped !== undefined && !signal.aborted) {
+      await dispatcher.dispatch({ type: "backend", event: mapped });
+    }
     if (eventsSinceYield >= CORE_EVENTS_PER_TURN) {
       eventsSinceYield = 0;
       await yieldToEventLoop();
     }
+  }
+}
+
+async function dispatchMappedEvents(
+  events: readonly CoreEvent[],
+  mapper: CoreEventMapper,
+  dispatcher: FrontendDispatcher,
+  signal: AbortSignal,
+): Promise<void> {
+  let mapped: FrontendEvent[] = [];
+  for (const event of events) {
+    const value = mapper.map(event);
+    if (value === undefined) {
+      await dispatchMappedBatch(mapped, dispatcher, signal);
+      mapped = [];
+    } else {
+      mapped.push(value);
+    }
+  }
+  await dispatchMappedBatch(mapped, dispatcher, signal);
+}
+
+async function dispatchMappedBatch(
+  events: readonly FrontendEvent[],
+  dispatcher: FrontendDispatcher,
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted || events.length === 0) return;
+  for (const event of coalesceFrontendEvents(events)) {
+    if (signal.aborted) return;
+    await dispatcher.dispatch({ type: "backend", event });
   }
 }
 
