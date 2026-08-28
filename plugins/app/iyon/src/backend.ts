@@ -16,6 +16,11 @@ export interface CoreEventBridge {
   close(): void;
 }
 
+// A source can expose a long run of already-resolved promises (for example a
+// buffered stream). Keep that run from starving the terminal polling timer:
+// native input must remain serviceable while backend deltas are being applied.
+const CORE_EVENTS_PER_TURN = 16;
+
 export function startCoreEventBridge(source: CoreEventSource, dispatcher: FrontendDispatcher): CoreEventBridge {
   const controller = new AbortController();
   const done = consumeCoreEvents(source, dispatcher, controller.signal);
@@ -28,6 +33,7 @@ export function startCoreEventBridge(source: CoreEventSource, dispatcher: Fronte
 
 async function consumeCoreEvents(source: CoreEventSource, dispatcher: FrontendDispatcher, signal: AbortSignal): Promise<void> {
   const mapper = new CoreEventMapper();
+  let eventsSinceYield = 0;
   while (!signal.aborted) {
     let event: CoreEvent | null;
     try {
@@ -37,9 +43,18 @@ async function consumeCoreEvents(source: CoreEventSource, dispatcher: FrontendDi
       throw error;
     }
     if (event === null) return;
+    eventsSinceYield += 1;
     const mapped = mapper.map(event);
     if (mapped !== undefined && !signal.aborted) await dispatcher.dispatch({ type: "backend", event: mapped });
+    if (eventsSinceYield >= CORE_EVENTS_PER_TURN) {
+      eventsSinceYield = 0;
+      await yieldToEventLoop();
+    }
   }
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function isAbortError(error: unknown): boolean {

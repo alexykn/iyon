@@ -111,6 +111,7 @@ class IyonAppImpl implements IyonApp {
   private activeAgentRun?: Promise<void>;
   private shutdownPromise?: Promise<void>;
   private shutdownComplete = false;
+  private readonly backendBridges = new Set<CoreEventBridge>();
   private liveUserBatch?: LiveUserBatch;
   private historyMutation: Promise<void> = Promise.resolve();
   private lastCtrlCAt = 0;
@@ -180,7 +181,11 @@ class IyonAppImpl implements IyonApp {
   }
 
   async stop(): Promise<void> {
-    if (!this.started && this.tui === undefined) return;
+    if (!this.started && this.tui === undefined && this.backendBridges.size === 0) return;
+    const bridges = [...this.backendBridges];
+    for (const bridge of bridges) bridge.close();
+    await Promise.all(bridges.map((bridge) => bridge.done));
+    this.backendBridges.clear();
     await this.historyMutation;
     try {
       if (this.ownsTui && !this.shutdownComplete) await this.tui?.close();
@@ -717,7 +722,12 @@ class IyonAppImpl implements IyonApp {
     const steering = this.chrome.steering.value;
     const steeringChanged = next.steering.length !== steering.length
       || next.steering.some((v, i) => v !== steering[i]);
-    const chromeChanged = effortChanged || footerChanged || activityChanged || goodbyeChanged || steeringChanged;
+    // Approval has its own tracked scope. It must participate in the drain
+    // decision just like the other chrome slices; otherwise an approval-only
+    // backend event can leave the prompt pending until the next input event.
+    const pendingApprovalChanged = next.pendingApproval !== this.chrome.pendingApproval.value;
+    const chromeChanged = effortChanged || footerChanged || activityChanged || goodbyeChanged
+      || steeringChanged || pendingApprovalChanged;
 
     this.syncWorkingAnimation(next);
     syncChromeStates(this.chrome, next);
@@ -761,7 +771,15 @@ class IyonAppImpl implements IyonApp {
     }
   }
 
-  startBackendBridge(source: CoreEventSource): CoreEventBridge { return startCoreEventBridge(source, this); }
+  startBackendBridge(source: CoreEventSource): CoreEventBridge {
+    const bridge = startCoreEventBridge(source, this);
+    this.backendBridges.add(bridge);
+    void bridge.done.then(
+      () => { this.backendBridges.delete(bridge); },
+      () => { this.backendBridges.delete(bridge); },
+    );
+    return bridge;
+  }
 }
 
 function toolUpdateText(card: LiveTool): string | undefined {
