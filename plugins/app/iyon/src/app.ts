@@ -14,9 +14,9 @@ import type {
 } from "./contracts.ts";
 import { ComposerPasteStore } from "./composer.ts";
 import { ApprovalStore } from "./approvals.ts";
-import { createInitialState, hasActiveWork, reduceIyonState } from "./state.ts";
+import { createInitialState, hasActiveWork, isBlankText, reduceIyonState } from "./state.ts";
 import { createIyonTheme, type IyonTheme } from "./theme.ts";
-import { createIyonChrome, syncChromeStates, IyonRootView, userBatchView, workingFrames } from "./view.ts";
+import { createIyonChrome, syncChromeStates, IyonRootView, userBatchView, workingFrames, workingQueueTexts } from "./view.ts";
 import type { ChromeState } from "./view.ts";
 import { handleIyonAction } from "./actions.ts";
 import { startCoreEventBridge, type CoreEventBridge, type CoreEventSource } from "./backend.ts";
@@ -257,6 +257,7 @@ class IyonAppImpl implements IyonApp {
         // instead of repeatedly cancelling an already-cancelled run.
         isAgentRunning: () => this.activeAgentRun !== undefined && this.currentState.activeTurn,
       });
+      if (result.ignored) return;
       const previous = this.currentState;
       this.currentState = result.state;
       await this.historyMutation;
@@ -312,6 +313,7 @@ class IyonAppImpl implements IyonApp {
   ): Promise<boolean> {
     if (action.type !== "backend") {
       if (action.type === "submit") {
+        if (isBlankText(action.text)) return true;
         if (hasActiveWork(previous)) return true;
         await this.openUserBatch(action.text, action.queueId);
         return true;
@@ -337,6 +339,7 @@ class IyonAppImpl implements IyonApp {
       return true;
     }
     if (event.type === "userMessage") {
+      if (isBlankText(event.text)) return true;
       await this.sealAssistantStream();
       if (this.liveUserBatch !== undefined) {
         const isCanonicalPrompt = event.queueId === undefined
@@ -682,7 +685,7 @@ class IyonAppImpl implements IyonApp {
         this.workingAnimationMode = undefined;
       }
     } else {
-      const waiting = state.steering.length > 0;
+      const waiting = workingQueueTexts(state.steering) !== undefined;
       if (this.workingAnimationMode === undefined) {
         this.workingHandle.setAnimation(workingFrames(waiting), 80);
       } else if (this.workingAnimationMode !== waiting) {

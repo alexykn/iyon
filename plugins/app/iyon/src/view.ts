@@ -107,9 +107,10 @@ export function workingFrames(waiting: boolean): View[] {
 }
 
 export function workingQueueTexts(steering: readonly string[]): { preview: string; extra: number } | undefined {
-  const first = steering[0];
+  const pending = steering.filter((text) => text.trim().length > 0);
+  const first = pending[0];
   if (first === undefined) return undefined;
-  return { preview: first.split(/\s+/).filter(Boolean).join(" "), extra: steering.length - 1 };
+  return { preview: first.split(/\s+/).filter(Boolean).join(" "), extra: pending.length - 1 };
 }
 
 export function workingQueueView(state: IyonState, theme: IyonTheme): View | undefined {

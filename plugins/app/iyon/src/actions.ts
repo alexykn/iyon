@@ -1,7 +1,7 @@
 import type { ReasoningLevel } from "@iyon/sdk";
 import type { IyonAction, IyonAgent, IyonCoreCommands, IyonState } from "./contracts.ts";
 import { ComposerPasteStore } from "./composer.ts";
-import { hasActiveWork, reduceIyonState } from "./state.ts";
+import { hasActiveWork, isBlankText, reduceIyonState } from "./state.ts";
 
 export interface ActionContext {
   readonly core: IyonCoreCommands;
@@ -15,14 +15,14 @@ export interface ActionContext {
   readonly isAgentRunning?: () => boolean;
 }
 
-export interface ActionResult { readonly state: IyonState; readonly exited: boolean; readonly queueId?: number; readonly cancelledWork?: boolean; }
+export interface ActionResult { readonly state: IyonState; readonly exited: boolean; readonly queueId?: number; readonly cancelledWork?: boolean; readonly ignored?: boolean; }
 
 const REASONING_LEVELS: readonly ReasoningLevel[] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 export async function handleIyonAction(state: IyonState, action: IyonAction, context: ActionContext): Promise<ActionResult> {
   if (action.type === "submit") {
     const text = context.pasteStore.expand(action.text);
-    if (text.length === 0) return { state, exited: false };
+    if (isBlankText(text)) return { state, exited: false, ignored: true };
     const steering = hasActiveWork(state);
     await context.clearComposer?.();
     const queueId = steering ? await submitSteering(context.core, text) : await submitPrompt(context.core, text);

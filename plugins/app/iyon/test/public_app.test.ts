@@ -541,6 +541,26 @@ describe("Iyon public native TUI", () => {
     });
   });
 
+  test("ignores whitespace-only submissions without leaving activity behind", async () => {
+    await withFixture(60, 20, async (fixture) => {
+      await fixture.app.handleAction({ type: "submit", text: "\n  \t" });
+      expect(fixture.app.state.userBatches).toEqual([]);
+      expect(fixture.app.state.steering).toEqual([]);
+      expect(fixture.harness.screenRows().some((line) => line.includes("Working") || line.includes("waiting") || line.includes("Queue:"))).toBe(false);
+
+      await fixture.app.handleAction({ type: "submit", text: "initial" });
+      await fixture.app.handleAction({ type: "submit", text: "\n\n" });
+      expect(fixture.app.state.steering).toEqual([]);
+      expect(fixture.app.state.userBatches).toEqual(["initial"]);
+      expect(fixture.harness.screenRows().filter((line) => line.includes("Working") || line.includes("waiting") || line.includes("Queue:")).length).toBe(1);
+
+      await send(fixture, { type: "steerQueued", text: " \n" });
+      expect(fixture.app.state.steering).toEqual([]);
+      await send(fixture, { type: "turnFinished" });
+      expect(fixture.harness.screenRows().some((line) => line.includes("Working") || line.includes("waiting") || line.includes("Queue:"))).toBe(false);
+    });
+  });
+
   test("shows pending steering beside the native working activity", async () => {
     await withFixture(60, 20, async (fixture) => {
       await fixture.app.handleAction({ type: "submit", text: "initial" });
@@ -549,7 +569,8 @@ describe("Iyon public native TUI", () => {
       expect(rows.some((line) => line.includes("Queue: steer"))).toBe(true);
       expect(rows.some((line) => line.includes("Working"))).toBe(true);
       advance(fixture, 80, 5);
-      expect(fixture.harness.screenRows().some((line) => line.includes("waiting"))).toBe(true);
+      const waitingRows = fixture.harness.screenRows().filter((line) => line.includes("waiting"));
+      expect(waitingRows).toHaveLength(1);
       expect(transcriptLines(fixture.harness).some((line) => line.trim() === "steer")).toBe(false);
     });
   });

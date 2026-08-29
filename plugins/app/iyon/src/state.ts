@@ -9,6 +9,10 @@ export function createInitialState(model: IyonModelMetadata): IyonState {
   };
 }
 
+export function isBlankText(text: string): boolean {
+  return text.trim().length === 0;
+}
+
 export function hasActiveWork(state: IyonState): boolean {
   return state.activeTurn
     || state.assistantOpen
@@ -18,7 +22,10 @@ export function hasActiveWork(state: IyonState): boolean {
 }
 
 export function reduceIyonState(state: IyonState, action: IyonAction): IyonState {
-  if (action.type === "submit") return action.text.length === 0 ? state : { ...state, composerText: "", userBatches: [...state.userBatches, action.text], activeTurn: true, working: true, activityVisible: true };
+  if (action.type === "submit") {
+    if (isBlankText(action.text)) return removeBlankSteering(state);
+    return { ...state, composerText: "", userBatches: [...state.userBatches, action.text], activeTurn: true, working: true, activityVisible: true };
+  }
   if (action.type === "composerPaste") return { ...state, composerText: action.text };
   if (action.type === "requestExit") return { ...state, goodbye: true };
   if (action.type === "ctrlC") {
@@ -34,12 +41,14 @@ export function updateInfo(state: IyonState, info: Partial<InfoState>): IyonStat
 export function cycleReasoningEffort(state: IyonState, next: ReasoningLevel): IyonState { return updateInfo(state, { reasoningEffort: next }); }
 
 function reduceFrontendEvent(state: IyonState, event: FrontendEvent): IyonState {
+  state = removeBlankSteering(state);
   switch (event.type) {
     case "turnStarted": {
       const activityVisible = state.activeTurn || state.activityVisible || state.steering.length > 0;
       return { ...state, activeTurn: true, working: state.working || activityVisible, activityVisible };
     }
     case "userMessage": {
+      if (isBlankText(event.text)) return state;
       const delivered = deliverQueuedSteer(state, event.text, event.queueId);
       return { ...state, userBatches: [...state.userBatches, event.text], activityVisible: state.activeTurn, ...delivered };
     }
@@ -74,12 +83,25 @@ function showActivity(state: IyonState): IyonState {
   return { ...state, activeTurn: true, working: true, activityVisible: true };
 }
 
+function removeBlankSteering(state: IyonState): IyonState {
+  if (!state.steering.some(isBlankText)) return state;
+  const entries = state.steering
+    .map((text, index) => ({ text, queueId: state.steeringQueueIds[index] }))
+    .filter(({ text }) => !isBlankText(text));
+  return {
+    ...state,
+    steering: entries.map(({ text }) => text),
+    steeringQueueIds: entries.map(({ queueId }) => queueId),
+  };
+}
+
 /**
  * The submit action adds a local queue preview immediately, while core also
  * emits SteerQueued as the authoritative acknowledgement. Reconcile those
  * two paths instead of appending the same message twice.
  */
 function enqueueSteer(state: IyonState, text: string, rawQueueId?: string | number): IyonState {
+  if (isBlankText(text)) return state;
   const queueId = rawQueueId === undefined ? undefined : String(rawQueueId);
   if (queueId !== undefined && state.steeringQueueIds.includes(queueId)) return state;
   if (queueId === undefined && state.steering.some((item, index) => item === text && state.steeringQueueIds[index] === undefined)) return state;

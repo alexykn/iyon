@@ -11,6 +11,19 @@ describe("iyon state", () => {
     state = reduceIyonState(state, { type: "backend", event: { type: "turnFinished" } });
     expect(state.activeTurn).toBe(false); expect(state.working).toBe(false);
   });
+  test("rejects whitespace-only prompts and queue entries", () => {
+    let state = createInitialState(model);
+    state = reduceIyonState(state, { type: "submit", text: "\n  \t" });
+    expect(state.userBatches).toEqual([]);
+    state = reduceIyonState(state, { type: "submit", text: "hello" });
+    state = reduceIyonState(state, { type: "backend", event: { type: "steerQueued", text: " \n" } });
+    expect(state.steering).toEqual([]);
+    state = { ...state, steering: ["\n"], steeringQueueIds: ["1"], activityVisible: true };
+    state = reduceIyonState(state, { type: "backend", event: { type: "turnFinished" } });
+    expect(state.steering).toEqual([]);
+    expect(state.activityVisible).toBe(false);
+  });
+
   test("uses composer, active-turn, then goodbye Ctrl+C precedence", () => {
     let state = createInitialState(model); state = reduceIyonState(state, { type: "composerPaste", text: "draft" });
     state = reduceIyonState(state, { type: "ctrlC" }); expect(state.composerText).toBe("");
