@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, chmod, copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -184,6 +184,46 @@ async function buildStable(): Promise<void> {
   runChecked(["bun", "run", "packages/iyon-cli/build.ts"], APP_ROOT);
 }
 
+async function syncUncommittedChanges(worktree: string): Promise<void> {
+  // Write uncommitted changes (staged + unstaged) as a patch file, then
+  // apply to the worktree so WIP code is included without needing a commit.
+  const patch = run(["git", "diff", "HEAD"], APP_ROOT, false);
+  if (patch.exitCode !== 0) {
+    throw new Error(`unable to capture uncommitted changes:\n${patch.stderr}`);
+  }
+  if (patch.stdout.length > 0) {
+    const tmpDir = await mkdtemp(join(APP_ROOT, ".tmp-patch-"));
+    try {
+      const patchFile = join(tmpDir, "wip.patch");
+      await writeFile(patchFile, patch.stdout);
+      const result = run(["git", "-C", worktree, "apply", patchFile], APP_ROOT, false);
+      if (result.exitCode !== 0) {
+        console.warn(
+          `warning: could not apply uncommitted changes to worktree (${result.stderr.trim()}) — ` +
+          `building committed code only`,
+        );
+      }
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  }
+
+  // Copy untracked files that exist in the source but not in the worktree.
+  const untracked = run(["git", "ls-files", "--others", "--exclude-standard"], APP_ROOT, false);
+  if (untracked.exitCode === 0 && untracked.stdout.length > 0) {
+    for (const line of untracked.stdout.split(/\r?\n/).filter(Boolean)) {
+      const src = join(APP_ROOT, line);
+      const dest = join(worktree, line);
+      try {
+        await mkdir(dirname(dest), { recursive: true });
+        await copyFile(src, dest);
+      } catch {
+        // skip files that disappeared between listing and copy
+      }
+    }
+  }
+}
+
 async function buildBranch(branch: string): Promise<void> {
   const appHead = runChecked(["git", "rev-parse", "HEAD"], APP_ROOT, false).stdout.trim();
   const tuiSha = resolveBranchSha(branch);
@@ -195,6 +235,10 @@ async function buildBranch(branch: string): Promise<void> {
     console.log(
       `${worktree.state} persistent worktree ${relative(APP_ROOT, worktree.path)}; building against iyon-tui/${branch} @ ${tuiSha}`,
     );
+
+    // Sync uncommitted changes into the worktree so dev builds include WIP code.
+    await syncUncommittedChanges(worktree.path);
+
     await switchTuiDependencies(worktree.path, tuiSha);
     runChecked(["bun", "install"], worktree.path);
     updateTuiCargoLock(worktree.path);

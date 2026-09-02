@@ -88,7 +88,8 @@ class IyonAppImpl implements IyonApp {
   private historyHandle?: HistoryHandle;
   private composerHandle?: TextInputHandle;
   readonly pasteStore = new ComposerPasteStore();
-  readonly theme: IyonTheme = createIyonTheme();
+  private _theme: IyonTheme = createIyonTheme();
+  get theme(): IyonTheme { return this._theme; }
   private currentState: IyonState;
   private readonly chrome: ChromeState = createIyonChrome();
   private tui?: TuiRuntime;
@@ -349,7 +350,7 @@ class IyonAppImpl implements IyonApp {
           : String(event.queueId) === String(this.liveUserBatch.queueId);
         if (!isCanonicalPrompt) {
           this.liveUserBatch.messages.push(event.text);
-          await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme));
+          await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme, this.currentState.info.reasoningEffort));
         }
         return true;
       }
@@ -483,12 +484,12 @@ class IyonAppImpl implements IyonApp {
     }
     if (this.liveUserBatch !== undefined) {
       this.liveUserBatch.messages.push(text);
-      await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme));
+      await this.liveUserBatch.slot.setView(userBatchView(this.liveUserBatch.messages, this.theme, this.currentState.info.reasoningEffort));
       return;
     }
     const tui = this.tui;
     if (tui === undefined) throw new Error("Iyon app TUI is unavailable");
-    const slot = tui.createViewSlot(userBatchView([text], this.theme));
+    const slot = tui.createViewSlot(userBatchView([text], this.theme, this.currentState.info.reasoningEffort));
     const unit = await this.history.push(slot.view().fillWidth());
     this.liveUserBatch = { unit, slot, messages: [text], queueId };
   }
@@ -496,7 +497,7 @@ class IyonAppImpl implements IyonApp {
   private async freezeUserBatch(): Promise<void> {
     const batch = this.liveUserBatch;
     if (batch === undefined) return;
-    await this.history.freeze(batch.unit, userBatchView(batch.messages, this.theme));
+    await this.history.freeze(batch.unit, userBatchView(batch.messages, this.theme, this.currentState.info.reasoningEffort));
     await batch.slot.dispose();
     this.liveUserBatch = undefined;
   }
@@ -734,6 +735,18 @@ class IyonAppImpl implements IyonApp {
     const pendingApprovalChanged = next.pendingApproval !== this.chrome.pendingApproval.value;
     const chromeChanged = effortChanged || footerChanged || activityChanged || goodbyeChanged
       || steeringChanged || pendingApprovalChanged;
+
+    if (effortChanged && this.tui !== undefined) {
+      this._theme = createIyonTheme(next.info.reasoningEffort);
+      this.tui.setTheme(this._theme);
+      // Re-render the live user batch border with the new theme — View
+      // borders don't track ThemeColorReference updates reactively.
+      if (this.liveUserBatch !== undefined) {
+        await this.liveUserBatch.slot.setView(
+          userBatchView(this.liveUserBatch.messages, this._theme, next.info.reasoningEffort),
+        );
+      }
+    }
 
     this.syncWorkingAnimation(next);
     syncChromeStates(this.chrome, next);

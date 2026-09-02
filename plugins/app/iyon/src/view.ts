@@ -182,8 +182,10 @@ export const IyonRootView = defineView<IyonRootProps>((props) => {
   }).fillWidth().fillHeight();
 });
 
-export function userBatchView(messages: readonly string[], theme: IyonTheme): View {
-  return View.vertical(messages.map((message) => View.text(message).fillWidth()))
+export function userBatchView(messages: readonly string[], theme: IyonTheme, effort?: string): View {
+  let view = View.vertical(messages.map((message) => View.text(message).fillWidth()))
     .fillWidth()
     .border({ style: "plain", edges: "topBottom", color: theme.inputBorder });
+  if (effort !== undefined) view = view.styleState("iyon.agent.effort", effort);
+  return view;
 }

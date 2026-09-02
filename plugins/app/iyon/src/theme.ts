@@ -32,7 +32,31 @@ function focusedEffort(value: string): StyleSelector {
   return StyleSelector.focused().andState("iyon.agent.effort", value);
 }
 
-export function createIyonTheme(): IyonTheme {
+export function createIyonTheme(effortOverride?: string): IyonTheme {
+  const currentEffort = effortOverride ?? "medium";
+  const accentColor =
+    currentEffort === "none" ? ansi("white")
+    : currentEffort === "minimal" ? ansi("lightCyan")
+    : currentEffort === "low" ? ansi("green")
+    : currentEffort === "medium" ? rgb(255, 196, 87)
+    : currentEffort === "high" ? ansi("magenta")
+    : currentEffort === "xhigh" ? ansi("lightMagenta")
+    : currentEffort === "max" ? ansi("lightRed")
+    : rgb(255, 196, 87);
+  // text.code stays constant — only text.heading changes with effort
+  const codeColor = rgb(120, 200, 210);
+  const diffHeaderColor = rgb(255, 196, 87);
+
+  // Border color for each effort level (used as base + for frozen messages).
+  const inputBorderColor =
+    currentEffort === "none" ? ansi("white")
+    : currentEffort === "minimal" ? ansi("lightCyan")
+    : currentEffort === "low" ? ansi("green")
+    : currentEffort === "medium" ? ansi("yellow")
+    : currentEffort === "high" ? ansi("magenta")
+    : currentEffort === "xhigh" ? ansi("lightMagenta")
+    : currentEffort === "max" ? ansi("lightRed")
+    : rgb(173, 216, 230);
   const theme = Theme.new()
     .withColor("surface.user", rgb(45, 55, 72))
     .withColor("text.muted", rgb(113, 128, 150))
@@ -42,20 +66,29 @@ export function createIyonTheme(): IyonTheme {
     .withColor("tool.error", ansi("red"))
     .withColor("text.error", ansi("red"))
     .withColor("text.warning", ansi("yellow"))
-    .withColor("text.heading", rgb(255, 196, 87))
-    .withColor("text.code", rgb(120, 200, 210))
+    .withColor("text.heading", accentColor)
+    .withColor("text.code", codeColor)
     .withColor("diff.addition", rgb(104, 211, 145))
     .withColor("diff.deletion", ansi("red"))
-    .withColor("diff.header", rgb(255, 196, 87))
+    .withColor("diff.header", diffHeaderColor)
     .withColor("diff.context", rgb(113, 128, 150))
     .withColor("diff.meta", rgb(113, 128, 150))
     .withColor("truncation_footer", rgb(120, 122, 132))
-    .withColor("input.border", rgb(173, 216, 230))
+    .withColor("input.border", inputBorderColor)
+    .withColorVariant("input.border", effort("none"), ansi("white"))
+    .withColorVariant("input.border", effort("minimal"), ansi("lightCyan"))
     .withColorVariant("input.border", effort("low"), ansi("green"))
     .withColorVariant("input.border", effort("medium"), ansi("yellow"))
     .withColorVariant("input.border", effort("high"), ansi("magenta"))
+    .withColorVariant("input.border", effort("xhigh"), ansi("lightMagenta"))
+    .withColorVariant("input.border", effort("max"), ansi("lightRed"))
+    .withColorVariant("input.border", focusedEffort("none"), ansi("white"))
+    .withColorVariant("input.border", focusedEffort("minimal"), ansi("lightCyan"))
     .withColorVariant("input.border", focusedEffort("low"), ansi("lightGreen"))
+    .withColorVariant("input.border", focusedEffort("medium"), ansi("lightYellow"))
     .withColorVariant("input.border", focusedEffort("high"), ansi("lightMagenta"))
+    .withColorVariant("input.border", focusedEffort("xhigh"), ansi("lightMagenta"))
+    .withColorVariant("input.border", focusedEffort("max"), ansi("lightRed"))
     .withStyle("tool.running", Style.new().foreground(themeColor("tool.running")))
     .withStyle("tool.finished", Style.new().foreground(themeColor("tool.finished")))
     .withStyle("tool.error", Style.new().foreground(themeColor("tool.error")))
