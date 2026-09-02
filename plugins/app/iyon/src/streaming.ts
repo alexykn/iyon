@@ -31,7 +31,7 @@ export class NativeAssistantStream {
   readonly source: TextStreamSource;
   readonly funnel = TextFunnel.markdown().smooth({
     minUnitsPerSecond: 30,
-    maxUnitsPerSecond: 200,
+    maxUnitsPerSecond: 800,
   });
   readonly buffer = new AssistantStreamBuffer();
   private attachment?: {
