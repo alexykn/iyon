@@ -99,6 +99,7 @@ class IyonAppImpl implements IyonApp {
   private workingHandle?: ViewSlot;
   private workingAnimationMode?: boolean;
   private assistantStream?: NativeAssistantStream;
+  private readonly assistantStreams = new Set<NativeAssistantStream>();
   private readonly toolCards = new ToolCardStore();
   private readonly toolSlots = new Map<string, ViewSlot>();
   private readonly toolAnimationSlots = new Map<string, ViewSlot>();
@@ -187,6 +188,8 @@ class IyonAppImpl implements IyonApp {
     await Promise.all(bridges.map((bridge) => bridge.done));
     this.backendBridges.clear();
     await this.historyMutation;
+    for (const stream of this.assistantStreams) await stream.dispose();
+    this.assistantStreams.clear();
     try {
       if (this.ownsTui && !this.shutdownComplete) await this.tui?.close();
     } finally {
@@ -195,7 +198,6 @@ class IyonAppImpl implements IyonApp {
       this.composerHandle = undefined;
       this.historyHandle = undefined;
       this.workingHandle?.dispose();
-      await this.assistantStream?.dispose();
       for (const slot of this.toolSlots.values()) await slot.dispose();
       this.toolSlots.clear();
       for (const slot of this.toolAnimationSlots.values()) await slot.dispose();
@@ -461,7 +463,10 @@ class IyonAppImpl implements IyonApp {
   private async openAssistantStream(): Promise<void> {
     if (this.assistantStream !== undefined) return;
     this.assistantStream = new NativeAssistantStream();
-    await this.history.pushStream(this.assistantStream.native);
+    this.assistantStreams.add(this.assistantStream);
+    const tui = this.tui;
+    if (tui === undefined) throw new Error("Iyon app TUI is unavailable");
+    this.assistantStream.attach(tui, this.history);
   }
 
   private async openUserBatch(text: string, queueId?: string | number): Promise<void> {
@@ -499,7 +504,6 @@ class IyonAppImpl implements IyonApp {
   private async sealAssistantStream(): Promise<void> {
     if (this.assistantStream === undefined) return;
     await this.assistantStream.seal();
-    await this.history.sealStream(this.assistantStream.native);
     this.assistantStream = undefined;
   }
 

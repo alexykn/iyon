@@ -28,7 +28,7 @@ describe("assistant streaming", () => {
     ] as const;
     try {
       await tui.render(new Scene(View.spacer(0), history));
-      await history.pushStream(stream.native);
+      stream.attach(tui, history);
       await stream.append("thinking", "reasoning 3");
       for (const [chunk, delay] of chunks) {
         await stream.append("text", chunk);
@@ -36,7 +36,6 @@ describe("assistant streaming", () => {
       }
       for (let tick = 0; tick < 40; tick += 1) tui.advance(16);
       await stream.seal();
-      await history.sealStream(stream.native);
       expect((await stream.snapshot()).sealed).toBe(true);
     } finally {
       stream.dispose();
