@@ -12,13 +12,20 @@ const WORKTREE_ROOT = resolve(
 );
 const APP_ID = createHash("sha256").update(APP_ROOT).digest("hex").slice(0, 12);
 const LEGACY_WORKTREE = join(CACHE_ROOT, "iyon", `perf-refactor-${APP_ID}`);
-const TUI_PACKAGE_PATTERN = /github:alexykn\/iyon-tui#[0-9a-f]+/g;
-const TUI_CARGO_PATTERN = /(git\s*=\s*"https:\/\/github\.com\/alexykn\/iyon-tui\.git"\s*,\s*)(?:rev|branch)\s*=\s*"[^"]+"/g;
+const WORKTREE_STATE_FILE = ".iyon-perf-cache.json";
+const TUI_PACKAGE_PATTERN = /github:alexykn\/iyon-tui#[^"\s]+/g;
+const TUI_CARGO_PATTERN = /(git\s*=\s*"https:\/\/github\.com\/alexykn\/iyon-tui\.git"\s*,\s*)(?:rev|branch|tag)\s*=\s*"[^"]+"/g;
 
 interface CommandResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+}
+
+interface PersistentWorktreeState {
+  readonly appHead: string;
+  readonly tuiSha: string;
+  readonly sourceState: string;
 }
 
 function decode(value: Uint8Array | undefined): string {
@@ -80,6 +87,40 @@ function registeredWorktreePaths(): string[] {
     .map((line) => line.slice("worktree ".length));
 }
 
+async function sourceStateKey(): Promise<string> {
+  const patch = runChecked(["git", "diff", "HEAD", "--binary"], APP_ROOT, false).stdout;
+  const untracked = runChecked(["git", "ls-files", "--others", "--exclude-standard"], APP_ROOT, false).stdout
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .sort();
+  const hash = createHash("sha256").update(patch);
+  for (const path of untracked) {
+    hash.update(`\0${path}\0`);
+    hash.update(await readFile(join(APP_ROOT, path)));
+  }
+  return hash.digest("hex");
+}
+
+async function readWorktreeState(worktree: string): Promise<PersistentWorktreeState | undefined> {
+  const path = join(worktree, WORKTREE_STATE_FILE);
+  let source: string;
+  try {
+    source = await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  const value = JSON.parse(source) as Partial<PersistentWorktreeState>;
+  if (typeof value.appHead !== "string" || typeof value.tuiSha !== "string" || typeof value.sourceState !== "string") {
+    throw new Error(`invalid persistent PERF worktree state: ${path}`);
+  }
+  return value as PersistentWorktreeState;
+}
+
+async function writeWorktreeState(worktree: string, state: PersistentWorktreeState): Promise<void> {
+  await writeFile(join(worktree, WORKTREE_STATE_FILE), `${JSON.stringify(state)}\n`);
+}
+
 function validateBranch(branch: string): void {
   if (branch.length === 0 || branch.startsWith("-")) {
     throw new Error(`invalid TUI branch: ${JSON.stringify(branch)}`);
@@ -120,28 +161,38 @@ async function packageJsonFiles(directory: string): Promise<string[]> {
 
 async function switchTuiDependencies(worktree: string, tuiSha: string): Promise<void> {
   const manifests = await packageJsonFiles(worktree);
-  let packageReplacements = 0;
+  let packageMatches = 0;
   for (const manifest of manifests) {
     const source = await readFile(manifest, "utf8");
-    const updated = source.replace(TUI_PACKAGE_PATTERN, `github:alexykn/iyon-tui#${tuiSha}`);
-    if (updated === source) continue;
-    await writeFile(manifest, updated);
-    packageReplacements += 1;
+    const updated = source.replace(TUI_PACKAGE_PATTERN, () => {
+      packageMatches += 1;
+      return `github:alexykn/iyon-tui#${tuiSha}`;
+    });
+    if (updated !== source) await writeFile(manifest, updated);
   }
-  if (packageReplacements === 0) {
+  if (packageMatches === 0) {
     throw new Error("no @iyon/tui Git dependency was found in the branch worktree");
   }
 
   const cargoManifest = join(worktree, "Cargo.toml");
   const cargoSource = await readFile(cargoManifest, "utf8");
-  const cargoUpdated = cargoSource.replace(TUI_CARGO_PATTERN, `$1rev = "${tuiSha}"`);
-  if (cargoUpdated === cargoSource) {
+  let cargoMatches = 0;
+  const cargoUpdated = cargoSource.replace(TUI_CARGO_PATTERN, (_match: string, prefix: string) => {
+    cargoMatches += 1;
+    return `${prefix}rev = "${tuiSha}"`;
+  });
+  if (cargoMatches === 0) {
     throw new Error("the iyon-tui Cargo dependency was not found in Cargo.toml");
   }
-  await writeFile(cargoManifest, cargoUpdated);
+  if (cargoUpdated !== cargoSource) await writeFile(cargoManifest, cargoUpdated);
 }
 
-async function ensurePersistentWorktree(branch: string, appHead: string): Promise<{ path: string; state: "created" | "reused" }> {
+async function ensurePersistentWorktree(
+  branch: string,
+  appHead: string,
+  tuiSha: string,
+  sourceState: string,
+): Promise<{ path: string; state: "created" | "reused"; dependenciesPrepared: boolean }> {
   const path = worktreePath(branch);
   await mkdir(WORKTREE_ROOT, { recursive: true });
   let registered = registeredWorktreePaths().includes(path);
@@ -151,15 +202,25 @@ async function ensurePersistentWorktree(branch: string, appHead: string): Promis
     registered = false;
   }
   if (registered) {
+    const currentHead = run(["git", "rev-parse", "HEAD"], path);
+    const cached = await readWorktreeState(path);
+    const reusable = currentHead.exitCode === 0
+      && currentHead.stdout.trim() === appHead
+      && cached?.appHead === appHead
+      && cached.tuiSha === tuiSha
+      && cached.sourceState === sourceState
+      && await pathExists(join(path, "node_modules"))
+      && await pathExists(join(path, "Cargo.lock"));
+    if (reusable) return { path, state: "reused", dependenciesPrepared: true };
     runChecked(["git", "reset", "--hard", appHead], path, false);
-    return { path, state: "reused" };
+    return { path, state: "reused", dependenciesPrepared: false };
   }
   if (await pathExists(path)) {
     throw new Error(`cache path exists but is not registered as an app worktree: ${path}`);
   }
 
   runChecked(["git", "worktree", "add", "--detach", path, appHead], APP_ROOT);
-  return { path, state: "created" };
+  return { path, state: "created", dependenciesPrepared: false };
 }
 
 function updateTuiCargoLock(worktree: string): void {
@@ -227,7 +288,8 @@ async function syncUncommittedChanges(worktree: string): Promise<void> {
 async function buildBranch(branch: string): Promise<void> {
   const appHead = runChecked(["git", "rev-parse", "HEAD"], APP_ROOT, false).stdout.trim();
   const tuiSha = resolveBranchSha(branch);
-  const worktree = await ensurePersistentWorktree(branch, appHead);
+  const sourceState = await sourceStateKey();
+  const worktree = await ensurePersistentWorktree(branch, appHead, tuiSha, sourceState);
   const output = join(APP_ROOT, "dist", "iyon");
   const temporaryOutput = `${output}.tui-${branchSlug(branch)}.tmp`;
 
@@ -236,12 +298,17 @@ async function buildBranch(branch: string): Promise<void> {
       `${worktree.state} persistent worktree ${relative(APP_ROOT, worktree.path)}; building against iyon-tui/${branch} @ ${tuiSha}`,
     );
 
-    // Sync uncommitted changes into the worktree so dev builds include WIP code.
-    await syncUncommittedChanges(worktree.path);
+    if (!worktree.dependenciesPrepared) {
+      // Sync uncommitted changes into the worktree so dev builds include WIP code.
+      await syncUncommittedChanges(worktree.path);
 
-    await switchTuiDependencies(worktree.path, tuiSha);
-    runChecked(["bun", "install"], worktree.path);
-    updateTuiCargoLock(worktree.path);
+      await switchTuiDependencies(worktree.path, tuiSha);
+      runChecked(["bun", "install"], worktree.path);
+      updateTuiCargoLock(worktree.path);
+      await writeWorktreeState(worktree.path, { appHead, tuiSha, sourceState });
+    } else {
+      console.log("reused prepared dependency state and incremental build cache");
+    }
     runChecked(["bun", "run", "native:stage"], worktree.path);
     runChecked(["bun", "run", "native:tui:stage"], worktree.path);
     runChecked(["bun", "run", "packages/iyon-cli/build.ts"], worktree.path);
