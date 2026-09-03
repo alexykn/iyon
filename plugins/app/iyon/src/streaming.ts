@@ -30,7 +30,7 @@ export class AssistantStreamBuffer {
 export class NativeAssistantStream {
   readonly source: TextStreamSource;
   readonly funnel = TextFunnel.markdown().smooth({
-    minUnitsPerSecond: 30,
+    minUnitsPerSecond: 60,
     maxUnitsPerSecond: 800,
   });
   readonly buffer = new AssistantStreamBuffer();

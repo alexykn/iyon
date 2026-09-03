@@ -6,7 +6,7 @@
   "dependencies": {
     "@iyon/plugins": "workspace:*",
     "@iyon/sdk": "workspace:*",
-    "@iyon/tui": "github:alexykn/iyon-tui#e322f10dff490c1423d988982c0782c22774f85d"
+    "@iyon/tui": "github:alexykn/iyon-tui#0254e91eba051956fd03814f43ae5f08a26f1de8"
   },
   "exports": {
     ".": "./src/index.ts",

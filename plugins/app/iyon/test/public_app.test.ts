@@ -597,7 +597,7 @@ describe("Iyon public native TUI", () => {
       const medium = fixture.harness.styleAt(8, 0);
       await fixture.app.handleAction({ type: "cycleReasoningEffort" });
       const high = fixture.harness.styleAt(8, 0);
-      expect(medium.foreground).toBe("Yellow");
+      expect(medium.foreground).toBe("LightYellow");
       expect(high.foreground).toBe("LightMagenta");
     });
   });

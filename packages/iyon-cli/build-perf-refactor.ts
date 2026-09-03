@@ -187,7 +187,7 @@ async function buildStable(): Promise<void> {
 async function syncUncommittedChanges(worktree: string): Promise<void> {
   // Write uncommitted changes (staged + unstaged) as a patch file, then
   // apply to the worktree so WIP code is included without needing a commit.
-  const patch = run(["git", "diff", "HEAD"], APP_ROOT, false);
+  const patch = run(["git", "diff", "HEAD"], APP_ROOT);
   if (patch.exitCode !== 0) {
     throw new Error(`unable to capture uncommitted changes:\n${patch.stderr}`);
   }
@@ -196,7 +196,7 @@ async function syncUncommittedChanges(worktree: string): Promise<void> {
     try {
       const patchFile = join(tmpDir, "wip.patch");
       await writeFile(patchFile, patch.stdout);
-      const result = run(["git", "-C", worktree, "apply", patchFile], APP_ROOT, false);
+      const result = run(["git", "-C", worktree, "apply", patchFile], APP_ROOT);
       if (result.exitCode !== 0) {
         console.warn(
           `warning: could not apply uncommitted changes to worktree (${result.stderr.trim()}) — ` +
@@ -209,7 +209,7 @@ async function syncUncommittedChanges(worktree: string): Promise<void> {
   }
 
   // Copy untracked files that exist in the source but not in the worktree.
-  const untracked = run(["git", "ls-files", "--others", "--exclude-standard"], APP_ROOT, false);
+  const untracked = run(["git", "ls-files", "--others", "--exclude-standard"], APP_ROOT);
   if (untracked.exitCode === 0 && untracked.stdout.length > 0) {
     for (const line of untracked.stdout.split(/\r?\n/).filter(Boolean)) {
       const src = join(APP_ROOT, line);

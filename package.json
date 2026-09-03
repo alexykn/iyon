@@ -37,7 +37,7 @@
     "@iyon/runtime": "workspace:*",
     "@iyon/plugins": "workspace:*",
     "@iyon/sdk": "workspace:*",
-    "@iyon/tui": "github:alexykn/iyon-tui#a26a7f4f0a40a05a9e335b40daad92c777da2cbd"
+    "@iyon/tui": "github:alexykn/iyon-tui#0254e91eba051956fd03814f43ae5f08a26f1de8"
   },
   "devDependencies": {
     "bun-types": "1.4.0"
